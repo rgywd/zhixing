@@ -13,6 +13,17 @@
 - [x] 增加品牌与隐私边界的单元检查。
 - [x] 通过定向 JVM 单测、完整 App 编译和 debug APK 构建。
 
+## Phase 0.5：数据安全与可恢复升级
+
+目标：在继续扩展知识库和工作区前，建立从 `v0.1.0` 起可验证的数据保留、备份和恢复底座。完整契约见 [`DATA_SAFETY_AND_BACKUP.md`](./DATA_SAFETY_AND_BACKUP.md)。
+
+- [ ] 统一数据库名称为 `zhixing`，修复 WebDAV/S3 仍读写 `rikka_hub` 的错误并兼容旧备份。
+- [ ] 将 Workspace 用户文件纳入备份，排除 RootFS、临时目录和可重建索引。
+- [ ] 增加升级前本地快照、版本化 manifest、SHA-256 校验和恢复模式。
+- [ ] 使用 Android Keystore 保护 WebDAV/S3 凭据，远端备份增加可跨设备恢复的带认证加密。
+- [ ] 使用 WorkManager 实现真正的定时备份、重试、约束、保留策略和失败通知。
+- [ ] 增加 `v0.1.0 -> 候选版本` 覆盖升级测试，以及备份/恢复 round-trip 测试。
+
 ## Phase 1：核心会话闭环
 
 目标：验证基座原生会话逻辑在知行品牌下完整可用。
@@ -31,6 +42,16 @@
 - [ ] 整理本地工具、MCP、搜索、技能和授权提示。
 - [ ] 把旧知行“笔记”需求映射到工作区、记忆或工具输出，先完成真实任务闭环再决定独立页面。
 - [ ] 审计文件访问、命令执行、屏幕信息和网络工具的权限边界。
+
+### Phase 2.1：项目知识空间 v0.1
+
+完整契约见 [`KNOWLEDGE_SPACE.md`](./KNOWLEDGE_SPACE.md)。
+
+- [x] Workspace 幂等初始化标准项目目录和 `PROJECT.md`，不覆盖已有用户内容。
+- [x] 导入 PDF、DOCX、PPTX、EPUB 与常见文本资料，保留原文并生成可重建的归一 Markdown。
+- [x] 实现无需 RootFS 的 `knowledge_status`、`knowledge_search`、`knowledge_read` 和需批准的 `knowledge_ingest`。
+- [x] 在 Workspace 详情页提供知识空间状态、初始化和知识导入入口。
+- [x] 为初始化、中文检索、来源引用、路径边界和工具注册补测试。
 
 ## Phase 3：可选同步服务
 
@@ -64,3 +85,6 @@
 - Universal APK：`dev.sundby.zhixing.debug`，`versionCode=1`，`versionName=0.1.0`；中文应用标签为“知行”。
 - 完整 `:app:testDebugUnitTest`：130 条中 121 条通过、9 条失败。失败集中在继承基线的 `ShareSheetTest` 1 条、`TimeReminderTransformerTest` 7 条、`ChatServiceTest` 1 条；本阶段未修改对应业务逻辑，后续在 Phase 1 先建立干净基线再处理。
 - 当前机器没有连接 Android 设备或已启动模拟器，因此尚未完成真机视觉与交互验收。
+- 知识空间核心测试：`KnowledgeSpaceManagerTest` 4 条通过，覆盖幂等初始化、中文检索、来源/行号引用、同名防覆盖与读取边界。
+- 知识空间 App 测试：`KnowledgeToolsTest`、`WorkspaceReminderTransformerTest`、`KnowledgeSpaceServiceTest` 共 6 条通过，覆盖审批默认值、无 RootFS 可用性和本地文本归一。
+- `:app:assembleDebug`：通过；知识空间 UI、资源、Koin 依赖、文档解析接线和四个 AI 工具完成编译与 APK 打包。

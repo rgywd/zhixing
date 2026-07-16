@@ -61,6 +61,22 @@ class WorkspaceManager(
         charset: Charset = StandardCharsets.UTF_8,
     ): WorkspaceFileEntry = fileSystem.writeText(filesDir(root), path, text, overwrite, charset)
 
+    fun createDirectory(root: String, path: String): WorkspaceFileEntry {
+        val dir = fileSystem.resolve(filesDir(root), path)
+        require(!dir.exists() || dir.isDirectory) { "Path is not a directory: $path" }
+        require(dir.mkdirs() || dir.isDirectory) { "Failed to create directory: $path" }
+        return WorkspaceFileEntry(
+            path = dir.relativeTo(filesDir(root).canonicalFile).path.replace(File.separatorChar, '/'),
+            name = dir.name,
+            isDirectory = true,
+            sizeBytes = 0,
+            updatedAt = dir.lastModified(),
+        )
+    }
+
+    fun exists(root: String, path: String): Boolean =
+        fileSystem.resolve(filesDir(root), path).exists()
+
     fun importFile(
         root: String,
         destinationPath: String,

@@ -13,6 +13,8 @@ import java.io.InputStream
 import java.io.OutputStream
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.knowledge.KnowledgeSpaceService
+import me.rerere.workspace.KnowledgeSpaceStatus
 import me.rerere.workspace.RootfsInstallProgress
 import me.rerere.workspace.RootfsInstallStage
 import me.rerere.workspace.WorkspaceFileEntry
@@ -22,6 +24,7 @@ import me.rerere.workspace.WorkspaceStorageArea
 class WorkspaceDetailVM(
     private val id: String,
     private val repository: WorkspaceRepository,
+    private val knowledgeSpaceService: KnowledgeSpaceService,
 ) : ViewModel() {
     private val _state = MutableStateFlow(WorkspaceDetailState())
     val state = _state.asStateFlow()
@@ -72,6 +75,7 @@ class WorkspaceDetailVM(
     }
 
     fun refresh() {
+        refreshKnowledgeStatus()
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             runCatching {
@@ -125,6 +129,45 @@ class WorkspaceDetailVM(
                 refresh()
             }.onFailure { error ->
                 _state.update { it.copy(error = error.message ?: "导入文件失败") }
+            }
+        }
+    }
+
+    fun initializeKnowledgeSpace() {
+        viewModelScope.launch {
+            _state.update { it.copy(knowledgeBusy = true, error = null) }
+            runCatching { repository.initializeKnowledgeSpace(id) }
+                .onSuccess { status ->
+                    _state.update { it.copy(knowledgeStatus = status, knowledgeBusy = false) }
+                    refresh()
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            knowledgeBusy = false,
+                            error = error.message ?: "初始化知识空间失败",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun importKnowledgeDocument(inputStream: InputStream, fileName: String, mimeType: String?) {
+        viewModelScope.launch {
+            _state.update { it.copy(knowledgeBusy = true, error = null) }
+            runCatching {
+                knowledgeSpaceService.importDocument(id, fileName, mimeType, inputStream)
+            }.onSuccess {
+                refreshKnowledgeStatus()
+                refresh()
+                _state.update { it.copy(knowledgeBusy = false) }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        knowledgeBusy = false,
+                        error = error.message ?: "导入知识失败",
+                    )
+                }
             }
         }
     }
@@ -252,6 +295,13 @@ class WorkspaceDetailVM(
             _state.update { it.copy(workspace = workspace) }
         }
     }
+
+    private fun refreshKnowledgeStatus() {
+        viewModelScope.launch {
+            runCatching { repository.knowledgeSpaceStatus(id) }
+                .onSuccess { status -> _state.update { it.copy(knowledgeStatus = status) } }
+        }
+    }
 }
 
 data class WorkspaceDetailState(
@@ -261,6 +311,8 @@ data class WorkspaceDetailState(
     val entries: List<WorkspaceFileEntry> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
+    val knowledgeStatus: KnowledgeSpaceStatus? = null,
+    val knowledgeBusy: Boolean = false,
 )
 
 data class WorkspaceTerminalState(

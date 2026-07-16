@@ -58,6 +58,7 @@ import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ArrowTurnBackward
 import me.rerere.hugeicons.stroke.Bash
+import me.rerere.hugeicons.stroke.BookOpen01
 import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.File02
@@ -84,6 +85,7 @@ import me.rerere.workspace.RootfsInstallStage
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceShellStatus
 import me.rerere.workspace.WorkspaceStorageArea
+import me.rerere.workspace.KnowledgeSpaceStatus
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -112,6 +114,23 @@ fun WorkspaceDetailPage(id: String) {
         } ?: uri.lastPathSegment ?: "imported_file"
         val inputStream = context.contentResolver.openInputStream(uri) ?: return@rememberLauncherForActivityResult
         vm.importFile(inputStream, fileName)
+    }
+    val knowledgePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val fileName = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameIndex >= 0) cursor.getString(nameIndex) else null
+            } else null
+        } ?: uri.lastPathSegment ?: "knowledge_file"
+        val inputStream = context.contentResolver.openInputStream(uri) ?: return@rememberLauncherForActivityResult
+        vm.importKnowledgeDocument(
+            inputStream = inputStream,
+            fileName = fileName,
+            mimeType = context.contentResolver.getType(uri),
+        )
     }
     var exportTarget by remember { mutableStateOf<WorkspaceFileEntry?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(
@@ -187,6 +206,11 @@ fun WorkspaceDetailPage(id: String) {
                 0 -> WorkspaceBasicPage(
                     workspace = state.workspace,
                     installProgress = installProgress,
+                    knowledgeStatus = state.knowledgeStatus,
+                    knowledgeBusy = state.knowledgeBusy,
+                    error = state.error,
+                    onInitializeKnowledge = vm::initializeKnowledgeSpace,
+                    onImportKnowledge = { knowledgePicker.launch(arrayOf("*/*")) },
                     onInstallRootfs = { showInstallDialog = true },
                     onToolApprovalChange = vm::setToolApproval,
                 )
@@ -310,6 +334,11 @@ fun WorkspaceDetailPage(id: String) {
 private fun WorkspaceBasicPage(
     workspace: WorkspaceEntity?,
     installProgress: RootfsInstallProgress?,
+    knowledgeStatus: KnowledgeSpaceStatus?,
+    knowledgeBusy: Boolean,
+    error: String?,
+    onInitializeKnowledge: () -> Unit,
+    onImportKnowledge: () -> Unit,
     onInstallRootfs: () -> Unit,
     onToolApprovalChange: (String, Boolean) -> Unit,
 ) {
@@ -327,6 +356,20 @@ private fun WorkspaceBasicPage(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        error?.let { message ->
+            item { ErrorCard(message) }
+        }
+
+        item {
+            KnowledgeSpaceCard(
+                workspaceAvailable = workspace != null,
+                status = knowledgeStatus,
+                busy = knowledgeBusy,
+                onInitialize = onInitializeKnowledge,
+                onImport = onImportKnowledge,
+            )
+        }
+
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -398,6 +441,84 @@ private fun WorkspaceBasicPage(
 }
 
 @Composable
+private fun KnowledgeSpaceCard(
+    workspaceAvailable: Boolean,
+    status: KnowledgeSpaceStatus?,
+    busy: Boolean,
+    onInitialize: () -> Unit,
+    onImport: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CustomColors.cardColorsOnSurfaceContainer,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(HugeIcons.BookOpen01, contentDescription = null)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = stringResource(R.string.workspace_detail_knowledge_title),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = stringResource(R.string.workspace_detail_knowledge_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            if (status?.initialized == true) {
+                Text(
+                    text = stringResource(
+                        R.string.workspace_detail_knowledge_counts,
+                        status.sourceCount,
+                        status.indexedDocumentCount,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Button(
+                    onClick = onImport,
+                    enabled = workspaceAvailable && !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(HugeIcons.FileImport, contentDescription = null)
+                    Text(
+                        text = stringResource(R.string.workspace_detail_knowledge_import),
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+            } else {
+                Text(
+                    text = stringResource(R.string.workspace_detail_knowledge_not_initialized),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = onInitialize,
+                    enabled = workspaceAvailable && !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.workspace_detail_knowledge_initialize))
+                }
+            }
+
+            if (busy) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
+}
+
+@Composable
 private fun WorkspaceToolApprovalCard(
     workspace: WorkspaceEntity?,
     onToolApprovalChange: (String, Boolean) -> Unit,
@@ -461,6 +582,10 @@ private fun WorkspaceToolApprovalCard(
 
 @Composable
 private fun workspaceToolApprovalItems() = listOf(
+    "knowledge_status" to stringResource(R.string.workspace_detail_tool_knowledge_status),
+    "knowledge_search" to stringResource(R.string.workspace_detail_tool_knowledge_search),
+    "knowledge_read" to stringResource(R.string.workspace_detail_tool_knowledge_read),
+    "knowledge_ingest" to stringResource(R.string.workspace_detail_tool_knowledge_ingest),
     "workspace_read_file" to stringResource(R.string.workspace_detail_tool_read_file),
     "workspace_write_file" to stringResource(R.string.workspace_detail_tool_write_file),
     "workspace_edit_file" to stringResource(R.string.workspace_detail_tool_edit_file),

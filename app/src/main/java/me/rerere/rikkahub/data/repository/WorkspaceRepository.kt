@@ -13,6 +13,11 @@ import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.workspace.RootfsInstallProgress
 import me.rerere.workspace.RootfsInstaller
+import me.rerere.workspace.KnowledgeImportResult
+import me.rerere.workspace.KnowledgeReadResult
+import me.rerere.workspace.KnowledgeSearchResult
+import me.rerere.workspace.KnowledgeSpaceManager
+import me.rerere.workspace.KnowledgeSpaceStatus
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceManager
@@ -29,6 +34,8 @@ class WorkspaceRepository(
     private val rootfsInstaller: RootfsInstaller,
     private val settingsStore: SettingsStore,
 ) {
+    private val knowledgeSpaceManager = KnowledgeSpaceManager(manager)
+
     fun listFlow(): Flow<List<WorkspaceEntity>> = dao.listFlow()
 
     suspend fun checkIntegrity() = withContext(Dispatchers.IO) {
@@ -74,6 +81,50 @@ class WorkspaceRepository(
         manager.ensureWorkspace(workspace.root)
         dao.upsert(workspace)
         return workspace
+    }
+
+    suspend fun initializeKnowledgeSpace(id: String): KnowledgeSpaceStatus = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        knowledgeSpaceManager.initialize(workspace.root, workspace.name)
+    }
+
+    suspend fun knowledgeSpaceStatus(id: String): KnowledgeSpaceStatus = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        knowledgeSpaceManager.status(workspace.root)
+    }
+
+    suspend fun importKnowledgeSource(
+        id: String,
+        fileName: String,
+        inputStream: InputStream,
+        normalizedText: String?,
+    ): KnowledgeImportResult = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        knowledgeSpaceManager.importSource(
+            root = workspace.root,
+            fileName = fileName,
+            inputStream = inputStream,
+            normalizedText = normalizedText,
+        )
+    }
+
+    suspend fun searchKnowledge(
+        id: String,
+        query: String,
+        limit: Int = 20,
+    ): KnowledgeSearchResult = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        knowledgeSpaceManager.search(workspace.root, query, limit)
+    }
+
+    suspend fun readKnowledge(
+        id: String,
+        path: String,
+        startLine: Int = 1,
+        endLine: Int? = null,
+    ): KnowledgeReadResult = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        knowledgeSpaceManager.read(workspace.root, path, startLine, endLine)
     }
 
     suspend fun rename(id: String, name: String): Boolean {
