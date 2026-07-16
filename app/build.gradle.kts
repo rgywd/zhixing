@@ -20,8 +20,8 @@ android {
         applicationId = "dev.sundby.zhixing"
         minSdk = 26
         targetSdk = 37
-        versionCode = 7
-        versionName = "0.1.6"
+        versionCode = 8
+        versionName = "0.1.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
