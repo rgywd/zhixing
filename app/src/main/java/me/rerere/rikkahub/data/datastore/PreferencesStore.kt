@@ -191,7 +191,7 @@ class SettingsStore(
                 providers = JsonInstant.decodeFromString(preferences[PROVIDERS] ?: "[]"),
                 assistants = JsonInstant.decodeFromString(preferences[ASSISTANTS] ?: "[]"),
                 dynamicColor = preferences[DYNAMIC_COLOR] != false,
-                themeId = preferences[THEME_ID] ?: PresetThemes[0].id,
+                themeId = preferences[THEME_ID] ?: "spring",
                 customThemes = preferences[CUSTOM_THEMES]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
@@ -506,7 +506,7 @@ data class Settings(
     @Transient
     val init: Boolean = false,
     val dynamicColor: Boolean = true,
-    val themeId: String = PresetThemes[0].id,
+    val themeId: String = "spring",
     val customThemes: List<CustomTheme> = emptyList(),
     val developerMode: Boolean = false,
     val displaySetting: DisplaySetting = DisplaySetting(),
@@ -617,7 +617,7 @@ data class WebDavConfig(
     val url: String = "",
     val username: String = "",
     val password: String = "",
-    val path: String = "rikkahub_backups",
+    val path: String = "zhixing_backups",
     val items: List<BackupItem> = listOf(
         BackupItem.DATABASE,
         BackupItem.FILES

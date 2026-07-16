@@ -1,104 +1,55 @@
-<div align="center">
-  <img src="docs/icon.png" alt="App Icon" width="100" />
-  <h1>RikkaHub</h1>
+# 知行（Zhixing）
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/rikkahub/rikkahub)
-[![Ask DeepWiki](https://img.shields.io/badge/zread.ai-blue?style=flat&logo=readthedocs)](https://zread.ai/rikkahub/rikkahub)
+Android-first、本地优先的个人 AI 工作台。当前工程直接基于 RikkaHub 重构，不延续旧 `zhixing-assistant` 的 Story Engine 视觉或远端 Ktor 聊天主链。
 
-A native Android LLM chat client that supports switching between different providers for
-conversations 🤖💬
+## 当前基线
 
-Click to join our Discord server 👉 [【RikkaHub】](https://discord.gg/9weBqxe5c4)
+- 原生 Kotlin + Jetpack Compose + Material 3 Expressive。
+- Room 保存会话、消息分支、文件夹、记忆和工作区元数据。
+- DataStore 保存模型服务、助手和外观设置。
+- ProviderManager 在设备端直连用户配置的 OpenAI-compatible、Claude、Gemini 等服务。
+- 支持流式消息、多模态、消息分支、MCP、搜索、语音和本地工作区。
+- 默认不接入 Firebase Analytics、Crashlytics、Remote Config 或 RikkaHub 更新/免费模型服务。
 
-[简体中文](README_ZH_CN.md) | [繁體中文](README_ZH_TW.md) | English
-</div>
+产品与架构决策见：
 
-<div align="center">
-  <img src="docs/img/chat.png" alt="Chat Interface" width="150" />
-  <img src="docs/img/desktop.png" alt="Models Picker" width="450" />
-</div>
+- [产品与体验设计](docs/zhixing/PRODUCT_DESIGN.md)
+- [运行时与数据契约](docs/zhixing/RUNTIME_CONTRACT.md)
+- [实施计划](docs/zhixing/IMPLEMENTATION_PLAN.md)
 
-## 🚀 Download
+## 本地构建
 
-🔗 [Download from Website](https://rikka-ai.com/download) (Recommended)
+要求：JDK 17+、Android SDK、Node.js 与 pnpm。
 
-🔗 [Download from Google Play](https://play.google.com/store/apps/details?id=me.rerere.rikkahub)
+```powershell
+git submodule update --init --recursive
+Set-Location web-ui
+pnpm install --frozen-lockfile
+Set-Location ..
+./gradlew.bat :app:assembleDebug
+```
 
-> [!WARNING]
-> There are many forked versions of RikkaHub. Issues with forks are unrelated to RikkaHub, so please use forks with caution to avoid privacy leaks or excessive permission requests.
+`local.properties` 需要提供本机 Android SDK 路径，例如：
 
-## 💖 Sponsors
+```properties
+sdk.dir=C:/Users/you/AppData/Local/Android/Sdk
+```
 
-|                                         Sponsor                                         | Description                                                                                                                                                                                                                                         |
-|:---------------------------------------------------------------------------------------:|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| <img src="docs/sponsors/aihubmix.png" alt="Aihubmix" width="50" /><br /><b>Aihubmix</b> | Thanks to <a href="https://aihubmix.com?aff=pG7r">aihubmix.com</a> for their financial support. We recommend using aihubmix as a one-stop shop for mainstream models worldwide. (OpenAI, Claude, Google Gemini, DeepSeek, Qwen, and hundreds more). |
-| <img src="docs/sponsors/suixiang.jpg" alt="随想AI中转" width="50" /><br /><b><a href="https://sui-xiang.com">随想AI中转</a></b> | 感谢<a href="https://sui-xiang.com">随想AI中转</a>对本项目的赞助！随想AI中转 是一家可靠高效的 API 中继服务提供商，提供 Claude、Codex、Gemini 等的中继服务。注重隐私的中转站·无数据倒卖·无模型掺水，隐私，透明，极速售后。新账户注册每日签到就送 0.5 元测试额度，充值额度 1:1，无需订阅，按量付费。多线路冗余、跨区域容灾、自动故障切换，长链路 SSE 不中断。99.9% 可用性，关键调用从不掉队。 |
-| <img src="docs/sponsors/ztest.png" alt="真测 ztest.ai" width="50" /><br /><b><a href="https://ztest.ai">真测 ztest.ai</a></b> | 感谢<a href="https://ztest.ai">真测 ztest.ai</a>对本项目的赞助！真测 ztest.ai 是一个 AI 中转站模型检测平台，检测结果数据全公开，23 项探针覆盖协议、身份、能力、内容完整性、安全性、性能六大维度，交叉印证识别伪造与降级。作为独立第三方验证平台，实时监测 AI 中转站的模型真实性、响应质量与服务可用性。 |
+产物位于 `app/build/outputs/apk/debug/`。Debug 包名为 `dev.sundby.zhixing.debug`。
 
-## ✨ Features
+## 验证
 
-- 🎨 Material You Design and 🌙 Dark mode
-- 📦 Workspace: a proot-based Linux agent environment
-- 🔄 Multiple AI Provider Support: custom API / URL / models (all OpenAI, Google, Anthropic compatible api)
-- 🖼️ Multimodal input support (Image, Text Documentation, PDF, Docx)
-- 🖥️ Web access for multi-platform use
-- 🛠️ MCP support
-- 📝 Markdown Rendering (with code highlighting, Latex formulas, tables, Mermaid)
-- 🪾 Message Branching
-- 🔍 Search capabilities (Exa, Tavily, Zhipu, LinkUp, Brave, Perplexity, etc.)
-- 🧩 Prompt variables (model name, time, etc.)
-- 🤳 QR code export and import for providers
-- 🤖 Agent customization
-- 🧠 ChatGPT-like memory feature
-- 📝 AI Translation
-- 🌐 Custom HTTP request headers and request bodies
-- 💌 Silly Tavern character card import
+定向品牌/隐私边界测试：
 
-## ✨ Contributing
+```powershell
+./gradlew.bat :app:testDebugUnitTest --tests me.rerere.rikkahub.AppIdentityTest
+```
 
-This project is developed using [Android Studio](https://developer.android.com/studio). PRs are
-welcome!
+完整上游 App 测试目前有 9 条已知基线失败，记录在 `docs/zhixing/IMPLEMENTATION_PLAN.md`；debug APK 构建已通过。
 
-Technology stack documentation:
+## 许可与上游
 
-- [Kotlin](https://kotlinlang.org/) (Development language)
-- [Koin](https://insert-koin.io/) (Dependency Injection)
-- [Jetpack Compose](https://developer.android.com/jetpack/compose) (UI framework)
-- [DataStore](https://developer.android.com/topic/libraries/architecture/datastore) (Preference data
-  storage)
-- [Room](https://developer.android.com/training/data-storage/room) (Database)
-- [Coil](https://coil-kt.github.io/coil/) (Image loading)
-- [Material You](https://m3.material.io/) (UI design)
-- [Navigation 3](https://developer.android.com/guide/navigation/navigation-3) (Navigation)
-- [Okhttp](https://square.github.io/okhttp/) (HTTP client)
-- [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) (JSON serialization)
+本项目基于 [RikkaHub](https://github.com/rikkahub/rikkahub) 的
+`f5f398ef15f077fa4b97950a785bb8c740abe029` 开始重构。继续遵守仓库根目录 [LICENSE](LICENSE) 中的分段双重许可与 AGPL v3 义务，并保留上游版权及源码说明。
 
-> [!TIP]
-> You need a `google-services.json` file at `app` folder to build the app.
-
-> [!IMPORTANT]  
-> The following PRs will be rejected:
-> 1. Translation related changes, such as adding new languages or updating existing translations
-> 2. Adding new features, this project is opinionated and will not accept pull requests for new features
-> 3. Large-scale refactoring and changes generated by AI
-
-## 💰 Donate
-
-* [Patreon](https://patreon.com/rikkahub)
-* [爱发电](https://afdian.com/a/reovo)
-
-## ⭐ Star History
-
-If you like this project, please give it a star ⭐
-
-<a href="https://www.star-history.com/?type=date&repos=re-ovo%2Frikkahub">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=re-ovo/rikkahub&type=date&theme=dark&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=re-ovo/rikkahub&type=date&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=re-ovo/rikkahub&type=date&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
- </picture>
-</a>
-
-## 📄 License
-
-[License](LICENSE)
+当前用途为个人、非商业开发。若未来变成商业用途、超过许可限定用户数，或不希望履行 AGPL 源码义务，必须先重新评估并取得相应商业授权。
