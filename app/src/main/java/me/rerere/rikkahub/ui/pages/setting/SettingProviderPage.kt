@@ -81,6 +81,7 @@ import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.useEditState
 import me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigure
+import me.rerere.rikkahub.ui.pages.setting.components.MANUALLY_ADDABLE_PROVIDER_TYPES
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.ImageUtils
 import me.rerere.rikkahub.utils.plus
@@ -557,9 +558,13 @@ private fun AddButton(onAdd: (ProviderSetting) -> Unit) {
             },
             text = {
                 dialogState.currentState?.let {
-                    ProviderConfigure(it) { newState ->
-                        dialogState.currentState = newState
-                    }
+                    ProviderConfigure(
+                        provider = it,
+                        selectableTypes = MANUALLY_ADDABLE_PROVIDER_TYPES,
+                        onEdit = { newState ->
+                            dialogState.currentState = newState
+                        }
+                    )
                 }
             },
             confirmButton = {
