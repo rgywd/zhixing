@@ -16,6 +16,19 @@
 构建应用不依赖 `google-services.json`。`web` 模块会在 `preBuild` 阶段构建
 `web-ui/` 并复制静态资源，需要本地可用 `pnpm`。
 
+## Branch and Release Workflow
+
+`main` 必须永远可部署，不直接承载功能开发。所有改动从最新 `main` 创建短分支，并通过 PR 与 CI 合并：
+
+- `release/x.y.z`：发布冻结、发布修复与回滚准备。
+- `feat/需求号-简述`：功能需求。
+- `fix/问题号-简述`：缺陷修复。
+- `chore/简述`：配置、依赖、构建与仓库维护。
+- `exp/简述`：实验，不承诺合并。
+
+禁止直接推送、强推或删除 `main`。正式发布必须先将 `release/x.y.z` 合回 `main`，再在对应主干提交上创建
+`vX.Y.Z` 标签。详细流程见 `docs/zhixing/RELEASE_FLOW.md`。
+
 ## Coding Style & Naming Conventions
 
 本仓库使用 `.editorconfig` 统一格式：
