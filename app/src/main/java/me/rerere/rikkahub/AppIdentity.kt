@@ -11,6 +11,7 @@ object AppIdentity {
     const val productName = "Zhixing"
     const val userAgentProduct = "Zhixing-Android"
     const val sourceUrl = "https://github.com/rgywd/zhixing"
+    const val issueTrackerUrl = "$sourceUrl/issues"
     const val licenseUrl = "https://github.com/rgywd/zhixing/blob/main/LICENSE"
     const val thirdPartyNoticesUrl = "https://github.com/rgywd/zhixing/blob/main/THIRD_PARTY_NOTICES.md"
     const val thirdPartyTelemetryEnabled = false

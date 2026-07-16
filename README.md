@@ -10,6 +10,7 @@ Android-first、本地优先的个人 AI 工作台。
 - 在设备端直连用户配置的 OpenAI-compatible、Claude、Gemini 等服务。
 - 支持流式消息、多模态、消息分支、MCP、搜索、语音、本地工作区与 Web 客户端。
 - 支持火山引擎方舟通用 API 与 Agent Plan 专属配置。
+- 所有助手内置需求与 Bug 提交工具，经用户确认后打开预填的 Zhixing GitHub Issue 页面。
 - 不接入第三方 Firebase、遥测、更新源或免费模型服务。
 
 产品与架构决策见：

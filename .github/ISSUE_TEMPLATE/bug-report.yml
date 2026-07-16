@@ -9,9 +9,8 @@ body:
         感谢你花时间提交 Bug 报告！请尽量填写完整信息以便我们复现和修复问题。
         Thanks for taking the time to report a bug! Please fill in as much detail as possible.
 
-        > **注意 | Note**
-        > 请勿提交由 AI 生成的 Issue，此类 Issue 将被直接关闭。
-        > Do not submit AI-generated issues — they will be closed without review.
+        可以使用 Zhixing 内置工具整理报告。提交前请人工确认内容，并删除 API Key、令牌、私人对话等敏感信息。
+        You may use Zhixing's built-in tool to draft the report. Review it before submission and remove secrets or private data.
 
   - type: textarea
     id: description

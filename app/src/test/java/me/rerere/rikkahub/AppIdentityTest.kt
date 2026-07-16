@@ -12,5 +12,6 @@ class AppIdentityTest {
         assertFalse(AppIdentity.thirdPartyTelemetryEnabled)
         assertTrue(AppIdentity.updateFeedUrl.contains("github.com/rgywd/zhixing/releases"))
         assertTrue(AppIdentity.sourceUrl.endsWith("rgywd/zhixing"))
+        assertEquals("${AppIdentity.sourceUrl}/issues", AppIdentity.issueTrackerUrl)
     }
 }
