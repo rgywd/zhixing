@@ -23,6 +23,7 @@ import me.rerere.rikkahub.ui.pages.workflow.happy.HappyAuthApi
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyCredentialsStore
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyProtocol
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncApi
+import me.rerere.rikkahub.ui.pages.workflow.happy.HappySocketClient
 import me.rerere.tts.provider.TTSManager
 import org.koin.dsl.module
 
@@ -56,6 +57,12 @@ val appModule = module {
     single {
         HappySyncApi(
             client = get(),
+            json = get(),
+            clientId = HappyProtocol.clientId(BuildConfig.VERSION_NAME),
+        )
+    }
+    single {
+        HappySocketClient(
             json = get(),
             clientId = HappyProtocol.clientId(BuildConfig.VERSION_NAME),
         )

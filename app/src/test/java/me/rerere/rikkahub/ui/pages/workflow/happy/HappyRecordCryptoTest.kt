@@ -2,6 +2,8 @@ package me.rerere.rikkahub.ui.pages.workflow.happy
 
 import java.util.Base64
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
@@ -33,6 +35,22 @@ class HappyRecordCryptoTest {
             null,
             crypto.unwrapDataKey(Base64.getEncoder().encodeToString(unsupported), accountSecret),
         )
+    }
+
+    @Test
+    fun `round trips records for current and legacy encryption`() {
+        val record = buildJsonObject {
+            put("role", "user")
+            put("text", "继续完成闭环")
+        }
+        val dataKey = ByteArray(32) { (it + 32).toByte() }
+
+        HappyEncryptionVariant.entries.forEach { variant ->
+            val key = if (variant == HappyEncryptionVariant.LEGACY) accountSecret else dataKey
+            val encrypted = crypto.encryptElement(record, key, variant)
+
+            assertEquals(record, crypto.decryptJson(encrypted, key, variant))
+        }
     }
 
     private companion object {

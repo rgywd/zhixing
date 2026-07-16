@@ -36,6 +36,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import me.rerere.rikkahub.Screen
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.CheckmarkCircle02
 import me.rerere.hugeicons.stroke.Code
@@ -46,9 +47,11 @@ import me.rerere.hugeicons.stroke.View
 import me.rerere.hugeicons.stroke.ViewOff
 import me.rerere.hugeicons.stroke.WorkflowCircle06
 import me.rerere.rikkahub.ui.components.nav.BackButton
+import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyMachine
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySession
+import me.rerere.rikkahub.ui.pages.workflow.happy.pendingApprovals
 import org.koin.androidx.compose.koinViewModel
 
 @Composable
@@ -361,6 +364,7 @@ private fun MachineSection(machines: List<HappyMachine>) {
 
 @Composable
 private fun SessionSection(sessions: List<HappySession>) {
+    val navController = LocalNavController.current
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
             text = "最近活跃会话",
@@ -371,7 +375,10 @@ private fun SessionSection(sessions: List<HappySession>) {
             EmptySnapshotCard("当前没有最近 15 分钟内活跃的 Codex 会话。")
         } else {
             sessions.forEach { session ->
-                Card(shape = RoundedCornerShape(18.dp)) {
+                Card(
+                    onClick = { navController.navigate(Screen.WorkflowSession(session.id)) },
+                    shape = RoundedCornerShape(18.dp),
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,

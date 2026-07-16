@@ -209,6 +209,7 @@ dependencies {
 
     // Happy protocol compatibility (Ed25519 / Curve25519 / XSalsa20-Poly1305)
     implementation(libs.tweetnacl)
+    implementation(libs.socketio.client)
 
     // coil
     implementation(libs.coil.compose)

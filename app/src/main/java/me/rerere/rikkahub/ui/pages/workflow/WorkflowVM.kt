@@ -14,11 +14,13 @@ import me.rerere.rikkahub.ui.pages.workflow.happy.HappyMachine
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySession
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncApi
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncException
+import me.rerere.rikkahub.ui.pages.workflow.happy.HappySocketClient
 
 class WorkflowVM(
     private val authApi: HappyAuthApi,
     private val credentialsStore: HappyCredentialsStore,
     private val syncApi: HappySyncApi,
+    private val socketClient: HappySocketClient,
 ) : ViewModel() {
     private val initialCredentials = credentialsStore.load()
 
@@ -86,6 +88,7 @@ class WorkflowVM(
     }
 
     fun disconnect() {
+        socketClient.disconnect()
         credentialsStore.clear()
         recoveryKey = ""
         isSecretVisible = false

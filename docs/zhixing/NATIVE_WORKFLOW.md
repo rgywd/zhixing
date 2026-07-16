@@ -1,6 +1,6 @@
 # 原生远程工作流契约
 
-状态：执行中（2026-07-17）
+状态：首个原生闭环完成（2026-07-17）
 
 关联需求：[GitHub Issue #10](https://github.com/rgywd/zhixing/issues/10)
 
@@ -77,8 +77,25 @@ Happy Web 页面只保留为开发期故障回退，不作为正式产品界面�
 
 - [x] 阶段 A：恢复密钥、Ed25519 登录、Keystore 凭据存储、NaCl/AES-GCM 固定向量测试。
 - [x] 阶段 B：机器与最近活跃会话的 HTTP 初始快照及 Compose 原生列表。
-- [ ] 阶段 B：历史消息、Socket.IO 增量、断线补偿与真实账户验收。
-- [ ] 阶段 C 及以后。
+- [x] 阶段 B：历史消息、Socket.IO 增量、断线补偿与真实账户验收。
+- [x] 阶段 C：补充消息、中断与审批 RPC 的原生读写闭环。
+- [ ] 阶段 D 及以后。
+
+### 4.2 真实链路验收记录
+
+2026-07-17 使用当前 Happy 生产中继和本机 `happy codex` 完成以下验证，诊断输出未记录 token、
+恢复密钥或会话 data key：
+
+- Bearer token 可读取 1 台在线开发机和 1 个活跃 Codex 会话。
+- 以 `sentFrom=android` 加密发送“知行原生闭环验证”消息，HTTP 增量历史收到 Codex 返回的
+  “闭环已确认”。
+- `user-scoped` Socket.IO 连接成功，`<sessionId>:abort` 返回成功回执。
+- `permissionMode=default` 触发真实 `CodexBash` 审批请求；`permission` 的“允许一次”RPC 返回成功，
+  请求从 `requests` 转入 `completedRequests`，状态为 `approved`。
+- 临时审批验证文件已清理；测试进程未把 Happy 凭据写入仓库或构建日志。
+
+当前发布闭环以恢复密钥导入为账户入口。由已有设备批准新设备的免密配对仍属于后续产品化工作，
+不影响已登录设备上的原生读写闭环。
 
 ## 5. 非目标与延期项
 
