@@ -31,11 +31,27 @@ class HappySyncApi(
         val machines = json.decodeFromString<List<RawMachine>>(
             get("/v1/machines", credentials.token)
         ).map { machine -> machine.toMachine(accountSecret) }
-        val sessions = json.decodeFromString<RawSessionsResponse>(
-            get("/v2/sessions/active?limit=150", credentials.token)
-        ).sessions.map { session -> session.toSession(accountSecret) }
+        val sessions = fetchAllSessions(credentials.token)
+            .map { session -> session.toSession(accountSecret) }
+            .sortedByDescending(HappySession::updatedAt)
 
         HappySnapshot(machines = machines, sessions = sessions)
+    }
+
+    private fun fetchAllSessions(token: String): List<RawSession> {
+        val sessions = mutableListOf<RawSession>()
+        val seenCursors = mutableSetOf<String>()
+        var cursor: String? = null
+        do {
+            val query = buildString {
+                append("/v2/sessions?limit=200")
+                cursor?.let { append("&cursor=").append(it) }
+            }
+            val response = json.decodeFromString<RawSessionsResponse>(get(query, token))
+            sessions += response.sessions
+            cursor = response.nextCursor?.takeIf { response.hasNext && seenCursors.add(it) }
+        } while (cursor != null)
+        return sessions.distinctBy(RawSession::id)
     }
 
     suspend fun fetchMessages(
@@ -126,7 +142,8 @@ class HappySyncApi(
     }
 
     private fun RawMachine.toMachine(accountSecret: ByteArray): HappyMachine {
-        val metadata = decryptRecord(metadata, dataEncryptionKey, accountSecret)
+        val resolved = resolveRecordKey(dataEncryptionKey, accountSecret)
+        val metadata = resolved?.let { recordCrypto.decryptJson(metadata, it.first, it.second) }
         val cliAvailability = metadata?.get("cliAvailability") as? JsonObject
         return HappyMachine(
             id = id,
@@ -136,6 +153,9 @@ class HappySyncApi(
             active = active,
             activeAt = activeAt,
             supportsCodex = cliAvailability?.get("codex")?.jsonPrimitive?.booleanOrNull,
+            homeDir = metadata.string("homeDir"),
+            encryptionKey = resolved?.first,
+            encryptionVariant = resolved?.second ?: HappyEncryptionVariant.DATA_KEY,
         )
     }
 
@@ -153,8 +173,11 @@ class HappySyncApi(
             host = metadata.string("host"),
             machineId = metadata.string("machineId"),
             codexThreadId = metadata.string("codexThreadId"),
+            flavor = metadata.string("flavor"),
             active = active,
             activeAt = activeAt,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
             approvals = requests?.map { (id, value) ->
                 val request = value as? JsonObject
                 HappyApproval(
@@ -256,6 +279,9 @@ data class HappyMachine(
     val active: Boolean,
     val activeAt: Long,
     val supportsCodex: Boolean?,
+    val homeDir: String?,
+    val encryptionKey: ByteArray?,
+    val encryptionVariant: HappyEncryptionVariant,
 )
 
 data class HappySession(
@@ -265,8 +291,11 @@ data class HappySession(
     val host: String?,
     val machineId: String?,
     val codexThreadId: String?,
+    val flavor: String?,
     val active: Boolean,
     val activeAt: Long,
+    val createdAt: Long,
+    val updatedAt: Long,
     val approvals: List<HappyApproval>,
     val encryptionKey: ByteArray?,
     val encryptionVariant: HappyEncryptionVariant,
@@ -312,6 +341,8 @@ private data class RawMachine(
 @Serializable
 private data class RawSessionsResponse(
     val sessions: List<RawSession>,
+    val nextCursor: String? = null,
+    val hasNext: Boolean = false,
 )
 
 @Serializable

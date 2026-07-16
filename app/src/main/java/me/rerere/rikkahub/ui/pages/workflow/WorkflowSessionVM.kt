@@ -16,11 +16,13 @@ import me.rerere.rikkahub.ui.pages.workflow.happy.HappyCredentials
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyCredentialsStore
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyDecryptionException
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyMessage
+import me.rerere.rikkahub.ui.pages.workflow.happy.HappyMachine
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyRpcException
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySession
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySocketClient
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncApi
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncException
+import me.rerere.rikkahub.ui.pages.workflow.happy.HappySpawnResult
 
 class WorkflowSessionVM(
     private val sessionId: String,
@@ -34,6 +36,8 @@ class WorkflowSessionVM(
 
     var session by mutableStateOf<HappySession?>(null)
         private set
+    var machines by mutableStateOf<List<HappyMachine>>(emptyList())
+        private set
     var messages by mutableStateOf<List<HappyMessage>>(emptyList())
         private set
     var draft by mutableStateOf("")
@@ -46,6 +50,8 @@ class WorkflowSessionVM(
     private var actionError by mutableStateOf<String?>(null)
     val error: String? get() = actionError ?: syncError
     var notice by mutableStateOf<String?>(null)
+        private set
+    var resumedSessionId by mutableStateOf<String?>(null)
         private set
 
     init {
@@ -76,7 +82,7 @@ class WorkflowSessionVM(
         val text = draft.trim()
         val currentSession = session ?: return
         val currentCredentials = credentials ?: return
-        if (text.isBlank() || isActing) return
+        if (text.isBlank() || isActing || !currentSession.active) return
         act("消息已发送") {
             syncApi.sendMessage(currentCredentials, currentSession, text)
             draft = ""
@@ -87,6 +93,41 @@ class WorkflowSessionVM(
         val currentSession = session ?: return
         val currentCredentials = credentials ?: return
         act("已请求停止任务") { socketClient.abort(currentCredentials, currentSession) }
+    }
+
+    fun resumeSession() {
+        val currentSession = session ?: return
+        val currentCredentials = credentials ?: return
+        val machine = machines.firstOrNull { it.id == currentSession.machineId }
+        if (machine == null || !machine.active) {
+            actionError = "原开发机当前离线，无法恢复此对话"
+            return
+        }
+        if (isActing) return
+        viewModelScope.launch {
+            isActing = true
+            actionError = null
+            try {
+                when (val result = socketClient.resumeSession(currentCredentials, machine, currentSession)) {
+                    is HappySpawnResult.Success -> {
+                        notice = "会话已恢复"
+                        resumedSessionId = result.sessionId
+                    }
+                    is HappySpawnResult.DirectoryApprovalRequired -> {
+                        actionError = "恢复会话时开发机要求创建目录"
+                    }
+                    is HappySpawnResult.Error -> actionError = result.message
+                }
+            } catch (throwable: Throwable) {
+                actionError = throwable.toUserMessage()
+            } finally {
+                isActing = false
+            }
+        }
+    }
+
+    fun consumeResumedSession() {
+        resumedSessionId = null
     }
 
     fun approve(approval: HappyApproval, forSession: Boolean) {
@@ -124,7 +165,9 @@ class WorkflowSessionVM(
 
     private suspend fun refreshNow(currentCredentials: HappyCredentials) {
         try {
-            val latestSession = syncApi.fetchSnapshot(currentCredentials).sessions
+            val snapshot = syncApi.fetchSnapshot(currentCredentials)
+            machines = snapshot.machines
+            val latestSession = snapshot.sessions
                 .firstOrNull { it.id == sessionId }
             if (latestSession != null) session = latestSession
             val currentSession = session
@@ -137,7 +180,7 @@ class WorkflowSessionVM(
                         .sortedBy(HappyMessage::seq)
                 }
             }
-            syncError = if (latestSession == null && session == null) "该会话已不在 Happy 活跃会话列表中" else null
+            syncError = if (latestSession == null && session == null) "该会话不在 Happy 历史记录中" else null
         } catch (throwable: Throwable) {
             syncError = throwable.toUserMessage()
         } finally {

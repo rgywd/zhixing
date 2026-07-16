@@ -53,10 +53,36 @@ class HappySyncApiTest {
         assertEquals("Dev Box", machine.displayName)
         assertTrue(machine.active)
         assertNull(machine.supportsCodex)
+        assertEquals(32, machine.encryptionKey?.size)
         assertEquals("/v1/machines", machineRequest.path)
-        assertEquals("/v2/sessions/active?limit=150", sessionRequest.path)
+        assertEquals("/v2/sessions?limit=200", sessionRequest.path)
         assertEquals("Bearer happy-token", machineRequest.getHeader("Authorization"))
         assertEquals("android/test", machineRequest.getHeader("X-Happy-Client"))
+    }
+
+    @Test
+    fun `snapshot follows complete session history pagination`() = runBlocking {
+        server.enqueue(MockResponse().setBody(MACHINES_RESPONSE))
+        server.enqueue(
+            MockResponse().setBody(
+                """{"sessions":[],"nextCursor":"cursor_v1_session-200","hasNext":true}"""
+            )
+        )
+        server.enqueue(MockResponse().setBody("""{"sessions":[],"nextCursor":null,"hasNext":false}"""))
+        val api = HappySyncApi(
+            client = OkHttpClient(),
+            json = Json { ignoreUnknownKeys = true },
+            serverUrl = server.url("/").toString(),
+            clientId = "android/test",
+        )
+
+        api.fetchSnapshot(
+            HappyCredentials("happy-token", HappySecretKeyCodec.encodeBase64Url(ByteArray(32) { it.toByte() }))
+        )
+
+        server.takeRequest()
+        assertEquals("/v2/sessions?limit=200", server.takeRequest().path)
+        assertEquals("/v2/sessions?limit=200&cursor=cursor_v1_session-200", server.takeRequest().path)
     }
 
     @Test
@@ -98,8 +124,11 @@ class HappySyncApiTest {
             host = null,
             machineId = null,
             codexThreadId = null,
+            flavor = "codex",
             active = true,
             activeAt = 1720000000000,
+            createdAt = 1710000000000,
+            updatedAt = 1720000000000,
             approvals = emptyList(),
             encryptionKey = key,
             encryptionVariant = HappyEncryptionVariant.DATA_KEY,
