@@ -18,6 +18,11 @@ import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.SoundEffectPlayer
 import me.rerere.rikkahub.utils.UpdateChecker
 import me.rerere.rikkahub.web.WebServerManager
+import me.rerere.rikkahub.BuildConfig
+import me.rerere.rikkahub.ui.pages.workflow.happy.HappyAuthApi
+import me.rerere.rikkahub.ui.pages.workflow.happy.HappyCredentialsStore
+import me.rerere.rikkahub.ui.pages.workflow.happy.HappyProtocol
+import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncApi
 import me.rerere.tts.provider.TTSManager
 import org.koin.dsl.module
 
@@ -39,6 +44,22 @@ val appModule = module {
     single { GitHubIssueCredentialStore(get()) }
     single<GitHubIssueTokenProvider> { get<GitHubIssueCredentialStore>() }
     single { GitHubIssueClient() }
+
+    single { HappyCredentialsStore(get(), get()) }
+    single {
+        HappyAuthApi(
+            client = get(),
+            json = get(),
+            clientId = HappyProtocol.clientId(BuildConfig.VERSION_NAME),
+        )
+    }
+    single {
+        HappySyncApi(
+            client = get(),
+            json = get(),
+            clientId = HappyProtocol.clientId(BuildConfig.VERSION_NAME),
+        )
+    }
 
     single {
         UpdateChecker(get())

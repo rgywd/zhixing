@@ -53,6 +53,16 @@
 - [x] 在 Workspace 详情页提供知识空间状态、初始化和知识导入入口。
 - [x] 为初始化、中文检索、来源引用、路径边界和工具注册补测试。
 
+### Phase 2.2：原生远程工作流
+
+完整契约见 [`NATIVE_WORKFLOW.md`](./NATIVE_WORKFLOW.md)。
+
+- [x] 实现 Happy 恢复密钥、Bearer token、Keystore 和加密兼容层。
+- [ ] 原生展示机器、项目、会话、历史消息与实时状态，不加载 Happy Web UI。
+- [ ] 支持补充消息、中断任务和审批 RPC，并区分离线、超时、冲突与解密错误。
+- [ ] 使用当前真实 Happy/Codex 账户完成读写闭环与断线恢复验证。
+- [ ] 原生链路稳定后移除 WebView 默认入口，再评估在 CPA/VPS 自托管 Happy Relay。
+
 ## Phase 3：可选同步服务
 
 目标：只在跨设备需求被验证后引入最小服务端。
