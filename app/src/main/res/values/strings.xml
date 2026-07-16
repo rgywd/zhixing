@@ -1282,7 +1282,16 @@
   <string name="chat_message_tool_calendar_query">Query calendar events</string>
   <string name="chat_message_tool_calendar_create">Create event: %1$s</string>
   <string name="chat_message_tool_github_issue">Submit request: %1$s</string>
-  <string name="tool_ui_github_issue_awaiting">GitHub is open. Review the draft and submit it there.</string>
+  <string name="tool_ui_github_issue_created">Created Issue #%1$d. Tap to view.</string>
+  <string name="github_issue_token_title">GitHub Issue submission</string>
+  <string name="github_issue_token_configured">Token configured; approved requests are submitted directly</string>
+  <string name="github_issue_token_not_configured">Token required for direct submission</string>
+  <string name="github_issue_token_dialog_title">Configure GitHub token</string>
+  <string name="github_issue_token_dialog_description">Use a fine-grained token restricted to rgywd/zhixing with Issues read and write permission. It is encrypted with Android Keystore and excluded from backup.</string>
+  <string name="github_issue_token_field_label">Fine-grained token</string>
+  <string name="github_issue_token_save">Save</string>
+  <string name="github_issue_token_clear">Clear token</string>
+  <string name="github_issue_token_cancel">Cancel</string>
   <string name="chat_page_move_to_folder">Move to Folder</string>
   <string name="chat_page_remove_from_folder">Remove from Folder</string>
   <string name="chat_page_create_folder">New Folder</string>

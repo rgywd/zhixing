@@ -1283,7 +1283,16 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="chat_message_tool_calendar_query">查询日历事件</string>
   <string name="chat_message_tool_calendar_create">创建事件: %1$s</string>
   <string name="chat_message_tool_github_issue">提交需求：%1$s</string>
-  <string name="tool_ui_github_issue_awaiting">已打开 GitHub，请检查草稿后在那里提交。</string>
+  <string name="tool_ui_github_issue_created">已创建 Issue #%1$d，点击查看。</string>
+  <string name="github_issue_token_title">GitHub Issue 提交</string>
+  <string name="github_issue_token_configured">已配置；审批后直接提交</string>
+  <string name="github_issue_token_not_configured">直接提交前需要配置 Token</string>
+  <string name="github_issue_token_dialog_title">配置 GitHub Token</string>
+  <string name="github_issue_token_dialog_description">请使用仅限 rgywd/zhixing 仓库、具备 Issues 读写权限的 fine-grained Token。凭证由 Android Keystore 加密且不会参与备份。</string>
+  <string name="github_issue_token_field_label">Fine-grained Token</string>
+  <string name="github_issue_token_save">保存</string>
+  <string name="github_issue_token_clear">清除 Token</string>
+  <string name="github_issue_token_cancel">取消</string>
   <string name="chat_page_move_to_folder">移动到文件夹</string>
   <string name="chat_page_remove_from_folder">移出文件夹</string>
   <string name="chat_page_create_folder">新建文件夹</string>

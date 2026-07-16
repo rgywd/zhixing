@@ -10,6 +10,8 @@ package me.rerere.rikkahub
 object AppIdentity {
     const val productName = "Zhixing"
     const val userAgentProduct = "Zhixing-Android"
+    const val repositoryOwner = "rgywd"
+    const val repositoryName = "zhixing"
     const val sourceUrl = "https://github.com/rgywd/zhixing"
     const val issueTrackerUrl = "$sourceUrl/issues"
     const val licenseUrl = "https://github.com/rgywd/zhixing/blob/main/LICENSE"

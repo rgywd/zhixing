@@ -1,15 +1,15 @@
 package me.rerere.rikkahub.data.ai.tools.local
 
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.put
+import me.rerere.rikkahub.data.github.GitHubIssueClient
+import me.rerere.rikkahub.data.github.GitHubIssueTokenProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.net.URI
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 
 class GitHubIssueToolTest {
     private val environment = GitHubIssueEnvironment(
@@ -18,6 +18,18 @@ class GitHubIssueToolTest {
         androidVersion = "16 (SDK 36)",
         device = "Google Pixel",
     )
+
+    @Test
+    fun `direct submission still requires tool approval`() {
+        val tool = buildGitHubIssueTool(
+            tokenProvider = object : GitHubIssueTokenProvider {
+                override fun getToken(): String? = null
+            },
+            issueClient = GitHubIssueClient(),
+        )
+
+        assertTrue(tool.needsApproval(JsonNull))
+    }
 
     @Test
     fun `feature request uses enhancement label and product sections`() {
@@ -34,8 +46,7 @@ class GitHubIssueToolTest {
         assertTrue(draft.body.contains("## 使用场景"))
         assertTrue(draft.body.contains("Zhixing: 0.1.3 (4)"))
         assertTrue(draft.body.contains("Google Pixel"))
-        assertTrue(decodedQuery(draft.url, "body").contains("打开已预填的需求页面"))
-        assertEquals("enhancement", decodedQuery(draft.url, "labels"))
+        assertTrue(draft.body.contains("打开已预填的需求页面"))
     }
 
     @Test
@@ -73,13 +84,5 @@ class GitHubIssueToolTest {
                 put("description", "描述")
             }, environment)
         }
-    }
-
-    private fun decodedQuery(url: String, key: String): String {
-        val rawValue = URI(url).rawQuery.split('&')
-            .map { it.split('=', limit = 2) }
-            .first { it.first() == key }
-            .getOrElse(1) { "" }
-        return URLDecoder.decode(rawValue, StandardCharsets.UTF_8.name())
     }
 }

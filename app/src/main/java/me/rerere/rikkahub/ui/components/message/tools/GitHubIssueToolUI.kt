@@ -26,19 +26,26 @@ object GitHubIssueToolUI : ToolUIRenderer {
         )
 
     override fun hasSummary(context: ToolUIContext): Boolean =
-        context.content.getStringContent("status") == "AWAITING_USER_SUBMISSION"
+        context.content.getStringContent("status") != null
 
     @Composable
     override fun Summary(context: ToolUIContext) {
         val appContext = LocalContext.current
         val url = context.content.getStringContent("url")
+        val status = context.content.getStringContent("status")
+        val number = context.content.getStringContent("number")?.toIntOrNull()
+        val message = context.content.getStringContent("message").orEmpty()
         Text(
-            text = stringResource(R.string.tool_ui_github_issue_awaiting),
-            modifier = Modifier.clickable(enabled = url != null) {
+            text = if (status == "CREATED" && number != null) {
+                stringResource(R.string.tool_ui_github_issue_created, number)
+            } else {
+                message
+            },
+            modifier = Modifier.clickable(enabled = status == "CREATED" && url != null) {
                 url?.let(appContext::openUrl)
             },
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
+            color = if (status == "CREATED") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
         )
     }
 }
