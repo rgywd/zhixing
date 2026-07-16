@@ -8,6 +8,17 @@ import org.junit.Test
 
 class DefaultProvidersTest {
     @Test
+    fun `default providers should include dedicated Volcengine Agent Plan`() {
+        val providers = DEFAULT_PROVIDERS.filterIsInstance<ProviderSetting.VolcengineAgentPlan>()
+
+        assertEquals(1, providers.size)
+        val provider = providers.single()
+        assertEquals("https://ark.cn-beijing.volces.com/api/plan/v3", provider.baseUrl)
+        assertFalse(provider.enabled)
+        assertTrue(provider.builtIn)
+    }
+
+    @Test
     fun `default providers should include vercel ai gateway with expected balance config`() {
         val vercelProviders = DEFAULT_PROVIDERS
             .filterIsInstance<ProviderSetting.OpenAI>()

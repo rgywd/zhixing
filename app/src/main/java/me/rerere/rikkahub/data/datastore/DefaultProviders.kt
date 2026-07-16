@@ -13,6 +13,7 @@ import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.VOLCENGINE_AGENT_PLAN_BASE_URL
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import kotlin.uuid.Uuid
@@ -156,6 +157,30 @@ val DEFAULT_PROVIDERS = listOf(
         apiKey = "",
         enabled = false,
         builtIn = true
+    ),
+    ProviderSetting.VolcengineAgentPlan(
+        id = Uuid.parse("bb617271-8624-4bcc-8e6c-0a21bcd8bb67"),
+        name = "火山引擎 Agent Plan",
+        baseUrl = VOLCENGINE_AGENT_PLAN_BASE_URL,
+        apiKey = "",
+        enabled = false,
+        builtIn = true,
+        description = {
+            Text(
+                text = buildAnnotatedString {
+                    append("使用 Agent Plan 专属 API Key 和 Responses API；模型列表来自本地目录，不请求 /models。\n")
+                    append("官方文档：")
+                    withLink(LinkAnnotation.Url("https://www.volcengine.com/docs/82379/2556054?lang=zh")) {
+                        withStyle(SpanStyle(MaterialTheme.colorScheme.primary)) {
+                            append("Agent Plan 快速开始")
+                        }
+                    }
+                }
+            )
+        },
+        shortDescription = {
+            Text("Agent Plan 专属 Responses API")
+        },
     ),
     ProviderSetting.OpenAI(
         id = Uuid.parse("d6c4d8c6-3f62-4ca9-a6f3-7ade6b15ecc3"),

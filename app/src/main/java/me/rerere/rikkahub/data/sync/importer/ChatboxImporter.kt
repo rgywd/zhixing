@@ -568,6 +568,7 @@ object ChatboxImporter {
 
     private fun ProviderSetting.providerTypeName(): String = when (this) {
         is ProviderSetting.OpenAI -> "openai"
+        is ProviderSetting.VolcengineAgentPlan -> "openai"
         is ProviderSetting.Google -> "gemini"
         is ProviderSetting.Claude -> "claude"
     }

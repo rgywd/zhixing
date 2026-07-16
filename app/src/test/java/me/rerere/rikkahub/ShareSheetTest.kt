@@ -92,6 +92,21 @@ class ShareSheetTest {
     }
 
     @Test
+    fun `decode should restore Volcengine Agent Plan provider correctly`() {
+        val original = ProviderSetting.VolcengineAgentPlan(
+            name = "Agent Plan",
+            apiKey = "agent-plan-key",
+        )
+
+        val decoded = decodeProviderSetting(original.encodeForShare())
+
+        assertTrue(decoded is ProviderSetting.VolcengineAgentPlan)
+        decoded as ProviderSetting.VolcengineAgentPlan
+        assertEquals("agent-plan-key", decoded.apiKey)
+        assertEquals("https://ark.cn-beijing.volces.com/api/plan/v3", decoded.baseUrl)
+    }
+
+    @Test
     fun `decode should handle balance option`() {
         val original = ProviderSetting.OpenAI(
             id = Uuid.random(),
@@ -147,6 +162,10 @@ class ShareSheetTest {
             ProviderSetting.Claude(
                 name = "Claude Test",
                 apiKey = "key3"
+            ),
+            ProviderSetting.VolcengineAgentPlan(
+                name = "Agent Plan Test",
+                apiKey = "key4"
             )
         )
 

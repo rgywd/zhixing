@@ -292,6 +292,10 @@ class SettingsStore(
                             models = provider.models.distinctBy { model -> model.id }
                         )
 
+                        is ProviderSetting.VolcengineAgentPlan -> provider.copy(
+                            models = provider.models.distinctBy { model -> model.id }
+                        )
+
                         is ProviderSetting.Google -> provider.copy(
                             models = provider.models.distinctBy { model -> model.id }
                         )

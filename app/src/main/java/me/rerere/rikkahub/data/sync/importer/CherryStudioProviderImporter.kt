@@ -124,6 +124,7 @@ object CherryStudioProviderImporter {
     private fun importedProviderKey(provider: ProviderSetting): String {
         return when (provider) {
             is ProviderSetting.OpenAI -> "openai|${provider.baseUrl}|${provider.apiKey}"
+            is ProviderSetting.VolcengineAgentPlan -> "volcengine_agent_plan|${provider.baseUrl}|${provider.apiKey}"
             is ProviderSetting.Google -> "google|${provider.baseUrl}|${provider.apiKey}"
             is ProviderSetting.Claude -> "claude|${provider.baseUrl}|${provider.apiKey}"
         }

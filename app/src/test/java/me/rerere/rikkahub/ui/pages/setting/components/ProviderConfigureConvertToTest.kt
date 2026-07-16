@@ -108,4 +108,20 @@ class ProviderConfigureConvertToTest {
         val converted = original.convertTo(ProviderSetting.OpenAI::class) as ProviderSetting.OpenAI
         assertEquals("not-a-url", converted.baseUrl)
     }
+
+    @Test
+    fun `convertTo Agent Plan should force its dedicated endpoint`() {
+        val original = ProviderSetting.OpenAI(
+            name = "Generic Volcengine",
+            apiKey = "plan-key",
+            baseUrl = "https://ark.cn-beijing.volces.com/api/v3",
+        )
+
+        val converted = original.convertTo(ProviderSetting.VolcengineAgentPlan::class)
+
+        assertTrue(converted is ProviderSetting.VolcengineAgentPlan)
+        converted as ProviderSetting.VolcengineAgentPlan
+        assertEquals("plan-key", converted.apiKey)
+        assertEquals("https://ark.cn-beijing.volces.com/api/plan/v3", converted.baseUrl)
+    }
 }

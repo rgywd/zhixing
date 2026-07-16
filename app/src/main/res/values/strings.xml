@@ -1283,4 +1283,6 @@
   <string name="chat_page_folder_add">New</string>
   <string name="chat_page_delete_folder_confirm">Delete folder "%1$s"? Conversations inside will not be deleted, only removed from the folder.</string>
   <string name="chat_page_delete_folder_generating">Some conversations in this folder are still generating. Please stop them before deleting.</string>
+  <string name="setting_provider_page_agent_plan_api_key">Agent Plan API Key</string>
+  <string name="setting_provider_page_agent_plan_models_hint">Agent Plan uses the Responses API and does not provide /models. Choose a model from the bundled catalog or add its name manually.</string>
 </resources>
