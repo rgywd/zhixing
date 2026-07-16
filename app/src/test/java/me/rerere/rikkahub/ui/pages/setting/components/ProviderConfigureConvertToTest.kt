@@ -5,12 +5,21 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.uuid.Uuid
 
 class ProviderConfigureConvertToTest {
+    @Test
+    fun `manual provider creation should not offer the built-in Agent Plan type`() {
+        assertFalse(ProviderSetting.VolcengineAgentPlan::class in MANUALLY_ADDABLE_PROVIDER_TYPES)
+        assertTrue(ProviderSetting.OpenAI::class in MANUALLY_ADDABLE_PROVIDER_TYPES)
+        assertTrue(ProviderSetting.Google::class in MANUALLY_ADDABLE_PROVIDER_TYPES)
+        assertTrue(ProviderSetting.Claude::class in MANUALLY_ADDABLE_PROVIDER_TYPES)
+    }
+
     @Test
     fun `convertTo should keep common fields and switch official endpoint to target default`() {
         val model = Model(

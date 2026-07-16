@@ -49,6 +49,7 @@ import kotlin.reflect.KClass
 fun ProviderConfigure(
     provider: ProviderSetting,
     modifier: Modifier = Modifier,
+    selectableTypes: List<KClass<out ProviderSetting>> = ProviderSetting.Types,
     onEdit: (provider: ProviderSetting) -> Unit
 ) {
     Column(
@@ -57,11 +58,11 @@ fun ProviderConfigure(
     ) {
         if (!provider.builtIn) {
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                ProviderSetting.Types.forEachIndexed { index, type ->
+                selectableTypes.forEachIndexed { index, type ->
                     SegmentedButton(
                         shape = SegmentedButtonDefaults.itemShape(
                             index = index,
-                            count = ProviderSetting.Types.size
+                            count = selectableTypes.size
                         ),
                         label = {
                             Text(
@@ -86,6 +87,10 @@ fun ProviderConfigure(
             is ProviderSetting.Claude -> ProviderConfigureClaude(provider, onEdit)
         }
     }
+}
+
+internal val MANUALLY_ADDABLE_PROVIDER_TYPES = ProviderSetting.Types.filterNot {
+    it == ProviderSetting.VolcengineAgentPlan::class
 }
 
 fun ProviderSetting.convertTo(type: KClass<out ProviderSetting>): ProviderSetting {
