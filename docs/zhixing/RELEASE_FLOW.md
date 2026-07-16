@@ -89,4 +89,5 @@ Android 不支持把较低 `versionCode` 当成升级包，因此“回滚”始
 - 禁止 force push 和删除分支。
 - 要求线性历史，合并时使用 squash 或 rebase。
 
-`release/*` 的每次推送同样执行构建与测试；正式发布仍以合回 `main` 后的 `vX.Y.Z` 标签为准。
+`release/*` 通过面向 `main` 的 Pull Request 执行构建与测试；合并后的 `main` 会再次验证，正式发布仍以
+`main` 上的 `vX.Y.Z` 标签为准。
