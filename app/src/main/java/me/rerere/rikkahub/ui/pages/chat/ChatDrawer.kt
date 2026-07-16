@@ -738,7 +738,7 @@ private fun DrawerActions(navController: Navigator) {
             }
         }
 
-        // Happy 工作流入口：知行只承载入口，不参与远程 Agent 执行。
+        // 项目工作入口；连接与开发机管理归入设置。
         Surface(
             onClick = { navController.navigate(Screen.Workflow) },
             modifier = Modifier

@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyAuthApi
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyAuthException
@@ -15,6 +16,7 @@ import me.rerere.rikkahub.ui.pages.workflow.happy.HappySession
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncApi
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncException
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySocketClient
+import me.rerere.rikkahub.ui.pages.workflow.happy.HappySpawnResult
 
 class WorkflowVM(
     private val authApi: HappyAuthApi,
@@ -44,6 +46,16 @@ class WorkflowVM(
         private set
     var syncError by mutableStateOf<String?>(null)
         private set
+    var isCreatingSession by mutableStateOf(false)
+        private set
+    var createError by mutableStateOf<String?>(null)
+        private set
+    var pendingDirectoryApproval by mutableStateOf<PendingDirectoryApproval?>(null)
+        private set
+    var createdSessionId by mutableStateOf<String?>(null)
+        private set
+
+    val projects: List<WorkflowProject> get() = buildWorkflowProjects(sessions, machines)
 
     init {
         initialCredentials?.let(::refresh)
@@ -98,6 +110,29 @@ class WorkflowVM(
         status = WorkflowConnectionStatus.Disconnected
     }
 
+    fun createCodexSession(machineId: String, path: String, prompt: String) {
+        spawnCodexSession(machineId, path, prompt, approvedNewDirectoryCreation = false)
+    }
+
+    fun approveDirectoryCreation() {
+        val pending = pendingDirectoryApproval ?: return
+        pendingDirectoryApproval = null
+        spawnCodexSession(
+            machineId = pending.machineId,
+            path = pending.path,
+            prompt = pending.prompt,
+            approvedNewDirectoryCreation = true,
+        )
+    }
+
+    fun dismissDirectoryApproval() {
+        pendingDirectoryApproval = null
+    }
+
+    fun consumeCreatedSession() {
+        createdSessionId = null
+    }
+
     fun refresh() {
         val credentials = credentialsStore.load() ?: run {
             status = WorkflowConnectionStatus.Disconnected
@@ -134,7 +169,84 @@ class WorkflowVM(
             isRefreshing = false
         }
     }
+
+    private fun spawnCodexSession(
+        machineId: String,
+        path: String,
+        prompt: String,
+        approvedNewDirectoryCreation: Boolean,
+    ) {
+        val credentials = credentialsStore.load() ?: run {
+            createError = "Happy 登录已失效，请到设置中重新连接"
+            return
+        }
+        val machine = machines.firstOrNull { it.id == machineId }
+        if (machine == null || !machine.active) {
+            createError = "所选开发机当前不在线"
+            return
+        }
+        if (path.isBlank() || prompt.isBlank() || isCreatingSession) return
+
+        viewModelScope.launch {
+            isCreatingSession = true
+            createError = null
+            try {
+                when (val result = socketClient.spawnCodexSession(
+                    credentials = credentials,
+                    machine = machine,
+                    directory = path.trim(),
+                    approvedNewDirectoryCreation = approvedNewDirectoryCreation,
+                )) {
+                    is HappySpawnResult.Success -> {
+                        val session = waitForSession(credentials, result.sessionId)
+                        if (session == null) {
+                            createError = "会话已启动，但同步尚未完成，请刷新后查看"
+                        } else {
+                            prompt.trim().takeIf(String::isNotBlank)?.let {
+                                syncApi.sendMessage(credentials, session, it)
+                            }
+                            createdSessionId = session.id
+                        }
+                    }
+                    is HappySpawnResult.DirectoryApprovalRequired -> {
+                        pendingDirectoryApproval = PendingDirectoryApproval(
+                            machineId = machine.id,
+                            path = result.directory,
+                            prompt = prompt,
+                        )
+                    }
+                    is HappySpawnResult.Error -> createError = result.message
+                }
+            } catch (_: HappySyncException) {
+                createError = "会话启动后同步失败，请刷新后查看"
+            } catch (_: Exception) {
+                createError = "无法在开发机上启动 Codex，请确认 Happy CLI 在线"
+            } finally {
+                isCreatingSession = false
+            }
+        }
+    }
+
+    private suspend fun waitForSession(
+        credentials: HappyCredentials,
+        sessionId: String,
+    ): HappySession? {
+        repeat(10) {
+            val snapshot = syncApi.fetchSnapshot(credentials)
+            machines = snapshot.machines
+            sessions = snapshot.sessions
+            snapshot.sessions.firstOrNull { it.id == sessionId }?.let { return it }
+            delay(1_000)
+        }
+        return null
+    }
 }
+
+data class PendingDirectoryApproval(
+    val machineId: String,
+    val path: String,
+    val prompt: String,
+)
 
 sealed interface WorkflowConnectionStatus {
     data object Disconnected : WorkflowConnectionStatus

@@ -40,6 +40,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import me.rerere.rikkahub.ui.components.nav.BackButton
+import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyApproval
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyMessage
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyMessageRole
@@ -52,12 +54,19 @@ fun WorkflowSessionPage(
     sessionId: String,
     vm: WorkflowSessionVM = koinViewModel(parameters = { parametersOf(sessionId) }),
 ) {
+    val navController = LocalNavController.current
     var stopConfirmation by remember { mutableStateOf(false) }
     var approvalConfirmation by remember { mutableStateOf<ApprovalConfirmation?>(null) }
     val listState = rememberLazyListState()
     LaunchedEffect(vm.messages.size, vm.session?.approvals?.size) {
         val lastIndex = vm.messages.size + vm.session?.approvals.orEmpty().size - 1
         if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
+    }
+    LaunchedEffect(vm.resumedSessionId) {
+        vm.resumedSessionId?.let { id ->
+            vm.consumeResumedSession()
+            navController.navigate(Screen.WorkflowSession(id))
+        }
     }
 
     Scaffold(
@@ -73,7 +82,10 @@ fun WorkflowSessionPage(
                     }
                 },
                 actions = {
-                    TextButton(onClick = { stopConfirmation = true }, enabled = vm.session != null && !vm.isActing) {
+                    TextButton(
+                        onClick = { stopConfirmation = true },
+                        enabled = vm.session?.active == true && !vm.isActing,
+                    ) {
                         Text("停止", color = MaterialTheme.colorScheme.error)
                     }
                 },
@@ -81,27 +93,37 @@ fun WorkflowSessionPage(
         },
         bottomBar = {
             Surface(shadowElevation = 8.dp) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().imePadding().padding(12.dp),
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    OutlinedTextField(
-                        value = vm.draft,
-                        onValueChange = vm::updateDraft,
-                        modifier = Modifier.weight(1f),
-                        placeholder = { Text("给 Codex 补充要求") },
-                        minLines = 1,
-                        maxLines = 5,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = { vm.send() }),
-                        enabled = vm.session != null && !vm.isActing,
-                    )
+                if (vm.session?.active == false) {
                     Button(
-                        onClick = vm::send,
-                        enabled = vm.draft.isNotBlank() && vm.session != null && !vm.isActing,
+                        onClick = vm::resumeSession,
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        enabled = !vm.isActing && vm.machines.any { it.id == vm.session?.machineId && it.active },
                     ) {
-                        Text("发送")
+                        Text(if (vm.isActing) "正在恢复" else "在开发机上恢复此对话")
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().imePadding().padding(12.dp),
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = vm.draft,
+                            onValueChange = vm::updateDraft,
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("给 Codex 补充要求") },
+                            minLines = 1,
+                            maxLines = 5,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = { vm.send() }),
+                            enabled = vm.session != null && !vm.isActing,
+                        )
+                        Button(
+                            onClick = vm::send,
+                            enabled = vm.draft.isNotBlank() && vm.session != null && !vm.isActing,
+                        ) {
+                            Text("发送")
+                        }
                     }
                 }
             }
@@ -183,9 +205,9 @@ private fun SessionTargetCard(vm: WorkflowSessionVM) {
             Text("远程操作目标", fontWeight = FontWeight.SemiBold)
             Text(session.targetSummary(), style = MaterialTheme.typography.bodySmall)
             Text(
-                if (session.active) "开发机连接活跃" else "开发机当前离线，读取仍会自动补偿",
+                if (session.active) "任务正在运行" else "任务已结束，历史记录会长期保留",
                 style = MaterialTheme.typography.labelMedium,
-                color = if (session.active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                color = if (session.active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

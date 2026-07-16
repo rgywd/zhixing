@@ -17,6 +17,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.json.JSONObject
 
@@ -39,6 +42,38 @@ class HappySocketClient(
     suspend fun connect(credentials: HappyCredentials) {
         ensureConnected(credentials)
     }
+
+    suspend fun spawnCodexSession(
+        credentials: HappyCredentials,
+        machine: HappyMachine,
+        directory: String,
+        approvedNewDirectoryCreation: Boolean = false,
+    ): HappySpawnResult = machineRpc(
+        credentials = credentials,
+        machine = machine,
+        method = "spawn-happy-session",
+        params = buildJsonObject {
+            put("type", "spawn-in-directory")
+            put("directory", directory)
+            put("approvedNewDirectoryCreation", approvedNewDirectoryCreation)
+            put("agent", "codex")
+            put("permissionMode", "default")
+        },
+    ).toHappySpawnResult()
+
+    suspend fun resumeSession(
+        credentials: HappyCredentials,
+        machine: HappyMachine,
+        session: HappySession,
+    ): HappySpawnResult = machineRpc(
+        credentials = credentials,
+        machine = machine,
+        method = "resume-happy-session",
+        params = buildJsonObject {
+            put("sessionId", session.id)
+            put("permissionMode", "default")
+        },
+    ).toHappySpawnResult()
 
     suspend fun abort(credentials: HappyCredentials, session: HappySession) {
         sessionRpc(
@@ -134,6 +169,65 @@ class HappySocketClient(
         }
     }
 
+    private suspend fun machineRpc(
+        credentials: HappyCredentials,
+        machine: HappyMachine,
+        method: String,
+        params: JsonObject,
+    ): JsonElement {
+        val key = machine.encryptionKey ?: throw HappyDecryptionException(machine.id)
+        val connectedSocket = ensureConnected(credentials)
+        val encryptedParams = recordCrypto.encryptElement(params, key, machine.encryptionVariant)
+        val payload = JSONObject()
+            .put("method", "${machine.id}:$method")
+            .put("params", encryptedParams)
+
+        return withTimeout(RPC_TIMEOUT_MS) {
+            suspendCancellableCoroutine { continuation ->
+                val completed = AtomicBoolean(false)
+                val ack = Ack { args ->
+                    if (!completed.compareAndSet(false, true) || !continuation.isActive) return@Ack
+                    val response = args.firstOrNull() as? JSONObject
+                    when {
+                        response == null -> continuation.resumeWithException(HappyRpcException.InvalidResponse(method))
+                        !response.optBoolean("ok", false) -> continuation.resumeWithException(
+                            HappyRpcException.Rejected(method, response.optString("error", "RPC rejected"))
+                        )
+                        else -> {
+                            val encoded = response.optString("result")
+                            val result = encoded.takeIf(String::isNotBlank)?.let {
+                                recordCrypto.decryptElement(it, key, machine.encryptionVariant)
+                            }
+                            if (result == null) {
+                                continuation.resumeWithException(HappyDecryptionException(machine.id))
+                            } else {
+                                continuation.resume(result)
+                            }
+                        }
+                    }
+                }
+                connectedSocket.emit("rpc-call", arrayOf(payload), ack)
+                continuation.invokeOnCancellation { completed.set(true) }
+            }
+        }
+    }
+
+    private fun JsonElement.toHappySpawnResult(): HappySpawnResult {
+        val value = jsonObject
+        return when (value["type"]?.jsonPrimitive?.contentOrNull) {
+            "success" -> value["sessionId"]?.jsonPrimitive?.contentOrNull
+                ?.let(HappySpawnResult::Success)
+                ?: HappySpawnResult.Error("开发机没有返回会话 ID")
+            "requestToApproveDirectoryCreation" -> value["directory"]?.jsonPrimitive?.contentOrNull
+                ?.let(HappySpawnResult::DirectoryApprovalRequired)
+                ?: HappySpawnResult.Error("开发机没有返回待创建目录")
+            "error" -> HappySpawnResult.Error(
+                value["errorMessage"]?.jsonPrimitive?.contentOrNull ?: "开发机无法启动会话"
+            )
+            else -> HappySpawnResult.Error("开发机返回了无法识别的结果")
+        }
+    }
+
     private suspend fun ensureConnected(credentials: HappyCredentials): Socket = connectionMutex.withLock {
         val current = socket
         if (current != null && token == credentials.token && current.connected()) return current
@@ -207,6 +301,12 @@ class HappySocketClient(
         const val CONNECTION_TIMEOUT_MS = 15_000L
         const val RPC_TIMEOUT_MS = 35_000L
     }
+}
+
+sealed interface HappySpawnResult {
+    data class Success(val sessionId: String) : HappySpawnResult
+    data class DirectoryApprovalRequired(val directory: String) : HappySpawnResult
+    data class Error(val message: String) : HappySpawnResult
 }
 
 sealed class HappyRpcException(message: String) : Exception(message) {

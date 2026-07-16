@@ -127,7 +127,9 @@ import me.rerere.rikkahub.ui.pages.stats.StatsPage
 import me.rerere.rikkahub.ui.pages.translator.TranslatorPage
 import me.rerere.rikkahub.ui.pages.webview.WebViewPage
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowPage
+import me.rerere.rikkahub.ui.pages.workflow.WorkflowProjectPage
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowSessionPage
+import me.rerere.rikkahub.ui.pages.workflow.WorkflowSettingsPage
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.ui.theme.RikkahubTheme
 import me.rerere.rikkahub.utils.CrashHandler
@@ -353,8 +355,16 @@ class RouteActivity : ComponentActivity() {
                                 WorkflowPage()
                             }
 
+                            entry<Screen.WorkflowProject> { key ->
+                                WorkflowProjectPage(key.machineId, key.path)
+                            }
+
                             entry<Screen.WorkflowSession> { key ->
                                 WorkflowSessionPage(key.id)
+                            }
+
+                            entry<Screen.WorkflowSettings> {
+                                WorkflowSettingsPage()
                             }
 
                             entry<Screen.Assistant> {
@@ -606,7 +616,13 @@ sealed interface Screen : NavKey {
     data object Workflow : Screen
 
     @Serializable
+    data class WorkflowProject(val machineId: String, val path: String) : Screen
+
+    @Serializable
     data class WorkflowSession(val id: String) : Screen
+
+    @Serializable
+    data object WorkflowSettings : Screen
 
     @Serializable
     data object Assistant : Screen

@@ -59,6 +59,8 @@
 
 - [x] 实现 Happy 恢复密钥、Bearer token、Keystore 和加密兼容层。
 - [x] 原生展示机器、项目、会话、历史消息与实时状态，不加载 Happy Web UI。
+- [x] 工作首页按开发机与目录聚合完整 Codex 历史；Happy 账户和机器诊断迁入设置。
+- [x] 支持手机指定项目目录启动 Codex 任务，以及恢复已结束的历史对话。
 - [x] 支持补充消息、中断任务和审批 RPC，并区分离线、超时、冲突与解密错误。
 - [x] 使用当前真实 Happy/Codex 账户完成读写闭环与断线恢复验证。
 - [x] 工作流默认入口不再加载 Happy WebView；CPA/VPS 自托管 Happy Relay 留待后续阶段。
