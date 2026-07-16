@@ -16,6 +16,8 @@ Android-first、本地优先的个人 AI 工作台。
 
 - [产品与体验设计](docs/zhixing/PRODUCT_DESIGN.md)
 - [运行时与数据契约](docs/zhixing/RUNTIME_CONTRACT.md)
+- [知识空间 v0.1](docs/zhixing/KNOWLEDGE_SPACE.md)
+- [数据安全与定时备份](docs/zhixing/DATA_SAFETY_AND_BACKUP.md)
 - [实施计划](docs/zhixing/IMPLEMENTATION_PLAN.md)
 
 ## 本地构建

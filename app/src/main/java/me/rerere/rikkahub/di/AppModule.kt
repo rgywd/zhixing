@@ -82,6 +82,7 @@ val appModule = module {
             filesManager = get(),
             skillManager = get(),
             workspaceRepository = get(),
+            knowledgeSpaceService = get(),
             folderRepository = get()
         )
     }

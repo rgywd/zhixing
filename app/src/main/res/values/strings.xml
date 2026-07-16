@@ -1178,6 +1178,16 @@
   <string name="workspace_detail_reinstall_rootfs">Reinstall Rootfs</string>
   <string name="workspace_detail_install_rootfs">Install Rootfs</string>
   <string name="workspace_detail_workspace_info">Workspace</string>
+  <string name="workspace_detail_knowledge_title">Project Knowledge</string>
+  <string name="workspace_detail_knowledge_desc">Keep project sources, notes, decisions and outputs locally, with source-aware AI search</string>
+  <string name="workspace_detail_knowledge_not_initialized">Initialize once to create PROJECT.md and the standard knowledge directories. Existing files will not be overwritten.</string>
+  <string name="workspace_detail_knowledge_initialize">Initialize Knowledge Space</string>
+  <string name="workspace_detail_knowledge_import">Import Knowledge</string>
+  <string name="workspace_detail_knowledge_counts">%1$d sources · %2$d searchable documents</string>
+  <string name="workspace_detail_tool_knowledge_status">Knowledge Status</string>
+  <string name="workspace_detail_tool_knowledge_search">Search Knowledge</string>
+  <string name="workspace_detail_tool_knowledge_read">Read Knowledge</string>
+  <string name="workspace_detail_tool_knowledge_ingest">Import Knowledge</string>
   <string name="workspace_detail_name">Name</string>
   <string name="workspace_detail_shell_status">Shell Status</string>
   <string name="workspace_detail_loading">Loading</string>
@@ -1246,6 +1256,9 @@
   <string name="tool_ui_move_file">Move file</string>
   <string name="tool_ui_shell">Shell: %s</string>
   <string name="tool_ui_shell_default">Shell</string>
+  <string name="tool_ui_knowledge_search">Search knowledge: %s</string>
+  <string name="tool_ui_knowledge_read">Read knowledge: %s</string>
+  <string name="tool_ui_knowledge_ingest">Import knowledge: %s</string>
   <string name="tool_ui_shell_timeout">timeout</string>
   <string name="tool_ui_shell_exit">exit %s</string>
   <string name="tool_ui_speaking">Speaking: %s</string>
