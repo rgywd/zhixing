@@ -126,7 +126,8 @@ import me.rerere.rikkahub.ui.pages.share.handler.ShareHandlerPage
 import me.rerere.rikkahub.ui.pages.stats.StatsPage
 import me.rerere.rikkahub.ui.pages.translator.TranslatorPage
 import me.rerere.rikkahub.ui.pages.webview.WebViewPage
-import me.rerere.rikkahub.ui.pages.workflow.WorkflowPortal
+import me.rerere.rikkahub.ui.pages.workflow.WorkflowPage
+import me.rerere.rikkahub.ui.pages.workflow.WorkflowSessionPage
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.ui.theme.RikkahubTheme
 import me.rerere.rikkahub.utils.CrashHandler
@@ -349,7 +350,11 @@ class RouteActivity : ComponentActivity() {
                             }
 
                             entry<Screen.Workflow> {
-                                WebViewPage(url = WorkflowPortal.URL, contentId = "")
+                                WorkflowPage()
+                            }
+
+                            entry<Screen.WorkflowSession> { key ->
+                                WorkflowSessionPage(key.id)
                             }
 
                             entry<Screen.Assistant> {
@@ -599,6 +604,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object Workflow : Screen
+
+    @Serializable
+    data class WorkflowSession(val id: String) : Screen
 
     @Serializable
     data object Assistant : Screen
