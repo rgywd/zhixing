@@ -8,6 +8,9 @@
 .externalNativeBuild
 .cxx
 local.properties
+app/app.key
+*.jks
+*.keystore
 .cursor
 .history
 .kotlin

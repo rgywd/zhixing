@@ -61,7 +61,7 @@ fun WebViewPage(url: String, contentId: String) {
         }
         rememberWebViewState(
             data = content,
-            baseUrl = "https://rikkahub.local",
+            baseUrl = "https://zhixing.local",
             mimeType = "text/html",
             settings = {
                 builtInZoomControls = true

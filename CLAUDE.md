@@ -4,8 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-RikkaHub is a native Android LLM chat client that supports switching between different AI providers for conversations.
-Built with Jetpack Compose, Kotlin, and follows Material Design 3 principles.
+Zhixing is a local-first native Android AI workspace that supports switching between different AI providers.
+It is built with Jetpack Compose and Kotlin and follows Material Design 3 principles. The existing
+`me.rerere.rikkahub` namespace is retained as an internal compatibility identifier; product-facing identity is Zhixing.
 
 ## Architecture Overview
 

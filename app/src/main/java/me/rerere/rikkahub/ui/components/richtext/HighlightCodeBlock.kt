@@ -481,7 +481,7 @@ private fun CodeBlockPreview(
 ) {
     val state = rememberWebViewState(
         data = buildCodePreviewHtml(code = code, language = language),
-        baseUrl = "https://rikkahub.local",
+        baseUrl = "https://zhixing.local",
         mimeType = "text/html",
         settings = {
             builtInZoomControls = true

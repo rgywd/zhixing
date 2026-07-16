@@ -2,6 +2,7 @@
 <resources>
   <string name="about_page_github">Github</string>
   <string name="about_page_license">License</string>
+  <string name="about_page_third_party_notices">第三方声明</string>
   <string name="about_page_system">系统</string>
   <string name="about_page_title">关于</string>
   <string name="about_page_version">版本</string>
@@ -550,7 +551,6 @@
   <string name="regenerate">重新生成</string>
   <string name="regenerate_confirm_message">确定要重新生成此消息吗？</string>
   <string name="render_with_webview">网页视图渲染</string>
-  <string name="rikkahub_provider_description">官方免费 AI 服务，使用用户赞助资金为新用户提供部分免费模型作为备用，无需 API 密钥。有严格速率限制，如已购买自有服务商，请尽量使用自有服务商。</string>
   <string name="safe_mode_assistants">助手</string>
   <string name="safe_mode_copy">复制</string>
   <string name="safe_mode_crash_report">崩溃报告</string>
@@ -858,10 +858,6 @@
   <string name="setting_page_share">分享</string>
   <string name="setting_page_share_desc">分享本APP给朋友</string>
   <string name="setting_page_share_text">知行 - 本地优先的 Android AI 工作台</string>
-  <string name="setting_page_sponsor_alert_confirm">捐赠</string>
-  <string name="setting_page_sponsor_alert_desc">您已启动应用超过100次！如果您喜欢使用它，请考虑支持开发者。</string>
-  <string name="setting_page_sponsor_alert_dismiss">暂不</string>
-  <string name="setting_page_sponsor_alert_title">支持开发者</string>
   <string name="setting_page_theme_setting">主题</string>
   <string name="setting_page_theme_setting_desc">自定义应用配色方案</string>
   <string name="setting_theme_page_preset_themes">预设主题</string>

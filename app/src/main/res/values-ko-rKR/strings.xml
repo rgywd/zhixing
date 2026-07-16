@@ -2,6 +2,7 @@
 <resources>
   <string name="about_page_github">Github</string>
   <string name="about_page_license">라이선스</string>
+  <string name="about_page_third_party_notices">서드파티 고지</string>
   <string name="about_page_system">시스템</string>
   <string name="about_page_title">정보</string>
   <string name="about_page_version">버전</string>
@@ -548,7 +549,6 @@
   <string name="regenerate">다시 생성</string>
   <string name="regenerate_confirm_message">이 메시지를 다시 생성하시겠습니까?</string>
   <string name="render_with_webview">WebView로 렌더링</string>
-  <string name="rikkahub_provider_description">공식 무료 AI 서비스로, 사용자 후원금으로 일부 무료 모델을 신규 사용자에게 대체 수단으로 제공하며 API 키가 필요 없습니다. 엄격한 요청 제한이 있으므로, 자체 제공자를 구매한 경우 되도록 자체 제공자를 사용하세요.</string>
   <string name="safe_mode_assistants">도우미</string>
   <string name="safe_mode_copy">복사</string>
   <string name="safe_mode_crash_report">충돌 보고서</string>
@@ -826,10 +826,6 @@
   <string name="setting_page_share">공유</string>
   <string name="setting_page_share_desc">앱을 친구들과 공유하기</string>
   <string name="setting_page_share_text">Zhixing - 로컬 우선 Android AI 작업 공간</string>
-  <string name="setting_page_sponsor_alert_confirm">기부하기</string>
-  <string name="setting_page_sponsor_alert_desc">앱을 100번 이상 실행하셨네요! 만족스럽게 사용하고 계시다면 개발자를 후원해 주세요.</string>
-  <string name="setting_page_sponsor_alert_dismiss">나중에</string>
-  <string name="setting_page_sponsor_alert_title">개발자 지원하기</string>
   <string name="setting_page_theme_setting">테마</string>
   <string name="setting_page_theme_setting_desc">앱 색상 구성 사용자 지정</string>
   <string name="setting_theme_page_preset_themes">프리셋 테마</string>

@@ -55,7 +55,7 @@ import kotlin.uuid.Uuid
  * - `usage`: token usage in Chatbox's field names.
  *
  * Import mapping:
- * - One Chatbox `session:<id>` becomes one RikkaHub [Conversation].
+ * - One Chatbox `session:<id>` becomes one Zhixing [Conversation].
  * - Leading `system` messages are merged into [Conversation.customSystemPrompt].
  * - Each remaining Chatbox message becomes one [MessageNode] with one [UIMessage].
  * - Stable UUIDs are derived from Chatbox ids so importing the same file again can skip existing conversations.

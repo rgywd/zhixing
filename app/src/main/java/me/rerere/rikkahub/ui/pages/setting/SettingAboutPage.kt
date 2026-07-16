@@ -4,7 +4,6 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Code
 import me.rerere.hugeicons.stroke.Earth
 import me.rerere.hugeicons.stroke.File02
-import me.rerere.hugeicons.stroke.Github
 import me.rerere.hugeicons.stroke.SmartPhone01
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -164,16 +163,16 @@ fun SettingAboutPage() {
                             headlineContent = { Text(stringResource(R.string.about_page_website)) },
                         )
                         item(
-                            onClick = { context.openUrl(AppIdentity.upstreamSourceUrl) },
-                            leadingContent = { Icon(HugeIcons.Github, null) },
-                            supportingContent = { Text(AppIdentity.upstreamSourceUrl) },
-                            headlineContent = { Text(stringResource(R.string.about_page_github)) },
+                            onClick = { context.openUrl(AppIdentity.licenseUrl) },
+                            leadingContent = { Icon(HugeIcons.File02, null) },
+                            supportingContent = { Text(AppIdentity.licenseUrl) },
+                            headlineContent = { Text(stringResource(R.string.about_page_license)) },
                         )
                         item(
-                            onClick = { context.openUrl(AppIdentity.upstreamLicenseUrl) },
+                            onClick = { context.openUrl(AppIdentity.thirdPartyNoticesUrl) },
                             leadingContent = { Icon(HugeIcons.File02, null) },
-                            supportingContent = { Text(AppIdentity.upstreamLicenseUrl) },
-                            headlineContent = { Text(stringResource(R.string.about_page_license)) },
+                            supportingContent = { Text(AppIdentity.thirdPartyNoticesUrl) },
+                            headlineContent = { Text(stringResource(R.string.about_page_third_party_notices)) },
                         )
                     }
                 }

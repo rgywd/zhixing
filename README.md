@@ -1,15 +1,16 @@
 # 知行（Zhixing）
 
-Android-first、本地优先的个人 AI 工作台。当前工程直接基于 RikkaHub 重构，不延续旧 `zhixing-assistant` 的 Story Engine 视觉或远端 Ktor 聊天主链。
+Android-first、本地优先的个人 AI 工作台。
 
-## 当前基线
+## 能力
 
-- 原生 Kotlin + Jetpack Compose + Material 3 Expressive。
+- 原生 Kotlin、Jetpack Compose 与 Material 3 Expressive。
 - Room 保存会话、消息分支、文件夹、记忆和工作区元数据。
-- DataStore 保存模型服务、助手和外观设置。
-- ProviderManager 在设备端直连用户配置的 OpenAI-compatible、Claude、Gemini 等服务。
-- 支持流式消息、多模态、消息分支、MCP、搜索、语音和本地工作区。
-- 默认不接入 Firebase Analytics、Crashlytics、Remote Config 或 RikkaHub 更新/免费模型服务。
+- DataStore 保存模型服务、助手与外观设置。
+- 在设备端直连用户配置的 OpenAI-compatible、Claude、Gemini 等服务。
+- 支持流式消息、多模态、消息分支、MCP、搜索、语音、本地工作区与 Web 客户端。
+- 支持火山引擎方舟通用 API 与 Agent Plan 专属配置。
+- 不接入第三方 Firebase、遥测、更新源或免费模型服务。
 
 产品与架构决策见：
 
@@ -35,21 +36,27 @@ Set-Location ..
 sdk.dir=C:/Users/you/AppData/Local/Android/Sdk
 ```
 
-产物位于 `app/build/outputs/apk/debug/`。Debug 包名为 `dev.sundby.zhixing.debug`。
+Debug APK 位于 `app/build/outputs/apk/debug/`，包名为 `dev.sundby.zhixing.debug`。
+
+## 发布与应用内更新
+
+推送与 `app/build.gradle.kts` 中 `versionName` 一致的 `v*` 标签后，GitHub Actions 会构建签名 APK、创建 Release，并生成应用内更新清单 `latest.json`。仓库需要配置：
+
+- `KEY_BASE64`：Base64 编码的签名文件。
+- `SIGNING_CONFIG`：包含 `storeFile`、`storePassword`、`keyAlias`、`keyPassword` 的 `local.properties` 内容。
+
+Android 的安全机制仍会要求用户在安装新版本时进行系统确认。
 
 ## 验证
 
-定向品牌/隐私边界测试：
-
 ```powershell
-./gradlew.bat :app:testDebugUnitTest --tests me.rerere.rikkahub.AppIdentityTest
+./gradlew.bat :app:testDebugUnitTest --tests me.rerere.rikkahub.AppIdentityTest --tests me.rerere.rikkahub.utils.UpdateCheckerTest
+./gradlew.bat :ai:testDebugUnitTest --tests me.rerere.ai.provider.providers.VolcengineAgentPlanProviderTest
+./gradlew.bat :app:assembleDebug
 ```
 
-完整上游 App 测试目前有 9 条已知基线失败，记录在 `docs/zhixing/IMPLEMENTATION_PLAN.md`；debug APK 构建已通过。
+完整 `:app:testDebugUnitTest` 当前为 130 条测试中 9 条继承基线失败；发布流水线只放行已验证的产品身份、更新、Provider 配置和 Agent Plan 关键路径。
 
-## 许可与上游
+## 许可
 
-本项目基于 [RikkaHub](https://github.com/rikkahub/rikkahub) 的
-`f5f398ef15f077fa4b97950a785bb8c740abe029` 开始重构。继续遵守仓库根目录 [LICENSE](LICENSE) 中的分段双重许可与 AGPL v3 义务，并保留上游版权及源码说明。
-
-当前用途为个人、非商业开发。若未来变成商业用途、超过许可限定用户数，或不希望履行 AGPL 源码义务，必须先重新评估并取得相应商业授权。
+许可条款见 [LICENSE](LICENSE)，上游版权与依赖归属集中记录在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

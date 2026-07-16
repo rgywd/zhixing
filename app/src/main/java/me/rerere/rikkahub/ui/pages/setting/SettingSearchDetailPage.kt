@@ -208,8 +208,8 @@ private fun SearchServiceOptionsEditor(
         is SearchServiceOptions.BochaOptions -> {
             BochaOptions(options) { onUpdateOptions(it) }
         }
-        is SearchServiceOptions.RikkaHubOptions -> {
-            RikkaHubOptions(options) { onUpdateOptions(it) }
+        is SearchServiceOptions.LegacyHostedOptions -> {
+            LegacyHostedOptions(options) { onUpdateOptions(it) }
         }
         is SearchServiceOptions.GrokOptions -> {
             GrokOptions(options) { onUpdateOptions(it) }
@@ -791,9 +791,9 @@ internal fun BochaOptions(
 }
 
 @Composable
-internal fun RikkaHubOptions(
-    options: SearchServiceOptions.RikkaHubOptions,
-    onUpdateOptions: (SearchServiceOptions.RikkaHubOptions) -> Unit
+internal fun LegacyHostedOptions(
+    options: SearchServiceOptions.LegacyHostedOptions,
+    onUpdateOptions: (SearchServiceOptions.LegacyHostedOptions) -> Unit
 ) {
     FormItem(
         label = {

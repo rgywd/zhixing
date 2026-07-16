@@ -15,24 +15,37 @@ import kotlinx.serialization.json.Json
 import me.rerere.rikkahub.AppIdentity
 import me.rerere.rikkahub.BuildConfig
 import okhttp3.OkHttpClient
+import okhttp3.Request
 
 class UpdateChecker(private val client: OkHttpClient) {
     private val json = Json { ignoreUnknownKeys = true }
 
     fun checkUpdate(): Flow<UiState<UpdateInfo>> = flow<UiState<UpdateInfo>> {
-        emit(
-            UiState.Success(
-                data = UpdateInfo(
-                    version = BuildConfig.VERSION_NAME,
-                    publishedAt = "",
-                    changelog = "",
-                    downloads = emptyList(),
-                )
-            )
-        )
+        val request = Request.Builder()
+            .url(AppIdentity.updateFeedUrl)
+            .header("User-Agent", "${AppIdentity.userAgentProduct}/${BuildConfig.VERSION_NAME}")
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (response.code == 404) {
+                emit(UiState.Success(currentVersion()))
+                return@flow
+            }
+            check(response.isSuccessful) { "Update feed returned HTTP ${response.code}" }
+            val body = response.body.string()
+            emit(UiState.Success(json.decodeFromString<UpdateInfo>(body)))
+        }
     }.catch {
-        emit(UiState.Error(it))
+        // Update checks run in the background. A temporarily unavailable feed
+        // must not turn the navigation drawer into an error surface.
+        emit(UiState.Success(currentVersion()))
     }.flowOn(Dispatchers.IO)
+
+    private fun currentVersion() = UpdateInfo(
+        version = BuildConfig.VERSION_NAME,
+        publishedAt = "",
+        changelog = "",
+        downloads = emptyList(),
+    )
 
     fun downloadUpdate(context: Context, download: UpdateDownload) {
         runCatching {
@@ -64,7 +77,8 @@ class UpdateChecker(private val client: OkHttpClient) {
 data class UpdateDownload(
     val name: String,
     val url: String,
-    val size: String
+    val size: String,
+    val sha256: String? = null,
 )
 
 @Serializable
