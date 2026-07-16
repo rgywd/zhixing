@@ -45,11 +45,39 @@ import kotlin.uuid.Uuid
 private const val TAG = "VolcengineASR"
 private const val MAX_WEBSOCKET_QUEUE_BYTES = 100_000L
 
-class VolcengineASRController(
+class VolcengineASRController private constructor(
     private val context: Context,
     private val httpClient: OkHttpClient,
-    private val provider: ASRProviderSetting.Volcengine
+    private val apiKey: String,
+    private val websocketUrl: String,
+    private val resourceId: String,
+    private val language: String,
 ) : ASRController {
+    constructor(
+        context: Context,
+        httpClient: OkHttpClient,
+        provider: ASRProviderSetting.Volcengine,
+    ) : this(
+        context = context,
+        httpClient = httpClient,
+        apiKey = provider.apiKey,
+        websocketUrl = provider.websocketUrl,
+        resourceId = provider.resourceId,
+        language = provider.language,
+    )
+
+    constructor(
+        context: Context,
+        httpClient: OkHttpClient,
+        provider: ASRProviderSetting.VolcengineAgentPlan,
+    ) : this(
+        context = context,
+        httpClient = httpClient,
+        apiKey = provider.apiKey,
+        websocketUrl = AGENT_PLAN_WEBSOCKET_URL,
+        resourceId = AGENT_PLAN_RESOURCE_ID,
+        language = provider.language,
+    )
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val _state = MutableStateFlow(ASRState(isAvailable = true))
@@ -82,9 +110,9 @@ class VolcengineASRController(
         }
 
         val request = Request.Builder()
-            .url(provider.websocketUrl)
-            .addHeader("X-Api-Key", provider.apiKey)
-            .addHeader("X-Api-Resource-Id", provider.resourceId)
+            .url(websocketUrl)
+            .addHeader("X-Api-Key", apiKey)
+            .addHeader("X-Api-Resource-Id", resourceId)
             .addHeader("X-Api-Request-Id", Uuid.random().toString())
             .addHeader("X-Api-Sequence", "-1")
             .build()
@@ -160,8 +188,8 @@ class VolcengineASRController(
             .put("rate", SAMPLE_RATE)
             .put("bits", 16)
             .put("channel", 1)
-        if (provider.language.isNotBlank()) {
-            audio.put("language", provider.language)
+        if (language.isNotBlank()) {
+            audio.put("language", language)
         }
 
         val json = JSONObject()
@@ -319,6 +347,9 @@ class VolcengineASRController(
         private const val COMP_NONE = 0x00
         private const val COMP_GZIP = 0x01
         private const val FLAG_LAST_PACKET = 0x02
+        private const val AGENT_PLAN_WEBSOCKET_URL =
+            "wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async"
+        private const val AGENT_PLAN_RESOURCE_ID = "volc.seedasr.sauc.duration"
 
         private fun buildFrame(
             messageType: Int,

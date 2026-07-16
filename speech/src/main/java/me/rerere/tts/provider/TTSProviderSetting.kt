@@ -2,6 +2,7 @@ package me.rerere.tts.provider
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlin.uuid.Uuid
 
 @Serializable
@@ -282,6 +283,29 @@ sealed class TTSProviderSetting {
         }
     }
 
+    /**
+     * 火山引擎 Agent Plan TTS。鉴权 Key 由应用层从同一个 Agent Plan
+     * 主提供商运行时注入，因此语音设置不会重复持久化 Key，也不暴露固定 URL。
+     */
+    @Serializable
+    @SerialName("volcengine_agent_plan")
+    data class VolcengineAgentPlan(
+        override var id: Uuid = Uuid.random(),
+        override var name: String = "火山引擎 Agent Plan TTS",
+        val providerId: String = "",
+        val voice: String = "zh_female_gaolengyujie_uranus_bigtts",
+        val format: String = "mp3",
+        val sampleRate: Int = 24000,
+        val speechRate: Int = 0,
+        val loudnessRate: Int = 0,
+        @Transient val apiKey: String = "",
+    ) : TTSProviderSetting() {
+        override fun copyProvider(
+            id: Uuid,
+            name: String,
+        ): TTSProviderSetting = copy(id = id, name = name)
+    }
+
     companion object {
         val Types by lazy {
             listOf(
@@ -296,6 +320,7 @@ sealed class TTSProviderSetting {
                 ElevenLabs::class,
                 Step::class,
                 FishAudio::class,
+                VolcengineAgentPlan::class,
             )
         }
     }

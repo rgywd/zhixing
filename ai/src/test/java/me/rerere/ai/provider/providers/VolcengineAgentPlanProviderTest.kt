@@ -1,6 +1,8 @@
 package me.rerere.ai.provider.providers
 
 import kotlinx.coroutines.runBlocking
+import me.rerere.ai.provider.ImageGenerationParams
+import me.rerere.ai.provider.ModelType
 import me.rerere.ai.provider.ProviderSetting
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
@@ -24,6 +26,12 @@ class VolcengineAgentPlanProviderTest {
         assertEquals(0, requestCount)
         assertTrue(models.any { it.modelId == "ark-code-latest" })
         assertTrue(models.any { it.modelId == "doubao-seed-2.0-code" })
+        assertTrue(models.any {
+            it.modelId == "doubao-embedding-vision" && it.type == ModelType.EMBEDDING
+        })
+        assertTrue(models.any {
+            it.modelId == "doubao-seedream-5.0-lite" && it.type == ModelType.IMAGE
+        })
     }
 
     @Test
@@ -39,5 +47,20 @@ class VolcengineAgentPlanProviderTest {
         assertEquals("https://ark.cn-beijing.volces.com/api/plan/v3", openAISetting.baseUrl)
         assertEquals("agent-plan-key", openAISetting.apiKey)
         assertTrue(openAISetting.useResponseApi)
+    }
+
+    @Test
+    fun `image generation normalizes Agent Plan defaults`() {
+        val provider = VolcengineAgentPlanProvider(OkHttpClient())
+        val model = VolcengineAgentPlanProvider.SUPPORTED_IMAGE_MODELS.single()
+
+        val params = with(provider) {
+            ImageGenerationParams(model = model, prompt = "一只猫").asAgentPlanParams()
+        }
+
+        assertEquals("2K", params.size)
+        assertTrue(params.customBody.any {
+            it.key == "output_format" && it.value.toString() == "\"png\""
+        })
     }
 }

@@ -22,6 +22,7 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.providers.VolcengineAgentPlanProvider
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.ai.mcp.McpServerConfig
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_COMPRESS_PROMPT
@@ -272,10 +273,17 @@ class SettingsStore(
                     ttsProviders.add(defaultTTSProvider.copyProvider())
                 }
             }
+            val asrProviders = it.asrProviders.ifEmpty { DEFAULT_ASR_PROVIDERS }.toMutableList()
+            DEFAULT_ASR_PROVIDERS.forEach { defaultASRProvider ->
+                if (asrProviders.none { provider -> provider.id == defaultASRProvider.id }) {
+                    asrProviders.add(defaultASRProvider.copyProvider())
+                }
+            }
             it.copy(
                 providers = providers,
                 assistants = assistants,
                 ttsProviders = ttsProviders,
+                asrProviders = asrProviders,
             )
         }
         .map { settings ->
@@ -293,7 +301,11 @@ class SettingsStore(
                         )
 
                         is ProviderSetting.VolcengineAgentPlan -> provider.copy(
-                            models = provider.models.distinctBy { model -> model.id }
+                            models = (
+                                provider.models + VolcengineAgentPlanProvider.SUPPORTED_MODELS.filter { bundled ->
+                                    provider.models.none { existing -> existing.modelId == bundled.modelId }
+                                }
+                            ).distinctBy { model -> model.id }
                         )
 
                         is ProviderSetting.Google -> provider.copy(
@@ -542,7 +554,7 @@ data class Settings(
     val s3Config: S3Config = S3Config(),
     val ttsProviders: List<TTSProviderSetting> = DEFAULT_TTS_PROVIDERS,
     val selectedTTSProviderId: Uuid = DEFAULT_SYSTEM_TTS_ID,
-    val asrProviders: List<ASRProviderSetting> = emptyList(),
+    val asrProviders: List<ASRProviderSetting> = DEFAULT_ASR_PROVIDERS,
     val selectedASRProviderId: Uuid? = null,
     val modeInjections: List<PromptInjection.ModeInjection> = DEFAULT_MODE_INJECTIONS,
     val lorebooks: List<Lorebook> = emptyList(),
@@ -676,15 +688,35 @@ fun Settings.getQuickMessagesOfAssistant(assistant: Assistant) =
     quickMessages.filter { it.id in assistant.quickMessageIds }
 
 fun Settings.getSelectedTTSProvider(): TTSProviderSetting? {
-    return selectedTTSProviderId?.let { id ->
+    val setting = selectedTTSProviderId?.let { id ->
         ttsProviders.find { it.id == id }
     } ?: ttsProviders.firstOrNull()
+    return when (setting) {
+        is TTSProviderSetting.VolcengineAgentPlan -> setting.copy(
+            apiKey = findAgentPlanProvider(setting.providerId)?.apiKey.orEmpty()
+        )
+
+        else -> setting
+    }
 }
 
 fun Settings.getSelectedASRProvider(): ASRProviderSetting? {
-    return selectedASRProviderId?.let { id ->
+    val setting = selectedASRProviderId?.let { id ->
         asrProviders.find { it.id == id }
     } ?: asrProviders.firstOrNull()
+    return when (setting) {
+        is ASRProviderSetting.VolcengineAgentPlan -> setting.copy(
+            apiKey = findAgentPlanProvider(setting.providerId)?.apiKey.orEmpty()
+        )
+
+        else -> setting
+    }
+}
+
+private fun Settings.findAgentPlanProvider(providerId: String): ProviderSetting.VolcengineAgentPlan? {
+    val agentPlanProviders = providers.filterIsInstance<ProviderSetting.VolcengineAgentPlan>()
+    return agentPlanProviders.firstOrNull { it.id.toString() == providerId }
+        ?: agentPlanProviders.firstOrNull()
 }
 
 fun Model.findProvider(providers: List<ProviderSetting>, checkOverwrite: Boolean = true): ProviderSetting? {
@@ -747,6 +779,17 @@ private val DEFAULT_TTS_PROVIDERS = listOf(
         baseUrl = "https://aihubmix.com/v1",
         model = "gpt-4o-mini-tts",
         voice = "alloy",
+    ),
+    TTSProviderSetting.VolcengineAgentPlan(
+        id = Uuid.parse("67f5d993-2821-44d5-8df4-a021ab65b67d"),
+        providerId = DEFAULT_VOLCENGINE_AGENT_PLAN_PROVIDER_ID.toString(),
+    ),
+)
+
+private val DEFAULT_ASR_PROVIDERS = listOf(
+    ASRProviderSetting.VolcengineAgentPlan(
+        id = Uuid.parse("ae4aa904-c393-43df-a347-e4a12de5cfaa"),
+        providerId = DEFAULT_VOLCENGINE_AGENT_PLAN_PROVIDER_ID.toString(),
     )
 )
 

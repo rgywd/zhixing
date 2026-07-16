@@ -341,14 +341,6 @@ private fun ProviderConfigureVolcengineAgentPlan(
         },
     )
 
-    OutlinedTextField(
-        value = provider.baseUrl,
-        onValueChange = {},
-        label = { Text(stringResource(R.string.setting_provider_page_api_base_url)) },
-        modifier = Modifier.fillMaxWidth(),
-        enabled = false,
-    )
-
     Text(
         text = stringResource(R.string.setting_provider_page_agent_plan_models_hint),
         style = MaterialTheme.typography.bodySmall,

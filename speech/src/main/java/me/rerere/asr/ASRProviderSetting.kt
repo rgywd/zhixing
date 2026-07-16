@@ -2,6 +2,7 @@ package me.rerere.asr
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlin.uuid.Uuid
 
 @Serializable
@@ -83,6 +84,25 @@ sealed class ASRProviderSetting {
                 name = name,
             )
         }
+    }
+
+    /**
+     * 火山引擎 Agent Plan ASR。Key 由应用层从 Agent Plan 主提供商运行时注入，
+     * WebSocket 地址与资源 ID 固定在控制器中，不向用户暴露。
+     */
+    @Serializable
+    @SerialName("volcengine_agent_plan")
+    data class VolcengineAgentPlan(
+        override val id: Uuid = Uuid.random(),
+        override val name: String = "火山引擎 Agent Plan ASR",
+        val providerId: String = "",
+        val language: String = "",
+        @Transient val apiKey: String = "",
+    ) : ASRProviderSetting() {
+        override fun copyProvider(
+            id: Uuid,
+            name: String,
+        ): ASRProviderSetting = copy(id = id, name = name)
     }
 
     /**
@@ -175,6 +195,7 @@ sealed class ASRProviderSetting {
                 OpenAIRealtime::class,
                 DashScope::class,
                 Volcengine::class,
+                VolcengineAgentPlan::class,
                 MiMo::class,
                 Step::class,
             )

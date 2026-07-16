@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.datastore
 
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.ModelType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -16,6 +17,9 @@ class DefaultProvidersTest {
         assertEquals("https://ark.cn-beijing.volces.com/api/plan/v3", provider.baseUrl)
         assertFalse(provider.enabled)
         assertTrue(provider.builtIn)
+        assertTrue(provider.models.any { it.type == ModelType.CHAT })
+        assertTrue(provider.models.any { it.type == ModelType.EMBEDDING })
+        assertTrue(provider.models.any { it.type == ModelType.IMAGE })
     }
 
     @Test

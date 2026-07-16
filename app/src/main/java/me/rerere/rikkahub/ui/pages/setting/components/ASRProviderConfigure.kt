@@ -35,6 +35,7 @@ fun ASRProviderConfigure(
                     is ASRProviderSetting.OpenAIRealtime -> "OpenAI Realtime"
                     is ASRProviderSetting.DashScope -> "DashScope"
                     is ASRProviderSetting.Volcengine -> "Volcengine"
+                    is ASRProviderSetting.VolcengineAgentPlan -> "火山引擎 Agent Plan"
                     is ASRProviderSetting.MiMo -> "MiMo"
                     is ASRProviderSetting.Step -> "Step"
                 },
@@ -60,9 +61,31 @@ fun ASRProviderConfigure(
             is ASRProviderSetting.OpenAIRealtime -> OpenAIRealtimeASRConfiguration(setting, onValueChange)
             is ASRProviderSetting.DashScope -> DashScopeASRConfiguration(setting, onValueChange)
             is ASRProviderSetting.Volcengine -> VolcengineASRConfiguration(setting, onValueChange)
+            is ASRProviderSetting.VolcengineAgentPlan -> {
+                VolcengineAgentPlanASRConfiguration(setting, onValueChange)
+            }
             is ASRProviderSetting.MiMo -> MiMoASRConfiguration(setting, onValueChange)
             is ASRProviderSetting.Step -> StepASRConfiguration(setting, onValueChange)
         }
+    }
+}
+
+@Composable
+private fun VolcengineAgentPlanASRConfiguration(
+    setting: ASRProviderSetting.VolcengineAgentPlan,
+    onValueChange: (ASRProviderSetting) -> Unit,
+) {
+    Text("API Key、WebSocket 地址与资源 ID 由火山引擎 Agent Plan 主提供商统一管理。")
+    FormItem(
+        label = { Text(stringResource(R.string.setting_asr_configure_language)) },
+        description = { Text("可选语言代码；留空时由模型自动识别") },
+    ) {
+        OutlinedTextField(
+            value = setting.language,
+            onValueChange = { onValueChange(setting.copy(language = it.trim())) },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("auto") },
+        )
     }
 }
 
