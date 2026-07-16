@@ -4,6 +4,8 @@ import android.content.Context
 import me.rerere.ai.core.Tool
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.github.GitHubIssueClient
+import me.rerere.rikkahub.data.github.GitHubIssueTokenProvider
 import me.rerere.tts.provider.TTSManager
 
 class LocalTools(
@@ -11,6 +13,8 @@ class LocalTools(
     private val eventBus: AppEventBus,
     private val ttsManager: TTSManager,
     private val settingsStore: SettingsStore,
+    private val githubIssueTokenProvider: GitHubIssueTokenProvider,
+    private val githubIssueClient: GitHubIssueClient,
 ) {
     val javascriptTool by lazy { buildJavascriptTool() }
 
@@ -28,11 +32,10 @@ class LocalTools(
 
     val calendarCreateTool by lazy { buildCalendarCreateTool(context) }
 
-    val githubIssueTool by lazy { buildGitHubIssueTool(context) }
+    val githubIssueTool by lazy { buildGitHubIssueTool(githubIssueTokenProvider, githubIssueClient) }
 
     fun getTools(options: List<LocalToolOption>): List<Tool> {
-        // Product feedback is always available. It opens a reviewable GitHub draft and
-        // still requires explicit tool approval before leaving the app.
+        // Product feedback is always available and is submitted only after explicit tool approval.
         val tools = mutableListOf(githubIssueTool)
         if (options.contains(LocalToolOption.JavascriptEngine)) {
             tools.add(javascriptTool)

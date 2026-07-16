@@ -1,9 +1,7 @@
 package me.rerere.rikkahub.data.ai.tools.local
 
-import android.content.Context
 import android.os.Build
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
@@ -15,11 +13,10 @@ import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.UIMessagePart
-import me.rerere.rikkahub.AppIdentity
 import me.rerere.rikkahub.BuildConfig
-import me.rerere.rikkahub.utils.openUrl
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
+import me.rerere.rikkahub.data.github.GitHubIssueApiException
+import me.rerere.rikkahub.data.github.GitHubIssueClient
+import me.rerere.rikkahub.data.github.GitHubIssueTokenProvider
 
 private const val FEATURE_TYPE = "feature"
 private const val BUG_TYPE = "bug"
@@ -38,17 +35,18 @@ internal data class GitHubIssueDraft(
     val title: String,
     val body: String,
     val label: String,
-    val url: String,
 )
 
-internal fun buildGitHubIssueTool(context: Context): Tool = Tool(
+internal fun buildGitHubIssueTool(
+    tokenProvider: GitHubIssueTokenProvider,
+    issueClient: GitHubIssueClient,
+): Tool = Tool(
     name = "submit_github_issue",
     description = """
-        Prepare a feature request or bug report for the Zhixing GitHub repository and open the prefilled
-        GitHub issue page for the user to review and submit. Prefer type 'feature' for product ideas and
+        Create a feature request or bug report in the Zhixing GitHub repository after the user approves
+        this tool call. Prefer type 'feature' for product ideas and
         requirements. Never include API keys, tokens, private conversations, personal data, or other secrets.
-        This tool always requires user approval and does not claim the issue is submitted until the user
-        confirms it on GitHub.
+        This tool always requires user approval and creates the issue directly after approval.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
@@ -73,17 +71,37 @@ internal fun buildGitHubIssueTool(context: Context): Tool = Tool(
     needsApproval = { true },
     execute = { input ->
         val draft = createGitHubIssueDraft(input.jsonObject, currentIssueEnvironment())
-        withContext(Dispatchers.Main) {
-            context.openUrl(draft.url)
+        val token = tokenProvider.getToken()
+        if (token == null) {
+            return@Tool listOf(UIMessagePart.Text(toolResult(
+                status = "NOT_CONFIGURED",
+                draft = draft,
+                message = "Configure a fine-grained GitHub token in Settings > About before submitting.",
+            )))
         }
-        listOf(UIMessagePart.Text(buildJsonObject {
-            put("status", "AWAITING_USER_SUBMISSION")
-            put("type", draft.type)
-            put("title", draft.title)
-            put("label", draft.label)
-            put("url", draft.url)
-            put("message", "The prefilled GitHub issue page is open. Review it and submit on GitHub.")
-        }.toString()))
+        try {
+            val created = issueClient.createIssue(token, draft.title, draft.body, draft.label)
+            listOf(UIMessagePart.Text(toolResult(
+                status = "CREATED",
+                draft = draft,
+                message = "GitHub issue #${created.number} was created.",
+                number = created.number,
+                url = created.url,
+            )))
+        } catch (error: GitHubIssueApiException) {
+            listOf(UIMessagePart.Text(toolResult(
+                status = if (error.statusCode == 401 || error.statusCode == 403) "AUTH_FAILED" else "GITHUB_ERROR",
+                draft = draft,
+                message = error.message.orEmpty(),
+            )))
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            listOf(UIMessagePart.Text(toolResult(
+                status = "GITHUB_ERROR",
+                draft = draft,
+                message = "Unable to reach GitHub. Check the network and try again.",
+            )))
+        }
     },
 )
 
@@ -110,9 +128,24 @@ internal fun createGitHubIssueDraft(
     } else {
         bugBody(input, description, environment)
     }
-    val url = buildGitHubIssueUrl(title, body, label)
-    return GitHubIssueDraft(type, title, body, label, url)
+    return GitHubIssueDraft(type, title, body, label)
 }
+
+private fun toolResult(
+    status: String,
+    draft: GitHubIssueDraft,
+    message: String,
+    number: Int? = null,
+    url: String? = null,
+): String = buildJsonObject {
+    put("status", status)
+    put("type", draft.type)
+    put("title", draft.title)
+    put("label", draft.label)
+    put("message", message)
+    number?.let { put("number", it) }
+    url?.let { put("url", it) }
+}.toString()
 
 private fun featureBody(
     input: JsonObject,
@@ -154,10 +187,6 @@ private fun StringBuilder.appendEnvironment(environment: GitHubIssueEnvironment)
     appendLine("<!-- 由 Zhixing 内置工具整理；提交前已由用户确认。 -->")
 }
 
-private fun buildGitHubIssueUrl(title: String, body: String, label: String): String =
-    "${AppIdentity.issueTrackerUrl}/new" +
-        "?title=${title.urlEncode()}&body=${body.urlEncode()}&labels=${label.urlEncode()}"
-
 private fun currentIssueEnvironment() = GitHubIssueEnvironment(
     appVersion = BuildConfig.VERSION_NAME,
     versionCode = BuildConfig.VERSION_CODE,
@@ -178,6 +207,3 @@ private fun stringProperty(description: String) = buildJsonObject {
     put("type", "string")
     put("description", description)
 }
-
-private fun String.urlEncode(): String =
-    URLEncoder.encode(this, StandardCharsets.UTF_8.name()).replace("+", "%20")

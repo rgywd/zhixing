@@ -5,6 +5,7 @@ import me.rerere.hugeicons.stroke.Code
 import me.rerere.hugeicons.stroke.Earth
 import me.rerere.hugeicons.stroke.File02
 import me.rerere.hugeicons.stroke.SmartPhone01
+import me.rerere.hugeicons.stroke.Bug01
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,10 +18,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -36,12 +40,14 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import me.rerere.rikkahub.AppIdentity
 import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.data.github.GitHubIssueCredentialStore
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.easteregg.EmojiBurstHost
 import me.rerere.rikkahub.ui.components.ui.CardGroup
@@ -49,9 +55,12 @@ import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.openUrl
 import me.rerere.rikkahub.utils.plus
+import org.koin.compose.koinInject
 
 @Composable
-fun SettingAboutPage() {
+fun SettingAboutPage(
+    githubIssueCredentialStore: GitHubIssueCredentialStore = koinInject(),
+) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val context = LocalContext.current
     val navController = LocalNavController.current
@@ -67,6 +76,25 @@ fun SettingAboutPage() {
         )
     }
     var logoCenterPx by remember { mutableStateOf(Offset.Zero) }
+    var showIssueTokenDialog by remember { mutableStateOf(false) }
+    var issueTokenConfigured by remember { mutableStateOf(githubIssueCredentialStore.hasToken()) }
+
+    if (showIssueTokenDialog) {
+        GitHubIssueTokenDialog(
+            configured = issueTokenConfigured,
+            onSave = { token ->
+                githubIssueCredentialStore.saveToken(token)
+                issueTokenConfigured = true
+                showIssueTokenDialog = false
+            },
+            onClear = {
+                githubIssueCredentialStore.clear()
+                issueTokenConfigured = false
+                showIssueTokenDialog = false
+            },
+            onDismiss = { showIssueTokenDialog = false },
+        )
+    }
     Scaffold(
         topBar = {
             LargeFlexibleTopAppBar(
@@ -163,6 +191,17 @@ fun SettingAboutPage() {
                             headlineContent = { Text(stringResource(R.string.about_page_website)) },
                         )
                         item(
+                            onClick = { showIssueTokenDialog = true },
+                            leadingContent = { Icon(HugeIcons.Bug01, null) },
+                            supportingContent = {
+                                Text(stringResource(
+                                    if (issueTokenConfigured) R.string.github_issue_token_configured
+                                    else R.string.github_issue_token_not_configured
+                                ))
+                            },
+                            headlineContent = { Text(stringResource(R.string.github_issue_token_title)) },
+                        )
+                        item(
                             onClick = { context.openUrl(AppIdentity.licenseUrl) },
                             leadingContent = { Icon(HugeIcons.File02, null) },
                             supportingContent = { Text(AppIdentity.licenseUrl) },
@@ -179,4 +218,50 @@ fun SettingAboutPage() {
             }
         }
     }
+}
+
+@Composable
+private fun GitHubIssueTokenDialog(
+    configured: Boolean,
+    onSave: (String) -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var token by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.github_issue_token_dialog_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.github_issue_token_dialog_description))
+                OutlinedTextField(
+                    value = token,
+                    onValueChange = { token = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.github_issue_token_field_label)) },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = token.isNotBlank(),
+                onClick = { onSave(token) },
+            ) {
+                Text(stringResource(R.string.github_issue_token_save))
+            }
+        },
+        dismissButton = {
+            if (configured) {
+                TextButton(onClick = onClear) {
+                    Text(stringResource(R.string.github_issue_token_clear))
+                }
+            } else {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.github_issue_token_cancel))
+                }
+            }
+        },
+    )
 }
