@@ -29,7 +29,7 @@ jobs:
       - name: Validate source branch name
         env:
           HEAD_REF: ${{ github.head_ref }}
-        run: .github/scripts/check-branch-name.sh "${HEAD_REF}"
+        run: bash .github/scripts/check-branch-name.sh "${HEAD_REF}"
 
   verify:
     name: Build and test
