@@ -28,8 +28,12 @@ class LocalTools(
 
     val calendarCreateTool by lazy { buildCalendarCreateTool(context) }
 
+    val githubIssueTool by lazy { buildGitHubIssueTool(context) }
+
     fun getTools(options: List<LocalToolOption>): List<Tool> {
-        val tools = mutableListOf<Tool>()
+        // Product feedback is always available. It opens a reviewable GitHub draft and
+        // still requires explicit tool approval before leaving the app.
+        val tools = mutableListOf(githubIssueTool)
         if (options.contains(LocalToolOption.JavascriptEngine)) {
             tools.add(javascriptTool)
         }

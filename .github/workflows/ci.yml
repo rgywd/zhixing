@@ -72,6 +72,7 @@ jobs:
             --tests me.rerere.rikkahub.utils.UpdateCheckerTest \
             --tests me.rerere.rikkahub.data.datastore.DefaultProvidersTest \
             --tests me.rerere.rikkahub.data.datastore.AgentPlanSpeechKeyResolutionTest \
+            --tests me.rerere.rikkahub.data.ai.tools.local.GitHubIssueToolTest \
             --tests me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigureConvertToTest
 
       - name: Build deployable debug APKs
