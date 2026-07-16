@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - "release/**"
+  push:
+    branches:
+      - main
+      - "release/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  branch-policy:
+    name: Branch policy
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate source branch name
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: bash .github/scripts/check-branch-name.sh "${HEAD_REF}"
+
+  verify:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web-ui/pnpm-lock.yaml
+
+      - name: Install web dependencies
+        working-directory: web-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Test release-critical paths
+        run: |
+          ./gradlew :ai:testDebugUnitTest :speech:testDebugUnitTest
+          ./gradlew :app:testDebugUnitTest \
+            --tests me.rerere.rikkahub.AppIdentityTest \
+            --tests me.rerere.rikkahub.utils.UpdateCheckerTest \
+            --tests me.rerere.rikkahub.data.datastore.DefaultProvidersTest \
+            --tests me.rerere.rikkahub.data.datastore.AgentPlanSpeechKeyResolutionTest \
+            --tests me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigureConvertToTest
+
+      - name: Build deployable debug APKs
+        run: ./gradlew :app:assembleDebug
