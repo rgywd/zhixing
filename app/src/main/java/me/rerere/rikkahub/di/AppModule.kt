@@ -9,6 +9,9 @@ import me.rerere.rikkahub.data.github.GitHubIssueClient
 import me.rerere.rikkahub.data.github.GitHubIssueCredentialStore
 import me.rerere.rikkahub.data.github.GitHubIssueTokenProvider
 import me.rerere.rikkahub.service.ChatNotificationManager
+import me.rerere.rikkahub.service.WorkNotificationManager
+import me.rerere.rikkahub.service.WorkSyncWorker
+import org.koin.androidx.workmanager.dsl.workerOf
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.telemetry.AppTelemetry
 import me.rerere.rikkahub.telemetry.NoOpAppTelemetry
@@ -100,6 +103,16 @@ val appModule = module {
             settingsStore = get(),
         )
     }
+
+    // 远程任务关键通知：进程存活期走 Socket 增量，周期 Worker 兜底
+    single(createdAtStart = true) {
+        WorkNotificationManager(
+            context = get(),
+            appScope = get(),
+            repository = get(),
+        )
+    }
+    workerOf(::WorkSyncWorker)
 
     single {
         ChatService(
