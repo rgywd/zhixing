@@ -100,7 +100,7 @@ package.json，不进 Android 构建图。
 
 ## 8. P2：Claude 通道（司南式"寻呼机"模型）
 
-状态：设计已批准（2026-07-17），编码在 P1 之后另行启动。
+状态：设计已批准（2026-07-17）；P2-1 编码于 2026-07-18 启动。
 方向定调："对 Claude Code 改造而非复用"——彻底甩开 happy 对 Claude 的包裹层，
 只使用官方稳定面：headless CLI（`claude -p --resume`）+ MCP。
 参考来源：司南「会话」交互机制（同事方案），采纳其进程模型与电话线设计，
@@ -126,13 +126,16 @@ Claude 会话是"寻呼机"而非"镜像"：agent 在开发机上自主干活，
 
 | 档位 | 起进程参数 | 效果 |
 |---|---|---|
-| 普通 | 默认权限 + `--permission-prompt-tool`（指向中继 MCP 的审批工具） | 敏感操作弹手机审批卡，CLI 侧强制阻塞；超时默认拒绝 |
+| 普通 | 默认权限 + `PermissionRequest` Hook（由本机 bridge 同步转手机审批） | 敏感操作弹手机审批卡，CLI 侧强制阻塞；超时默认拒绝 |
 | 完全访问 | `--dangerously-skip-permissions` | 与 Codex 完全访问档对齐 |
 
 - 档位在**新建会话时**选定，会话内、跨轮均**不提供切换**；要换档 = 新建会话。
   （用户拍板 2026-07-17；也与"每轮新进程、参数起时定"的模型天然一致。）
 - 相比司南原案（直接 skip-permissions，HITL 靠 agent 自觉调 ask）是强化：
   普通档的审批是 CLI 强制的，不是君子协定。
+- 2026-07-18 联调确认：Claude Code 2.1.212 已不提供早期设计引用的
+  `--permission-prompt-tool` 参数。当前官方稳定入口是 `PermissionRequest` Hook；Hook 返回
+  `behavior=allow|deny`，并继续受 deny/ask 规则约束。P2 实现以当前 Hook 契约为准。
 
 ### 8.4 电话线（中继侧 MCP server，三个工具）
 
