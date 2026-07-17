@@ -25,8 +25,6 @@ class WorkflowSessionVM(
         private set
     var messages by mutableStateOf<List<WorkMessage>>(emptyList())
         private set
-    var draft by mutableStateOf("")
-        private set
     var isLoading by mutableStateOf(true)
         private set
     var isActing by mutableStateOf(false)
@@ -80,10 +78,6 @@ class WorkflowSessionVM(
         }
     }
 
-    fun updateDraft(value: String) {
-        draft = value
-    }
-
     fun refresh() {
         viewModelScope.launch { syncNow() }
     }
@@ -93,14 +87,15 @@ class WorkflowSessionVM(
         modeInitialized = true
     }
 
-    fun send() {
-        val text = draft.trim()
-        val currentSession = session ?: return
-        if (text.isBlank() || isActing || !currentSession.active) return
+    /** @return true 表示已受理发送（调用方可清空输入框） */
+    fun send(text: String): Boolean {
+        val trimmed = text.trim()
+        val currentSession = session ?: return false
+        if (trimmed.isBlank() || isActing || !currentSession.active) return false
         act("消息已发送") {
-            repository.sendMessage(sessionId, text, fullAccess = fullAccess)
-            draft = ""
+            repository.sendMessage(sessionId, trimmed, fullAccess = fullAccess)
         }
+        return true
     }
 
     fun stop() {

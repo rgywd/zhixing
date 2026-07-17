@@ -52,6 +52,8 @@ import me.rerere.hugeicons.stroke.File02
 import me.rerere.hugeicons.stroke.ArrowUp02
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.ui.components.ai.AsrButton
+import me.rerere.rikkahub.ui.components.ai.TextInputRow
+import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionRecordAudio
@@ -253,19 +255,27 @@ fun WorkflowSessionPage(
 }
 
 /**
- * 会话输入区：对齐主页对话框的视觉与交互（圆角容器、语音听写、圆形发送键），
- * 附加远程会话特有的执行模式 chip。附件上传等待协议侧 file upload 支持后接入。
+ * 会话输入区：复用主页对话框核心（TextInputRow：多行输入、全屏编辑、快捷短语、
+ * 补全框架、语音听写），附加远程会话特有的执行模式 chip。
+ * 附件上传等待协议侧 file upload 支持后接入。
  */
 @Composable
 private fun WorkSessionInput(
     vm: WorkflowSessionVM,
     onRequestFullAccess: () -> Unit,
 ) {
+    val inputState = remember { ChatInputState() }
     val asr = LocalASRState.current
     val asrState by asr.state.collectAsState()
     val asrPermission = rememberPermissionState(PermissionRecordAudio)
     PermissionManager(permissionState = asrPermission)
     var asrBaseText by remember { mutableStateOf("") }
+
+    fun submit() {
+        if (vm.send(inputState.textContent.text.toString())) {
+            inputState.clearInput()
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth().imePadding().padding(horizontal = 8.dp, vertical = 8.dp),
@@ -277,24 +287,10 @@ private fun WorkSessionInput(
             color = MaterialTheme.colorScheme.surfaceContainerLow,
         ) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                OutlinedTextField(
-                    value = vm.draft,
-                    onValueChange = vm::updateDraft,
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("补充要求") },
-                    minLines = 1,
-                    maxLines = 6,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { vm.send() }),
-                    enabled = vm.session != null && !vm.isActing,
-                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                        unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                        disabledBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                        focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                    ),
+                TextInputRow(
+                    state = inputState,
+                    completionProviders = emptyList(),
+                    onSendMessage = { submit() },
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
@@ -330,11 +326,11 @@ private fun WorkSessionInput(
                                         if (!asrPermission.allRequiredPermissionsGranted) {
                                             asrPermission.requestPermissions()
                                         } else {
-                                            asrBaseText = vm.draft
+                                            asrBaseText = inputState.textContent.text.toString()
                                             asr.start { transcript ->
                                                 val spacer =
                                                     if (asrBaseText.isBlank() || transcript.isBlank()) "" else " "
-                                                vm.updateDraft(asrBaseText + spacer + transcript)
+                                                inputState.setMessageText(asrBaseText + spacer + transcript)
                                             }
                                         }
                                     }
@@ -343,9 +339,9 @@ private fun WorkSessionInput(
                             },
                         )
                     }
-                    val canSend = vm.draft.isNotBlank() && vm.session != null && !vm.isActing
+                    val canSend = !inputState.isEmpty() && vm.session != null && !vm.isActing
                     Surface(
-                        onClick = vm::send,
+                        onClick = { submit() },
                         enabled = canSend,
                         shape = CircleShape,
                         color = if (canSend) MaterialTheme.colorScheme.primary
