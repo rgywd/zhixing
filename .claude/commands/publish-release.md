@@ -26,8 +26,12 @@ Updates:
 
 ## 发布
 
-使用github cli创建release, 并上传 app/release/xxx.apk 文件
+发布由 `.github/workflows/release.yml` 自动完成，**不要手动构建或上传 APK**：
 
-- 仅上传arm64版本, 上传前重命名apk，添加版本号到文件名内
-- release标题使用版本号, 描述使用更新日志
-- tag名字使用版本号，不带v
+1. 确认要发布的 commit 已合入 main（main 有分支保护，需走 PR + CI）
+2. 在该 commit 上打 **带 v 前缀** 的 tag（例如 `v0.1.8`）并推送——workflow 只匹配 `v*`，
+   不带 v 的 tag 不会触发发布
+3. Release workflow 自动完成：关键单测、签名构建 arm64/x86_64/universal 三个 APK、
+   生成 latest.json 与 SHA256SUMS、创建 GitHub Release（整条约 15 分钟）
+4. workflow 完成后，把双语更新日志更新到 release 描述中（自动生成的 notes 只有
+   commit 列表，需替换为上面的更新日志格式）
