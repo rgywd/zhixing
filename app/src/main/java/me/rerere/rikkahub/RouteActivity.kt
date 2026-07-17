@@ -240,6 +240,11 @@ class RouteActivity : ComponentActivity() {
         intent.getStringExtra("conversationId")?.let { text ->
             navStack?.add(Screen.Chat(text))
         }
+        // 远程任务通知深链：补一层工作首页，返回时落在工作模块而不是直接退出
+        intent.getStringExtra("workSessionId")?.let { sessionId ->
+            navStack?.add(Screen.Workflow)
+            navStack?.add(Screen.WorkflowSession(sessionId))
+        }
     }
 
     @OptIn(ExperimentalComposeUiApi::class)
