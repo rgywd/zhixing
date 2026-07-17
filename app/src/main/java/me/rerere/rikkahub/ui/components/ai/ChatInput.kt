@@ -416,7 +416,7 @@ private fun ActionIconButton(
 }
 
 @Composable
-private fun TextInputRow(
+internal fun TextInputRow(
     state: ChatInputState,
     completionProviders: List<ChatCompletionProvider>,
     onSendMessage: () -> Unit,
