@@ -80,6 +80,7 @@ class HappySocketClient(
         machine: HappyMachine,
         session: HappySession,
         agent: String,
+        permissionMode: String = "default",
     ): HappySpawnResult {
         val legacy = runCatching {
             machineRpc(
@@ -88,7 +89,7 @@ class HappySocketClient(
                 method = "resume-happy-session",
                 params = buildJsonObject {
                     put("sessionId", session.id)
-                    put("permissionMode", "default")
+                    put("permissionMode", permissionMode)
                 },
             ).toHappySpawnResult()
         }
@@ -108,6 +109,9 @@ class HappySocketClient(
                 put("sessionId", session.id)
                 put("approvedNewDirectoryCreation", false)
                 put("agent", agent)
+                put("permissionMode", permissionMode)
+                session.codexThreadId?.let { put("resumeCodexThreadId", it) }
+                session.claudeSessionId?.let { put("resumeClaudeSessionId", it) }
             },
         ).toHappySpawnResult()
     }

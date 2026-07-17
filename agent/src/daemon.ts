@@ -1,6 +1,6 @@
 /**
  * zhixing-agent 守护进程：登录校验 → 机器注册 → 中继连接 → RPC 服务。
- * P1-1 骨架：spawn-happy-session 暂返回未就绪错误，P1-2 接 Codex 适配器。
+ * P1 提供 Codex；P2 在同一机器连接上增加 Claude Code 短进程适配器。
  */
 import { execFileSync } from 'node:child_process'
 import { AgentHome } from './config.js'
@@ -11,11 +11,12 @@ import type { SpawnParams, SpawnResult } from './types.js'
 export interface SpawnDelegate {
   spawn(params: SpawnParams): Promise<SpawnResult>
   stopSession(sessionId: string): Promise<void>
+  shutdown?(): Promise<void>
 }
 
-function codexAvailable(): boolean {
+function cliAvailable(binary: string, versionArgs = ['--version']): boolean {
   try {
-    execFileSync(process.env.ZHIXING_CODEX_BIN ?? 'codex', ['--version'], {
+    execFileSync(binary, versionArgs, {
       stdio: 'ignore',
       timeout: 10_000,
     })
@@ -34,8 +35,8 @@ export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
   }
 
   if (!delegate) {
-    const { CodexManager } = await import('./codex/runner.js')
-    delegate = new CodexManager({
+    const { AgentManager } = await import('./manager.js')
+    delegate = new AgentManager({
       serverUrl: settings.serverUrl,
       clientId: home.clientId,
       machineId: settings.machineId,
@@ -46,7 +47,10 @@ export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
   const api = new HappyApi(settings.serverUrl, home.clientId)
   const identity = home.machineIdentity(settings)
   const metadata = home.machineMetadata()
-  metadata.cliAvailability = { codex: codexAvailable(), claude: false }
+  metadata.cliAvailability = {
+    codex: cliAvailable(process.env.ZHIXING_CODEX_BIN ?? 'codex'),
+    claude: cliAvailable(process.env.ZHIXING_CLAUDE_BIN ?? 'claude'),
+  }
   await api.registerMachine(credentials, identity, metadata)
   log(`机器已注册: ${identity.machineId} → ${settings.serverUrl}`)
 
@@ -61,9 +65,6 @@ export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
   socket.register('spawn-happy-session', async (params) => {
     const spawn = params as SpawnParams
     log(`收到 spawn 请求: ${spawn.directory} (agent=${spawn.agent ?? 'codex'})`)
-    if ((spawn.agent ?? 'codex') !== 'codex') {
-      return { type: 'error', errorMessage: 'zhixing-agent P1 仅支持 Codex（Claude 通道见 P2 设计）' }
-    }
     return delegate.spawn(spawn)
   })
 
@@ -80,6 +81,7 @@ export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
     process.once('SIGTERM', () => resolve())
   })
   socket.close()
+  await delegate.shutdown?.()
   log('守护进程已退出')
 }
 

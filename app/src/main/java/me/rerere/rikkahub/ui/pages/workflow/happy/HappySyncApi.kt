@@ -191,6 +191,7 @@ class HappySyncApi(
             host = metadata.string("host"),
             machineId = metadata.string("machineId"),
             codexThreadId = metadata.string("codexThreadId"),
+            claudeSessionId = metadata.string("claudeSessionId"),
             flavor = metadata.string("flavor"),
             active = active,
             activeAt = activeAt,
@@ -272,6 +273,8 @@ data class HappySession(
     val host: String?,
     val machineId: String?,
     val codexThreadId: String?,
+    /** Claude Code 本机 transcript id；用于短进程 --resume，不等同于 Happy session id */
+    val claudeSessionId: String?,
     val flavor: String?,
     val active: Boolean,
     val activeAt: Long,

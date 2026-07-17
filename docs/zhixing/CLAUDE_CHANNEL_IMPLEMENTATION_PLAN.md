@@ -1,6 +1,6 @@
 # Claude Code 通道 P2 实施计划
 
-状态：进行中（2026-07-18）  
+状态：进行中（2026-07-18）；P2-1 已完成，下一阶段 P2-2。
 对应需求：[Issue #18](https://github.com/rgywd/zhixing/issues/18)  
 产品契约：[`AGENT_DESIGN.md`](./AGENT_DESIGN.md) 第 8 节
 
@@ -34,12 +34,12 @@ P2 把 Claude Code 作为“寻呼机式”远端会话接入知行：开发机�
 
 ## 3. 分阶段交付
 
-| 阶段 | 范围 | RED / GREEN 验收 |
-|---|---|---|
-| P2-1 | Claude CLI adapter、短进程队列、session-id/resume、固定权限档、daemon 路由 | 参数契约单测；mock 子进程完成新建/恢复/停止；agent build/typecheck/test |
-| P2-2 | 本机 bridge、PermissionRequest Hook、MCP `report/ask/report_html`、断线降级 | allow/deny/超时；积压消息反向捎带；MCP JSON-RPC；断网不死锁 |
-| P2-3 | App ask/HTML/状态适配、搜索只索引汇报与提问文本 | parser/Room/UI 单测；HTML 安全策略；不展示逐工具日志 |
-| P2-4 | 自托管中继部署、开发机真 CLI、Android 真机全链路 | 新建→report→ask→回复→resume→完成；普通/完全访问各一条；断网恢复 |
+| 阶段 | 状态 | 范围 | RED / GREEN 验收 |
+|---|---|---|---|
+| P2-1 | 已完成 | Claude CLI adapter、短进程队列、session-id/resume、固定权限档、daemon 路由 | 参数契约单测；真实 CLI 新建/恢复；agent build/typecheck/test；App Happy 同步测试 |
+| P2-2 | 待开始 | 本机 bridge、PermissionRequest Hook、MCP `report/ask/report_html`、断线降级 | allow/deny/超时；积压消息反向捎带；MCP JSON-RPC；断网不死锁 |
+| P2-3 | 待开始 | App ask/HTML/状态适配、搜索只索引汇报与提问文本 | parser/Room/UI 单测；HTML 安全策略；不展示逐工具日志 |
+| P2-4 | 待开始 | 自托管中继部署、开发机真 CLI、Android 真机全链路 | 新建→report→ask→回复→resume→完成；普通/完全访问各一条；断网恢复 |
 
 ## 4. 文件地图
 
@@ -71,3 +71,12 @@ npm run build
 
 P2-4 另执行真机 smoke，并记录 Claude Code 版本、自托管中继 URL、权限档、session id、退出状态和
 断网恢复结果；恢复密钥、Bearer token、MCP bridge token 不进入日志或 Git。
+
+### P2-1 实际验证（2026-07-18）
+
+- Claude Code `2.1.212`：同一 UUID 首轮 `--session-id` 返回 `P2-NEW`，第二轮
+  `--resume` 返回 `P2-RESUME`。
+- 编译后的 `ClaudeCliProcess` 带 `--disallowedTools` 真实启动，返回 `P2-ADAPTER`；确认 prompt
+  必须紧跟 `-p`，否则 variadic deny 参数会吞掉 prompt。
+- `agent`：22 tests passed；`npm run typecheck`、`npm run build` 通过。
+- Android：`HappySyncApiTest` 通过；Gradle `BUILD SUCCESSFUL`。

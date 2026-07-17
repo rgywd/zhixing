@@ -43,6 +43,8 @@ export interface SpawnParams {
   effortLevel?: string
   environmentVariables?: Record<string, string>
   resumeCodexThreadId?: string
+  /** Claude transcript id；P2 每轮用 --resume 恢复，不等同于 Happy session id */
+  resumeClaudeSessionId?: string
 }
 
 export type SpawnResult =
