@@ -263,7 +263,7 @@ fun ChatMessage(
 
 @OptIn(FlowPreview::class)
 @Composable
-private fun MessagePartsBlock(
+internal fun MessagePartsBlock(
     assistant: Assistant?,
     role: MessageRole,
     model: Model?,

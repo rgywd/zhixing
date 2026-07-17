@@ -57,11 +57,13 @@ import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionRecordAudio
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalASRState
+import me.rerere.ai.core.MessageRole
 import me.rerere.rikkahub.data.workflow.WorkApproval
-import me.rerere.rikkahub.data.workflow.WorkDisplayItem
+import me.rerere.rikkahub.data.workflow.WorkChatItem
 import me.rerere.rikkahub.data.workflow.WorkSession
-import me.rerere.rikkahub.data.workflow.buildDisplayItems
+import me.rerere.rikkahub.data.workflow.buildWorkChatItems
 import me.rerere.rikkahub.data.workflow.sessionStats
+import me.rerere.rikkahub.ui.components.message.MessagePartsBlock
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.context.LocalNavController
 import org.koin.androidx.compose.koinViewModel
@@ -78,7 +80,7 @@ fun WorkflowSessionPage(
     var modeConfirmation by remember { mutableStateOf(false) }
     var approvalConfirmation by remember { mutableStateOf<ApprovalConfirmation?>(null) }
     val listState = rememberLazyListState()
-    val displayItems = remember(vm.messages) { buildDisplayItems(vm.messages) }
+    val displayItems = remember(vm.messages) { buildWorkChatItems(vm.messages) }
     val stats = remember(vm.messages) { sessionStats(vm.messages) }
 
     LaunchedEffect(displayItems.size, vm.session?.approvals?.size) {
@@ -156,7 +158,29 @@ fun WorkflowSessionPage(
                 }
                 vm.error?.let { message -> item(key = "error") { StatusCard(message, isError = true, vm::refresh) } }
                 vm.notice?.let { message -> item(key = "notice") { StatusCard(message, isError = false) } }
-                items(displayItems, key = WorkDisplayItem::key) { item -> DisplayItemContent(item) }
+                items(displayItems, key = WorkChatItem::key) { item ->
+                    when (item) {
+                        is WorkChatItem.PartsBlock -> MessagePartsBlock(
+                            assistant = null,
+                            role = item.role,
+                            model = null,
+                            parts = item.parts,
+                            annotations = emptyList(),
+                            loading = false,
+                        )
+                        is WorkChatItem.Note -> Box(
+                            Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            MarkdownBlock(
+                                content = item.text,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                ),
+                            )
+                        }
+                    }
+                }
                 items(vm.session?.approvals.orEmpty(), key = WorkApproval::id) { approval ->
                     ApprovalCard(approval) { decision ->
                         approvalConfirmation = ApprovalConfirmation(approval, decision)
@@ -362,125 +386,6 @@ private fun SessionTargetCard(vm: WorkflowSessionVM, summary: String?, onOpenLog
             )
             TextButton(onClick = onOpenLog, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
                 Text("查看完整日志")
-            }
-        }
-    }
-}
-
-@Composable
-private fun DisplayItemContent(item: WorkDisplayItem) {
-    when (item) {
-        is WorkDisplayItem.UserText -> Bubble(text = item.text, isUser = true)
-        is WorkDisplayItem.AgentText -> Bubble(text = item.text, isUser = false)
-        is WorkDisplayItem.Thinking -> ThinkingCard(item)
-        is WorkDisplayItem.Activity -> ActivityCard(item)
-        is WorkDisplayItem.EventNote -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            // service 等事件文本允许 markdown（如 **Service:** ...）
-            MarkdownBlock(
-                content = item.text,
-                style = MaterialTheme.typography.labelSmall.copy(
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-            )
-        }
-    }
-}
-
-@Composable
-private fun Bubble(text: String, isUser: Boolean) {
-    Box(Modifier.fillMaxWidth(), contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart) {
-        if (isUser) {
-            Card(
-                modifier = Modifier.fillMaxWidth(0.86f),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                shape = RoundedCornerShape(18.dp),
-            ) {
-                Text(text, Modifier.padding(12.dp))
-            }
-        } else {
-            // Agent 正文是 markdown，与主页聊天使用同一渲染组件
-            MarkdownBlock(
-                content = text,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun ThinkingCard(item: WorkDisplayItem.Thinking) {
-    var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
-    ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                if (expanded) "思考" else "思考（点击展开）",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            if (expanded) {
-                MarkdownBlock(
-                    content = item.text,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    ),
-                )
-            } else {
-                Text(
-                    item.text.lineSequence().firstOrNull().orEmpty().take(80),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ActivityCard(item: WorkDisplayItem.Activity) {
-    var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
-    val hasError = item.entries.any(me.rerere.rikkahub.data.workflow.WorkActivityEntry::isError)
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = if (hasError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
-    ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                "${item.entries.size} 个操作" + if (hasError) " · 有失败" else "",
-                style = MaterialTheme.typography.labelSmall,
-                color = if (hasError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-            )
-            val visible = if (expanded) item.entries else item.entries.take(3)
-            visible.forEach { entry ->
-                Column {
-                    // 工具标题允许内联 markdown（`code`、**bold**）
-                    MarkdownBlock(
-                        content = entry.label,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontWeight = FontWeight.Medium,
-                            color = if (entry.isError) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurface,
-                        ),
-                    )
-                    if (expanded && !entry.detail.isNullOrBlank()) {
-                        Text(
-                            entry.detail,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-            if (!expanded && item.entries.size > 3) {
-                Text(
-                    "还有 ${item.entries.size - 3} 个操作…",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }
