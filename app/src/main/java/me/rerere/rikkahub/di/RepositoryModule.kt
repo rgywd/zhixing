@@ -83,6 +83,10 @@ val repositoryModule = module {
     }
 
     single {
+        me.rerere.rikkahub.data.db.fts.WorkFtsManager(get())
+    }
+
+    single {
         WorkRepository(
             appScope = get<AppScope>(),
             credentialsStore = get(),
@@ -93,6 +97,7 @@ val repositoryModule = module {
             messageDao = get(),
             machineDao = get(),
             presetDao = get(),
+            ftsManager = get(),
         )
     }
 

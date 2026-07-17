@@ -151,6 +151,21 @@ Happy Web 页面只保留为开发期故障回退，不作为正式产品界面�
 当前发布闭环以恢复密钥导入为账户入口。由已有设备批准新设备的免密配对仍属于后续产品化工作，
 不影响已登录设备上的原生读写闭环。
 
+## 4.3 上游生态风险（2026-07-17 核实）
+
+- `slopus/happy-cli` 与 `slopus/happy-server` 已于 2026-02 归档，能力并入活跃的
+  `slopus/happy` monorepo（Session Protocol v2 的权威来源）。参考归档仓的实现
+  会拿到过时协议（v0.1.9 回复不可见事故的根源之一），协议对照必须以 monorepo 为准。
+- 上游是单维护者开源项目 + 第三方托管中继，存在停摆风险。当前架构已把协议面
+  收敛在 `ui/pages/workflow/happy/` 客户端与 WorkMessageParser：仓储接口协议中立，
+  替换传输/协议只需换远端数据源实现，UI 与存储不动。
+- 替换路线（按迁移成本升序，留待阶段 E 决策）：
+  1. 自托管 monorepo 的 server（客户端零改动，仅换 serverUrl）；
+  2. 自研薄中继 + 沿用 Session Protocol v2（协议已完整实现，事件仅 9 种）；
+  3. 迁移到其他远程 Agent 协议（如 ACP 生态），成本最高。
+- RPC 控制面（spawn/permission/abort）此前按归档 CLI 验证，需要补一轮针对
+  monorepo CLI 的契约测试。
+
 ## 5. 非目标与延期项
 
 - ~~P0 不接入 Claude Code~~（已被 Issue #18 推翻：Codex 与 Claude Code 均为一等 Agent）；
