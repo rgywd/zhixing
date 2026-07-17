@@ -146,14 +146,41 @@ object WorkMessageParser {
         else -> null
     }
 
-    /** 旧版 role=session 记录：content.ev 携带事件 */
+    /**
+     * Session Protocol v2（slopus/happy docs/session-protocol.md）：
+     * 外层 role=session，content 是 {id,time,role,turn,subagent,ev} 信封，
+     * ev.t 共 9 种事件。text 是给用户看的正文（markdown），thinking=true 为思考。
+     */
     private fun parseLegacySession(content: JsonObject): Parsed? {
         val event = content["ev"] as? JsonObject ?: return null
-        val kind = event.string("t") ?: "event"
-        val text = listOf("text", "title", "description", "name", "status")
-            .firstNotNullOfOrNull { key -> event.string(key)?.takeIf(String::isNotBlank) }
         val role = if (content.string("role") == "user") WorkRole.USER else WorkRole.AGENT
-        return Parsed(role, listOf(WorkMessagePart.Event(kind = kind, text = text)))
+        val part: WorkMessagePart? = when (val type = event.string("t")) {
+            "text" -> event.string("text")?.let { text ->
+                if (event.boolean("thinking") == true) WorkMessagePart.Reasoning(text)
+                else WorkMessagePart.Text(text)
+            }
+            "service" -> event.string("text")?.let { WorkMessagePart.Event("service", it) }
+            "tool-call-start" -> WorkMessagePart.ToolCall(
+                name = event.string("name") ?: "tool",
+                input = event["args"].toCompactText(),
+                callId = event.string("call"),
+                title = event.string("title") ?: event.string("description"),
+            )
+            "tool-call-end" -> WorkMessagePart.Event("tool-call-end", event.string("call"))
+            "file" -> WorkMessagePart.Event("file", event.string("name"))
+            "turn-end" -> WorkMessagePart.Event("turn-end", event.string("status"))
+            "start" -> WorkMessagePart.Event("subagent-start", event.string("title"))
+            // 纯生命周期标记，无展示价值
+            "turn-start", "stop" -> null
+            // 未知事件：带文本的降级为 Raw 保底可见，纯标记保留进日志
+            else -> {
+                val text = listOf("text", "title", "description", "status")
+                    .firstNotNullOfOrNull { key -> event.string(key)?.takeIf(String::isNotBlank) }
+                if (text != null) WorkMessagePart.Raw(kind = type ?: "event", text = text)
+                else WorkMessagePart.Event(kind = type ?: "event")
+            }
+        }
+        return part?.let { Parsed(role, listOf(it)) }
     }
 
     private fun fallbackRaw(type: String?, data: JsonObject): WorkMessagePart? {

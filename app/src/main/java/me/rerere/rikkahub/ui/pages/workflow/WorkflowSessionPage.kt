@@ -33,6 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,9 +44,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.CircleShape
+import me.rerere.asr.ASRStatus
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.File02
+import me.rerere.hugeicons.stroke.ArrowUp02
 import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.ui.components.ai.AsrButton
+import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionRecordAudio
+import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
+import me.rerere.rikkahub.ui.context.LocalASRState
 import me.rerere.rikkahub.data.workflow.WorkApproval
 import me.rerere.rikkahub.data.workflow.WorkDisplayItem
 import me.rerere.rikkahub.data.workflow.WorkSession
@@ -117,56 +128,10 @@ fun WorkflowSessionPage(
                         Text(if (vm.isActing) "正在恢复" else "在开发机上恢复此对话")
                     }
                 } else {
-                    Column(modifier = Modifier.fillMaxWidth().imePadding()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 4.dp, end = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            TextButton(
-                                onClick = {
-                                    if (vm.fullAccess) vm.updateFullAccess(false)
-                                    else modeConfirmation = true
-                                },
-                                enabled = !vm.isActing,
-                            ) {
-                                Text(
-                                    if (vm.fullAccess) "⚡ 完全访问" else "普通模式",
-                                    color = if (vm.fullAccess) MaterialTheme.colorScheme.error
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.labelMedium,
-                                )
-                            }
-                            Text(
-                                if (vm.fullAccess) "自动执行中，仅硬性限制与失败会打扰你"
-                                else "写操作与命令需要你的确认",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-                            verticalAlignment = Alignment.Bottom,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            OutlinedTextField(
-                                value = vm.draft,
-                                onValueChange = vm::updateDraft,
-                                modifier = Modifier.weight(1f),
-                                placeholder = { Text("补充要求") },
-                                minLines = 1,
-                                maxLines = 5,
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                keyboardActions = KeyboardActions(onSend = { vm.send() }),
-                                enabled = vm.session != null && !vm.isActing,
-                            )
-                            Button(
-                                onClick = vm::send,
-                                enabled = vm.draft.isNotBlank() && vm.session != null && !vm.isActing,
-                            ) {
-                                Text("发送")
-                            }
-                        }
-                    }
+                    WorkSessionInput(
+                        vm = vm,
+                        onRequestFullAccess = { modeConfirmation = true },
+                    )
                 }
             }
         },
@@ -263,6 +228,119 @@ fun WorkflowSessionPage(
     }
 }
 
+/**
+ * 会话输入区：对齐主页对话框的视觉与交互（圆角容器、语音听写、圆形发送键），
+ * 附加远程会话特有的执行模式 chip。附件上传等待协议侧 file upload 支持后接入。
+ */
+@Composable
+private fun WorkSessionInput(
+    vm: WorkflowSessionVM,
+    onRequestFullAccess: () -> Unit,
+) {
+    val asr = LocalASRState.current
+    val asrState by asr.state.collectAsState()
+    val asrPermission = rememberPermissionState(PermissionRecordAudio)
+    PermissionManager(permissionState = asrPermission)
+    var asrBaseText by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier.fillMaxWidth().imePadding().padding(horizontal = 8.dp, vertical = 8.dp),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.largeIncreased,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+        ) {
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                OutlinedTextField(
+                    value = vm.draft,
+                    onValueChange = vm::updateDraft,
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("补充要求") },
+                    minLines = 1,
+                    maxLines = 6,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { vm.send() }),
+                    enabled = vm.session != null && !vm.isActing,
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                        unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                        disabledBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                        focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    ),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    TextButton(
+                        onClick = {
+                            if (vm.fullAccess) vm.updateFullAccess(false) else onRequestFullAccess()
+                        },
+                        enabled = !vm.isActing,
+                    ) {
+                        Text(
+                            if (vm.fullAccess) "⚡ 完全访问" else "普通模式",
+                            color = if (vm.fullAccess) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    Text(
+                        if (vm.fullAccess) "自动执行中" else "写操作需确认",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (asrState.isAvailable || asrState.isRecording) {
+                        AsrButton(
+                            state = asrState,
+                            onClick = {
+                                when (asrState.status) {
+                                    ASRStatus.Listening -> asr.stop()
+                                    ASRStatus.Idle, ASRStatus.Error -> {
+                                        if (!asrPermission.allRequiredPermissionsGranted) {
+                                            asrPermission.requestPermissions()
+                                        } else {
+                                            asrBaseText = vm.draft
+                                            asr.start { transcript ->
+                                                val spacer =
+                                                    if (asrBaseText.isBlank() || transcript.isBlank()) "" else " "
+                                                vm.updateDraft(asrBaseText + spacer + transcript)
+                                            }
+                                        }
+                                    }
+                                    ASRStatus.Connecting, ASRStatus.Stopping -> {}
+                                }
+                            },
+                        )
+                    }
+                    val canSend = vm.draft.isNotBlank() && vm.session != null && !vm.isActing
+                    Surface(
+                        onClick = vm::send,
+                        enabled = canSend,
+                        shape = CircleShape,
+                        color = if (canSend) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ) {
+                        Icon(
+                            HugeIcons.ArrowUp02,
+                            contentDescription = "发送",
+                            modifier = Modifier.padding(6.dp),
+                            tint = if (canSend) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun SessionTargetCard(vm: WorkflowSessionVM, summary: String?, onOpenLog: () -> Unit) {
     val session = vm.session ?: return
@@ -297,10 +375,12 @@ private fun DisplayItemContent(item: WorkDisplayItem) {
         is WorkDisplayItem.Thinking -> ThinkingCard(item)
         is WorkDisplayItem.Activity -> ActivityCard(item)
         is WorkDisplayItem.EventNote -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Text(
-                item.text,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            // service 等事件文本允许 markdown（如 **Service:** ...）
+            MarkdownBlock(
+                content = item.text,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
             )
         }
     }
@@ -309,14 +389,20 @@ private fun DisplayItemContent(item: WorkDisplayItem) {
 @Composable
 private fun Bubble(text: String, isUser: Boolean) {
     Box(Modifier.fillMaxWidth(), contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart) {
-        Card(
-            modifier = Modifier.fillMaxWidth(if (isUser) 0.86f else 0.94f),
-            colors = CardDefaults.cardColors(
-                containerColor = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer
-            ),
-            shape = RoundedCornerShape(18.dp),
-        ) {
-            Text(text, Modifier.padding(12.dp))
+        if (isUser) {
+            Card(
+                modifier = Modifier.fillMaxWidth(0.86f),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Text(text, Modifier.padding(12.dp))
+            }
+        } else {
+            // Agent 正文是 markdown，与主页聊天使用同一渲染组件
+            MarkdownBlock(
+                content = text,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            )
         }
     }
 }
@@ -335,11 +421,20 @@ private fun ThinkingCard(item: WorkDisplayItem.Thinking) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
-            Text(
-                if (expanded) item.text else item.text.lineSequence().firstOrNull().orEmpty().take(80),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (expanded) {
+                MarkdownBlock(
+                    content = item.text,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                )
+            } else {
+                Text(
+                    item.text.lineSequence().firstOrNull().orEmpty().take(80),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -362,11 +457,14 @@ private fun ActivityCard(item: WorkDisplayItem.Activity) {
             val visible = if (expanded) item.entries else item.entries.take(3)
             visible.forEach { entry ->
                 Column {
-                    Text(
-                        entry.label,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
-                        color = if (entry.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    // 工具标题允许内联 markdown（`code`、**bold**）
+                    MarkdownBlock(
+                        content = entry.label,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontWeight = FontWeight.Medium,
+                            color = if (entry.isError) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurface,
+                        ),
                     )
                     if (expanded && !entry.detail.isNullOrBlank()) {
                         Text(

@@ -116,10 +116,17 @@ fun sessionStats(messages: List<WorkMessage>): WorkSessionStats {
 private fun eventNote(part: WorkMessagePart.Event): String? = when (part.kind) {
     "task_complete" -> "任务完成"
     "turn_aborted" -> "本轮已中止"
+    "turn-end" -> when (part.text) {
+        "failed" -> "本轮执行失败"
+        "cancelled" -> "本轮已取消"
+        else -> null // completed 是常态，不打扰
+    }
+    "service" -> part.text?.takeIf(String::isNotBlank)
+    "subagent-start" -> part.text?.let { "子任务：$it" } ?: "启动子任务"
     "result" -> part.text?.takeIf(String::isNotBlank)?.let { "结果：${it.take(200)}" } ?: "任务结束"
     "permission-mode-changed" -> part.text?.let { "执行模式已切换：$it" }
     "permission-request" -> part.text?.let { "请求权限：$it" } ?: "请求权限"
     "message" -> part.text
-    // ready/switch/system 等心跳类事件不进聊天流
+    // ready/switch/system/tool-call-end/file/turn-start 等生命周期事件不进聊天流
     else -> null
 }
