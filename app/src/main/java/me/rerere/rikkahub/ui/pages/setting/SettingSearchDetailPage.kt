@@ -217,6 +217,9 @@ private fun SearchServiceOptionsEditor(
         is SearchServiceOptions.TinyfishOptions -> {
             TinyfishOptions(options) { onUpdateOptions(it) }
         }
+        is SearchServiceOptions.AnySearchOptions -> {
+            AnySearchOptions(options) { onUpdateOptions(it) }
+        }
         is SearchServiceOptions.SerperOptions -> {
             SerperOptions(options) { onUpdateOptions(it) }
         }
@@ -837,6 +840,26 @@ internal fun LegacyHostedOptions(
 internal fun TinyfishOptions(
     options: SearchServiceOptions.TinyfishOptions,
     onUpdateOptions: (SearchServiceOptions.TinyfishOptions) -> Unit
+) {
+    FormItem(
+        label = {
+            Text(stringResource(R.string.search_detail_api_key))
+        }
+    ) {
+        OutlinedTextField(
+            value = options.apiKey,
+            onValueChange = {
+                onUpdateOptions(options.copy(apiKey = it))
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+internal fun AnySearchOptions(
+    options: SearchServiceOptions.AnySearchOptions,
+    onUpdateOptions: (SearchServiceOptions.AnySearchOptions) -> Unit
 ) {
     FormItem(
         label = {
