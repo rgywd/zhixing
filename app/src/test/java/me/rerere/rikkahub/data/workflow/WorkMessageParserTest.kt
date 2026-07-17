@@ -76,13 +76,43 @@ class WorkMessageParserTest {
     }
 
     @Test
-    fun `parses legacy session event and keeps kind`() {
-        val parsed = parse(
-            """{"role":"session","content":{"id":"e1","role":"agent","ev":{"t":"tool-call-start","name":"CodexBash","title":"运行测试"}}}"""
+    fun `parses session protocol v2 events`() {
+        val text = parse(
+            """{"role":"session","content":{"id":"e1","role":"agent","turn":"t1","ev":{"t":"text","text":"**方案**如下"}}}"""
+        )
+        val thinking = parse(
+            """{"role":"session","content":{"id":"e2","role":"agent","turn":"t1","ev":{"t":"text","text":"先想想","thinking":true}}}"""
+        )
+        val userText = parse(
+            """{"role":"session","content":{"id":"e3","role":"user","ev":{"t":"text","text":"继续"}}}"""
+        )
+        val toolCall = parse(
+            """{"role":"session","content":{"id":"e4","role":"agent","turn":"t1","ev":{"t":"tool-call-start","call":"tc1","name":"grep","title":"搜索 TODO","args":{"pattern":"TODO"}}}}"""
+        )
+        val turnEnd = parse(
+            """{"role":"session","content":{"id":"e5","role":"agent","turn":"t1","ev":{"t":"turn-end","status":"failed"}}}"""
         )
 
-        assertEquals(WorkRole.AGENT, parsed?.role)
-        assertEquals(listOf(WorkMessagePart.Event("tool-call-start", "运行测试")), parsed?.parts)
+        assertEquals(listOf(WorkMessagePart.Text("**方案**如下")), text?.parts)
+        assertEquals(WorkRole.AGENT, text?.role)
+        assertEquals(listOf(WorkMessagePart.Reasoning("先想想")), thinking?.parts)
+        assertEquals(WorkRole.USER, userText?.role)
+        val call = toolCall?.parts?.single() as WorkMessagePart.ToolCall
+        assertEquals("grep", call.name)
+        assertEquals("搜索 TODO", call.title)
+        assertEquals("tc1", call.callId)
+        assertEquals(listOf(WorkMessagePart.Event("turn-end", "failed")), turnEnd?.parts)
+    }
+
+    @Test
+    fun `lifecycle markers are skipped and unknown events with text degrade to raw`() {
+        assertNull(parse("""{"role":"session","content":{"id":"e1","role":"agent","turn":"t1","ev":{"t":"turn-start"}}}"""))
+        assertNull(parse("""{"role":"session","content":{"id":"e2","role":"agent","turn":"t1","ev":{"t":"stop"}}}"""))
+
+        val unknown = parse(
+            """{"role":"session","content":{"id":"e3","role":"agent","ev":{"t":"future-event","text":"别丢我"}}}"""
+        )
+        assertEquals(listOf(WorkMessagePart.Raw("future-event", "别丢我")), unknown?.parts)
     }
 
     @Test

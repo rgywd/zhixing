@@ -67,6 +67,13 @@ Happy Web 页面只保留为开发期故障回退，不作为正式产品界面�
   被拒绝后回退新协议。
 - 超时、目标离线、版本冲突和解密失败必须是不同错误类型，UI 不得统一显示为“连接失败”。
 
+### 3.4.1 Session Protocol v2 记录格式
+
+生产链路的消息记录为外层 `role=session`、content 为 `{id,time,role,turn,subagent,ev}` 信封，
+`ev.t` 共 9 种事件（slopus/happy `docs/session-protocol.md`）：`text`（正文，markdown，
+`thinking:true` 为思考）、`service`、`tool-call-start/end`、`file`、`turn-start/end`、
+`start/stop`（子代理）。客户端解析必须以该词表为准；未知事件带文本时降级展示，不得丢弃。
+
 ### 3.5 消息 meta 与执行策略
 
 - 执行模式、模型与工具限制不是 spawn 参数，而是随每条用户消息的 `meta` 下发并由开发机 CLI 强制：
