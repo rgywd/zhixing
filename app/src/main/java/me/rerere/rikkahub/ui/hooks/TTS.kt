@@ -47,7 +47,7 @@ fun rememberCustomTtsState(): CustomTtsState {
     }
 
     // Update the provider when settings change
-    DisposableEffect(settings.selectedTTSProviderId, settings.ttsProviders) {
+    DisposableEffect(settings.selectedTTSProviderId, settings.ttsProviders, settings.providers) {
         ttsState.updateProvider(settings.getSelectedTTSProvider())
         onDispose { }
     }

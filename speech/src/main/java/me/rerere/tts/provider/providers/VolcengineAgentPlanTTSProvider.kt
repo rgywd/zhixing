@@ -96,6 +96,9 @@ internal fun parseAgentPlanTtsResponse(body: String): List<ByteArray> {
     val chunks = objects.mapNotNull { objectText ->
         val item = Json.parseToJsonElement(objectText).jsonObject
         val code = item["code"]?.jsonPrimitive?.intOrNull ?: 0
+        if (code == 20000000) {
+            return@mapNotNull null
+        }
         if (code != 0) {
             val message = item["message"]?.jsonPrimitive?.contentOrNull.orEmpty()
             error("Agent Plan TTS 返回错误: $code $message")

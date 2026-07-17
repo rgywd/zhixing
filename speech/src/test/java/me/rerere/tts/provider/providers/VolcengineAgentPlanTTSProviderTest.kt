@@ -21,6 +21,16 @@ class VolcengineAgentPlanTTSProviderTest {
     }
 
     @Test
+    fun `parser ignores terminal success response`() {
+        val chunks = parseAgentPlanTtsResponse(
+            """{"code":0,"data":"AQI="}
+               {"code":20000000,"message":"ok","data":null,"usage":{"text_words":2}}""".trimIndent()
+        )
+
+        assertArrayEquals(byteArrayOf(1, 2), chunks.single())
+    }
+
+    @Test
     fun `serialized setting contains neither runtime key nor service url`() {
         val setting: TTSProviderSetting = TTSProviderSetting.VolcengineAgentPlan(
             providerId = "main-provider",
