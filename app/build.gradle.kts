@@ -20,8 +20,8 @@ android {
         applicationId = "dev.sundby.zhixing"
         minSdk = 26
         targetSdk = 37
-        versionCode = 9
-        versionName = "0.1.8"
+        versionCode = 10
+        versionName = "0.1.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -209,7 +209,11 @@ dependencies {
 
     // Happy protocol compatibility (Ed25519 / Curve25519 / XSalsa20-Poly1305)
     implementation(libs.tweetnacl)
-    implementation(libs.socketio.client)
+    implementation(libs.socketio.client) {
+        // Android 自带 org.json；带上 Maven 版会让 R8 按其内部字段（JSONArray.myArrayList）
+        // 内联优化，运行时命中平台类导致 NoSuchFieldError 崩溃
+        exclude(group = "org.json", module = "json")
+    }
 
     // coil
     implementation(libs.coil.compose)
