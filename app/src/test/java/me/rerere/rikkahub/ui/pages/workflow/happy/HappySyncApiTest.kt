@@ -134,8 +134,8 @@ class HappySyncApiTest {
             encryptionVariant = HappyEncryptionVariant.DATA_KEY,
         )
 
-        val messages = api.fetchMessages(credentials, session, afterSeq = 8)
-        api.sendMessage(credentials, session, "继续")
+        val records = api.fetchMessages(credentials, session, afterSeq = 8)
+        api.sendMessage(credentials, session, "继续", permissionMode = "bypassPermissions")
         val historyRequest = server.takeRequest()
         val sendRequest = server.takeRequest()
         val sentBody = json.parseToJsonElement(sendRequest.body.readUtf8()).jsonObject
@@ -143,13 +143,22 @@ class HappySyncApiTest {
         val sentRecord = crypto.decryptJson(sentEncrypted, key, HappyEncryptionVariant.DATA_KEY)
 
         assertEquals("/v3/sessions/session-1/messages?after_seq=8&limit=500", historyRequest.path)
-        assertEquals("闭环完成", messages.first().text)
-        assertEquals(9, messages.first().seq)
-        assertEquals("运行测试", messages.last().text)
-        assertEquals("tool-call-start", messages.last().kind)
+        assertEquals(2, records.size)
+        assertEquals(9, records.first().seq)
+        assertEquals("agent", records.first().body["role"]?.jsonPrimitive?.content)
+        assertEquals(
+            "闭环完成",
+            records.first().body["content"]?.jsonObject?.get("data")?.jsonObject
+                ?.get("message")?.jsonPrimitive?.content,
+        )
+        assertEquals("session", records.last().body["role"]?.jsonPrimitive?.content)
         assertEquals("/v3/sessions/session-1/messages", sendRequest.path)
         assertEquals("user", sentRecord?.get("role")?.jsonPrimitive?.content)
         assertEquals("继续", sentRecord?.get("content")?.jsonObject?.get("text")?.jsonPrimitive?.content)
+        assertEquals(
+            "bypassPermissions",
+            sentRecord?.get("meta")?.jsonObject?.get("permissionMode")?.jsonPrimitive?.content,
+        )
     }
 
     private companion object {

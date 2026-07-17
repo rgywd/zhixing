@@ -37,7 +37,7 @@ import me.rerere.hugeicons.stroke.LockKey
 import me.rerere.hugeicons.stroke.View
 import me.rerere.hugeicons.stroke.ViewOff
 import me.rerere.rikkahub.ui.components.nav.BackButton
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyMachine
+import me.rerere.rikkahub.data.workflow.WorkMachine
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.plus
 import org.koin.androidx.compose.koinViewModel
@@ -78,7 +78,7 @@ fun WorkflowSettingsPage(vm: WorkflowVM = koinViewModel()) {
                     if (vm.machines.isEmpty()) {
                         item { Text("尚未发现开发机，请确认电脑上的 Happy daemon 正在运行。") }
                     } else {
-                        items(vm.machines, key = HappyMachine::id) { machine -> MachineItem(machine) }
+                        items(vm.machines, key = WorkMachine::id) { machine -> MachineItem(machine) }
                     }
                 }
                 else -> item { ConnectAccountCard(vm) }
@@ -155,15 +155,16 @@ private fun ConnectedAccountCard(vm: WorkflowVM) {
 }
 
 @Composable
-private fun MachineItem(machine: HappyMachine) {
+private fun MachineItem(machine: WorkMachine) {
     Card {
         ListItem(
-            headlineContent = { Text(machine.displayName ?: machine.host) },
+            headlineContent = { Text(machine.label) },
             supportingContent = {
                 Text(
                     listOfNotNull(
                         machine.platform,
                         machine.supportsCodex?.let { if (it) "Codex 可用" else "未发现 Codex" },
+                        machine.supportsClaude?.let { if (it) "Claude Code 可用" else "未发现 Claude Code" },
                     ).joinToString(" · ")
                 )
             },

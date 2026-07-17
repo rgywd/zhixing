@@ -20,6 +20,8 @@ import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceVM
 import me.rerere.rikkahub.ui.pages.setting.SettingVM
 import me.rerere.rikkahub.ui.pages.share.handler.ShareHandlerVM
 import me.rerere.rikkahub.ui.pages.translator.TranslatorVM
+import me.rerere.rikkahub.ui.pages.workflow.WorkNewTaskVM
+import me.rerere.rikkahub.ui.pages.workflow.WorkPresetEditVM
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowVM
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowSessionVM
 import org.koin.core.module.dsl.viewModel
@@ -80,12 +82,12 @@ val viewModelModule = module {
     viewModelOf(::SearchVM)
     viewModelOf(::StatsVM)
     viewModelOf(::WorkflowVM)
+    viewModelOf(::WorkNewTaskVM)
+    viewModelOf(::WorkPresetEditVM)
     viewModel<WorkflowSessionVM> { params ->
         WorkflowSessionVM(
             sessionId = params.get(),
-            credentialsStore = get(),
-            syncApi = get(),
-            socketClient = get(),
+            repository = get(),
         )
     }
 }

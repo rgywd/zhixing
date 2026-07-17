@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.pages.workflow
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -33,18 +36,23 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import me.rerere.rikkahub.ui.components.nav.BackButton
+import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.File02
 import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.data.workflow.WorkApproval
+import me.rerere.rikkahub.data.workflow.WorkDisplayItem
+import me.rerere.rikkahub.data.workflow.WorkSession
+import me.rerere.rikkahub.data.workflow.buildDisplayItems
+import me.rerere.rikkahub.data.workflow.sessionStats
+import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.context.LocalNavController
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyApproval
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyMessage
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyMessageRole
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -56,11 +64,15 @@ fun WorkflowSessionPage(
 ) {
     val navController = LocalNavController.current
     var stopConfirmation by remember { mutableStateOf(false) }
+    var modeConfirmation by remember { mutableStateOf(false) }
     var approvalConfirmation by remember { mutableStateOf<ApprovalConfirmation?>(null) }
     val listState = rememberLazyListState()
-    LaunchedEffect(vm.messages.size, vm.session?.approvals?.size) {
-        val lastIndex = vm.messages.size + vm.session?.approvals.orEmpty().size - 1
-        if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
+    val displayItems = remember(vm.messages) { buildDisplayItems(vm.messages) }
+    val stats = remember(vm.messages) { sessionStats(vm.messages) }
+
+    LaunchedEffect(displayItems.size, vm.session?.approvals?.size) {
+        val lastIndex = displayItems.size + vm.session?.approvals.orEmpty().size
+        if (lastIndex > 0) listState.animateScrollToItem(lastIndex)
     }
     LaunchedEffect(vm.resumedSessionId) {
         vm.resumedSessionId?.let { id ->
@@ -82,6 +94,9 @@ fun WorkflowSessionPage(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { navController.navigate(Screen.WorkSessionLog(sessionId)) }) {
+                        Icon(HugeIcons.File02, contentDescription = "完整日志")
+                    }
                     TextButton(
                         onClick = { stopConfirmation = true },
                         enabled = vm.session?.active == true && !vm.isActing,
@@ -102,34 +117,61 @@ fun WorkflowSessionPage(
                         Text(if (vm.isActing) "正在恢复" else "在开发机上恢复此对话")
                     }
                 } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().imePadding().padding(12.dp),
-                        verticalAlignment = Alignment.Bottom,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        OutlinedTextField(
-                            value = vm.draft,
-                            onValueChange = vm::updateDraft,
-                            modifier = Modifier.weight(1f),
-                            placeholder = { Text("给 Codex 补充要求") },
-                            minLines = 1,
-                            maxLines = 5,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(onSend = { vm.send() }),
-                            enabled = vm.session != null && !vm.isActing,
-                        )
-                        Button(
-                            onClick = vm::send,
-                            enabled = vm.draft.isNotBlank() && vm.session != null && !vm.isActing,
+                    Column(modifier = Modifier.fillMaxWidth().imePadding()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 4.dp, end = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("发送")
+                            TextButton(
+                                onClick = {
+                                    if (vm.fullAccess) vm.updateFullAccess(false)
+                                    else modeConfirmation = true
+                                },
+                                enabled = !vm.isActing,
+                            ) {
+                                Text(
+                                    if (vm.fullAccess) "⚡ 完全访问" else "普通模式",
+                                    color = if (vm.fullAccess) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
+                            }
+                            Text(
+                                if (vm.fullAccess) "自动执行中，仅硬性限制与失败会打扰你"
+                                else "写操作与命令需要你的确认",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            OutlinedTextField(
+                                value = vm.draft,
+                                onValueChange = vm::updateDraft,
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text("补充要求") },
+                                minLines = 1,
+                                maxLines = 5,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions(onSend = { vm.send() }),
+                                enabled = vm.session != null && !vm.isActing,
+                            )
+                            Button(
+                                onClick = vm::send,
+                                enabled = vm.draft.isNotBlank() && vm.session != null && !vm.isActing,
+                            ) {
+                                Text("发送")
+                            }
                         }
                     }
                 }
             }
         },
     ) { padding ->
-        if (vm.isLoading && vm.messages.isEmpty()) {
+        if (vm.isLoading && displayItems.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
@@ -140,17 +182,23 @@ fun WorkflowSessionPage(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                item { SessionTargetCard(vm) }
-                vm.error?.let { message -> item { StatusCard(message, isError = true, vm::refresh) } }
-                vm.notice?.let { message -> item { StatusCard(message, isError = false) } }
-                items(vm.messages, key = HappyMessage::id) { message -> MessageBubble(message) }
-                items(vm.session?.approvals.orEmpty(), key = HappyApproval::id) { approval ->
+                item(key = "target") {
+                    SessionTargetCard(
+                        vm = vm,
+                        summary = statsSummary(stats),
+                        onOpenLog = { navController.navigate(Screen.WorkSessionLog(sessionId)) },
+                    )
+                }
+                vm.error?.let { message -> item(key = "error") { StatusCard(message, isError = true, vm::refresh) } }
+                vm.notice?.let { message -> item(key = "notice") { StatusCard(message, isError = false) } }
+                items(displayItems, key = WorkDisplayItem::key) { item -> DisplayItemContent(item) }
+                items(vm.session?.approvals.orEmpty(), key = WorkApproval::id) { approval ->
                     ApprovalCard(approval) { decision ->
                         approvalConfirmation = ApprovalConfirmation(approval, decision)
                     }
                 }
-                if (vm.messages.isEmpty() && vm.error == null) {
-                    item {
+                if (displayItems.isEmpty() && vm.error == null) {
+                    item(key = "empty") {
                         Text(
                             "暂无消息。可直接发送要求，消息会通过 Happy 端到端加密转给开发机。",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -161,10 +209,31 @@ fun WorkflowSessionPage(
         }
     }
 
+    if (modeConfirmation) {
+        AlertDialog(
+            onDismissRequest = { modeConfirmation = false },
+            title = { Text("切换到完全访问？") },
+            text = {
+                Text(
+                    "从下一条消息起，远端将自主执行读写、命令、测试和 Git 操作，不再逐步请求确认。" +
+                        "仓库预设中的硬性限制仍然生效（仅 Claude Code 远端强制）。"
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    modeConfirmation = false
+                    vm.updateFullAccess(true)
+                }) { Text("切换") }
+            },
+            dismissButton = {
+                TextButton(onClick = { modeConfirmation = false }) { Text("取消") }
+            },
+        )
+    }
     if (stopConfirmation) {
         ConfirmationDialog(
             title = "停止这个远程任务？",
-            summary = vm.session.targetSummary() + "\n操作：请求 Codex 停止当前任务",
+            summary = vm.session.targetSummary() + "\n操作：请求停止当前任务",
             confirmText = "确认停止",
             onDismiss = { stopConfirmation = false },
             onConfirm = {
@@ -195,7 +264,7 @@ fun WorkflowSessionPage(
 }
 
 @Composable
-private fun SessionTargetCard(vm: WorkflowSessionVM) {
+private fun SessionTargetCard(vm: WorkflowSessionVM, summary: String?, onOpenLog: () -> Unit) {
     val session = vm.session ?: return
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -205,10 +274,116 @@ private fun SessionTargetCard(vm: WorkflowSessionVM) {
             Text("远程操作目标", fontWeight = FontWeight.SemiBold)
             Text(session.targetSummary(), style = MaterialTheme.typography.bodySmall)
             Text(
-                if (session.active) "任务正在运行" else "任务已结束，历史记录会长期保留",
+                listOfNotNull(
+                    if (session.active) "任务正在运行" else "任务已结束",
+                    "⚡完全访问".takeIf { vm.fullAccess },
+                    summary,
+                ).joinToString(" · "),
                 style = MaterialTheme.typography.labelMedium,
                 color = if (session.active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            TextButton(onClick = onOpenLog, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                Text("查看完整日志")
+            }
+        }
+    }
+}
+
+@Composable
+private fun DisplayItemContent(item: WorkDisplayItem) {
+    when (item) {
+        is WorkDisplayItem.UserText -> Bubble(text = item.text, isUser = true)
+        is WorkDisplayItem.AgentText -> Bubble(text = item.text, isUser = false)
+        is WorkDisplayItem.Thinking -> ThinkingCard(item)
+        is WorkDisplayItem.Activity -> ActivityCard(item)
+        is WorkDisplayItem.EventNote -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Text(
+                item.text,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun Bubble(text: String, isUser: Boolean) {
+    Box(Modifier.fillMaxWidth(), contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart) {
+        Card(
+            modifier = Modifier.fillMaxWidth(if (isUser) 0.86f else 0.94f),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer
+            ),
+            shape = RoundedCornerShape(18.dp),
+        ) {
+            Text(text, Modifier.padding(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun ThinkingCard(item: WorkDisplayItem.Thinking) {
+    var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                if (expanded) "思考" else "思考（点击展开）",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                if (expanded) item.text else item.text.lineSequence().firstOrNull().orEmpty().take(80),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActivityCard(item: WorkDisplayItem.Activity) {
+    var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
+    val hasError = item.entries.any(me.rerere.rikkahub.data.workflow.WorkActivityEntry::isError)
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = if (hasError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                "${item.entries.size} 个操作" + if (hasError) " · 有失败" else "",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (hasError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+            )
+            val visible = if (expanded) item.entries else item.entries.take(3)
+            visible.forEach { entry ->
+                Column {
+                    Text(
+                        entry.label,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = if (entry.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (expanded && !entry.detail.isNullOrBlank()) {
+                        Text(
+                            entry.detail,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            if (!expanded && item.entries.size > 3) {
+                Text(
+                    "还有 ${item.entries.size - 3} 个操作…",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -232,28 +407,7 @@ private fun StatusCard(message: String, isError: Boolean, retry: (() -> Unit)? =
 }
 
 @Composable
-private fun MessageBubble(message: HappyMessage) {
-    val isUser = message.role == HappyMessageRole.USER
-    Box(Modifier.fillMaxWidth(), contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart) {
-        Card(
-            modifier = Modifier.fillMaxWidth(if (isUser) 0.86f else 0.94f),
-            colors = CardDefaults.cardColors(
-                containerColor = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer
-            ),
-            shape = RoundedCornerShape(18.dp),
-        ) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (message.kind !in setOf("text", "message")) {
-                    Text(message.kind, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                }
-                Text(message.text)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ApprovalCard(approval: HappyApproval, onDecision: (ApprovalDecision) -> Unit) {
+private fun ApprovalCard(approval: WorkApproval, onDecision: (ApprovalDecision) -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
         shape = RoundedCornerShape(18.dp),
@@ -293,7 +447,16 @@ private fun ConfirmationDialog(
     )
 }
 
-private fun me.rerere.rikkahub.ui.pages.workflow.happy.HappySession?.targetSummary(): String {
+private fun statsSummary(stats: me.rerere.rikkahub.data.workflow.WorkSessionStats): String? {
+    if (stats.toolCalls == 0 && stats.editedFiles == 0) return null
+    return listOfNotNull(
+        "${stats.toolCalls} 次工具调用".takeIf { stats.toolCalls > 0 },
+        "${stats.editedFiles} 个文件修改".takeIf { stats.editedFiles > 0 },
+        "${stats.failures} 次失败".takeIf { stats.failures > 0 },
+    ).joinToString(" · ")
+}
+
+private fun WorkSession?.targetSummary(): String {
     val session = this ?: return "会话信息仍在同步"
     return listOfNotNull(
         "机器：${session.host ?: "未知"}",
@@ -302,10 +465,10 @@ private fun me.rerere.rikkahub.ui.pages.workflow.happy.HappySession?.targetSumma
     ).joinToString("\n")
 }
 
-private fun me.rerere.rikkahub.ui.pages.workflow.happy.HappySession.displayTitle(): String =
+private fun WorkSession.displayTitle(): String =
     name ?: path?.substringAfterLast('/')?.substringAfterLast('\\') ?: "会话 ${id.take(8)}"
 
-private data class ApprovalConfirmation(val approval: HappyApproval, val decision: ApprovalDecision)
+private data class ApprovalConfirmation(val approval: WorkApproval, val decision: ApprovalDecision)
 
 private enum class ApprovalDecision(val title: String, val confirmText: String) {
     ALLOW_ONCE("允许这一次操作？", "允许一次"),

@@ -5,40 +5,25 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import java.io.IOException
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyApproval
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyCredentials
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyCredentialsStore
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyDecryptionException
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyMessage
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyMachine
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyRpcException
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappySession
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappySocketClient
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncApi
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncException
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappySpawnResult
+import me.rerere.rikkahub.data.workflow.WorkApproval
+import me.rerere.rikkahub.data.workflow.WorkMachine
+import me.rerere.rikkahub.data.workflow.WorkMessage
+import me.rerere.rikkahub.data.workflow.WorkRepository
+import me.rerere.rikkahub.data.workflow.WorkSession
+import me.rerere.rikkahub.data.workflow.WorkSpawnOutcome
 
 class WorkflowSessionVM(
     private val sessionId: String,
-    private val credentialsStore: HappyCredentialsStore,
-    private val syncApi: HappySyncApi,
-    private val socketClient: HappySocketClient,
+    private val repository: WorkRepository,
 ) : ViewModel() {
-    private val refreshSignal = Channel<Unit>(Channel.CONFLATED)
-    private val socketSubscription = socketClient.addUpdateListener { refreshSignal.trySend(Unit) }
-    private var credentials: HappyCredentials? = credentialsStore.load()
-
-    var session by mutableStateOf<HappySession?>(null)
+    var session by mutableStateOf<WorkSession?>(null)
         private set
-    var machines by mutableStateOf<List<HappyMachine>>(emptyList())
+    var machines by mutableStateOf<List<WorkMachine>>(emptyList())
         private set
-    var messages by mutableStateOf<List<HappyMessage>>(emptyList())
+    var messages by mutableStateOf<List<WorkMessage>>(emptyList())
         private set
     var draft by mutableStateOf("")
         private set
@@ -54,18 +39,43 @@ class WorkflowSessionVM(
     var resumedSessionId by mutableStateOf<String?>(null)
         private set
 
+    /** 会话级执行模式；随每条消息显式下发，CLI 侧粘滞 */
+    var fullAccess by mutableStateOf(false)
+        private set
+    private var modeInitialized = false
+
+    // 会话被远端删除时 observeSession 会发出 null，但已展示过的数据保留
+    private var sessionSeen = false
+
     init {
         viewModelScope.launch {
-            val currentCredentials = credentials
-            if (currentCredentials == null) {
-                syncError = "Happy 登录已失效，请返回工作流首页重新连接"
-                isLoading = false
-                return@launch
+            repository.observeSession(sessionId).collect { latest ->
+                if (latest != null) {
+                    session = latest
+                    sessionSeen = true
+                    if (!modeInitialized) {
+                        modeInitialized = true
+                        fullAccess = if (latest.lastPermissionMode != null) {
+                            latest.isFullAccess
+                        } else {
+                            // 没有本地记录时回退到仓库预设的默认策略
+                            repository.findPresetForSession(sessionId)?.fullAccess ?: false
+                        }
+                    }
+                }
             }
-            runCatching { socketClient.connect(currentCredentials) }
-            while (isActive) {
-                refreshNow(currentCredentials)
-                withTimeoutOrNull(POLL_INTERVAL_MS) { refreshSignal.receive() }
+        }
+        viewModelScope.launch {
+            repository.observeMessages(sessionId).collect { messages = it }
+        }
+        viewModelScope.launch { repository.observeMachines().collect { machines = it } }
+        viewModelScope.launch {
+            repository.ensureRealtime()
+            syncNow()
+            isLoading = false
+            repository.updates.conflate().collect {
+                syncNow()
+                delay(SYNC_THROTTLE_MS)
             }
         }
     }
@@ -75,51 +85,46 @@ class WorkflowSessionVM(
     }
 
     fun refresh() {
-        refreshSignal.trySend(Unit)
+        viewModelScope.launch { syncNow() }
+    }
+
+    fun updateFullAccess(value: Boolean) {
+        fullAccess = value
+        modeInitialized = true
     }
 
     fun send() {
         val text = draft.trim()
         val currentSession = session ?: return
-        val currentCredentials = credentials ?: return
         if (text.isBlank() || isActing || !currentSession.active) return
         act("消息已发送") {
-            syncApi.sendMessage(currentCredentials, currentSession, text)
+            repository.sendMessage(sessionId, text, fullAccess = fullAccess)
             draft = ""
         }
     }
 
     fun stop() {
-        val currentSession = session ?: return
-        val currentCredentials = credentials ?: return
-        act("已请求停止任务") { socketClient.abort(currentCredentials, currentSession) }
+        if (session == null) return
+        act("已请求停止任务") { repository.abort(sessionId) }
     }
 
     fun resumeSession() {
-        val currentSession = session ?: return
-        val currentCredentials = credentials ?: return
-        val machine = machines.firstOrNull { it.id == currentSession.machineId }
-        if (machine == null || !machine.active) {
-            actionError = "原开发机当前离线，无法恢复此对话"
-            return
-        }
-        if (isActing) return
+        if (session == null || isActing) return
         viewModelScope.launch {
             isActing = true
             actionError = null
             try {
-                when (val result = socketClient.resumeSession(currentCredentials, machine, currentSession)) {
-                    is HappySpawnResult.Success -> {
+                when (val outcome = repository.resumeSession(sessionId)) {
+                    is WorkSpawnOutcome.Success -> {
                         notice = "会话已恢复"
-                        resumedSessionId = result.sessionId
+                        resumedSessionId = outcome.sessionId
                     }
-                    is HappySpawnResult.DirectoryApprovalRequired -> {
+                    is WorkSpawnOutcome.NeedsDirectoryApproval ->
                         actionError = "恢复会话时开发机要求创建目录"
-                    }
-                    is HappySpawnResult.Error -> actionError = result.message
+                    is WorkSpawnOutcome.Error -> actionError = outcome.message
                 }
             } catch (throwable: Throwable) {
-                actionError = throwable.toUserMessage()
+                actionError = throwable.toWorkflowMessage()
             } finally {
                 isActing = false
             }
@@ -130,19 +135,15 @@ class WorkflowSessionVM(
         resumedSessionId = null
     }
 
-    fun approve(approval: HappyApproval, forSession: Boolean) {
-        val currentSession = session ?: return
-        val currentCredentials = credentials ?: return
+    fun approve(approval: WorkApproval, forSession: Boolean) {
         act(if (forSession) "本会话已允许该操作" else "已允许一次") {
-            socketClient.approve(currentCredentials, currentSession, approval.id, forSession)
+            repository.approve(sessionId, approval.id, forSession)
         }
     }
 
-    fun deny(approval: HappyApproval, abort: Boolean) {
-        val currentSession = session ?: return
-        val currentCredentials = credentials ?: return
+    fun deny(approval: WorkApproval, abort: Boolean) {
         act(if (abort) "已拒绝并请求停止" else "已拒绝该操作") {
-            socketClient.deny(currentCredentials, currentSession, approval.id, abort)
+            repository.deny(sessionId, approval.id, abort)
         }
     }
 
@@ -154,60 +155,27 @@ class WorkflowSessionVM(
             try {
                 action()
                 notice = successNotice
-                refreshNow(credentials ?: return@launch)
+                syncNow()
             } catch (throwable: Throwable) {
-                actionError = throwable.toUserMessage()
+                actionError = throwable.toWorkflowMessage()
             } finally {
                 isActing = false
             }
         }
     }
 
-    private suspend fun refreshNow(currentCredentials: HappyCredentials) {
+    private suspend fun syncNow() {
         try {
-            val snapshot = syncApi.fetchSnapshot(currentCredentials)
-            machines = snapshot.machines
-            val latestSession = snapshot.sessions
-                .firstOrNull { it.id == sessionId }
-            if (latestSession != null) session = latestSession
-            val currentSession = session
-            if (currentSession != null) {
-                val afterSeq = messages.maxOfOrNull(HappyMessage::seq) ?: 0
-                val nextMessages = syncApi.fetchMessages(currentCredentials, currentSession, afterSeq)
-                if (nextMessages.isNotEmpty()) {
-                    messages = (messages + nextMessages)
-                        .distinctBy(HappyMessage::id)
-                        .sortedBy(HappyMessage::seq)
-                }
-            }
-            syncError = if (latestSession == null && session == null) "该会话不在 Happy 历史记录中" else null
+            repository.refreshSnapshot()
+            val exists = repository.getSession(sessionId) != null
+            if (exists) repository.syncMessages(sessionId)
+            syncError = if (!exists && !sessionSeen) "该会话不在 Happy 历史记录中" else null
         } catch (throwable: Throwable) {
-            syncError = throwable.toUserMessage()
-        } finally {
-            isLoading = false
+            syncError = throwable.toWorkflowMessage()
         }
-    }
-
-    private fun Throwable.toUserMessage(): String = when (this) {
-        is HappyDecryptionException -> "此会话无法解密，其他会话不受影响"
-        is HappySyncException -> when (statusCode) {
-            401, 403 -> "Happy 登录已失效，请重新连接"
-            409 -> "会话状态已变化，已重新同步"
-            else -> "同步失败（$statusCode）"
-        }
-        is HappyRpcException.Offline -> "开发机或 Happy 中继当前离线"
-        is HappyRpcException.Rejected -> "远程操作被拒绝：${message.orEmpty().substringAfterLast(':').trim()}"
-        is kotlinx.coroutines.TimeoutCancellationException -> "远程操作超时，请确认开发机在线"
-        is IOException -> "网络连接失败，请稍后重试"
-        else -> "操作失败，请稍后重试"
-    }
-
-    override fun onCleared() {
-        socketSubscription.close()
-        super.onCleared()
     }
 
     private companion object {
-        const val POLL_INTERVAL_MS = 3_000L
+        const val SYNC_THROTTLE_MS = 1_500L
     }
 }

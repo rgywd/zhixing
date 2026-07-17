@@ -143,6 +143,22 @@ val dataSourceModule = module {
     }
 
     single {
+        get<AppDatabase>().workSessionDao()
+    }
+
+    single {
+        get<AppDatabase>().workMessageDao()
+    }
+
+    single {
+        get<AppDatabase>().workMachineDao()
+    }
+
+    single {
+        get<AppDatabase>().workRepoPresetDao()
+    }
+
+    single {
         MessageFtsManager(get())
     }
 

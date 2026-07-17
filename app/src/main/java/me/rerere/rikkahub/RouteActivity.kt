@@ -126,6 +126,9 @@ import me.rerere.rikkahub.ui.pages.share.handler.ShareHandlerPage
 import me.rerere.rikkahub.ui.pages.stats.StatsPage
 import me.rerere.rikkahub.ui.pages.translator.TranslatorPage
 import me.rerere.rikkahub.ui.pages.webview.WebViewPage
+import me.rerere.rikkahub.ui.pages.workflow.WorkNewTaskPage
+import me.rerere.rikkahub.ui.pages.workflow.WorkPresetEditPage
+import me.rerere.rikkahub.ui.pages.workflow.WorkSessionLogPage
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowPage
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowProjectPage
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowSessionPage
@@ -361,6 +364,18 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.WorkflowSession> { key ->
                                 WorkflowSessionPage(key.id)
+                            }
+
+                            entry<Screen.WorkSessionLog> { key ->
+                                WorkSessionLogPage(key.id)
+                            }
+
+                            entry<Screen.WorkNewTask> { key ->
+                                WorkNewTaskPage(key.presetId, key.machineId, key.path)
+                            }
+
+                            entry<Screen.WorkPresetEdit> { key ->
+                                WorkPresetEditPage(key.id, key.machineId, key.path)
                             }
 
                             entry<Screen.WorkflowSettings> {
@@ -620,6 +635,23 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data class WorkflowSession(val id: String) : Screen
+
+    @Serializable
+    data class WorkSessionLog(val id: String) : Screen
+
+    @Serializable
+    data class WorkNewTask(
+        val presetId: String? = null,
+        val machineId: String? = null,
+        val path: String? = null,
+    ) : Screen
+
+    @Serializable
+    data class WorkPresetEdit(
+        val id: String? = null,
+        val machineId: String? = null,
+        val path: String? = null,
+    ) : Screen
 
     @Serializable
     data object WorkflowSettings : Screen

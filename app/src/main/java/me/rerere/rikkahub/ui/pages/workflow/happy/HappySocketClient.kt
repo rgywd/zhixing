@@ -43,37 +43,71 @@ class HappySocketClient(
         ensureConnected(credentials)
     }
 
-    suspend fun spawnCodexSession(
+    suspend fun spawnSession(
         credentials: HappyCredentials,
         machine: HappyMachine,
         directory: String,
+        agent: String,
         approvedNewDirectoryCreation: Boolean = false,
+        environmentVariables: Map<String, String> = emptyMap(),
     ): HappySpawnResult = machineRpc(
         credentials = credentials,
         machine = machine,
         method = "spawn-happy-session",
         params = buildJsonObject {
+            // type 字段是旧版 happy-cli 契约要求的，新版直接忽略
             put("type", "spawn-in-directory")
             put("directory", directory)
             put("approvedNewDirectoryCreation", approvedNewDirectoryCreation)
-            put("agent", "codex")
-            put("permissionMode", "default")
+            put("agent", agent)
+            if (environmentVariables.isNotEmpty()) {
+                put("environmentVariables", buildJsonObject {
+                    environmentVariables.forEach { (name, value) -> put(name, value) }
+                })
+            }
         },
     ).toHappySpawnResult()
 
+    /**
+     * 旧版 happy-cli 使用独立的 resume-happy-session；新版已移除该方法，
+     * 改为 spawn-happy-session 携带 sessionId。先走旧方法，被拒绝时回退新协议。
+     */
     suspend fun resumeSession(
         credentials: HappyCredentials,
         machine: HappyMachine,
         session: HappySession,
-    ): HappySpawnResult = machineRpc(
-        credentials = credentials,
-        machine = machine,
-        method = "resume-happy-session",
-        params = buildJsonObject {
-            put("sessionId", session.id)
-            put("permissionMode", "default")
-        },
-    ).toHappySpawnResult()
+        agent: String,
+    ): HappySpawnResult {
+        val legacy = runCatching {
+            machineRpc(
+                credentials = credentials,
+                machine = machine,
+                method = "resume-happy-session",
+                params = buildJsonObject {
+                    put("sessionId", session.id)
+                    put("permissionMode", "default")
+                },
+            ).toHappySpawnResult()
+        }
+        legacy.getOrNull()?.let { result ->
+            if (result !is HappySpawnResult.Error) return result
+        }
+        val exception = legacy.exceptionOrNull()
+        if (exception != null && exception !is HappyRpcException.Rejected) throw exception
+        val directory = session.path ?: return HappySpawnResult.Error("会话缺少项目目录，无法恢复")
+        return machineRpc(
+            credentials = credentials,
+            machine = machine,
+            method = "spawn-happy-session",
+            params = buildJsonObject {
+                put("type", "spawn-in-directory")
+                put("directory", directory)
+                put("sessionId", session.id)
+                put("approvedNewDirectoryCreation", false)
+                put("agent", agent)
+            },
+        ).toHappySpawnResult()
+    }
 
     suspend fun abort(credentials: HappyCredentials, session: HappySession) {
         sessionRpc(
