@@ -1,0 +1,29 @@
+{
+  "name": "zhixing-agent",
+  "version": "0.1.0",
+  "description": "知行自研开发机代理：连接中继，向手机端提供 Codex 远程会话（替代 happy CLI）",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "zhixing-agent": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.1",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
