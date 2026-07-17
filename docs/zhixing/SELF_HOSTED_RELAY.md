@@ -1,9 +1,10 @@
 # 知行自托管中继运行手册
 
-状态：部署材料已实现；生产部署和手机/开发机全链路切换等待目标 VPS 域名确认。
+状态：部署材料已实现；生产部署和手机/开发机全链路切换按本手册验收。
 
-上游基线：[`slopus/happy@3f161de`](https://github.com/slopus/happy/commit/3f161de70541b1cedaf0b7547ed70889d8dae22d)，与
-`HappyProtocol.UPSTREAM_COMMIT` 一致。上游 standalone server 使用 PGlite、本地文件和内存事件总线，
+协议审计基线：[`slopus/happy@3f161de`](https://github.com/slopus/happy/commit/3f161de70541b1cedaf0b7547ed70889d8dae22d)，与
+`HappyProtocol.UPSTREAM_COMMIT` 一致；部署包固定为该基线中的 `happy-server-self-host@1.1.11`。
+上游 standalone server 使用 PGlite、本地文件和内存事件总线，
 不要求外置 Postgres、Redis 或 S3；参考上游
 [`packages/happy-server/README.md`](https://github.com/slopus/happy/blob/3f161de70541b1cedaf0b7547ed70889d8dae22d/packages/happy-server/README.md)。
 
@@ -32,7 +33,8 @@ Anthropic 也要求在其支持地区使用 Claude。部署前应分别检查
 - Docker Engine + Docker Compose；
 - 一个已解析到 VPS 的独立域名；
 - TCP 443（使用 bundled Caddy 时还需 TCP 80，HTTP/3 可选 UDP 443）；
-- 建议至少 2 GB 内存；约 1.5 GB 内存配合 2 GB swap 可运行，但首次源码构建会更慢；
+- 建议至少 2 GB 内存；约 1.5 GB 内存配合 2 GB swap 可运行；部署镜像直接安装固定的预构建 npm 包，
+  不在 VPS 上编译整个上游 monorepo；
   生产数据位于 Docker volume `zhixing-happy-data`。
 
 ## 2. 首次部署
@@ -69,6 +71,11 @@ sudo certbot --nginx -d happy.example.com
 ```bash
 curl --fail https://happy.example.com/health
 ```
+
+仓库提供的 Nginx 模板还会拒绝编码斜杠、反斜杠和编码 `..`，避免反向代理与静态文件路由产生
+解析差异。`happy-server-self-host@1.1.11` 的依赖审计会报告 `@fastify/static` 公告；当前服务未启用
+目录列表，公开静态 Web App 也不依赖路由守卫保护敏感文件，因此公告中的两个必要利用条件均不成立。
+升级上游包时仍须重新运行 `npm audit --omit=dev` 并复核实际调用方式，不能只看汇总数量。
 
 如果 VPS 没有反向代理，设置 `HAPPY_DOMAIN` 后启用随仓库提供的 Caddy：
 
@@ -109,11 +116,12 @@ docker run --rm \
 docker compose start happy-relay
 ```
 
-升级前必须：备份 volume、固定新的上游 commit、运行 App/agent 契约测试、在非生产端点验证，再替换
-`HAPPY_BUILD_CONTEXT` 重建。不要直接跟随上游 `main`。
+升级前必须：备份 volume、审计新的上游 commit、运行 App/agent 契约测试、在非生产端点验证，再替换
+`package.json` 中的版本并更新 `package-lock.json` 后重建。锁文件固定完整传递依赖和包完整性；不要使用
+`latest` 或直接跟随上游 `main`。
 
 回滚客户端时，把 App 和 agent 的中继地址改回 `https://api.cluster-fluster.com` 并重新登录；
-自托管 volume 保留，不要删除。服务端回滚时恢复旧 build commit；只有数据库已发生不兼容迁移时才停服恢复备份。
+自托管 volume 保留，不要删除。服务端回滚时恢复旧 npm 包版本；只有数据库已发生不兼容迁移时才停服恢复备份。
 
 ## 5. 故障检查
 
