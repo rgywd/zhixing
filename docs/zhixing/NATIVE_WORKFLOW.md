@@ -174,7 +174,9 @@ Happy Web 页面只保留为开发期故障回退，不作为正式产品界面�
   “自动执行”（acceptEdits）档协议已支持，暂不暴露 UI。
 - 不实现远程桌面、通用 SSH 终端或开发机文件系统任意浏览。
 - 不把恢复密钥上传到知行自有服务端。
-- Push 服务和 Happy Relay 自托管在原生读写闭环稳定后实施。
+- Push 服务仍待后续；Happy Relay 自托管部署材料已完成，目标 VPS 上线与真实全链路验收待执行。
+- 中继 origin 可在工作连接设置中切换；token 与签发 origin 绑定，切换会断开并清除旧中继本地缓存，
+  旧中继历史不迁移但可通过切回原 origin 继续读取。运维见 [`SELF_HOSTED_RELAY.md`](./SELF_HOSTED_RELAY.md)。
 - CC Pocket、HAPI、Remodex 仅作为交互和 Codex app-server 映射参考，不混用身份与传输协议。
 
 ## 6. 回滚

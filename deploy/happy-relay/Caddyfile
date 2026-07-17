@@ -1,0 +1,4 @@
+{$HAPPY_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy happy-relay:3005
+}

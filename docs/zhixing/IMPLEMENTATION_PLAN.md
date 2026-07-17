@@ -63,7 +63,9 @@
 - [x] 支持手机指定项目目录启动 Codex 任务，以及恢复已结束的历史对话。
 - [x] 支持补充消息、中断任务和审批 RPC，并区分离线、超时、冲突与解密错误。
 - [x] 使用当前真实 Happy/Codex 账户完成读写闭环与断线恢复验证。
-- [x] 工作流默认入口不再加载 Happy WebView；CPA/VPS 自托管 Happy Relay 留待后续阶段。
+- [x] 工作流默认入口不再加载 Happy WebView；App 支持安全切换中继 origin，token 与中继绑定。
+- [x] 自托管 Happy Relay 的固定上游版本、Docker Compose、可选 Caddy、备份/升级/回滚手册已落库。
+- [ ] 在目标 VPS 完成 HTTPS 部署，并做手机 + zhixing-agent + Codex 的真实全链路验收。
 
 ## Phase 3：可选同步服务
 
