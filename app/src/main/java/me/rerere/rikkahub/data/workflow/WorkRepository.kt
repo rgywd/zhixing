@@ -343,7 +343,14 @@ class WorkRepository(
             return WorkSpawnOutcome.Error("原开发机当前离线，无法恢复此对话")
         }
         val agent = WorkAgent.detect(session.flavor, session.codexThreadId)
-        return when (val result = socketClient.resumeSession(credentials, machine, session, agent.wireName)) {
+        val permissionMode = sessionDao.getById(sessionId)?.lastPermissionMode ?: "default"
+        return when (val result = socketClient.resumeSession(
+            credentials = credentials,
+            machine = machine,
+            session = session,
+            agent = agent.wireName,
+            permissionMode = permissionMode,
+        )) {
             is HappySpawnResult.Success -> {
                 awaitSession(result.sessionId)
                 WorkSpawnOutcome.Success(result.sessionId)

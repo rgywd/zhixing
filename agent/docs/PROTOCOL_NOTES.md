@@ -127,3 +127,20 @@ resumeCodexThreadId?, parentSessionId?, forkedFromMessageId?}`
 |---|---|---|---|
 | 普通 `default` | `untrusted` | `workspace-write` | requestApproval 转手机审批卡 |
 | 完全访问 `bypassPermissions` | `never` | `danger-full-access` | 不会产生审批回调 |
+
+## 9. Claude Code P2 协议基线（2.1.212）
+
+- **短进程**：`claude -p <prompt>`；新会话用 `--session-id <uuid>`，后续轮用
+  `--resume <uuid>`。`--output-format json` 返回最终结果与 session id；P2 不依赖 TUI 或私有事件流。
+- **模型与 effort**：分别使用 `--model`、`--effort`；未知或空值不下发，沿用 Claude 默认。
+- **完全访问**：显式 `--dangerously-skip-permissions`，只允许在新建会话时选定。
+- **普通审批**：2.1.212 已没有 `--permission-prompt-tool`。使用官方 `PermissionRequest` Hook；
+  Hook 输入包含 `session_id`、`tool_name`、`tool_input` 与 `permission_suggestions`，返回
+  `hookSpecificOutput { hookEventName:'PermissionRequest', decision:{behavior:'allow'|'deny'} }`。
+  Hook 的 allow 不覆盖已有 deny/ask 规则，超时和 bridge 异常必须返回 deny。
+- **硬限制**：通过 `--disallowedTools` 传给 CLI，并在 bridge 的 `PreToolUse`/`PermissionRequest`
+  入口复核；不能依赖模型提示词自觉遵守。
+- **MCP**：`--mcp-config <json-or-file>` 注入 P2 电话线，配合 `--strict-mcp-config` 避免开发机全局
+  MCP 污染远端会话。MCP server 只暴露 `report`、`ask`、`report_html`。
+- **配置隔离**：P2 运行时设置与 token 都放在临时进程参数/环境中，不修改用户或项目
+  `.claude/settings*.json`。

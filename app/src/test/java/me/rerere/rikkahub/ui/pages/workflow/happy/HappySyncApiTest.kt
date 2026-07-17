@@ -124,6 +124,7 @@ class HappySyncApiTest {
             host = null,
             machineId = null,
             codexThreadId = null,
+            claudeSessionId = null,
             flavor = "codex",
             active = true,
             activeAt = 1720000000000,
