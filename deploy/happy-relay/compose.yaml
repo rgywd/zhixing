@@ -3,7 +3,7 @@ name: zhixing-happy
 services:
   happy-relay:
     build:
-      context: ${HAPPY_BUILD_CONTEXT:-https://github.com/slopus/happy.git#3f161de70541b1cedaf0b7547ed70889d8dae22d}
+      context: .
       dockerfile: Dockerfile
     environment:
       HANDY_MASTER_SECRET: ${HANDY_MASTER_SECRET:?HANDY_MASTER_SECRET is required}
