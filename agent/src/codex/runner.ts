@@ -6,6 +6,7 @@ import { HappyApi } from '../api.js'
 import { SessionRuntime } from '../session.js'
 import { CodexAppServerClient } from './appServerClient.js'
 import { resolveExecutionPolicy, normalizeMode } from './executionPolicy.js'
+import { HardLimits, normalizeRules } from './hardLimits.js'
 import { log } from '../daemon.js'
 import type { Credentials, SpawnParams } from '../types.js'
 
@@ -26,6 +27,7 @@ export class CodexSessionRunner {
   private threadId!: string
   private activeTurn: ActiveTurn | null = null
   private policy = resolveExecutionPolicy(undefined)
+  private hardLimits = new HardLimits([])
   private model: string | undefined
   private effort: string | undefined
   private readonly queue: Array<{ text: string; meta: Record<string, unknown> }> = []
@@ -40,7 +42,8 @@ export class CodexSessionRunner {
 
   static async spawn(context: RunnerContext, params: SpawnParams): Promise<CodexSessionRunner> {
     const runner = new CodexSessionRunner(context)
-    runner.policy = resolveExecutionPolicy(params.permissionMode)
+    runner.hardLimits = new HardLimits(normalizeRules((params as { disallowedTools?: unknown }).disallowedTools))
+    runner.policy = resolveExecutionPolicy(params.permissionMode, !runner.hardLimits.isEmpty)
     runner.model = params.modelMode || undefined
     runner.effort = params.effortLevel || undefined
 
@@ -123,6 +126,10 @@ export class CodexSessionRunner {
     if (typeof meta.model === 'string' && meta.model) this.model = meta.model
     const effortMeta = meta.reasoningEffort ?? meta.effortLevel
     if (typeof effortMeta === 'string' && effortMeta) this.effort = effortMeta
+    if (meta.disallowedTools !== undefined) {
+      // 每条消息 meta 携带预设规则，随消息更新（与 happy CLI 的 meta 粘滞语义一致）
+      this.hardLimits = new HardLimits(normalizeRules(meta.disallowedTools))
+    }
     this.runtime.beginTurn()
     try {
       const turn = await this.codex.startTurn({
@@ -287,6 +294,15 @@ export class CodexSessionRunner {
   }
 
   private async decideApproval(tool: string, params: Record<string, unknown>): Promise<string> {
+    const hit = this.checkHardLimits(tool, params)
+    if (hit) {
+      await this.runtime.postEvent({
+        t: 'service',
+        kind: 'hard-limit',
+        text: `硬性限制已拦截 ${tool === 'shell' ? '命令' : '文件改动'}（规则: ${hit.rule}）`,
+      })
+      return 'decline'
+    }
     if (this.policy.autoApprove) return 'accept'
     const id = String(params.approvalId ?? params.itemId ?? Date.now())
     const answer = await this.runtime.requestPermission(id, tool, {
@@ -298,6 +314,20 @@ export class CodexSessionRunner {
       return answer.decision === 'approved_for_session' ? 'acceptForSession' : 'accept'
     }
     return answer.decision === 'abort' ? 'cancel' : 'decline'
+  }
+
+  private checkHardLimits(
+    tool: string,
+    params: Record<string, unknown>,
+  ): { rule: string } | null {
+    if (this.hardLimits.isEmpty) return null
+    if (tool === 'shell') {
+      const command = Array.isArray(params.command) ? params.command.join(' ') : String(params.command ?? '')
+      return this.hardLimits.matchCommand(command)
+    }
+    // 文件改动：requestApproval 只带 grantRoot/reason，路径从 item 事件里拿不到时退回 grantRoot
+    const target = String(params.grantRoot ?? params.path ?? '')
+    return target ? this.hardLimits.matchPath(target) : null
   }
 }
 

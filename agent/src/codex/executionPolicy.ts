@@ -13,10 +13,20 @@ export interface CodexExecutionPolicy {
   autoApprove: boolean
 }
 
-export function resolveExecutionPolicy(mode: string | undefined): CodexExecutionPolicy {
-  return normalizeMode(mode) === 'bypassPermissions'
-    ? { approvalPolicy: 'never', sandbox: 'danger-full-access', autoApprove: true }
-    : { approvalPolicy: 'untrusted', sandbox: 'workspace-write', autoApprove: false }
+/**
+ * @param hasHardLimits 存在硬性限制时，完全访问档不能用 `never`（没有审批回调可拦截），
+ *   改为 `untrusted` 回调 + 未命中规则自动通过；沙箱仍全放开。
+ */
+export function resolveExecutionPolicy(
+  mode: string | undefined,
+  hasHardLimits = false,
+): CodexExecutionPolicy {
+  if (normalizeMode(mode) === 'bypassPermissions') {
+    return hasHardLimits
+      ? { approvalPolicy: 'untrusted', sandbox: 'danger-full-access', autoApprove: true }
+      : { approvalPolicy: 'never', sandbox: 'danger-full-access', autoApprove: true }
+  }
+  return { approvalPolicy: 'untrusted', sandbox: 'workspace-write', autoApprove: false }
 }
 
 /** 手机端只有两档；其他值（历史数据/第三方客户端）一律落回普通档 */
