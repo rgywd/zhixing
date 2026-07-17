@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.data.workflow
 
+import me.rerere.ai.core.MessageRole
+import me.rerere.ai.ui.UIMessagePart
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,58 +17,62 @@ class WorkSessionDisplayTest {
     )
 
     @Test
-    fun `merges consecutive tool activity into one card and keeps text as bubbles`() {
-        val items = buildDisplayItems(
+    fun `maps text and reasoning into home ui parts and merges consecutive agent messages`() {
+        val items = buildWorkChatItems(
             listOf(
                 message("m1", WorkRole.USER, WorkMessagePart.Text("修复 CI")),
-                message(
-                    "m2", WorkRole.AGENT,
-                    WorkMessagePart.ToolCall(name = "Bash", input = "./gradlew test", callId = "c1"),
-                    WorkMessagePart.FileEdit(filePath = "app/src/Foo.kt"),
-                ),
+                message("m2", WorkRole.AGENT, WorkMessagePart.Reasoning("先看日志")),
                 message("m3", WorkRole.AGENT, WorkMessagePart.Text("已修复")),
             )
         )
 
-        assertEquals(3, items.size)
-        assertTrue(items[0] is WorkDisplayItem.UserText)
-        val activity = items[1] as WorkDisplayItem.Activity
-        assertEquals(listOf("Bash", "修改 Foo.kt"), activity.entries.map(WorkActivityEntry::label))
-        assertEquals("已修复", (items[2] as WorkDisplayItem.AgentText).text)
+        assertEquals(2, items.size)
+        val user = items[0] as WorkChatItem.PartsBlock
+        assertEquals(MessageRole.USER, user.role)
+        assertEquals(listOf<UIMessagePart>(UIMessagePart.Text("修复 CI")), user.parts)
+        val agent = items[1] as WorkChatItem.PartsBlock
+        assertEquals(MessageRole.ASSISTANT, agent.role)
+        assertEquals(2, agent.parts.size)
+        assertTrue(agent.parts[0] is UIMessagePart.Reasoning)
+        assertEquals("已修复", (agent.parts[1] as UIMessagePart.Text).text)
     }
 
     @Test
-    fun `successful tool results and terminal output stay out of chat while errors surface`() {
-        val items = buildDisplayItems(
+    fun `pairs tool call with result across messages`() {
+        val items = buildWorkChatItems(
             listOf(
                 message(
                     "m1", WorkRole.AGENT,
-                    WorkMessagePart.ToolCall(name = "Bash", input = "ls", callId = "c1"),
-                    WorkMessagePart.ToolResult(output = "ok", callId = "c1"),
-                    WorkMessagePart.Terminal(output = "raw"),
-                    WorkMessagePart.ToolResult(output = "boom", callId = "c2", isError = true),
-                )
+                    WorkMessagePart.ToolCall(name = "grep", input = """{"pattern":"TODO"}""", callId = "tc1", title = "搜索 TODO"),
+                ),
+                message("m2", WorkRole.AGENT, WorkMessagePart.ToolResult(output = "3 hits", callId = "tc1")),
             )
         )
 
-        val activity = items.single() as WorkDisplayItem.Activity
-        assertEquals(2, activity.entries.size)
-        assertTrue(activity.entries.last().isError)
+        val block = items.single() as WorkChatItem.PartsBlock
+        val tool = block.parts.single() as UIMessagePart.Tool
+        assertEquals("tc1", tool.toolCallId)
+        assertEquals("搜索 TODO", tool.toolName)
+        assertEquals("3 hits", (tool.output.single() as UIMessagePart.Text).text)
     }
 
     @Test
-    fun `noisy events are dropped and terminal ones become notes`() {
-        val items = buildDisplayItems(
+    fun `events become notes and lifecycle noise is dropped`() {
+        val items = buildWorkChatItems(
             listOf(
                 message(
                     "m1", WorkRole.AGENT,
+                    WorkMessagePart.Event("turn-end", "failed"),
                     WorkMessagePart.Event("ready"),
-                    WorkMessagePart.Event("task_complete"),
+                    WorkMessagePart.Event("service", "**Service:** connected"),
                 )
             )
         )
 
-        assertEquals(listOf("任务完成"), items.filterIsInstance<WorkDisplayItem.EventNote>().map { it.text })
+        assertEquals(
+            listOf("本轮执行失败", "**Service:** connected"),
+            items.filterIsInstance<WorkChatItem.Note>().map(WorkChatItem.Note::text),
+        )
     }
 
     @Test
