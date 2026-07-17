@@ -18,7 +18,11 @@ class HappyAuthApi(
     private val serverUrl: String = HappyProtocol.SERVER_URL,
     private val clientId: String,
 ) {
-    suspend fun exchangeRecoveryKey(recoveryKey: String): HappyCredentials {
+    suspend fun exchangeRecoveryKey(
+        recoveryKey: String,
+        targetServerUrl: String = serverUrl,
+    ): HappyCredentials {
+        val normalizedServerUrl = HappyProtocol.normalizeServerUrl(targetServerUrl)
         val secret = HappySecretKeyCodec.decode(recoveryKey)
         val auth = crypto.createAuthChallenge(secret)
         val body = json.encodeToString(
@@ -29,7 +33,7 @@ class HappyAuthApi(
             )
         )
         val request = Request.Builder()
-            .url("${serverUrl.trimEnd('/')}/v1/auth")
+            .url("$normalizedServerUrl/v1/auth")
             .header("X-Happy-Client", clientId)
             .post(body.toRequestBody(JSON_MEDIA_TYPE))
             .build()
@@ -44,6 +48,7 @@ class HappyAuthApi(
                 HappyCredentials(
                     token = token,
                     secret = HappySecretKeyCodec.encodeBase64Url(secret),
+                    serverUrl = normalizedServerUrl,
                 )
             }
         }
@@ -69,6 +74,7 @@ class HappyAuthApi(
 data class HappyCredentials(
     val token: String,
     val secret: String,
+    val serverUrl: String = HappyProtocol.SERVER_URL,
 )
 
 class HappyAuthException(

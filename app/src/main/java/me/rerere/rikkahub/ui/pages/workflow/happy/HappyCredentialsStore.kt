@@ -85,13 +85,15 @@ class HappyCredentialsStore(
     private data class StoredCredentials(
         val token: String,
         val secret: String,
+        val serverUrl: String = HappyProtocol.SERVER_URL,
     ) {
-        fun toCredentials() = HappyCredentials(token = token, secret = secret)
+        fun toCredentials() = HappyCredentials(token = token, secret = secret, serverUrl = serverUrl)
 
         companion object {
             fun from(credentials: HappyCredentials) = StoredCredentials(
                 token = credentials.token,
                 secret = credentials.secret,
+                serverUrl = credentials.serverUrl,
             )
         }
     }

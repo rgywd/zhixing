@@ -23,22 +23,22 @@ class HappySyncApi(
     private val client: OkHttpClient,
     private val json: Json,
     private val recordCrypto: HappyRecordCrypto = HappyRecordCrypto(json),
-    private val serverUrl: String = HappyProtocol.SERVER_URL,
+    private val serverUrl: String? = null,
     private val clientId: String,
 ) {
     suspend fun fetchSnapshot(credentials: HappyCredentials): HappySnapshot = withContext(Dispatchers.IO) {
         val accountSecret = HappySecretKeyCodec.decode(credentials.secret)
         val machines = json.decodeFromString<List<RawMachine>>(
-            get("/v1/machines", credentials.token)
+            get("/v1/machines", credentials)
         ).map { machine -> machine.toMachine(accountSecret) }
-        val sessions = fetchAllSessions(credentials.token)
+        val sessions = fetchAllSessions(credentials)
             .map { session -> session.toSession(accountSecret) }
             .sortedByDescending(HappySession::updatedAt)
 
         HappySnapshot(machines = machines, sessions = sessions)
     }
 
-    private fun fetchAllSessions(token: String): List<RawSession> {
+    private fun fetchAllSessions(credentials: HappyCredentials): List<RawSession> {
         val sessions = mutableListOf<RawSession>()
         val seenCursors = mutableSetOf<String>()
         var cursor: String? = null
@@ -47,7 +47,7 @@ class HappySyncApi(
                 append("/v2/sessions?limit=200")
                 cursor?.let { append("&cursor=").append(it) }
             }
-            val response = json.decodeFromString<RawSessionsResponse>(get(query, token))
+            val response = json.decodeFromString<RawSessionsResponse>(get(query, credentials))
             sessions += response.sessions
             cursor = response.nextCursor?.takeIf { response.hasNext && seenCursors.add(it) }
         } while (cursor != null)
@@ -66,7 +66,7 @@ class HappySyncApi(
         var madeProgress: Boolean
         do {
             val response = json.decodeFromString<RawMessagesResponse>(
-                get("/v3/sessions/${session.id}/messages?after_seq=$cursor&limit=500", credentials.token)
+                get("/v3/sessions/${session.id}/messages?after_seq=$cursor&limit=500", credentials)
             )
             response.messages.mapNotNullTo(result) { message ->
                 if (message.content.t != "encrypted") return@mapNotNullTo null
@@ -123,13 +123,13 @@ class HappySyncApi(
                 })
             }
         }.toString()
-        post("/v3/sessions/${session.id}/messages", credentials.token, body)
+        post("/v3/sessions/${session.id}/messages", credentials, body)
     }
 
-    private fun get(path: String, token: String): String {
+    private fun get(path: String, credentials: HappyCredentials): String {
         val request = Request.Builder()
-            .url("${serverUrl.trimEnd('/')}$path")
-            .header("Authorization", "Bearer $token")
+            .url("${(serverUrl ?: credentials.serverUrl).trimEnd('/')}$path")
+            .header("Authorization", "Bearer ${credentials.token}")
             .header("Content-Type", "application/json")
             .header("X-Happy-Client", clientId)
             .get()
@@ -143,10 +143,10 @@ class HappySyncApi(
         }
     }
 
-    private fun post(path: String, token: String, body: String): String {
+    private fun post(path: String, credentials: HappyCredentials, body: String): String {
         val request = Request.Builder()
-            .url("${serverUrl.trimEnd('/')}$path")
-            .header("Authorization", "Bearer $token")
+            .url("${(serverUrl ?: credentials.serverUrl).trimEnd('/')}$path")
+            .header("Authorization", "Bearer ${credentials.token}")
             .header("Content-Type", "application/json")
             .header("X-Happy-Client", clientId)
             .post(body.toRequestBody(JSON_MEDIA_TYPE))

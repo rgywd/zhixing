@@ -53,5 +53,6 @@ class HappyAuthApiTest {
         assertTrue(TweetNaclFast.Signature(publicKey, ByteArray(64)).detached_verify(challenge, signature))
         assertEquals("happy-token", credentials.token)
         assertEquals(HappySecretKeyCodec.encodeBase64Url(secret), credentials.secret)
+        assertEquals(server.url("/").toString().trimEnd('/'), credentials.serverUrl)
     }
 }

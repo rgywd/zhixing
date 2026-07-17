@@ -25,6 +25,7 @@ import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyAuthApi
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyCredentialsStore
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyProtocol
+import me.rerere.rikkahub.ui.pages.workflow.happy.HappyRelaySettingsStore
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncApi
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySocketClient
 import me.rerere.tts.provider.TTSManager
@@ -50,6 +51,7 @@ val appModule = module {
     single { GitHubIssueClient() }
 
     single { HappyCredentialsStore(get(), get()) }
+    single { HappyRelaySettingsStore(get()) }
     single {
         HappyAuthApi(
             client = get(),
