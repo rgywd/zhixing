@@ -93,6 +93,7 @@ class HappySyncApi(
         text: String,
         permissionMode: String? = null,
         model: String? = null,
+        reasoningEffort: String? = null,
         disallowedTools: List<String>? = null,
     ) = withContext(Dispatchers.IO) {
         val key = session.encryptionKey ?: throw HappyDecryptionException(session.id)
@@ -107,6 +108,7 @@ class HappySyncApi(
                 put("sentFrom", "android")
                 permissionMode?.let { put("permissionMode", it) }
                 model?.let { put("model", it) }
+                reasoningEffort?.let { put("reasoningEffort", it) }
                 disallowedTools?.takeIf { it.isNotEmpty() }?.let { tools ->
                     putJsonArray("disallowedTools") { tools.forEach(::add) }
                 }

@@ -50,6 +50,7 @@ class HappySocketClient(
         agent: String,
         approvedNewDirectoryCreation: Boolean = false,
         environmentVariables: Map<String, String> = emptyMap(),
+        effortLevel: String? = null,
     ): HappySpawnResult = machineRpc(
         credentials = credentials,
         machine = machine,
@@ -60,6 +61,8 @@ class HappySocketClient(
             put("directory", directory)
             put("approvedNewDirectoryCreation", approvedNewDirectoryCreation)
             put("agent", agent)
+            // zhixing-agent 用它初始化 Codex thread 的 effort；官方 happy-cli 忽略未知字段
+            effortLevel?.let { put("effortLevel", it) }
             if (environmentVariables.isNotEmpty()) {
                 put("environmentVariables", buildJsonObject {
                     environmentVariables.forEach { (name, value) -> put(name, value) }

@@ -233,13 +233,15 @@ class WorkRepository(
             false -> "default"
             null -> null
         }
+        val preset = findPresetFor(session)
         syncApi.sendMessage(
             credentials = credentials,
             session = session,
             text = text,
             permissionMode = permissionMode,
             model = model,
-            disallowedTools = findPresetFor(session)?.disallowedTools?.takeIf { it.isNotEmpty() },
+            reasoningEffort = preset?.let { messageReasoningEffort(it.agent, it.reasoningEffort) },
+            disallowedTools = preset?.disallowedTools?.takeIf { it.isNotEmpty() },
         )
         permissionMode?.let { sessionDao.updatePermissionMode(sessionId, it) }
         runCatching { syncMessages(sessionId) }
@@ -289,6 +291,7 @@ class WorkRepository(
             agent = request.agent.wireName,
             approvedNewDirectoryCreation = request.approvedNewDirectoryCreation,
             environmentVariables = spawnEnvironment(request.agent, request.reasoningEffort),
+            effortLevel = spawnEffortLevel(request.agent, request.reasoningEffort),
         )) {
             is HappySpawnResult.Success -> {
                 val session = awaitSession(result.sessionId)
@@ -300,6 +303,7 @@ class WorkRepository(
                         text = firstPrompt,
                         permissionMode = if (request.fullAccess) PERMISSION_MODE_FULL_ACCESS else "default",
                         model = request.model?.takeIf(String::isNotBlank),
+                        reasoningEffort = messageReasoningEffort(request.agent, request.reasoningEffort),
                         disallowedTools = request.disallowedTools.takeIf { it.isNotEmpty() },
                     )
                     sessionDao.updatePermissionMode(
