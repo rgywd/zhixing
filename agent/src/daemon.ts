@@ -3,7 +3,7 @@
  * P1 提供 Codex；P2 在同一机器连接上增加 Claude Code 短进程适配器。
  */
 import { execFileSync } from 'node:child_process'
-import { AgentHome } from './config.js'
+import { AgentHome, isClaudeP2Enabled } from './config.js'
 import { HappyApi } from './api.js'
 import { MachineSocket } from './socket.js'
 import type { SpawnParams, SpawnResult } from './types.js'
@@ -41,15 +41,17 @@ export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
       clientId: home.clientId,
       machineId: settings.machineId,
       credentials,
+      enableClaude: isClaudeP2Enabled(),
     })
   }
 
   const api = new HappyApi(settings.serverUrl, home.clientId)
   const identity = home.machineIdentity(settings)
   const metadata = home.machineMetadata()
+  const claudeEnabled = isClaudeP2Enabled()
   metadata.cliAvailability = {
     codex: cliAvailable(process.env.ZHIXING_CODEX_BIN ?? 'codex'),
-    claude: cliAvailable(process.env.ZHIXING_CLAUDE_BIN ?? 'claude'),
+    claude: claudeEnabled && cliAvailable(process.env.ZHIXING_CLAUDE_BIN ?? 'claude'),
   }
   await api.registerMachine(credentials, identity, metadata)
   log(`机器已注册: ${identity.machineId} → ${settings.serverUrl}`)

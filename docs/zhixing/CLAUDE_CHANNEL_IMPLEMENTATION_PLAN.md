@@ -53,6 +53,8 @@ P2 把 Claude Code 作为“寻呼机式”远端会话接入知行：开发机�
 ## 5. 兼容、回滚与非目标
 
 - Codex P1 路径保持不变；Claude adapter 不可用时机器仍注册，但 `cliAvailability.claude=false`。
+- P2-2 完整闭环前，Claude 能力还受 `ZHIXING_ENABLE_CLAUDE_P2=1` 实验开关保护；默认不向 App
+  宣告可用，避免用户误入没有审批电话线的半成品普通档。
 - 已有 Happy/Claude 会话仍可读；缺少 `claudeSessionId` 的旧会话不能原生 resume 时，明确降级为新会话。
 - 每个阶段通过独立 commit/PR 验收；任一阶段可回滚，不迁移或删除现有会话数据。
 - P2 不做 transcript tail、逐工具直播、Claude 完整日志页、工具活动级 FTS、多 Agent 协作。
