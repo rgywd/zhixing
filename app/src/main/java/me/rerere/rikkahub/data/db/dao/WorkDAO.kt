@@ -78,6 +78,9 @@ interface WorkMessageDAO {
     @Query("SELECT DISTINCT session_id FROM work_messages WHERE parts LIKE '%' || :query || '%'")
     suspend fun searchSessionIds(query: String): List<String>
 
+    @Query("SELECT * FROM work_messages")
+    suspend fun getAll(): List<WorkMessageEntity>
+
     @Query("DELETE FROM work_messages")
     suspend fun clearAll()
 }

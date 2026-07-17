@@ -20,6 +20,7 @@ import me.rerere.rikkahub.data.db.dao.WorkRepoPresetDAO
 import me.rerere.rikkahub.data.db.dao.WorkSessionDAO
 import me.rerere.rikkahub.data.db.entity.WorkMachineEntity
 import me.rerere.rikkahub.data.db.entity.WorkMessageEntity
+import me.rerere.rikkahub.data.db.fts.WorkFtsManager
 import me.rerere.rikkahub.data.db.entity.WorkRepoPresetEntity
 import me.rerere.rikkahub.data.db.entity.WorkSessionEntity
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyAuthApi
@@ -48,6 +49,7 @@ class WorkRepository(
     private val messageDao: WorkMessageDAO,
     private val machineDao: WorkMachineDAO,
     private val presetDao: WorkRepoPresetDAO,
+    private val ftsManager: WorkFtsManager,
 ) {
     // 协议对象内存缓存：携带解密密钥，供发送/审批/RPC 使用，绝不落盘
     private val protocolSessions = ConcurrentHashMap<String, HappySession>()
@@ -72,12 +74,18 @@ class WorkRepository(
 
     suspend fun getSession(id: String): WorkSession? = sessionDao.getById(id)?.toModel()
 
-    /** 本地缓存内搜索：会话标题/路径 + 消息内容（parts JSON 粗匹配） */
+    /**
+     * 本地缓存内搜索：会话标题/路径走 LIKE，消息内容走 jieba FTS 全文检索
+     * （与主页聊天同一管线），FTS 失败或无结果时回退 parts JSON 粗匹配。
+     */
     suspend fun searchSessions(query: String): List<WorkSession> {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return emptyList()
+        ensureFtsBackfilled()
         val byMeta = sessionDao.searchByNameOrPath(trimmed)
-        val byContent = messageDao.searchSessionIds(trimmed)
+        val contentIds = runCatching { ftsManager.searchSessionIds(trimmed) }.getOrDefault(emptyList())
+            .ifEmpty { messageDao.searchSessionIds(trimmed) }
+        val byContent = contentIds
             .minus(byMeta.map(WorkSessionEntity::id).toSet())
             .takeIf { it.isNotEmpty() }
             ?.let { sessionDao.getByIds(it) }
@@ -85,6 +93,20 @@ class WorkRepository(
         return (byMeta + byContent)
             .map(WorkSessionEntity::toModel)
             .sortedByDescending(WorkSession::updatedAt)
+    }
+
+    // FTS 虚表是后加的，老安装上已有缓存消息未入索引，首次搜索时补一次
+    private var ftsBackfilled = false
+
+    private suspend fun ensureFtsBackfilled() {
+        if (ftsBackfilled) return
+        ftsBackfilled = true
+        runCatching {
+            if (ftsManager.isEmpty()) {
+                val all = messageDao.getAll().map(WorkMessageEntity::toModel)
+                if (all.isNotEmpty()) ftsManager.indexMessages(all)
+            }
+        }
     }
 
     fun observeMessages(sessionId: String): Flow<List<WorkMessage>> =
@@ -119,6 +141,7 @@ class WorkRepository(
         messageDao.clearAll()
         sessionDao.clearAll()
         machineDao.clearAll()
+        runCatching { ftsManager.deleteAll() }
         connected.value = false
         syncError.value = null
     }
@@ -148,6 +171,7 @@ class WorkRepository(
                     session.toWorkEntity().copy(lastPermissionMode = localModes[session.id])
                 })
                 messageDao.deleteSessionsNotIn(snapshot.sessions.map(HappySession::id))
+                runCatching { ftsManager.retainSessions(snapshot.sessions.map(HappySession::id)) }
                 syncError.value = null
             } catch (throwable: Throwable) {
                 syncError.value = throwable
@@ -184,7 +208,10 @@ class WorkRepository(
                 )
             )
         }
-        if (entities.isNotEmpty()) messageDao.upsertAll(entities)
+        if (entities.isNotEmpty()) {
+            messageDao.upsertAll(entities)
+            runCatching { ftsManager.indexMessages(entities.map(WorkMessageEntity::toModel)) }
+        }
         // 其他客户端也可能切换过模式，用最新用户消息的 meta 回填会话级模式
         latestMode?.let { (_, mode) -> sessionDao.updatePermissionMode(sessionId, mode) }
     }

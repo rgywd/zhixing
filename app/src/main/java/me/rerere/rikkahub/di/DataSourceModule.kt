@@ -78,6 +78,16 @@ val dataSourceModule = module {
                         )
                         """.trimIndent()
                     )
+                    db.execSQL(
+                        """
+                        CREATE VIRTUAL TABLE IF NOT EXISTS work_message_fts USING fts5(
+                            text,
+                            message_id UNINDEXED,
+                            session_id UNINDEXED,
+                            tokenize = 'simple'
+                        )
+                        """.trimIndent()
+                    )
                 }
             })
             .openHelperFactory(
