@@ -117,13 +117,17 @@ export class HappyApi {
     const body = (await this.get(
       `/v3/sessions/${session.id}/messages?after_seq=${afterSeq}&limit=100`,
       credentials.token,
-    )) as { messages?: Array<{ id: string; seq: number; content: string; localId?: string }> }
-    return (body.messages ?? []).map((record) => ({
-      id: record.id,
-      seq: record.seq,
-      localId: record.localId,
-      content: decryptRecord(record.content, session.encryptionKey, session.encryptionVariant),
-    }))
+    )) as {
+      messages?: Array<{ id: string; seq: number; content: { t: string; c: string }; localId?: string }>
+    }
+    return (body.messages ?? [])
+      .filter((record) => record.content?.t === 'encrypted')
+      .map((record) => ({
+        id: record.id,
+        seq: record.seq,
+        localId: record.localId,
+        content: decryptRecord(record.content.c, session.encryptionKey, session.encryptionVariant),
+      }))
   }
 
   private async post(path: string, body: unknown, token?: string): Promise<unknown> {

@@ -2,6 +2,7 @@
  * zhixing-agent 守护进程：登录校验 → 机器注册 → 中继连接 → RPC 服务。
  * P1-1 骨架：spawn-happy-session 暂返回未就绪错误，P1-2 接 Codex 适配器。
  */
+import { execFileSync } from 'node:child_process'
 import { AgentHome } from './config.js'
 import { HappyApi } from './api.js'
 import { MachineSocket } from './socket.js'
@@ -12,6 +13,18 @@ export interface SpawnDelegate {
   stopSession(sessionId: string): Promise<void>
 }
 
+function codexAvailable(): boolean {
+  try {
+    execFileSync(process.env.ZHIXING_CODEX_BIN ?? 'codex', ['--version'], {
+      stdio: 'ignore',
+      timeout: 10_000,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
   const home = new AgentHome()
   const settings = home.loadSettings()
@@ -20,9 +33,21 @@ export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
     throw new Error('尚未登录：先运行 `zhixing-agent login <恢复密钥>`')
   }
 
+  if (!delegate) {
+    const { CodexManager } = await import('./codex/runner.js')
+    delegate = new CodexManager({
+      serverUrl: settings.serverUrl,
+      clientId: home.clientId,
+      machineId: settings.machineId,
+      credentials,
+    })
+  }
+
   const api = new HappyApi(settings.serverUrl, home.clientId)
   const identity = home.machineIdentity(settings)
-  await api.registerMachine(credentials, identity, home.machineMetadata())
+  const metadata = home.machineMetadata()
+  metadata.cliAvailability = { codex: codexAvailable(), claude: false }
+  await api.registerMachine(credentials, identity, metadata)
   log(`机器已注册: ${identity.machineId} → ${settings.serverUrl}`)
 
   const socket = new MachineSocket({
@@ -36,8 +61,8 @@ export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
   socket.register('spawn-happy-session', async (params) => {
     const spawn = params as SpawnParams
     log(`收到 spawn 请求: ${spawn.directory} (agent=${spawn.agent ?? 'codex'})`)
-    if (!delegate) {
-      return { type: 'error', errorMessage: 'zhixing-agent Codex 适配器尚未就绪（P1-2）' }
+    if ((spawn.agent ?? 'codex') !== 'codex') {
+      return { type: 'error', errorMessage: 'zhixing-agent P1 仅支持 Codex（Claude 通道见 P2 设计）' }
     }
     return delegate.spawn(spawn)
   })
