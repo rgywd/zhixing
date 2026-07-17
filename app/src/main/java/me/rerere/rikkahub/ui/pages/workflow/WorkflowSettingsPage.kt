@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -27,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -69,6 +71,7 @@ fun WorkflowSettingsPage(vm: WorkflowVM = koinViewModel()) {
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
+            item { RelayServerCard(vm) }
             when (vm.status) {
                 WorkflowConnectionStatus.Connected -> {
                     item { ConnectedAccountCard(vm) }
@@ -82,6 +85,48 @@ fun WorkflowSettingsPage(vm: WorkflowVM = koinViewModel()) {
                     }
                 }
                 else -> item { ConnectAccountCard(vm) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RelayServerCard(vm: WorkflowVM) {
+    Card {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("中继服务器", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(
+                value = vm.relayUrl,
+                onValueChange = vm::updateRelayUrl,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("HTTPS 地址") },
+                supportingText = {
+                    Text(
+                        vm.relayUrlError ?: if (vm.relayUrlChanged && vm.status == WorkflowConnectionStatus.Connected) {
+                            "切换中继会断开当前账户并清除本机的旧中继缓存，需要用恢复密钥重新连接"
+                        } else {
+                            "仅填写域名，例如 https://happy.example.com；不支持子路径"
+                        }
+                    )
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                singleLine = true,
+                isError = vm.relayUrlError != null,
+                enabled = !vm.isSavingRelayUrl,
+            )
+            OutlinedButton(
+                onClick = vm::saveRelayUrl,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = vm.relayUrlChanged && !vm.isSavingRelayUrl,
+            ) {
+                if (vm.isSavingRelayUrl) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Text(if (vm.status == WorkflowConnectionStatus.Connected) "保存并断开" else "保存地址")
+                }
             }
         }
     }
@@ -102,7 +147,12 @@ private fun ConnectAccountCard(vm: WorkflowVM) {
                 onValueChange = vm::updateRecoveryKey,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("恢复密钥") },
-                supportingText = { Text(error ?: "密钥只在本机使用，并由 Android Keystore 加密保存") },
+                supportingText = {
+                    Text(
+                        error ?: if (vm.relayUrlChanged) "请先保存中继地址" else
+                            "密钥只在本机使用，并由 Android Keystore 加密保存"
+                    )
+                },
                 leadingIcon = { Icon(HugeIcons.LockKey, contentDescription = null) },
                 trailingIcon = {
                     IconButton(onClick = vm::toggleSecretVisibility, enabled = !isConnecting) {
@@ -120,7 +170,7 @@ private fun ConnectAccountCard(vm: WorkflowVM) {
             Button(
                 onClick = vm::connect,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = vm.recoveryKey.isNotBlank() && !isConnecting,
+                enabled = vm.recoveryKey.isNotBlank() && !isConnecting && !vm.relayUrlChanged,
             ) {
                 if (isConnecting) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 else Text("连接")

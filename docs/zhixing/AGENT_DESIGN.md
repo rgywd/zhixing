@@ -86,10 +86,10 @@ package.json，不进 Android 构建图。
    审批回调、abort。验收：手机设 effort=xhigh，开发机 codex 实际以 xhigh 运行（
    以 codex 会话日志为证）。
 3. 硬性限制 agent 层强制：预设内规则命中时自动拒绝并回传 service 事件。
-4. App 侧配套（小改动）：spawn/meta 增加 reasoningEffort 字段；中继服务器地址设置项；
-   预设页 Codex 思考深度解禁。
-5. 自托管 relay 部署文档与一键 Docker Compose；真实链路验收（自托管中继 + zhixing-agent
-   + 手机全链路）。
+4. [x] App 侧配套：spawn/meta 增加 reasoningEffort 字段；中继服务器地址设置项；
+   预设页 Codex 思考深度解禁。中继切换会清除旧 origin 的 token 与本地缓存，防止凭据串站。
+5. [~] 自托管 relay 的 Docker Compose、HTTPS 反向代理模板和运行手册已实现；真实链路验收
+   （自托管中继 + zhixing-agent + 手机）等待目标 VPS 域名确认与部署。
 
 ## 7. 非目标（P1）
 

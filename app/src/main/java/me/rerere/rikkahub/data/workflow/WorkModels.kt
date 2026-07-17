@@ -141,11 +141,10 @@ const val PERMISSION_MODE_FULL_ACCESS = "bypassPermissions"
  *
  * - Claude Code：low/medium/high/xhigh/max，经 spawn 环境变量
  *   `CLAUDE_CODE_EFFORT_LEVEL` 下发（xhigh 仅 Fable 5 / Sonnet 5 / Opus 4.7+ 支持）。
- * - Codex：wire 值来自 openai/codex 的 ReasoningEffort 枚举
- *   （none/minimal/low/medium/high/xhigh/max/ultra），UI 只暴露 5.6 系列
- *   客户端展示的常用档（low≈轻度、xhigh≈极高、ultra 更快消耗额度）。
- *   官方无环境变量通道、happy-cli meta 也不透传，目前无法远程下发，
- *   仅保存偏好并在 UI 中如实标注（需在开发机 config.toml 配置）。
+ * - Codex：wire 值来自 openai/codex 的 ReasoningEffort（app-server v2 起为自由字符串，
+ *   各模型经 model/list 广播 supportedReasoningEfforts）。经 zhixing-agent 通道时，
+ *   随 spawn 的 effortLevel 参数与每条消息 meta.reasoningEffort 下发，由 agent 映射到
+ *   thread/turn 的 effort；走官方 happy-cli 的机器会忽略该 meta（无害）。
  */
 object WorkReasoningEffort {
     val CLAUDE_LEVELS = listOf("low", "medium", "high", "xhigh", "max")
@@ -157,15 +156,32 @@ object WorkReasoningEffort {
         WorkAgent.OTHER -> emptyList()
     }
 
-    fun isRemotelyApplicable(agent: WorkAgent): Boolean = agent == WorkAgent.CLAUDE
+    /**
+     * 是否可远程下发思考深度。Claude 经 spawn 环境变量；Codex 经 zhixing-agent 的
+     * spawn effortLevel + 消息 meta。二者皆可远程生效（OTHER 无通道）。
+     */
+    fun isRemotelyApplicable(agent: WorkAgent): Boolean = agent != WorkAgent.OTHER
 }
 
-/** 思考深度经 spawn 的 environmentVariables 下发；目前仅 Claude Code 有官方环境变量通道 */
+/** Claude 的思考深度经 spawn 的 environmentVariables 下发（官方唯一通道） */
 fun spawnEnvironment(agent: WorkAgent, reasoningEffort: String?): Map<String, String> {
     if (agent != WorkAgent.CLAUDE || reasoningEffort == null) return emptyMap()
     if (reasoningEffort !in WorkReasoningEffort.CLAUDE_LEVELS) return emptyMap()
     return mapOf("CLAUDE_CODE_EFFORT_LEVEL" to reasoningEffort)
 }
+
+/**
+ * Codex 的思考深度经 spawn 的 effortLevel 参数下发，由 zhixing-agent 映射到 thread 的
+ * model_reasoning_effort。Claude 侧返回 null（走 [spawnEnvironment] 的环境变量通道）。
+ */
+fun spawnEffortLevel(agent: WorkAgent, reasoningEffort: String?): String? {
+    if (agent != WorkAgent.CODEX || reasoningEffort == null) return null
+    return reasoningEffort.takeIf { it in WorkReasoningEffort.CODEX_LEVELS }
+}
+
+/** 每条消息随行的思考深度 meta：仅 Codex 通道支持（Claude 的档位在 spawn 时就已固定） */
+fun messageReasoningEffort(agent: WorkAgent, reasoningEffort: String?): String? =
+    spawnEffortLevel(agent, reasoningEffort)
 
 data class WorkSpawnRequest(
     val machineId: String,
@@ -190,7 +206,7 @@ data class RepoPreset(
     val reasoningEffort: String?,
     /** 完全访问：随每条消息以 permissionMode=bypassPermissions 下发远端 */
     val fullAccess: Boolean,
-    /** 硬性限制，Claude 侧映射为 disallowedTools；Codex 侧协议不支持，仅提示层生效 */
+    /** 硬性限制：Claude 侧映射为 disallowedTools 由 happy-cli 强制；Codex 侧由 zhixing-agent 在审批回调中强制 */
     val disallowedTools: List<String>,
     val createdAt: Long,
     val updatedAt: Long,

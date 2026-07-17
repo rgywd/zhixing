@@ -26,6 +26,8 @@ import me.rerere.rikkahub.data.db.entity.WorkSessionEntity
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyAuthApi
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyCredentials
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyCredentialsStore
+import me.rerere.rikkahub.ui.pages.workflow.happy.HappyProtocol
+import me.rerere.rikkahub.ui.pages.workflow.happy.HappyRelaySettingsStore
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyMachine
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySession
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySocketClient
@@ -42,6 +44,7 @@ import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncApi
 class WorkRepository(
     private val appScope: CoroutineScope,
     private val credentialsStore: HappyCredentialsStore,
+    private val relaySettingsStore: HappyRelaySettingsStore,
     private val authApi: HappyAuthApi,
     private val syncApi: HappySyncApi,
     private val socketClient: HappySocketClient,
@@ -56,7 +59,8 @@ class WorkRepository(
     private val protocolMachines = ConcurrentHashMap<String, HappyMachine>()
     private val snapshotMutex = Mutex()
 
-    val connected = MutableStateFlow(credentialsStore.load() != null)
+    val relayServerUrl = relaySettingsStore.serverUrl
+    val connected = MutableStateFlow(loadCredentials() != null)
     val syncing = MutableStateFlow(false)
     val syncError = MutableStateFlow<Throwable?>(null)
 
@@ -127,7 +131,7 @@ class WorkRepository(
 
     /** 用恢复密钥登录并完成首次快照同步；失败时抛协议层异常，由调用方翻译 */
     suspend fun connect(recoveryKey: String) {
-        val credentials = authApi.exchangeRecoveryKey(recoveryKey)
+        val credentials = authApi.exchangeRecoveryKey(recoveryKey, relayServerUrl.value)
         credentialsStore.save(credentials)
         connected.value = true
         refreshSnapshot()
@@ -146,14 +150,25 @@ class WorkRepository(
         syncError.value = null
     }
 
+    /**
+     * token 只属于签发它的中继。切换 origin 前先清掉旧连接、凭据和远端缓存，
+     * 防止把旧 token 或旧站会话误发到新站；恢复密钥不在这里保存或搬运。
+     */
+    suspend fun updateRelayServerUrl(raw: String): String {
+        val normalized = HappyProtocol.normalizeServerUrl(raw)
+        if (normalized == relayServerUrl.value) return normalized
+        disconnect()
+        return relaySettingsStore.updateServerUrl(normalized)
+    }
+
     /** 建立 Socket 长连接（幂等）；失败静默，HTTP 快照仍可用 */
     suspend fun ensureRealtime() {
-        val credentials = credentialsStore.load() ?: return
+        val credentials = loadCredentials() ?: return
         runCatching { socketClient.connect(credentials) }
     }
 
     suspend fun refreshSnapshot() {
-        val credentials = credentialsStore.load() ?: run {
+        val credentials = loadCredentials() ?: run {
             connected.value = false
             return
         }
@@ -184,7 +199,7 @@ class WorkRepository(
 
     /** 增量同步某个会话的消息（after_seq 基于本地已缓存的最大 seq） */
     suspend fun syncMessages(sessionId: String) {
-        val credentials = credentialsStore.load() ?: return
+        val credentials = loadCredentials() ?: return
         val session = requireProtocolSession(sessionId)
         val afterSeq = messageDao.maxSeq(sessionId) ?: 0
         val records = syncApi.fetchMessages(credentials, session, afterSeq)
@@ -233,13 +248,15 @@ class WorkRepository(
             false -> "default"
             null -> null
         }
+        val preset = findPresetFor(session)
         syncApi.sendMessage(
             credentials = credentials,
             session = session,
             text = text,
             permissionMode = permissionMode,
             model = model,
-            disallowedTools = findPresetFor(session)?.disallowedTools?.takeIf { it.isNotEmpty() },
+            reasoningEffort = preset?.let { messageReasoningEffort(it.agent, it.reasoningEffort) },
+            disallowedTools = preset?.disallowedTools?.takeIf { it.isNotEmpty() },
         )
         permissionMode?.let { sessionDao.updatePermissionMode(sessionId, it) }
         runCatching { syncMessages(sessionId) }
@@ -289,6 +306,7 @@ class WorkRepository(
             agent = request.agent.wireName,
             approvedNewDirectoryCreation = request.approvedNewDirectoryCreation,
             environmentVariables = spawnEnvironment(request.agent, request.reasoningEffort),
+            effortLevel = spawnEffortLevel(request.agent, request.reasoningEffort),
         )) {
             is HappySpawnResult.Success -> {
                 val session = awaitSession(result.sessionId)
@@ -300,6 +318,7 @@ class WorkRepository(
                         text = firstPrompt,
                         permissionMode = if (request.fullAccess) PERMISSION_MODE_FULL_ACCESS else "default",
                         model = request.model?.takeIf(String::isNotBlank),
+                        reasoningEffort = messageReasoningEffort(request.agent, request.reasoningEffort),
                         disallowedTools = request.disallowedTools.takeIf { it.isNotEmpty() },
                     )
                     sessionDao.updatePermissionMode(
@@ -352,10 +371,14 @@ class WorkRepository(
     }
 
     private fun requireCredentials(): HappyCredentials =
-        credentialsStore.load() ?: run {
+        loadCredentials() ?: run {
             connected.value = false
             throw WorkNotConnectedException()
         }
+
+    private fun loadCredentials(): HappyCredentials? = credentialsStore.load()?.takeIf { credentials ->
+        runCatching { HappyProtocol.normalizeServerUrl(credentials.serverUrl) }.getOrNull() == relayServerUrl.value
+    }
 
     private fun HappyMachine.toWorkEntity(): WorkMachineEntity = WorkMachineEntity(
         id = id,

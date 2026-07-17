@@ -21,6 +21,12 @@ class WorkflowVM(
 ) : ViewModel() {
     var recoveryKey by mutableStateOf("")
         private set
+    var relayUrl by mutableStateOf(repository.relayServerUrl.value)
+        private set
+    var relayUrlError by mutableStateOf<String?>(null)
+        private set
+    var isSavingRelayUrl by mutableStateOf(false)
+        private set
     var isSecretVisible by mutableStateOf(false)
         private set
     var status by mutableStateOf<WorkflowConnectionStatus>(
@@ -45,6 +51,7 @@ class WorkflowVM(
     private var searchJob: Job? = null
 
     val projects by derivedStateOf { buildWorkflowProjects(sessions, machines) }
+    val relayUrlChanged by derivedStateOf { relayUrl.trim().trimEnd('/') != repository.relayServerUrl.value }
 
     init {
         viewModelScope.launch { repository.observeMachines().collect { machines = it } }
@@ -83,6 +90,28 @@ class WorkflowVM(
         recoveryKey = value
         if (status is WorkflowConnectionStatus.Error) {
             status = WorkflowConnectionStatus.Disconnected
+        }
+    }
+
+    fun updateRelayUrl(value: String) {
+        relayUrl = value
+        relayUrlError = null
+    }
+
+    fun saveRelayUrl() {
+        if (!relayUrlChanged || isSavingRelayUrl) return
+        isSavingRelayUrl = true
+        viewModelScope.launch {
+            try {
+                relayUrl = repository.updateRelayServerUrl(relayUrl)
+                relayUrlError = null
+            } catch (exception: IllegalArgumentException) {
+                relayUrlError = exception.message ?: "中继地址格式不正确"
+            } catch (_: Exception) {
+                relayUrlError = "无法保存中继地址"
+            } finally {
+                isSavingRelayUrl = false
+            }
         }
     }
 

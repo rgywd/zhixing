@@ -90,6 +90,7 @@ val repositoryModule = module {
         WorkRepository(
             appScope = get<AppScope>(),
             credentialsStore = get(),
+            relaySettingsStore = get(),
             authApi = get(),
             syncApi = get(),
             socketClient = get(),
