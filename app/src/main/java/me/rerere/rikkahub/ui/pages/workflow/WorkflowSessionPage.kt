@@ -41,8 +41,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
@@ -84,6 +86,7 @@ fun WorkflowSessionPage(
     val listState = rememberLazyListState()
     val displayItems = remember(vm.messages) { buildWorkChatItems(vm.messages) }
     val stats = remember(vm.messages) { sessionStats(vm.messages) }
+    val sessionTitle = vm.session?.displayTitle() ?: "远程会话"
 
     LaunchedEffect(displayItems.size, vm.session?.approvals?.size) {
         val lastIndex = displayItems.size + vm.session?.approvals.orEmpty().size
@@ -102,9 +105,19 @@ fun WorkflowSessionPage(
                 navigationIcon = { BackButton() },
                 title = {
                     Column {
-                        Text(vm.session?.displayTitle() ?: "远程会话")
+                        Text(
+                            text = sessionTitle,
+                            style = sessionTitleStyle(sessionTitle),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                         vm.session?.host?.let {
-                            Text(it, style = MaterialTheme.typography.labelSmall)
+                            Text(
+                                text = it,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
                 },
@@ -466,6 +479,13 @@ private fun WorkSession?.targetSummary(): String {
 
 private fun WorkSession.displayTitle(): String =
     name ?: path?.substringAfterLast('/')?.substringAfterLast('\\') ?: "会话 ${id.take(8)}"
+
+@Composable
+private fun sessionTitleStyle(title: String): TextStyle = when {
+    title.length <= 12 -> MaterialTheme.typography.titleLarge
+    title.length <= 24 -> MaterialTheme.typography.titleMedium
+    else -> MaterialTheme.typography.titleSmall
+}
 
 private data class ApprovalConfirmation(val approval: WorkApproval, val decision: ApprovalDecision)
 
