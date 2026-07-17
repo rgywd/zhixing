@@ -1,31 +1,44 @@
 package me.rerere.rikkahub.ui.pages.workflow
 
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyEncryptionVariant
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyMachine
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappySession
+import me.rerere.rikkahub.data.workflow.WorkAgent
+import me.rerere.rikkahub.data.workflow.WorkMachine
+import me.rerere.rikkahub.data.workflow.WorkSession
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class WorkflowProjectTest {
     @Test
-    fun `groups all codex history by machine and normalized project path`() {
+    fun `groups codex and claude history by machine and normalized project path`() {
         val machine = machine("machine-1")
         val sessions = listOf(
-            session("new", "C:\\Work\\Zhixing", 300, flavor = "codex"),
-            session("old", "c:/work/zhixing/", 100, codexThreadId = "thread-old"),
-            session("claude", "C:/work/zhixing", 400, flavor = "claude"),
+            session("new", "C:\\Work\\Zhixing", 300, agent = WorkAgent.CODEX),
+            session("old", "c:/work/zhixing/", 100, agent = WorkAgent.CODEX),
+            session("claude", "C:/Work/Zhixing", 400, agent = WorkAgent.CLAUDE),
         )
 
         val projects = buildWorkflowProjects(sessions, listOf(machine))
 
         assertEquals(1, projects.size)
         assertEquals("Zhixing", projects.single().name)
-        assertEquals(listOf("new", "old"), projects.single().sessions.map { it.id })
+        assertEquals(listOf("claude", "new", "old"), projects.single().sessions.map { it.id })
         assertFalse(projects.single().isOnline)
     }
 
-    private fun machine(id: String) = HappyMachine(
+    @Test
+    fun `sessions without machine or path are dropped`() {
+        val sessions = listOf(
+            session("ok", "/repo", 100, agent = WorkAgent.CLAUDE),
+            session("no-path", "", 200, agent = WorkAgent.CODEX),
+        )
+
+        val projects = buildWorkflowProjects(sessions, emptyList())
+
+        assertEquals(1, projects.size)
+        assertEquals(listOf("ok"), projects.single().sessions.map { it.id })
+    }
+
+    private fun machine(id: String) = WorkMachine(
         id = id,
         host = "devbox",
         displayName = null,
@@ -33,31 +46,27 @@ class WorkflowProjectTest {
         active = false,
         activeAt = 0,
         supportsCodex = true,
+        supportsClaude = true,
         homeDir = "C:\\Users\\dev",
-        encryptionKey = ByteArray(32),
-        encryptionVariant = HappyEncryptionVariant.DATA_KEY,
     )
 
     private fun session(
         id: String,
         path: String,
         updatedAt: Long,
-        flavor: String? = null,
-        codexThreadId: String? = null,
-    ) = HappySession(
+        agent: WorkAgent,
+    ) = WorkSession(
         id = id,
-        name = null,
+        machineId = "machine-1",
         path = path,
         host = "devbox",
-        machineId = "machine-1",
-        codexThreadId = codexThreadId,
-        flavor = flavor,
+        name = null,
+        agent = agent,
         active = false,
         activeAt = updatedAt,
         createdAt = updatedAt - 10,
         updatedAt = updatedAt,
         approvals = emptyList(),
-        encryptionKey = ByteArray(32),
-        encryptionVariant = HappyEncryptionVariant.DATA_KEY,
+        decryptable = true,
     )
 }

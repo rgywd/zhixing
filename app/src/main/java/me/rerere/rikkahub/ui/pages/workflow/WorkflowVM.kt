@@ -1,64 +1,82 @@
 package me.rerere.rikkahub.ui.pages.workflow
 
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.launch
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyAuthApi
+import me.rerere.rikkahub.data.workflow.RepoPreset
+import me.rerere.rikkahub.data.workflow.WorkMachine
+import me.rerere.rikkahub.data.workflow.WorkRepository
+import me.rerere.rikkahub.data.workflow.WorkSession
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyAuthException
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyCredentialsStore
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyCredentials
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyMachine
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappySession
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncApi
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncException
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappySocketClient
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappySpawnResult
 
 class WorkflowVM(
-    private val authApi: HappyAuthApi,
-    private val credentialsStore: HappyCredentialsStore,
-    private val syncApi: HappySyncApi,
-    private val socketClient: HappySocketClient,
+    private val repository: WorkRepository,
 ) : ViewModel() {
-    private val initialCredentials = credentialsStore.load()
-
     var recoveryKey by mutableStateOf("")
         private set
     var isSecretVisible by mutableStateOf(false)
         private set
     var status by mutableStateOf<WorkflowConnectionStatus>(
-        if (initialCredentials == null) {
-            WorkflowConnectionStatus.Disconnected
-        } else {
-            WorkflowConnectionStatus.Connected
-        }
+        if (repository.connected.value) WorkflowConnectionStatus.Connected
+        else WorkflowConnectionStatus.Disconnected
     )
         private set
-    var machines by mutableStateOf<List<HappyMachine>>(emptyList())
+    var machines by mutableStateOf<List<WorkMachine>>(emptyList())
         private set
-    var sessions by mutableStateOf<List<HappySession>>(emptyList())
+    var sessions by mutableStateOf<List<WorkSession>>(emptyList())
         private set
     var isRefreshing by mutableStateOf(false)
         private set
     var syncError by mutableStateOf<String?>(null)
         private set
-    var isCreatingSession by mutableStateOf(false)
+    var presets by mutableStateOf<List<RepoPreset>>(emptyList())
         private set
-    var createError by mutableStateOf<String?>(null)
+    var searchQuery by mutableStateOf("")
         private set
-    var pendingDirectoryApproval by mutableStateOf<PendingDirectoryApproval?>(null)
+    var searchResults by mutableStateOf<List<WorkSession>>(emptyList())
         private set
-    var createdSessionId by mutableStateOf<String?>(null)
-        private set
+    private var searchJob: Job? = null
 
-    val projects: List<WorkflowProject> get() = buildWorkflowProjects(sessions, machines)
+    val projects by derivedStateOf { buildWorkflowProjects(sessions, machines) }
 
     init {
-        initialCredentials?.let(::refresh)
+        viewModelScope.launch { repository.observeMachines().collect { machines = it } }
+        viewModelScope.launch { repository.observeSessions().collect { sessions = it } }
+        viewModelScope.launch { repository.observePresets().collect { presets = it } }
+        viewModelScope.launch { repository.syncing.collect { isRefreshing = it } }
+        viewModelScope.launch {
+            repository.syncError.collect { syncError = it?.toWorkflowMessage() }
+        }
+        viewModelScope.launch {
+            repository.connected.collect { connected ->
+                status = when {
+                    connected -> WorkflowConnectionStatus.Connected
+                    status is WorkflowConnectionStatus.Connecting ||
+                        status is WorkflowConnectionStatus.Error -> status
+                    else -> WorkflowConnectionStatus.Disconnected
+                }
+            }
+        }
+        if (repository.connected.value) {
+            viewModelScope.launch {
+                repository.ensureRealtime()
+                runCatching { repository.refreshSnapshot() }
+            }
+        }
+        // Socket 增量信号驱动快照刷新；conflate + delay 避免生成期间的事件风暴
+        viewModelScope.launch {
+            repository.updates.conflate().collect {
+                runCatching { repository.refreshSnapshot() }
+                delay(SNAPSHOT_THROTTLE_MS)
+            }
+        }
     }
 
     fun updateRecoveryKey(value: String) {
@@ -79,11 +97,9 @@ class WorkflowVM(
         status = WorkflowConnectionStatus.Connecting
         viewModelScope.launch {
             status = try {
-                val credentials = authApi.exchangeRecoveryKey(key)
-                credentialsStore.save(credentials)
+                repository.connect(key)
                 recoveryKey = ""
                 isSecretVisible = false
-                refreshSnapshot(credentials)
                 WorkflowConnectionStatus.Connected
             } catch (_: IllegalArgumentException) {
                 WorkflowConnectionStatus.Error("恢复密钥格式不正确，请检查后重试")
@@ -100,153 +116,46 @@ class WorkflowVM(
     }
 
     fun disconnect() {
-        socketClient.disconnect()
-        credentialsStore.clear()
-        recoveryKey = ""
-        isSecretVisible = false
-        machines = emptyList()
-        sessions = emptyList()
-        syncError = null
-        status = WorkflowConnectionStatus.Disconnected
-    }
-
-    fun createCodexSession(machineId: String, path: String, prompt: String) {
-        spawnCodexSession(machineId, path, prompt, approvedNewDirectoryCreation = false)
-    }
-
-    fun approveDirectoryCreation() {
-        val pending = pendingDirectoryApproval ?: return
-        pendingDirectoryApproval = null
-        spawnCodexSession(
-            machineId = pending.machineId,
-            path = pending.path,
-            prompt = pending.prompt,
-            approvedNewDirectoryCreation = true,
-        )
-    }
-
-    fun dismissDirectoryApproval() {
-        pendingDirectoryApproval = null
-    }
-
-    fun consumeCreatedSession() {
-        createdSessionId = null
+        viewModelScope.launch {
+            repository.disconnect()
+            recoveryKey = ""
+            isSecretVisible = false
+            syncError = null
+            status = WorkflowConnectionStatus.Disconnected
+        }
     }
 
     fun refresh() {
-        val credentials = credentialsStore.load() ?: run {
-            status = WorkflowConnectionStatus.Disconnected
-            return
-        }
-        refresh(credentials)
-    }
-
-    private fun refresh(credentials: HappyCredentials) {
-        if (isRefreshing) return
         viewModelScope.launch {
-            refreshSnapshot(credentials)
+            repository.ensureRealtime()
+            runCatching { repository.refreshSnapshot() }
         }
     }
 
-    private suspend fun refreshSnapshot(
-        credentials: HappyCredentials,
-    ) {
-        isRefreshing = true
-        syncError = null
-        try {
-            val snapshot = syncApi.fetchSnapshot(credentials)
-            machines = snapshot.machines
-            sessions = snapshot.sessions
-        } catch (exception: HappySyncException) {
-            syncError = if (exception.statusCode == 401 || exception.statusCode == 403) {
-                "Happy 登录已失效，请断开后重新连接"
-            } else {
-                "同步失败（${exception.statusCode}），请稍后重试"
-            }
-        } catch (_: Exception) {
-            syncError = "暂时无法同步机器和会话，请检查网络"
-        } finally {
-            isRefreshing = false
-        }
-    }
-
-    private fun spawnCodexSession(
-        machineId: String,
-        path: String,
-        prompt: String,
-        approvedNewDirectoryCreation: Boolean,
-    ) {
-        val credentials = credentialsStore.load() ?: run {
-            createError = "Happy 登录已失效，请到设置中重新连接"
+    fun updateSearchQuery(query: String) {
+        searchQuery = query
+        searchJob?.cancel()
+        if (query.isBlank()) {
+            searchResults = emptyList()
             return
         }
-        val machine = machines.firstOrNull { it.id == machineId }
-        if (machine == null || !machine.active) {
-            createError = "所选开发机当前不在线"
-            return
-        }
-        if (path.isBlank() || prompt.isBlank() || isCreatingSession) return
-
-        viewModelScope.launch {
-            isCreatingSession = true
-            createError = null
-            try {
-                when (val result = socketClient.spawnCodexSession(
-                    credentials = credentials,
-                    machine = machine,
-                    directory = path.trim(),
-                    approvedNewDirectoryCreation = approvedNewDirectoryCreation,
-                )) {
-                    is HappySpawnResult.Success -> {
-                        val session = waitForSession(credentials, result.sessionId)
-                        if (session == null) {
-                            createError = "会话已启动，但同步尚未完成，请刷新后查看"
-                        } else {
-                            prompt.trim().takeIf(String::isNotBlank)?.let {
-                                syncApi.sendMessage(credentials, session, it)
-                            }
-                            createdSessionId = session.id
-                        }
-                    }
-                    is HappySpawnResult.DirectoryApprovalRequired -> {
-                        pendingDirectoryApproval = PendingDirectoryApproval(
-                            machineId = machine.id,
-                            path = result.directory,
-                            prompt = prompt,
-                        )
-                    }
-                    is HappySpawnResult.Error -> createError = result.message
-                }
-            } catch (_: HappySyncException) {
-                createError = "会话启动后同步失败，请刷新后查看"
-            } catch (_: Exception) {
-                createError = "无法在开发机上启动 Codex，请确认 Happy CLI 在线"
-            } finally {
-                isCreatingSession = false
-            }
+        searchJob = viewModelScope.launch {
+            delay(SEARCH_DEBOUNCE_MS)
+            searchResults = runCatching { repository.searchSessions(query) }.getOrDefault(emptyList())
         }
     }
 
-    private suspend fun waitForSession(
-        credentials: HappyCredentials,
-        sessionId: String,
-    ): HappySession? {
-        repeat(10) {
-            val snapshot = syncApi.fetchSnapshot(credentials)
-            machines = snapshot.machines
-            sessions = snapshot.sessions
-            snapshot.sessions.firstOrNull { it.id == sessionId }?.let { return it }
-            delay(1_000)
-        }
-        return null
+    fun clearSearch() {
+        searchJob?.cancel()
+        searchQuery = ""
+        searchResults = emptyList()
+    }
+
+    private companion object {
+        const val SNAPSHOT_THROTTLE_MS = 2_000L
+        const val SEARCH_DEBOUNCE_MS = 250L
     }
 }
-
-data class PendingDirectoryApproval(
-    val machineId: String,
-    val path: String,
-    val prompt: String,
-)
 
 sealed interface WorkflowConnectionStatus {
     data object Disconnected : WorkflowConnectionStatus

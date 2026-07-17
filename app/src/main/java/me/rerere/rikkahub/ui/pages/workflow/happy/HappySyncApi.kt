@@ -58,9 +58,9 @@ class HappySyncApi(
         credentials: HappyCredentials,
         session: HappySession,
         afterSeq: Long = 0,
-    ): List<HappyMessage> = withContext(Dispatchers.IO) {
+    ): List<HappyRecord> = withContext(Dispatchers.IO) {
         val key = session.encryptionKey ?: throw HappyDecryptionException(session.id)
-        val result = mutableListOf<HappyMessage>()
+        val result = mutableListOf<HappyRecord>()
         var cursor = afterSeq
         var hasMore: Boolean
         var madeProgress: Boolean
@@ -72,7 +72,12 @@ class HappySyncApi(
                 if (message.content.t != "encrypted") return@mapNotNullTo null
                 val raw = recordCrypto.decryptJson(message.content.c, key, session.encryptionVariant)
                     ?: return@mapNotNullTo null
-                raw.toHappyMessage(message)
+                HappyRecord(
+                    id = message.id,
+                    seq = message.seq,
+                    createdAt = message.createdAt,
+                    body = raw,
+                )
             }
             val nextCursor = response.messages.maxOfOrNull(RawMessage::seq) ?: cursor
             madeProgress = nextCursor > cursor
@@ -86,6 +91,9 @@ class HappySyncApi(
         credentials: HappyCredentials,
         session: HappySession,
         text: String,
+        permissionMode: String? = null,
+        model: String? = null,
+        disallowedTools: List<String>? = null,
     ) = withContext(Dispatchers.IO) {
         val key = session.encryptionKey ?: throw HappyDecryptionException(session.id)
         val localId = UUID.randomUUID().toString()
@@ -95,7 +103,14 @@ class HappySyncApi(
                 put("type", "text")
                 put("text", text)
             })
-            put("meta", buildJsonObject { put("sentFrom", "android") })
+            put("meta", buildJsonObject {
+                put("sentFrom", "android")
+                permissionMode?.let { put("permissionMode", it) }
+                model?.let { put("model", it) }
+                disallowedTools?.takeIf { it.isNotEmpty() }?.let { tools ->
+                    putJsonArray("disallowedTools") { tools.forEach(::add) }
+                }
+            })
         }
         val encrypted = recordCrypto.encryptElement(record, key, session.encryptionVariant)
         val body = buildJsonObject {
@@ -153,6 +168,7 @@ class HappySyncApi(
             active = active,
             activeAt = activeAt,
             supportsCodex = cliAvailability?.get("codex")?.jsonPrimitive?.booleanOrNull,
+            supportsClaude = cliAvailability?.get("claude")?.jsonPrimitive?.booleanOrNull,
             homeDir = metadata.string("homeDir"),
             encryptionKey = resolved?.first,
             encryptionVariant = resolved?.second ?: HappyEncryptionVariant.DATA_KEY,
@@ -223,44 +239,6 @@ class HappySyncApi(
     private fun JsonObject?.summaryText(): String? =
         (this?.get("summary") as? JsonObject)?.get("text")?.jsonPrimitive?.contentOrNull
 
-    private fun JsonObject.toHappyMessage(raw: RawMessage): HappyMessage? {
-        val role = string("role") ?: return null
-        val content = get("content") as? JsonObject ?: return null
-        val type = content.string("type")
-        if (role == "user" && type == "text") {
-            return HappyMessage(raw.id, raw.seq, HappyMessageRole.USER, content.string("text").orEmpty(), "text", raw.createdAt)
-        }
-        if (role == "session" && type == "session") {
-            val data = content["data"] as? JsonObject ?: return null
-            return data.toSessionMessage(raw)
-        }
-        if (role == "session") {
-            return content.toSessionMessage(raw)
-        }
-        if (role == "agent") {
-            val data = content["data"] as? JsonObject
-            val dataType = data.string("type") ?: type ?: "agent"
-            val text = data.nonBlankString("message", "text", "description", "result", "status")
-                ?: data?.get("output")?.toString()
-                ?: data?.get("input")?.toString()
-                ?: dataType
-            return HappyMessage(raw.id, raw.seq, HappyMessageRole.AGENT, text.trim('"'), dataType, raw.createdAt)
-        }
-        return null
-    }
-
-    private fun JsonObject.toSessionMessage(raw: RawMessage): HappyMessage? {
-        val event = get("ev") as? JsonObject ?: return null
-        val eventType = event.string("t") ?: "event"
-        val text = event.nonBlankString("text", "title", "description", "name", "status")
-            ?: eventType
-        val eventRole = if (string("role") == "user") HappyMessageRole.USER else HappyMessageRole.AGENT
-        return HappyMessage(raw.id, raw.seq, eventRole, text, eventType, raw.createdAt)
-    }
-
-    private fun JsonObject?.nonBlankString(vararg keys: String): String? =
-        keys.firstNotNullOfOrNull { key -> string(key)?.takeIf(String::isNotBlank) }
-
     private companion object {
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
@@ -279,6 +257,7 @@ data class HappyMachine(
     val active: Boolean,
     val activeAt: Long,
     val supportsCodex: Boolean?,
+    val supportsClaude: Boolean?,
     val homeDir: String?,
     val encryptionKey: ByteArray?,
     val encryptionVariant: HappyEncryptionVariant,
@@ -301,19 +280,14 @@ data class HappySession(
     val encryptionVariant: HappyEncryptionVariant,
 )
 
-val HappySession.pendingApprovals: Int get() = approvals.size
-
 data class HappyApproval(val id: String, val tool: String, val arguments: String)
 
-enum class HappyMessageRole { USER, AGENT, EVENT }
-
-data class HappyMessage(
+/** 解密后的原始消息记录，结构化解析交给 WorkMessageParser */
+data class HappyRecord(
     val id: String,
     val seq: Long,
-    val role: HappyMessageRole,
-    val text: String,
-    val kind: String,
     val createdAt: Long,
+    val body: JsonObject,
 )
 
 class HappyDecryptionException(val recordId: String) : Exception("Unable to decrypt Happy record")

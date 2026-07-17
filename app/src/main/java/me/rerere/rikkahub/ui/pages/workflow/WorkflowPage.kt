@@ -8,35 +8,33 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,12 +44,14 @@ import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.hugeicons.stroke.Refresh01
+import me.rerere.hugeicons.stroke.Search01
 import me.rerere.hugeicons.stroke.Settings03
 import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.data.workflow.RepoPreset
+import me.rerere.rikkahub.data.workflow.WorkAgent
+import me.rerere.rikkahub.data.workflow.WorkSession
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.context.LocalNavController
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyMachine
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappySession
 import me.rerere.rikkahub.utils.toLocalDateTime
 import me.rerere.rikkahub.utils.plus
 import org.koin.androidx.compose.koinViewModel
@@ -59,109 +59,144 @@ import org.koin.androidx.compose.koinViewModel
 @Composable
 fun WorkflowPage(vm: WorkflowVM = koinViewModel()) {
     val navController = LocalNavController.current
-    var showNewTask by rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(vm.createdSessionId) {
-        vm.createdSessionId?.let { id ->
-            vm.consumeCreatedSession()
-            showNewTask = false
-            navController.navigate(Screen.WorkflowSession(id))
-        }
-    }
+    var searchActive by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("工作") },
-                navigationIcon = { BackButton() },
-                actions = {
-                    IconButton(onClick = vm::refresh, enabled = !vm.isRefreshing) {
-                        if (vm.isRefreshing) {
-                            CircularProgressIndicator(modifier = Modifier.padding(12.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(HugeIcons.Refresh01, contentDescription = "刷新项目")
+            if (searchActive) {
+                TopAppBar(
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            searchActive = false
+                            vm.clearSearch()
+                        }) {
+                            Icon(HugeIcons.ArrowRight01, contentDescription = "退出搜索", modifier = Modifier.rotate(180f))
                         }
-                    }
-                    IconButton(onClick = { navController.navigate(Screen.WorkflowSettings) }) {
-                        Icon(HugeIcons.Settings03, contentDescription = "工作连接设置")
-                    }
-                },
-            )
+                    },
+                    title = {
+                        OutlinedTextField(
+                            value = vm.searchQuery,
+                            onValueChange = vm::updateSearchQuery,
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("搜索会话、仓库或内容") },
+                            singleLine = true,
+                        )
+                    },
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("工作") },
+                    navigationIcon = { BackButton() },
+                    actions = {
+                        IconButton(onClick = { searchActive = true }) {
+                            Icon(HugeIcons.Search01, contentDescription = "搜索会话")
+                        }
+                        IconButton(onClick = vm::refresh, enabled = !vm.isRefreshing) {
+                            if (vm.isRefreshing) {
+                                CircularProgressIndicator(modifier = Modifier.padding(12.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(HugeIcons.Refresh01, contentDescription = "刷新")
+                            }
+                        }
+                        IconButton(onClick = { navController.navigate(Screen.WorkflowSettings) }) {
+                            Icon(HugeIcons.Settings03, contentDescription = "工作连接设置")
+                        }
+                    },
+                )
+            }
         },
         floatingActionButton = {
-            if (vm.status == WorkflowConnectionStatus.Connected && vm.machines.any { it.active }) {
-                FloatingActionButton(onClick = { showNewTask = true }) {
-                    Icon(HugeIcons.Add01, contentDescription = "新建 Codex 任务")
+            if (vm.status == WorkflowConnectionStatus.Connected) {
+                FloatingActionButton(onClick = { navController.navigate(Screen.WorkNewTask()) }) {
+                    Icon(HugeIcons.Add01, contentDescription = "新建任务")
                 }
             }
         },
     ) { contentPadding ->
         when {
+            searchActive -> SearchResults(
+                results = vm.searchResults,
+                query = vm.searchQuery,
+                contentPadding = contentPadding,
+                onOpen = { session -> navController.navigate(Screen.WorkflowSession(session.id)) },
+            )
             vm.status != WorkflowConnectionStatus.Connected -> WorkflowEmptyState(
                 modifier = Modifier.fillMaxSize().padding(contentPadding),
                 title = "连接开发环境后开始工作",
-                description = "在设置中连接一次 Happy，之后这里会按项目保留全部 Codex 对话。",
+                description = "在设置中连接一次 Happy，之后这里会保留全部远程 Coding 会话。",
                 action = "前往连接设置",
                 onAction = { navController.navigate(Screen.WorkflowSettings) },
             )
-            vm.isRefreshing && vm.projects.isEmpty() -> Box(
+            vm.isRefreshing && vm.sessions.isEmpty() && vm.presets.isEmpty() -> Box(
                 modifier = Modifier.fillMaxSize().padding(contentPadding),
                 contentAlignment = Alignment.Center,
             ) { CircularProgressIndicator() }
-            vm.projects.isEmpty() -> WorkflowEmptyState(
-                modifier = Modifier.fillMaxSize().padding(contentPadding),
-                title = "还没有 Codex 项目",
-                description = "无需先在电脑打开会话，直接从手机选择在线开发机和目录创建任务。",
-                action = if (vm.machines.any { it.active }) "新建任务" else "检查开发机",
-                onAction = {
-                    if (vm.machines.any { it.active }) showNewTask = true
-                    else navController.navigate(Screen.WorkflowSettings)
-                },
-            )
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = contentPadding + PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                vm.syncError?.let { message -> item { InlineStatus(message, vm::refresh) } }
-                item {
-                    Text(
-                        text = "项目",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 8.dp, top = 4.dp, bottom = 4.dp),
-                    )
-                }
-                items(vm.projects, key = WorkflowProject::key) { project ->
-                    ProjectListItem(
-                        project = project,
-                        onClick = {
-                            navController.navigate(Screen.WorkflowProject(project.machineId, project.path))
-                        },
-                    )
+            else -> WorkHomeContent(vm = vm, contentPadding = contentPadding)
+        }
+    }
+}
+
+@Composable
+private fun WorkHomeContent(vm: WorkflowVM, contentPadding: PaddingValues) {
+    val navController = LocalNavController.current
+    val waiting = vm.sessions.filter { it.approvals.isNotEmpty() }
+    val running = vm.sessions.filter { it.active && it.approvals.isEmpty() }
+    val recent = vm.sessions.filter { !it.active && it.approvals.isEmpty() }.take(15)
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = contentPadding + PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        vm.syncError?.let { message -> item { InlineStatus(message, vm::refresh) } }
+
+        if (waiting.isNotEmpty()) {
+            item { SectionHeader("等待我处理 (${waiting.size})") }
+            items(waiting, key = { "waiting-${it.id}" }) { session ->
+                SessionListItem(session, highlight = true) {
+                    navController.navigate(Screen.WorkflowSession(session.id))
                 }
             }
         }
-    }
-
-    if (showNewTask) {
-        NewCodexTaskDialog(
-            machines = vm.machines,
-            initialPath = vm.projects.firstOrNull()?.path.orEmpty(),
-            isSubmitting = vm.isCreatingSession,
-            error = vm.createError,
-            onDismiss = { if (!vm.isCreatingSession) showNewTask = false },
-            onSubmit = vm::createCodexSession,
-        )
-    }
-    vm.pendingDirectoryApproval?.let { pending ->
-        AlertDialog(
-            onDismissRequest = vm::dismissDirectoryApproval,
-            title = { Text("创建项目目录？") },
-            text = { Text("开发机上不存在 ${pending.path}。确认后将创建目录并启动 Codex。") },
-            confirmButton = { Button(onClick = vm::approveDirectoryCreation) { Text("创建并启动") } },
-            dismissButton = { TextButton(onClick = vm::dismissDirectoryApproval) { Text("取消") } },
-        )
+        if (running.isNotEmpty()) {
+            item { SectionHeader("进行中 (${running.size})") }
+            items(running, key = { "running-${it.id}" }) { session ->
+                SessionListItem(session) { navController.navigate(Screen.WorkflowSession(session.id)) }
+            }
+        }
+        item { SectionHeader("仓库") }
+        item {
+            PresetRow(
+                presets = vm.presets,
+                onOpen = { preset ->
+                    navController.navigate(Screen.WorkflowProject(preset.machineId, preset.path))
+                },
+                onNewTask = { preset -> navController.navigate(Screen.WorkNewTask(presetId = preset.id)) },
+                onCreate = { navController.navigate(Screen.WorkPresetEdit()) },
+            )
+        }
+        if (recent.isNotEmpty()) {
+            item { SectionHeader("最近") }
+            items(recent, key = { "recent-${it.id}" }) { session ->
+                SessionListItem(session) { navController.navigate(Screen.WorkflowSession(session.id)) }
+            }
+        }
+        if (vm.sessions.isEmpty()) {
+            item {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        "还没有远程会话。先添加仓库预设，或直接新建任务。",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(onClick = { navController.navigate(Screen.WorkNewTask()) }) { Text("新建任务") }
+                }
+            }
+        }
     }
 }
 
@@ -173,30 +208,38 @@ fun WorkflowProjectPage(
 ) {
     val navController = LocalNavController.current
     val project = vm.projects.firstOrNull { it.machineId == machineId && sameProjectPath(it.path, path) }
-    var showNewTask by rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(vm.createdSessionId) {
-        vm.createdSessionId?.let { id ->
-            vm.consumeCreatedSession()
-            showNewTask = false
-            navController.navigate(Screen.WorkflowSession(id))
-        }
-    }
+    val preset = vm.presets.firstOrNull { it.machineId == machineId && sameProjectPath(it.path, path) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(project?.name ?: projectName(path), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = {
+                    Text(
+                        preset?.name ?: project?.name ?: projectName(path),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 navigationIcon = { BackButton() },
                 actions = {
-                    IconButton(onClick = { showNewTask = true }, enabled = project?.isOnline == true) {
-                        Icon(HugeIcons.Add01, contentDescription = "在此项目中新建任务")
+                    IconButton(
+                        onClick = {
+                            navController.navigate(
+                                Screen.WorkNewTask(
+                                    presetId = preset?.id,
+                                    machineId = machineId,
+                                    path = project?.path ?: path,
+                                )
+                            )
+                        },
+                    ) {
+                        Icon(HugeIcons.Add01, contentDescription = "在此仓库新建任务")
                     }
                 },
             )
         },
     ) { contentPadding ->
-        if (project == null) {
+        if (project == null && preset == null) {
             if (vm.isRefreshing) {
                 Box(Modifier.fillMaxSize().padding(contentPadding), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
@@ -204,8 +247,8 @@ fun WorkflowProjectPage(
             } else {
                 WorkflowEmptyState(
                     modifier = Modifier.fillMaxSize().padding(contentPadding),
-                    title = "项目暂时不可用",
-                    description = vm.syncError ?: "项目历史可能已被删除，返回项目列表后刷新重试。",
+                    title = "仓库暂时不可用",
+                    description = vm.syncError ?: "会话历史可能已被删除，返回后刷新重试。",
                     action = "刷新",
                     onAction = vm::refresh,
                 )
@@ -218,161 +261,188 @@ fun WorkflowProjectPage(
             ) {
                 item {
                     ListItem(
-                        headlineContent = { Text(project.path, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                        headlineContent = {
+                            Text(project?.path ?: path, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        },
                         supportingContent = {
-                            Text(if (project.isOnline) "开发机在线，可直接新建任务" else "开发机离线，历史对话仍可查看")
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    if (project?.isOnline == true) "开发机在线，可直接新建任务"
+                                    else "开发机离线，历史对话仍可查看"
+                                )
+                                preset?.let { Text(presetSummary(it), style = MaterialTheme.typography.bodySmall) }
+                            }
                         },
                         leadingContent = { Icon(HugeIcons.Folder01, contentDescription = null) },
                     )
                 }
                 item {
-                    Text(
-                        "对话与任务",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 4.dp),
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (preset != null) {
+                            OutlinedButton(onClick = { navController.navigate(Screen.WorkPresetEdit(id = preset.id)) }) {
+                                Text("编辑预设")
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = {
+                                    navController.navigate(
+                                        Screen.WorkPresetEdit(machineId = machineId, path = project?.path ?: path)
+                                    )
+                                },
+                            ) {
+                                Text("保存为预设")
+                            }
+                        }
+                    }
                 }
-                items(project.sessions, key = HappySession::id) { session ->
-                    SessionListItem(session) { navController.navigate(Screen.WorkflowSession(session.id)) }
+                item { SectionHeader("对话与任务") }
+                val sessions = project?.sessions.orEmpty()
+                if (sessions.isEmpty()) {
+                    item {
+                        Text(
+                            "这个仓库还没有会话，点右上角开始第一个任务。",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    items(sessions, key = WorkSession::id) { session ->
+                        SessionListItem(session, showRepo = false) {
+                            navController.navigate(Screen.WorkflowSession(session.id))
+                        }
+                    }
                 }
             }
         }
     }
+}
 
-    if (showNewTask && project != null) {
-        NewCodexTaskDialog(
-            machines = listOfNotNull(project.machine),
-            initialPath = project.path,
-            lockPath = true,
-            isSubmitting = vm.isCreatingSession,
-            error = vm.createError,
-            onDismiss = { if (!vm.isCreatingSession) showNewTask = false },
-            onSubmit = vm::createCodexSession,
-        )
-    }
-    vm.pendingDirectoryApproval?.let { pending ->
-        AlertDialog(
-            onDismissRequest = vm::dismissDirectoryApproval,
-            title = { Text("创建项目目录？") },
-            text = { Text("开发机上不存在 ${pending.path}。确认后将创建目录并启动 Codex。") },
-            confirmButton = { Button(onClick = vm::approveDirectoryCreation) { Text("创建并启动") } },
-            dismissButton = { TextButton(onClick = vm::dismissDirectoryApproval) { Text("取消") } },
-        )
+@Composable
+private fun SearchResults(
+    results: List<WorkSession>,
+    query: String,
+    contentPadding: PaddingValues,
+    onOpen: (WorkSession) -> Unit,
+) {
+    when {
+        query.isBlank() -> Box(
+            Modifier.fillMaxSize().padding(contentPadding),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("输入关键词搜索会话标题、仓库路径或消息内容", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        results.isEmpty() -> Box(
+            Modifier.fillMaxSize().padding(contentPadding),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("没有匹配的会话", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        else -> LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = contentPadding + PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(results, key = WorkSession::id) { session ->
+                SessionListItem(session) { onOpen(session) }
+            }
+        }
     }
 }
 
 @Composable
-private fun ProjectListItem(project: WorkflowProject, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = RoundedCornerShape(24.dp), tonalElevation = 1.dp) {
-        ListItem(
-            headlineContent = { Text(project.name, fontWeight = FontWeight.SemiBold) },
-            supportingContent = {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(project.path, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        "${project.sessions.size} 个对话 · ${sessionState(project.latestSession)} · " +
-                            Instant.ofEpochMilli(project.latestSession.updatedAt).toLocalDateTime(),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+private fun SectionHeader(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 4.dp),
+    )
+}
+
+@Composable
+private fun PresetRow(
+    presets: List<RepoPreset>,
+    onOpen: (RepoPreset) -> Unit,
+    onNewTask: (RepoPreset) -> Unit,
+    onCreate: () -> Unit,
+) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(presets, key = RepoPreset::id) { preset ->
+            Surface(
+                onClick = { onOpen(preset) },
+                shape = RoundedCornerShape(20.dp),
+                tonalElevation = 1.dp,
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.width(120.dp)) {
+                        Text(
+                            preset.name,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            listOfNotNull(preset.agent.displayName(), "⚡完全访问".takeIf { preset.fullAccess })
+                                .joinToString(" · "),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    IconButton(onClick = { onNewTask(preset) }) {
+                        Icon(HugeIcons.Add01, contentDescription = "用 ${preset.name} 新建任务")
+                    }
                 }
-            },
-            leadingContent = { Icon(HugeIcons.Folder01, contentDescription = null) },
-            trailingContent = { Icon(HugeIcons.ArrowRight01, contentDescription = null) },
-        )
+            }
+        }
+        item {
+            Surface(onClick = onCreate, shape = RoundedCornerShape(20.dp), tonalElevation = 1.dp) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(HugeIcons.Add01, contentDescription = null)
+                    Text(if (presets.isEmpty()) "添加仓库预设" else "添加")
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun SessionListItem(session: HappySession, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = RoundedCornerShape(20.dp), tonalElevation = 1.dp) {
+private fun SessionListItem(
+    session: WorkSession,
+    highlight: Boolean = false,
+    showRepo: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(20.dp),
+        tonalElevation = 1.dp,
+        color = if (highlight) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surface,
+    ) {
         ListItem(
             headlineContent = { Text(session.displayTitle(), maxLines = 2, overflow = TextOverflow.Ellipsis) },
             supportingContent = {
-                Text("${sessionState(session)} · ${Instant.ofEpochMilli(session.updatedAt).toLocalDateTime()}")
+                Text(
+                    listOfNotNull(
+                        projectName(session.path.orEmpty()).takeIf { showRepo && it.isNotBlank() },
+                        session.agent.displayName(),
+                        "⚡完全访问".takeIf { session.isFullAccess },
+                        sessionState(session),
+                        Instant.ofEpochMilli(session.updatedAt).toLocalDateTime(),
+                    ).joinToString(" · ")
+                )
             },
             trailingContent = { Icon(HugeIcons.ArrowRight01, contentDescription = null) },
+            colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
         )
     }
-}
-
-@Composable
-internal fun NewCodexTaskDialog(
-    machines: List<HappyMachine>,
-    initialPath: String,
-    lockPath: Boolean = false,
-    isSubmitting: Boolean,
-    error: String?,
-    onDismiss: () -> Unit,
-    onSubmit: (String, String, String) -> Unit,
-) {
-    val onlineMachines = machines.filter { it.active && it.supportsCodex != false }
-    var selectedMachineId by rememberSaveable { mutableStateOf(onlineMachines.firstOrNull()?.id.orEmpty()) }
-    var path by rememberSaveable(initialPath) { mutableStateOf(initialPath) }
-    var prompt by rememberSaveable { mutableStateOf("") }
-    var machineMenuExpanded by remember { mutableStateOf(false) }
-    val selectedMachine = onlineMachines.firstOrNull { it.id == selectedMachineId }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("新建 Codex 任务") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box {
-                    OutlinedButton(
-                        onClick = { machineMenuExpanded = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !isSubmitting,
-                    ) {
-                        Text(selectedMachine?.let { it.displayName ?: it.host } ?: "选择在线开发机")
-                    }
-                    DropdownMenu(expanded = machineMenuExpanded, onDismissRequest = { machineMenuExpanded = false }) {
-                        onlineMachines.forEach { machine ->
-                            DropdownMenuItem(
-                                text = { Text(machine.displayName ?: machine.host) },
-                                onClick = {
-                                    selectedMachineId = machine.id
-                                    if (path.isBlank()) path = machine.homeDir.orEmpty()
-                                    machineMenuExpanded = false
-                                },
-                            )
-                        }
-                    }
-                }
-                OutlinedTextField(
-                    value = path,
-                    onValueChange = { path = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("项目目录") },
-                    supportingText = { Text("填写开发机上的绝对路径或 ~ 路径") },
-                    singleLine = true,
-                    readOnly = lockPath,
-                    enabled = !isSubmitting,
-                )
-                OutlinedTextField(
-                    value = prompt,
-                    onValueChange = { prompt = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("任务要求") },
-                    placeholder = { Text("例如：继续 #10，先检查昨晚的执行结果") },
-                    minLines = 3,
-                    maxLines = 6,
-                    enabled = !isSubmitting,
-                )
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onSubmit(selectedMachineId, path, prompt) },
-                enabled = selectedMachineId.isNotBlank() && path.isNotBlank() && prompt.isNotBlank() && !isSubmitting,
-            ) {
-                if (isSubmitting) CircularProgressIndicator(strokeWidth = 2.dp)
-                else Text("启动任务")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !isSubmitting) { Text("取消") } },
-    )
 }
 
 @Composable
@@ -414,21 +484,32 @@ private fun InlineStatus(message: String, onRetry: () -> Unit) {
     }
 }
 
-private fun sessionState(session: HappySession): String = when {
+private fun presetSummary(preset: RepoPreset): String = listOfNotNull(
+    preset.agent.displayName(),
+    preset.model,
+    preset.reasoningEffort?.let { "思考深度：${it.toReasoningLabel()}" },
+    if (preset.fullAccess) "完全访问" else "普通模式",
+    preset.defaultBranch?.let { "分支 $it" },
+).joinToString(" · ")
+
+internal fun WorkAgent.displayName(): String = when (this) {
+    WorkAgent.CODEX -> "Codex"
+    WorkAgent.CLAUDE -> "Claude Code"
+    WorkAgent.OTHER -> "其他"
+}
+
+private fun sessionState(session: WorkSession): String = when {
     session.approvals.isNotEmpty() -> "等待确认"
     session.active -> "进行中"
     else -> "已结束"
 }
 
-private fun HappySession.displayTitle(): String =
+private fun WorkSession.displayTitle(): String =
     name?.takeIf { it.isNotBlank() && !it.equals("Codex", ignoreCase = true) }
-        ?: "Codex 对话 ${id.take(6)}"
+        ?: "${agent.displayName()} 对话 ${id.take(6)}"
 
 private fun sameProjectPath(left: String, right: String): Boolean =
     left.trim().trimEnd('/', '\\').replace('\\', '/').equals(
         right.trim().trimEnd('/', '\\').replace('\\', '/'),
         ignoreCase = true,
     )
-
-private fun projectName(path: String): String =
-    path.trim().trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\').ifBlank { path }

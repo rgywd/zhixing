@@ -1,8 +1,8 @@
 # 原生远程工作流契约
 
-状态：首个原生闭环完成（2026-07-17）
+状态：数据层重构进行中（2026-07-16 起，按 Issue #18 重构为移动 Coding Session 客户端）
 
-关联需求：[GitHub Issue #10](https://github.com/rgywd/zhixing/issues/10)
+关联需求：[GitHub Issue #10](https://github.com/rgywd/zhixing/issues/10)、[GitHub Issue #18](https://github.com/rgywd/zhixing/issues/18)
 
 ## 1. 目标
 
@@ -62,7 +62,27 @@ Happy Web 页面只保留为开发期故障回退，不作为正式产品界面�
 
 - 会话 RPC 方法名为 `<sessionId>:<method>`，参数和结果均使用该会话密钥加密。
 - 机器 RPC 方法名为 `<machineId>:<method>`，用于创建或恢复会话。
+- `spawn-happy-session` 支持 `agent: codex | claude | gemini`；新版 happy-cli 已移除
+  `resume-happy-session`，恢复统一为 `spawn-happy-session` 携带 `sessionId`。客户端先调旧方法，
+  被拒绝后回退新协议。
 - 超时、目标离线、版本冲突和解密失败必须是不同错误类型，UI 不得统一显示为“连接失败”。
+
+### 3.5 消息 meta 与执行策略
+
+- 执行模式、模型与工具限制不是 spawn 参数，而是随每条用户消息的 `meta` 下发并由开发机 CLI 强制：
+  `permissionMode`、`model`、`disallowedTools`。
+- 知行产品层只暴露两档执行策略：普通（`default`）与完全访问（`bypassPermissions`，两个 agent
+  共用同一取值；Codex 侧由 happy-cli 映射为 on-failure 审批 + danger-full-access 沙箱）。
+- CLI 侧对 permissionMode/model 按会话粘滞（未携带 meta 的消息沿用上一次的值）；客户端仍然
+  每条消息显式下发当前模式，并把最近一条用户消息的 permissionMode 回填为会话级状态。
+- 硬性限制通过 `disallowedTools` 下发，仅 Claude Code 侧远端强制；Codex 侧协议无 deny list，
+  完全访问模式下为尽力而为，UI 必须如实标注。
+- 思考深度（2026-07 核实）：Claude Code 档位 low/medium/high/xhigh/max（xhigh 仅
+  Fable 5 / Sonnet 5 / Opus 4.7+），经 spawn environmentVariables 的
+  `CLAUDE_CODE_EFFORT_LEVEL` 下发（新模型忽略 MAX_THINKING_TOKENS）；Codex 档位以
+  openai/codex 主干 ReasoningEffort 枚举为准（none/minimal/low/medium/high/xhigh/max/ultra，
+  UI 暴露 low~ultra 六档，对应 5.6 系列客户端的 轻度/中/高/极高/最大/Ultra），
+  官方无环境变量通道、happy-cli meta 不透传，暂无法远程下发，仅保存偏好并在 UI 标注。
 
 ## 4. 分阶段交付
 
@@ -80,6 +100,25 @@ Happy Web 页面只保留为开发期故障回退，不作为正式产品界面�
 - [x] 阶段 B：机器与 `/v2/sessions` 完整分页历史的 HTTP 初始快照；活跃接口只用于在线态语义，不再充当项目数据源。
 - [x] 阶段 B：历史消息、Socket.IO 增量、断线补偿与真实账户验收。
 - [x] 阶段 C：手机指定开发机/目录新建 Codex 任务、恢复历史对话、补充消息、中断与审批 RPC 的原生读写闭环。
+- [x] Issue #18 重构阶段 1：WorkRepository + Room 缓存成为单一数据源（会话/消息/机器/仓库预设四表）；
+      消息解析改为结构化 parts（文本/思考/工具调用/工具结果/文件修改/事件）；移除 3 秒全量轮询，
+      改为 Socket 增量信号驱动的节流同步；去除 Codex 过滤，Claude Code 会话纳入列表；
+      resume 兼容新旧 happy-cli 协议。
+- [x] Issue #18 重构阶段 2：仓库预设（机器/目录/默认分支/默认 Agent/模型/思考深度/完全访问/硬性限制）
+      与预设编辑页；新建任务从对话框升级为整页（预设预填 + Agent/模型/思考深度/完全访问 + 首条指令，
+      开启完全访问需显式确认）；首条指令随 meta 下发 permissionMode/model/disallowedTools，思考深度经
+      spawn environmentVariables（Claude MAX_THINKING_TOKENS）下发；工作首页重构为
+      等待我处理/进行中/仓库/最近 四区。
+- [x] Issue #18 重构阶段 3：会话级执行模式闭环——会话页两态模式 chip（切完全访问需确认，
+      对下一条消息即时生效）；每条补充消息显式携带 permissionMode 与仓库级 disallowedTools；
+      会话模式本地持久化（DB v26）并从消息 meta 回填（兼容其他客户端切换）；列表 ⚡ 完全访问
+      标识；思考深度按官方档位重做（Claude 经 CLAUDE_CODE_EFFORT_LEVEL 下发，Codex 如实标注
+      暂不可远程设置）。
+- [x] Issue #18 重构阶段 4：会话页信息架构（连续工具活动折叠为活动卡、思考可展开、
+      成功结果与终端输出只进完整日志、失败必在聊天流可见、事件降噪；目标卡挂
+      工具调用/文件修改统计）；新增完整日志页（全部/工具/文件/终端/事件过滤）；
+      工作首页顶栏搜索（会话标题/仓库路径/消息内容的本地缓存检索）。
+- [ ] Issue #18 阶段 5：关键通知（完成/失败/被策略阻止/需决策）。
 - [ ] 阶段 D 及以后。
 
 ### 4.2 真实链路验收记录
@@ -104,9 +143,12 @@ Happy Web 页面只保留为开发期故障回退，不作为正式产品界面�
 
 ## 5. 非目标与延期项
 
-- P0 不接入 Claude Code，不实现多租户团队权限。
-- P0 不实现远程桌面、通用 SSH 终端或开发机文件系统任意浏览。
-- P0 不把恢复密钥上传到知行自有服务端。
+- ~~P0 不接入 Claude Code~~（已被 Issue #18 推翻：Codex 与 Claude Code 均为一等 Agent）；
+  仍不实现多租户团队权限。
+- Issue #18 验收标准 7 的三档执行模式在产品上收敛为两档：普通与完全访问；
+  “自动执行”（acceptEdits）档协议已支持，暂不暴露 UI。
+- 不实现远程桌面、通用 SSH 终端或开发机文件系统任意浏览。
+- 不把恢复密钥上传到知行自有服务端。
 - Push 服务和 Happy Relay 自托管在原生读写闭环稳定后实施。
 - CC Pocket、HAPI、Remodex 仅作为交互和 Codex app-server 映射参考，不混用身份与传输协议。
 
