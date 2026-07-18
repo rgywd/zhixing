@@ -1,12 +1,14 @@
 #!/usr/bin/env node
+import { join } from 'node:path'
 import { login, runDaemon } from './daemon.js'
-import { AGENT_VERSION } from './config.js'
+import { AGENT_VERSION, AgentHome } from './config.js'
 
 const USAGE = `zhixing-agent ${AGENT_VERSION} — 知行开发机代理
 
 用法:
   zhixing-agent login <恢复密钥>   使用与手机 App 相同的恢复密钥登录
   zhixing-agent daemon             启动守护进程（机器注册 + 中继连接）
+  zhixing-agent catalog            输出 Codex Project / Thread 目录诊断
   zhixing-agent version            显示版本
 
 环境变量:
@@ -31,12 +33,39 @@ async function main(): Promise<void> {
     case 'daemon':
       await runDaemon()
       return
+    case 'catalog':
+      await printCatalog()
+      return
     case 'version':
       console.log(AGENT_VERSION)
       return
     default:
       console.log(USAGE)
       if (command) process.exitCode = 2
+  }
+}
+
+async function printCatalog(): Promise<void> {
+  const [{ CodexAppServerClient }, { CodexCatalogService }, { ProjectRegistry }] = await Promise.all([
+    import('./codex/appServerClient.js'),
+    import('./catalog/codexCatalog.js'),
+    import('./catalog/projectRegistry.js'),
+  ])
+  const home = new AgentHome()
+  const settings = home.loadSettings()
+  const client = new CodexAppServerClient(undefined, undefined, (message) => console.error(message))
+  try {
+    await client.start()
+    const { generateCodexSchemaHash } = await import('./codex/schemaHash.js')
+    const schemaHash = await generateCodexSchemaHash(client.binaryPath)
+    const service = new CodexCatalogService(
+      client,
+      new ProjectRegistry(join(home.dir, 'codex-projects.json')),
+      { machineId: settings.machineId, agentVersion: AGENT_VERSION, schemaHash },
+    )
+    console.log(JSON.stringify(await service.snapshot(), null, 2))
+  } finally {
+    client.stop()
   }
 }
 

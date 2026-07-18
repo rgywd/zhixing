@@ -7,6 +7,7 @@ import { AgentHome, isClaudeP2Enabled } from './config.js'
 import { HappyApi } from './api.js'
 import { MachineSocket } from './socket.js'
 import type { SpawnParams, SpawnResult } from './types.js'
+import { resolveCodexBinary } from './codex/binary.js'
 
 export interface SpawnDelegate {
   spawn(params: SpawnParams): Promise<SpawnResult>
@@ -50,7 +51,7 @@ export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
   const metadata = home.machineMetadata()
   const claudeEnabled = isClaudeP2Enabled()
   metadata.cliAvailability = {
-    codex: cliAvailable(process.env.ZHIXING_CODEX_BIN ?? 'codex'),
+    codex: cliAvailable(resolveCodexBinary()),
     claude: claudeEnabled && cliAvailable(process.env.ZHIXING_CLAUDE_BIN ?? 'claude'),
   }
   await api.registerMachine(credentials, identity, metadata)
