@@ -100,10 +100,10 @@ package.json，不进 Android 构建图。
 
 ## 8. P2：Claude 通道（司南式"寻呼机"模型）
 
-状态：设计已批准（2026-07-17）；P2-1（Claude 短进程、resume、固定策略和 daemon 路由）
-已于 2026-07-18 实现，P2-2 电话线待继续。
+状态：设计已批准（2026-07-17）；P2-1（Claude 短进程、resume、固定策略和 daemon 路由）与
+P2-2（Agent SDK 审批、本机 bridge、MCP 电话线）已于 2026-07-18 实现，P2-3 App 展示待继续。
 方向定调："对 Claude Code 改造而非复用"——彻底甩开 happy 对 Claude 的包裹层，
-只使用官方稳定面：headless CLI（`claude -p --resume`）+ MCP。
+只使用官方稳定面：Claude Agent SDK（驱动 Claude Code、resume 本机 transcript）+ MCP。
 参考来源：司南「会话」交互机制（同事方案），采纳其进程模型与电话线设计，
 权限部分做强化改良（见 8.3）。
 
@@ -117,7 +117,7 @@ Claude 会话是"寻呼机"而非"镜像"：agent 在开发机上自主干活，
 ### 8.2 进程模型（用完即走 + resume）
 
 - 开发机常驻一个小 runner（systemd 级守护，zhixing-agent 的 Claude 适配器）。
-- 每条用户消息触发一轮 `claude -p --resume <sessionId>`，干完即退；
+- 每条用户消息触发一轮 Agent SDK `query({ resume: sessionId })`，底层 Claude Code 干完即退；
   无长活 claude 进程，不怕崩、关机重启不丢。
 - 会话真身 = Claude 磁盘 transcript（`~/.claude/projects/…/<sid>.jsonl`）；
   "接着聊" = resume 同一 id，"新会话" = 不带 resume。
@@ -127,7 +127,7 @@ Claude 会话是"寻呼机"而非"镜像"：agent 在开发机上自主干活，
 
 | 档位 | 起进程参数 | 效果 |
 |---|---|---|
-| 普通 | 默认权限 + `PermissionRequest` Hook（由本机 bridge 同步转手机审批） | 敏感操作弹手机审批卡，CLI 侧强制阻塞；超时默认拒绝 |
+| 普通 | Agent SDK `permissionMode=default` + `canUseTool` | 敏感操作弹手机审批卡，SDK 强制阻塞；超时默认拒绝 |
 | 完全访问 | `--dangerously-skip-permissions` | 与 Codex 完全访问档对齐 |
 
 - 档位在**新建会话时**选定，会话内、跨轮均**不提供切换**；要换档 = 新建会话。
@@ -135,8 +135,9 @@ Claude 会话是"寻呼机"而非"镜像"：agent 在开发机上自主干活，
 - 相比司南原案（直接 skip-permissions，HITL 靠 agent 自觉调 ask）是强化：
   普通档的审批是 CLI 强制的，不是君子协定。
 - 2026-07-18 联调确认：Claude Code 2.1.212 已不提供早期设计引用的
-  `--permission-prompt-tool` 参数。当前官方稳定入口是 `PermissionRequest` Hook；Hook 返回
-  `behavior=allow|deny`，并继续受 deny/ask 规则约束。P2 实现以当前 Hook 契约为准。
+  `--permission-prompt-tool` 参数；且非交互 `claude -p` 在需要审批时直接拒绝，CLI
+  `PermissionRequest` Hook 没有机会完成远程交互。P2 因此使用官方 Agent SDK `canUseTool`
+  回调，真实 deny 烟测已通过。
 
 ### 8.4 电话线（中继侧 MCP server，三个工具）
 
