@@ -2,17 +2,22 @@
 import { join } from 'node:path'
 import { login, runDaemon } from './daemon.js'
 import { AGENT_VERSION, AgentHome } from './config.js'
+import { WireRelayAgentClient } from './wire/relayClient.js'
+import { publishCatalogOnce } from './wire/catalogPublisher.js'
 
 const USAGE = `zhixing-agent ${AGENT_VERSION} — 知行开发机代理
 
 用法:
   zhixing-agent login <恢复密钥>   使用与手机 App 相同的恢复密钥登录
   zhixing-agent daemon             启动守护进程（机器注册 + 中继连接）
+  zhixing-agent wire-login <恢复密钥> [中继地址]  登录 Zhixing Relay v1
+  zhixing-agent wire-sync          立即加密发布 Codex Project / Thread 目录
   zhixing-agent catalog            输出 Codex Project / Thread 目录诊断
   zhixing-agent version            显示版本
 
 环境变量:
   ZHIXING_RELAY_URL     中继服务器地址（默认 Happy 官方中继，自托管后改为自己的）
+  ZHIXING_WIRE_RELAY_URL  Zhixing Relay v1 地址
   ZHIXING_AGENT_HOME    配置目录（默认 ~/.zhixing-agent）
   ZHIXING_ENABLE_CLAUDE_P2=0  紧急关闭 Claude 通道（默认启用）
 `
@@ -33,6 +38,23 @@ async function main(): Promise<void> {
     case 'daemon':
       await runDaemon()
       return
+    case 'wire-login': {
+      const key = rest[0]
+      if (!key) {
+        console.error('缺少恢复密钥参数')
+        process.exitCode = 2
+        return
+      }
+      const home = new AgentHome()
+      const credentials = await WireRelayAgentClient.login(home, key, rest[1])
+      console.log(`Wire Relay 登录成功: ${credentials.deviceId} → ${credentials.serverUrl}`)
+      return
+    }
+    case 'wire-sync': {
+      const result = await publishCatalogOnce(new AgentHome(), true)
+      console.log(JSON.stringify(result, null, 2))
+      return
+    }
     case 'catalog':
       await printCatalog()
       return

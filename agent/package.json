@@ -1,6 +1,6 @@
 {
   "name": "zhixing-agent",
-  "version": "0.1.0",
+  "version": "0.2.0-dev.1",
   "description": "知行自研开发机代理：连接中继，向手机端提供 Codex 与 Claude Code 远程会话",
   "license": "MIT",
   "type": "module",
@@ -14,6 +14,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "smoke:p2": "npm run build && node dist/p2Smoke.js",
+    "smoke:p4": "npm run build && node dist/p4Smoke.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

@@ -8,6 +8,7 @@ import { HappyApi } from './api.js'
 import { MachineSocket } from './socket.js'
 import type { SpawnParams, SpawnResult } from './types.js'
 import { resolveCodexBinary } from './codex/binary.js'
+import { publishCatalogOnce } from './wire/catalogPublisher.js'
 
 export interface SpawnDelegate {
   spawn(params: SpawnParams): Promise<SpawnResult>
@@ -29,6 +30,7 @@ function cliAvailable(binary: string, versionArgs = ['--version']): boolean {
 
 export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
   const home = new AgentHome()
+  const stopWirePublisher = startWireCatalogPublisher(home)
   const settings = home.loadSettings()
   const credentials = home.loadCredentials()
   if (!credentials) {
@@ -84,8 +86,32 @@ export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
     process.once('SIGTERM', () => resolve())
   })
   socket.close()
+  stopWirePublisher()
   await delegate.shutdown?.()
   log('守护进程已退出')
+}
+
+function startWireCatalogPublisher(home: AgentHome): () => void {
+  if (!home.loadWireCredentials()) return () => {}
+  let publishing = false
+  const publish = async () => {
+    if (publishing) return
+    publishing = true
+    try {
+      const result = await publishCatalogOnce(home)
+      if (!result.skipped) {
+        log(`Codex 目录已同步: ${result.projects} 项目 / ${result.threads} 对话 / ${result.recipients} 设备`)
+      }
+    } catch (error) {
+      log(`Codex 目录同步失败: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      publishing = false
+    }
+  }
+  void publish()
+  const timer = setInterval(() => void publish(), 5 * 60_000)
+  timer.unref()
+  return () => clearInterval(timer)
 }
 
 export async function login(recoveryKey: string): Promise<void> {

@@ -70,6 +70,8 @@ sender/header 与绑定不一致会被拒绝，撤销设备也会撤销该设备
 - `id` 全局幂等；完全相同的重试返回 `duplicate`，不会重复创建 delivery。
 - `(accountId,senderDeviceId,streamId,seq)` 冲突返回 `SEQUENCE_COLLISION`。
 - Relay 不接受 `plaintext`、`type`、`path`、`title` 等额外字段，也不解码 cipherBundle。
+- `streamId=keys_<deviceId>` 是 Wire v1 的设备定向 data-key 分发 envelope；其 `cipherBundle` 是 NaCl box
+  key wrapper。Relay 仍只把它当不透明 base64url，不区分或解码该保留 stream。
 
 ### 4.2 拉取
 

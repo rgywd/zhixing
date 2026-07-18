@@ -12,6 +12,8 @@ import me.rerere.rikkahub.data.repository.GenMediaRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.workflow.WorkRepository
+import me.rerere.rikkahub.data.workflow.codex.CodexCatalogRepository
+import me.rerere.rikkahub.data.workflow.codex.WireCatalogSink
 import me.rerere.rikkahub.data.knowledge.KnowledgeSpaceService
 import me.rerere.rikkahub.AppScope
 import me.rerere.workspace.ProotShellRunner
@@ -101,6 +103,9 @@ val repositoryModule = module {
             ftsManager = get(),
         )
     }
+
+    single { CodexCatalogRepository(dao = get(), json = get()) }
+    single<WireCatalogSink> { get<CodexCatalogRepository>() }
 
     single {
         FilesManager(get(), get(), get())

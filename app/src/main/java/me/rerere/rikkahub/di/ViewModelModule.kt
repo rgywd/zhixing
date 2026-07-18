@@ -24,6 +24,8 @@ import me.rerere.rikkahub.ui.pages.workflow.WorkNewTaskVM
 import me.rerere.rikkahub.ui.pages.workflow.WorkPresetEditVM
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowVM
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowSessionVM
+import me.rerere.rikkahub.ui.pages.workflow.codex.CodexThreadVM
+import me.rerere.rikkahub.ui.pages.workflow.codex.CodexWorkflowVM
 import org.koin.core.module.dsl.viewModel
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
@@ -82,6 +84,14 @@ val viewModelModule = module {
     viewModelOf(::SearchVM)
     viewModelOf(::StatsVM)
     viewModelOf(::WorkflowVM)
+    viewModelOf(::CodexWorkflowVM)
+    viewModel<CodexThreadVM> { params ->
+        CodexThreadVM(
+            machineId = params[0],
+            threadId = params[1],
+            repository = get(),
+        )
+    }
     viewModelOf(::WorkNewTaskVM)
     viewModelOf(::WorkPresetEditVM)
     viewModel<WorkflowSessionVM> { params ->

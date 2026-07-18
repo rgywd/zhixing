@@ -134,6 +134,10 @@ import me.rerere.rikkahub.ui.pages.workflow.WorkflowPage
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowProjectPage
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowSessionPage
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowSettingsPage
+import me.rerere.rikkahub.ui.pages.workflow.codex.CodexConnectionSettingsPage
+import me.rerere.rikkahub.ui.pages.workflow.codex.CodexProjectPage
+import me.rerere.rikkahub.ui.pages.workflow.codex.CodexThreadPage
+import me.rerere.rikkahub.ui.pages.workflow.codex.CodexWorkflowPage
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.ui.theme.RikkahubTheme
 import me.rerere.rikkahub.utils.CrashHandler
@@ -390,6 +394,22 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.WorkflowSettings> {
                                 WorkflowSettingsPage()
+                            }
+
+                            entry<Screen.CodexWorkflow> {
+                                CodexWorkflowPage()
+                            }
+
+                            entry<Screen.CodexProject> { key ->
+                                CodexProjectPage(key.projectId)
+                            }
+
+                            entry<Screen.CodexThread> { key ->
+                                CodexThreadPage(key.machineId, key.threadId)
+                            }
+
+                            entry<Screen.CodexWorkflowSettings> {
+                                CodexConnectionSettingsPage()
                             }
 
                             entry<Screen.Assistant> {
@@ -668,6 +688,18 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object WorkflowSettings : Screen
+
+    @Serializable
+    data object CodexWorkflow : Screen
+
+    @Serializable
+    data class CodexProject(val projectId: String) : Screen
+
+    @Serializable
+    data class CodexThread(val machineId: String, val threadId: String) : Screen
+
+    @Serializable
+    data object CodexWorkflowSettings : Screen
 
     @Serializable
     data object Assistant : Screen
