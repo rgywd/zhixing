@@ -9,10 +9,21 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { log } from '../daemon.js'
+import { resolveCodexBinary } from './binary.js'
+import {
+  parseInitializeInfo,
+  parseThreadListPage,
+  parseThreadReadResponse,
+  type CodexInitializeInfo,
+  type CodexThread,
+  type CodexThreadListOptions,
+  type CodexThreadListPage,
+} from './protocol.js'
 
 interface PendingRequest {
   resolve: (value: unknown) => void
   reject: (error: Error) => void
+  timer: NodeJS.Timeout
 }
 
 export type NotificationHandler = (method: string, params: unknown) => void
@@ -42,8 +53,13 @@ export class CodexAppServerClient {
     throw new Error(`Unhandled server request: ${method}`)
   }
   private exitError: Error | null = null
+  private initializeInfo: CodexInitializeInfo | null = null
 
-  constructor(private readonly codexBinary = process.env.ZHIXING_CODEX_BIN ?? 'codex') {}
+  constructor(
+    private readonly codexBinary = resolveCodexBinary(),
+    private readonly requestTimeoutMs = 30_000,
+    private readonly logger: (message: string) => void = log,
+  ) {}
 
   onNotification(handler: NotificationHandler): void {
     this.notificationHandler = handler
@@ -53,35 +69,36 @@ export class CodexAppServerClient {
     this.serverRequestHandler = handler
   }
 
-  async start(): Promise<void> {
-    if (this.child) return
+  async start(): Promise<CodexInitializeInfo> {
+    if (this.child && this.initializeInfo) return this.initializeInfo
     const child = spawn(this.codexBinary, ['app-server'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: process.env,
     })
     this.child = child
+    child.on('error', (error) => this.failAll(new Error(`无法启动 codex app-server: ${error.message}`)))
     child.on('exit', (code, signal) => {
-      this.exitError = new Error(`codex app-server exited (code=${code}, signal=${signal})`)
-      for (const request of this.pending.values()) request.reject(this.exitError)
-      this.pending.clear()
-      this.child = null
+      this.failAll(new Error(`codex app-server exited (code=${code}, signal=${signal})`))
     })
     child.stderr.on('data', (chunk: Buffer) => {
       const text = chunk.toString('utf8').trim()
-      if (text) log(`[codex stderr] ${text.slice(0, 500)}`)
+      if (text) this.logger(`[codex stderr] ${text.slice(0, 500)}`)
     })
     createInterface({ input: child.stdout }).on('line', (line) => this.handleLine(line))
 
-    await this.request('initialize', {
+    const initialized = await this.request('initialize', {
       clientInfo: { name: 'zhixing-agent', title: 'Zhixing Agent', version: '0.1.0' },
       capabilities: { experimentalApi: false },
     })
+    this.initializeInfo = parseInitializeInfo(initialized)
     this.notify('initialized', undefined)
+    return this.initializeInfo
   }
 
   stop(): void {
     this.child?.kill('SIGTERM')
     this.child = null
+    this.initializeInfo = null
   }
 
   async startThread(options: ThreadStartOptions): Promise<{ threadId: string; raw: unknown }> {
@@ -123,6 +140,34 @@ export class CodexAppServerClient {
     await this.request('turn/interrupt', { threadId, turnId })
   }
 
+  get serverInfo(): CodexInitializeInfo | null {
+    return this.initializeInfo
+  }
+
+  get binaryPath(): string {
+    return this.codexBinary
+  }
+
+  async listThreadsPage(options: CodexThreadListOptions = {}): Promise<CodexThreadListPage> {
+    return parseThreadListPage(await this.request('thread/list', options))
+  }
+
+  async readThread(threadId: string, includeTurns = true): Promise<CodexThread> {
+    return parseThreadReadResponse(await this.request('thread/read', { threadId, includeTurns }))
+  }
+
+  async archiveThread(threadId: string): Promise<void> {
+    await this.request('thread/archive', { threadId })
+  }
+
+  async unarchiveThread(threadId: string): Promise<void> {
+    await this.request('thread/unarchive', { threadId })
+  }
+
+  async deleteThread(threadId: string): Promise<void> {
+    await this.request('thread/delete', { threadId })
+  }
+
   private handleLine(line: string): void {
     const trimmed = line.trim()
     if (!trimmed) return
@@ -130,7 +175,7 @@ export class CodexAppServerClient {
     try {
       message = JSON.parse(trimmed) as Record<string, unknown>
     } catch {
-      log(`[codex] 无法解析的输出行: ${trimmed.slice(0, 200)}`)
+      this.logger(`[codex] 无法解析的输出行: ${trimmed.slice(0, 200)}`)
       return
     }
 
@@ -140,6 +185,7 @@ export class CodexAppServerClient {
       const pending = this.pending.get(id)
       if (!pending) return
       this.pending.delete(id)
+      clearTimeout(pending.timer)
       if ('error' in message && message.error) {
         const error = message.error as { code?: number; message?: string }
         pending.reject(new Error(`codex RPC error ${error.code}: ${error.message}`))
@@ -172,7 +218,11 @@ export class CodexAppServerClient {
     if (!this.child) return Promise.reject(this.exitError ?? new Error('codex app-server not started'))
     const id = this.nextId++
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
+      const timer = setTimeout(() => {
+        this.pending.delete(id)
+        reject(new Error(`codex RPC timeout: ${method}`))
+      }, this.requestTimeoutMs)
+      this.pending.set(id, { resolve, reject, timer })
       this.send(params === undefined ? { id, method } : { id, method, params })
     })
   }
@@ -183,5 +233,16 @@ export class CodexAppServerClient {
 
   private send(message: unknown): void {
     this.child?.stdin.write(`${JSON.stringify(message)}\n`)
+  }
+
+  private failAll(error: Error): void {
+    this.exitError = error
+    for (const request of this.pending.values()) {
+      clearTimeout(request.timer)
+      request.reject(error)
+    }
+    this.pending.clear()
+    this.child = null
+    this.initializeInfo = null
   }
 }
