@@ -43,6 +43,9 @@ interface WorkSessionDAO {
     @Query("DELETE FROM work_sessions WHERE id NOT IN (:ids)")
     suspend fun deleteNotIn(ids: List<String>)
 
+    @Query("DELETE FROM work_sessions WHERE id = :id")
+    suspend fun deleteById(id: String)
+
     @Transaction
     suspend fun replaceAll(sessions: List<WorkSessionEntity>) {
         upsertAll(sessions)

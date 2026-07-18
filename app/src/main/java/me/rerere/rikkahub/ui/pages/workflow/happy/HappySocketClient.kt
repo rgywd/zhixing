@@ -125,6 +125,19 @@ class HappySocketClient(
         )
     }
 
+    suspend fun stopSession(
+        credentials: HappyCredentials,
+        machine: HappyMachine,
+        sessionId: String,
+    ) {
+        machineRpc(
+            credentials = credentials,
+            machine = machine,
+            method = "stop-session",
+            params = buildJsonObject { put("sessionId", sessionId) },
+        )
+    }
+
     suspend fun approve(
         credentials: HappyCredentials,
         session: HappySession,

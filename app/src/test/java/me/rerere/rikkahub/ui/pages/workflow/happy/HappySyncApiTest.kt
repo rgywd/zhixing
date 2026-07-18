@@ -162,6 +162,26 @@ class HappySyncApiTest {
         )
     }
 
+    @Test
+    fun `deletes session remotely without needing its encryption key`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(204))
+        val api = HappySyncApi(
+            client = OkHttpClient(),
+            json = Json { ignoreUnknownKeys = true },
+            serverUrl = server.url("/").toString(),
+            clientId = "android/test",
+        )
+        val credentials = HappyCredentials("happy-token", "unused-secret")
+
+        api.deleteSession(credentials, "session-broken-key")
+
+        val request = server.takeRequest()
+        assertEquals("DELETE", request.method)
+        assertEquals("/v1/sessions/session-broken-key", request.path)
+        assertEquals("Bearer happy-token", request.getHeader("Authorization"))
+        assertEquals("android/test", request.getHeader("X-Happy-Client"))
+    }
+
     private companion object {
         const val MACHINES_RESPONSE = """
             [{

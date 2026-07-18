@@ -43,6 +43,10 @@ class WorkFtsManager(private val database: AppDatabase) {
         db.execSQL("DELETE FROM work_message_fts")
     }
 
+    suspend fun deleteSession(sessionId: String) = withContext(Dispatchers.IO) {
+        db.execSQL("DELETE FROM work_message_fts WHERE session_id = ?", arrayOf(sessionId))
+    }
+
     suspend fun isEmpty(): Boolean = withContext(Dispatchers.IO) {
         db.query("SELECT COUNT(*) FROM work_message_fts").use { cursor ->
             cursor.moveToFirst() && cursor.getLong(0) == 0L

@@ -15,6 +15,10 @@ class HappyProtocolTest {
             "https://happy.example.com:8443",
             HappyProtocol.normalizeServerUrl("https://happy.example.com:8443"),
         )
+        assertEquals(
+            "https://happy.8-208-118-119.sslip.io",
+            HappyProtocol.normalizeServerUrl("https://happy.8-208-118-119.sslip.io"),
+        )
     }
 
     @Test
