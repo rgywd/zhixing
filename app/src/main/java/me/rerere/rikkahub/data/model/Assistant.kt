@@ -62,7 +62,23 @@ data class QuickMessage(
 data class AssistantMemory(
     val id: Int,
     val content: String = "",
+    val kind: MemoryKind = MemoryKind.CONTEXT,
+    val state: MemoryState = MemoryState.ACTIVE,
+    val createdAt: Long = 0,
+    val updatedAt: Long = 0,
 )
+
+@Serializable
+enum class MemoryKind {
+    PROFILE,
+    CONTEXT,
+}
+
+@Serializable
+enum class MemoryState {
+    ACTIVE,
+    ARCHIVED,
+}
 
 @Serializable
 enum class AssistantAffectScope {

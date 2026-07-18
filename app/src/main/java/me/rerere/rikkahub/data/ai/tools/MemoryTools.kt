@@ -14,33 +14,44 @@ import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.model.AssistantMemory
+import me.rerere.rikkahub.data.model.MemoryKind
+import me.rerere.rikkahub.data.model.MemoryState
 import me.rerere.rikkahub.utils.toLocalString
 import java.time.LocalDate
 
 fun buildMemoryTools(
     json: Json,
-    onCreation: suspend (String) -> AssistantMemory,
+    onCreation: suspend (MemoryKind, String) -> AssistantMemory,
     onUpdate: suspend (Int, String) -> AssistantMemory,
+    onStateChange: suspend (Int, MemoryState) -> AssistantMemory,
     onDelete: suspend (Int) -> Unit
 ): List<Tool> = listOf(
     Tool(
         name = "memory_tool",
         description = """
-            The memory tool stores long-term information across conversations.
-            Use `action` to control the operation: `create` (add), `edit` (update), `delete` (remove).
-            - No relevant record: `create` + `content`
+            This is the single model-facing memory capability for long-term information across conversations.
+            - No relevant record: `create` + `kind` + `content`
             - Existing relevant record: `edit` + `id` + `content`
-            - Outdated/irrelevant record: `delete` + `id`
-            Memories will automatically appear in the <memories> tag in later conversations.
+            - No longer active but worth retaining: `archive` + `id`
+            - User asks to reactivate an archived record: `restore` + `id`
+            - User explicitly asks to forget/delete permanently: `delete` + `id`
+            Memories are retrieved automatically in later conversations; do not ask for separate memory tools.
+            `PROFILE` is only for stable user facts, preferences, relationships, long-term goals,
+            and durable constraints. It is global across assistants.
+            `CONTEXT` is for everything else the user explicitly asks to remember. Do not invent task,
+            calendar, contact, or other domain-specific workflows.
             Do not store sensitive information (e.g., ethnicity, religion, sexual orientation, political views, sex life, criminal records).
-            You may store: preferred name, preferences, plans, work-related notes, chat style preferences, first chat time, etc.
-            Do not show memory content directly in the conversation unless the user explicitly asks.
+            If the user explicitly asks to remember something, persist it and briefly confirm.
+            If memory would only be inferred from ordinary conversation, ask for confirmation before persistence.
             Today is ${LocalDate.now().toLocalString(true)}.
-            Similar memories should be merged; prefer updating existing records.
+            Store one independently correctable fact per record.
+            Similar or corrected memories must update the existing record instead of creating contradictions.
 
             Examples:
-            {"action":"create","content":"User prefers brief replies and is more active on weekends."}
+            {"action":"create","kind":"PROFILE","content":"User prefers Chinese replies."}
+            {"action":"create","kind":"CONTEXT","content":"User plans to meet Zhang San tomorrow at 15:00."}
             {"action":"edit","id":12,"content":"User’s preferred name updated to “A-Xing”, prefers Chinese replies."}
+            {"action":"archive","id":7}
             {"action":"delete","id":7}
         """.trimIndent(),
         parameters = {
@@ -53,10 +64,20 @@ fun buildMemoryTools(
                             buildJsonArray {
                                 add("create")
                                 add("edit")
+                                add("archive")
+                                add("restore")
                                 add("delete")
                             }
                         )
-                        put("description", "Operation to perform: create, edit, or delete")
+                        put("description", "Operation to perform: create, edit, archive, restore, or delete")
+                    })
+                    put("kind", buildJsonObject {
+                        put("type", "string")
+                        put("enum", buildJsonArray {
+                            add(MemoryKind.PROFILE.name)
+                            add(MemoryKind.CONTEXT.name)
+                        })
+                        put("description", "Memory kind, required for create: PROFILE or CONTEXT")
                     })
                     put("id", buildJsonObject {
                         put("type", "integer")
@@ -75,8 +96,11 @@ fun buildMemoryTools(
             val action = params["action"]?.jsonPrimitive?.contentOrNull ?: error("action is required")
             val payload = when (action) {
                 "create" -> {
+                    val kindValue = params["kind"]?.jsonPrimitive?.contentOrNull ?: error("kind is required")
+                    val kind = runCatching { MemoryKind.valueOf(kindValue) }
+                        .getOrElse { error("unknown kind: $kindValue, must be one of [PROFILE, CONTEXT]") }
                     val content = params["content"]?.jsonPrimitive?.contentOrNull ?: error("content is required")
-                    json.encodeToJsonElement(AssistantMemory.serializer(), onCreation(content))
+                    json.encodeToJsonElement(AssistantMemory.serializer(), onCreation(kind, content))
                 }
 
                 "edit" -> {
@@ -94,7 +118,13 @@ fun buildMemoryTools(
                     }
                 }
 
-                else -> error("unknown action: $action, must be one of [create, edit, delete]")
+                "archive", "restore" -> {
+                    val id = params["id"]?.jsonPrimitive?.intOrNull ?: error("id is required")
+                    val state = if (action == "archive") MemoryState.ARCHIVED else MemoryState.ACTIVE
+                    json.encodeToJsonElement(AssistantMemory.serializer(), onStateChange(id, state))
+                }
+
+                else -> error("unknown action: $action, must be one of [create, edit, archive, restore, delete]")
             }
             listOf(UIMessagePart.Text(payload.toString()))
         }

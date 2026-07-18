@@ -2,9 +2,16 @@ package me.rerere.rikkahub.data.db.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
+import me.rerere.rikkahub.data.model.MemoryKind
+import me.rerere.rikkahub.data.model.MemoryState
 
-@Entity
+@Entity(
+    indices = [
+        Index(value = ["assistant_id", "kind", "state", "updated_at"]),
+    ],
+)
 data class MemoryEntity(
     @PrimaryKey(true)
     val id: Int = 0,
@@ -12,4 +19,12 @@ data class MemoryEntity(
     val assistantId: String,
     @ColumnInfo("content")
     val content: String = "",
+    @ColumnInfo("kind", defaultValue = "'CONTEXT'")
+    val kind: String = MemoryKind.CONTEXT.name,
+    @ColumnInfo("state", defaultValue = "'ACTIVE'")
+    val state: String = MemoryState.ACTIVE.name,
+    @ColumnInfo("created_at", defaultValue = "0")
+    val createdAt: Long = 0,
+    @ColumnInfo("updated_at", defaultValue = "0")
+    val updatedAt: Long = 0,
 )

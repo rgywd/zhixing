@@ -9,17 +9,30 @@ import me.rerere.rikkahub.data.db.entity.MemoryEntity
 
 @Dao
 interface MemoryDAO {
-    @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId")
+    @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId AND state = 'ACTIVE' ORDER BY updated_at DESC, id DESC")
     fun getMemoriesOfAssistantFlow(assistantId: String): Flow<List<MemoryEntity>>
 
-    @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId")
+    @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId AND state = 'ACTIVE' ORDER BY updated_at DESC, id DESC")
     suspend fun getMemoriesOfAssistant(assistantId: String): List<MemoryEntity>
 
-    @Query("SELECT * FROM memoryentity")
+    @Query("SELECT * FROM memoryentity WHERE state = 'ACTIVE' ORDER BY updated_at DESC, id DESC")
     fun getAllMemoriesFlow(): Flow<List<MemoryEntity>>
 
-    @Query("SELECT * FROM memoryentity")
+    @Query("SELECT * FROM memoryentity WHERE state = 'ACTIVE' ORDER BY updated_at DESC, id DESC")
     suspend fun getAllMemories(): List<MemoryEntity>
+
+    @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId ORDER BY updated_at DESC, id DESC")
+    fun getAllMemoriesOfAssistantFlow(assistantId: String): Flow<List<MemoryEntity>>
+
+    @Query(
+        """
+        SELECT * FROM memoryentity
+        WHERE assistant_id = :assistantId AND kind = :kind AND state = 'ACTIVE'
+        ORDER BY updated_at DESC, id DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun getActiveMemoriesOfKind(assistantId: String, kind: String, limit: Int): List<MemoryEntity>
 
     @Query("SELECT * FROM memoryentity WHERE id = :id")
     suspend fun getMemoryById(id: Int): MemoryEntity?

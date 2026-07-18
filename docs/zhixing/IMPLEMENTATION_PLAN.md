@@ -67,6 +67,17 @@
 - [x] 自托管 Happy Relay 的固定上游版本、Docker Compose、可选 Caddy、备份/升级/回滚手册已落库。
 - [ ] 在目标 VPS 完成 HTTPS 部署，并做手机 + zhixing-agent + Codex 的真实全链路验收。
 
+### Phase 2.3：记忆 MVP
+
+完整契约见 [`MEMORY_MVP.md`](./MEMORY_MVP.md)。
+
+- [x] 将文本记忆增量升级为 `PROFILE / CONTEXT` 原子记录，并提供 `ACTIVE / ARCHIVED` 最小生命周期。
+- [x] 保留旧记忆内容与范围，将其兼容迁移为活跃的“记住的事”。
+- [x] 启用记忆时注入全局画像与当前范围情境，并为两者设置上下文数量上限。
+- [x] 保持单个 `memory_tool`，在同一入口支持创建、修正、归档、恢复和明确删除。
+- [x] 将管理页收口为“我的画像 + 记住的事”，不增加日历、任务、联系人等专项入口。
+- [x] 通过聚焦单测、Room v27 schema 校验和 Debug APK 构建。
+
 ## Phase 3：可选同步服务
 
 目标：只在跨设备需求被验证后引入最小服务端。
