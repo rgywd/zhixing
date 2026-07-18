@@ -61,7 +61,8 @@ ls -lh backups/
 ```
 
 恢复脚本会停止 relay、验证 manifest/schema/integrity、原子替换数据库、保留带时间戳的 rollback 副本，再启动并检查
-healthz。恢复失败时不会自动启动一个状态不明的服务。
+healthz。宿主备份保持 root `0600`；脚本只为一次性恢复容器增加 `CHOWN`/`DAC_OVERRIDE`，恢复后立即把数据库和
+rollback 副本交回无特权 `node` 用户。恢复失败时不会自动启动一个状态不明的服务。
 
 ## 6. 升级与回滚
 
