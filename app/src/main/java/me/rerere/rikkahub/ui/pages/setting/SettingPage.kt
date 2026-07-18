@@ -164,9 +164,9 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         headlineContent = { Text(stringResource(R.string.setting_page_extensions)) },
                     )
                     item(
-                        onClick = { navController.navigate(Screen.WorkflowSettings) },
+                        onClick = { navController.navigate(Screen.CodexWorkflowSettings) },
                         leadingContent = { Icon(HugeIcons.ComputerTerminal01, null) },
-                        supportingContent = { Text("Happy 账户、开发机与远程工作连接") },
+                        supportingContent = { Text("Codex 开发机与端到端加密中继") },
                         headlineContent = { Text("工作连接") },
                     )
                 }

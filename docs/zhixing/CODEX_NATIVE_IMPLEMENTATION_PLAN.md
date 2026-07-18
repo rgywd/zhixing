@@ -176,6 +176,10 @@ GREEN：
 
 分支：`feat/49-happy-readonly-cutover`
 
+状态（2026-07-19）：已实现，等待 PR gate。默认 `Screen.Workflow` 与 Agent daemon 均切到
+Codex Wire；`-PcodexWorkflowEnabled=false` 和 `ZHIXING_ENABLE_LEGACY_HAPPY=1` 分别保留
+Android/Agent 回滚开关。旧 Happy 页面只读，旧凭据、缓存、VPS 容器与 v0.1.13 Release 均已核对保留。
+
 产物：
 
 - 0.2.0 feature flag 和新旧入口切换。

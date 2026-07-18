@@ -18,11 +18,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.ui.components.nav.BackButton
+import me.rerere.rikkahub.ui.context.LocalNavController
 import org.koin.androidx.compose.koinViewModel
 
 @Composable
 fun CodexConnectionSettingsPage(vm: CodexWorkflowVM = koinViewModel()) {
+    val navController = LocalNavController.current
     Scaffold(
         topBar = { TopAppBar(title = { Text("开发环境") }, navigationIcon = { BackButton() }) },
     ) { padding ->
@@ -60,6 +63,11 @@ fun CodexConnectionSettingsPage(vm: CodexWorkflowVM = koinViewModel()) {
                 OutlinedButton(onClick = vm::disconnect, modifier = Modifier.fillMaxWidth()) { Text("断开连接") }
             }
             vm.statusMessage?.let { Text(it) }
+            Text("0.2.0 不会删除旧版 Happy 凭据、缓存或服务器数据。需要核对历史时可进入只读页面。")
+            OutlinedButton(
+                onClick = { navController.navigate(Screen.LegacyWorkflow) },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("查看 0.1.13 旧版历史（只读）") }
         }
     }
 }

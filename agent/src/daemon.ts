@@ -33,10 +33,21 @@ function cliAvailable(binary: string, versionArgs = ['--version']): boolean {
 export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
   const home = new AgentHome()
   const settings = home.loadSettings()
+  if (!home.loadWireCredentials()) {
+    throw new Error('尚未登录：先运行 `zhixing-agent login <恢复密钥>`')
+  }
   const wire = startWireServices(home, settings.machineId)
+  if (process.env.ZHIXING_ENABLE_LEGACY_HAPPY !== '1') {
+    log('Codex Wire 守护进程运行中（Ctrl+C 退出）')
+    await waitForShutdownSignal()
+    await wire.stop()
+    log('守护进程已退出')
+    return
+  }
   const credentials = home.loadCredentials()
   if (!credentials) {
-    throw new Error('尚未登录：先运行 `zhixing-agent login <恢复密钥>`')
+    await wire.stop()
+    throw new Error('旧版 Happy 兼容已启用，但尚未登录：先运行 `zhixing-agent legacy-login <恢复密钥>`')
   }
 
   if (!delegate) {
@@ -83,10 +94,7 @@ export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
 
   socket.connect()
   log('守护进程运行中（Ctrl+C 退出）')
-  await new Promise<void>((resolve) => {
-    process.once('SIGINT', () => resolve())
-    process.once('SIGTERM', () => resolve())
-  })
+  await waitForShutdownSignal()
   socket.close()
   await wire.stop()
   await delegate.shutdown?.()
@@ -94,11 +102,11 @@ export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
 }
 
 function startWireServices(home: AgentHome, machineId: string): { stop: () => Promise<void> } {
-  if (!home.loadWireCredentials()) return { stop: async () => {} }
   const relay = new WireRelayAgentClient(home)
   const bridge = new WireCodexRuntimeBridge(relay, { machineId })
   let publishing = false
   let polling = false
+  let connected = false
   const publish = async () => {
     if (publishing) return
     publishing = true
@@ -121,7 +129,15 @@ function startWireServices(home: AgentHome, machineId: string): { stop: () => Pr
     polling = true
     try {
       await bridge.pollOnce()
+      if (!connected) {
+        connected = true
+        log('Codex Wire 中继已连接')
+      }
     } catch (error) {
+      if (connected) {
+        connected = false
+        log('Codex Wire 中继连接断开，自动重试中')
+      }
       log(`Codex 远程控制同步失败: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       polling = false
@@ -139,13 +155,20 @@ function startWireServices(home: AgentHome, machineId: string): { stop: () => Pr
   }
 }
 
-export async function login(recoveryKey: string): Promise<void> {
+export async function legacyLogin(recoveryKey: string): Promise<void> {
   const home = new AgentHome()
   const settings = home.loadSettings()
   const api = new HappyApi(settings.serverUrl, home.clientId)
   const credentials = await api.exchangeRecoveryKey(recoveryKey)
   home.saveCredentials(credentials)
-  log(`登录成功，凭据已保存到 ${home.dir}（服务器: ${settings.serverUrl}）`)
+  log(`旧版 Happy 登录成功，凭据已保存到 ${home.dir}（服务器: ${settings.serverUrl}）`)
+}
+
+function waitForShutdownSignal(): Promise<void> {
+  return new Promise((resolve) => {
+    process.once('SIGINT', () => resolve())
+    process.once('SIGTERM', () => resolve())
+  })
 }
 
 export function log(message: string): void {
