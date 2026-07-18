@@ -82,6 +82,7 @@ import org.koin.core.parameter.parametersOf
 @Composable
 fun WorkflowSessionPage(
     sessionId: String,
+    readOnly: Boolean = false,
     vm: WorkflowSessionVM = koinViewModel(parameters = { parametersOf(sessionId) }),
 ) {
     val navController = LocalNavController.current
@@ -135,23 +136,33 @@ fun WorkflowSessionPage(
                     IconButton(onClick = { navController.navigate(Screen.WorkSessionLog(sessionId)) }) {
                         Icon(HugeIcons.File02, contentDescription = "完整日志")
                     }
-                    IconButton(
-                        onClick = { deleteConfirmation = true },
-                        enabled = vm.session != null && !vm.isActing,
-                    ) {
-                        Icon(HugeIcons.Delete01, contentDescription = "删除会话")
-                    }
-                    TextButton(
-                        onClick = { stopConfirmation = true },
-                        enabled = vm.session?.active == true && !vm.isActing,
-                    ) {
-                        Text("停止", color = MaterialTheme.colorScheme.error)
+                    if (!readOnly) {
+                        IconButton(
+                            onClick = { deleteConfirmation = true },
+                            enabled = vm.session != null && !vm.isActing,
+                        ) {
+                            Icon(HugeIcons.Delete01, contentDescription = "删除会话")
+                        }
+                        TextButton(
+                            onClick = { stopConfirmation = true },
+                            enabled = vm.session?.active == true && !vm.isActing,
+                        ) {
+                            Text("停止", color = MaterialTheme.colorScheme.error)
+                        }
                     }
                 },
             )
         },
         bottomBar = {
-            Surface(shadowElevation = 8.dp) {
+            if (readOnly) {
+                Surface(shadowElevation = 8.dp) {
+                    Text(
+                        "0.1.13 Happy 历史只读",
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else Surface(shadowElevation = 8.dp) {
                 if (vm.session?.active == false) {
                     Button(
                         onClick = vm::resumeSession,
@@ -212,7 +223,7 @@ fun WorkflowSessionPage(
                         }
                         is WorkChatItem.Ask -> ClaudeAskCard(
                             item = item,
-                            enabled = vm.session?.active == true && !vm.isActing,
+                            enabled = !readOnly && vm.session?.active == true && !vm.isActing,
                             onSend = vm::send,
                         )
                         is WorkChatItem.HtmlReport -> HtmlReportCard(item.title) {
@@ -224,7 +235,7 @@ fun WorkflowSessionPage(
                     }
                 }
                 items(vm.session?.approvals.orEmpty(), key = WorkApproval::id) { approval ->
-                    ApprovalCard(approval) { decision ->
+                    ApprovalCard(approval, readOnly = readOnly) { decision ->
                         approvalConfirmation = ApprovalConfirmation(approval, decision)
                     }
                 }
@@ -240,7 +251,7 @@ fun WorkflowSessionPage(
         }
     }
 
-    if (modeConfirmation) {
+    if (!readOnly && modeConfirmation) {
         AlertDialog(
             onDismissRequest = { modeConfirmation = false },
             title = { Text("切换到完全访问？") },
@@ -261,7 +272,7 @@ fun WorkflowSessionPage(
             },
         )
     }
-    if (stopConfirmation) {
+    if (!readOnly && stopConfirmation) {
         ConfirmationDialog(
             title = "停止这个远程任务？",
             summary = vm.session.targetSummary() + "\n操作：请求停止当前任务",
@@ -273,7 +284,7 @@ fun WorkflowSessionPage(
             },
         )
     }
-    if (deleteConfirmation) {
+    if (!readOnly && deleteConfirmation) {
         ConfirmationDialog(
             title = "永久删除这个会话？",
             summary = vm.session.targetSummary() + if (vm.session?.active == true) {
@@ -289,7 +300,7 @@ fun WorkflowSessionPage(
             },
         )
     }
-    approvalConfirmation?.let { confirmation ->
+    if (!readOnly) approvalConfirmation?.let { confirmation ->
         ConfirmationDialog(
             title = confirmation.decision.title,
             summary = vm.session.targetSummary() +
@@ -564,23 +575,29 @@ private fun StatusCard(message: String, isError: Boolean, retry: (() -> Unit)? =
 }
 
 @Composable
-private fun ApprovalCard(approval: WorkApproval, onDecision: (ApprovalDecision) -> Unit) {
+private fun ApprovalCard(
+    approval: WorkApproval,
+    readOnly: Boolean = false,
+    onDecision: (ApprovalDecision) -> Unit,
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
         shape = RoundedCornerShape(18.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("等待你的确认", fontWeight = FontWeight.Bold)
+            Text(if (readOnly) "历史审批记录" else "等待你的确认", fontWeight = FontWeight.Bold)
             Text(approval.tool, style = MaterialTheme.typography.titleSmall)
             Text(approval.arguments.take(600), style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onDecision(ApprovalDecision.ALLOW_ONCE) }) { Text("允许一次") }
-                OutlinedButton(onClick = { onDecision(ApprovalDecision.ALLOW_SESSION) }) { Text("本会话允许") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { onDecision(ApprovalDecision.DENY) }) { Text("拒绝") }
-                TextButton(onClick = { onDecision(ApprovalDecision.DENY_AND_STOP) }) {
-                    Text("拒绝并停止", color = MaterialTheme.colorScheme.error)
+            if (!readOnly) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { onDecision(ApprovalDecision.ALLOW_ONCE) }) { Text("允许一次") }
+                    OutlinedButton(onClick = { onDecision(ApprovalDecision.ALLOW_SESSION) }) { Text("本会话允许") }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { onDecision(ApprovalDecision.DENY) }) { Text("拒绝") }
+                    TextButton(onClick = { onDecision(ApprovalDecision.DENY_AND_STOP) }) {
+                        Text("拒绝并停止", color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
         }

@@ -365,7 +365,15 @@ class RouteActivity : ComponentActivity() {
                             }
 
                             entry<Screen.Workflow> {
-                                WorkflowPage()
+                                if (BuildConfig.CODEX_WORKFLOW_ENABLED) CodexWorkflowPage() else WorkflowPage()
+                            }
+
+                            entry<Screen.LegacyWorkflow> {
+                                WorkflowPage(readOnly = true)
+                            }
+
+                            entry<Screen.LegacyWorkflowSession> { key ->
+                                WorkflowSessionPage(key.id, readOnly = true)
                             }
 
                             entry<Screen.WorkflowProject> { key ->
@@ -659,6 +667,12 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object Workflow : Screen
+
+    @Serializable
+    data object LegacyWorkflow : Screen
+
+    @Serializable
+    data class LegacyWorkflowSession(val id: String) : Screen
 
     @Serializable
     data class WorkflowProject(val machineId: String, val path: String) : Screen

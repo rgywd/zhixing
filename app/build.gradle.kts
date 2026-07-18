@@ -4,6 +4,10 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.FileInputStream
 import java.util.Properties
 
+val codexWorkflowEnabled = providers.gradleProperty("codexWorkflowEnabled")
+    .map(String::toBoolean)
+    .orElse(true)
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -22,6 +26,7 @@ android {
         targetSdk = 37
         versionCode = 14
         versionName = "0.1.13"
+        buildConfigField("boolean", "CODEX_WORKFLOW_ENABLED", codexWorkflowEnabled.get().toString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

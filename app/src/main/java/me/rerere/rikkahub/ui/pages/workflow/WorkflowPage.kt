@@ -57,7 +57,10 @@ import me.rerere.rikkahub.utils.plus
 import org.koin.androidx.compose.koinViewModel
 
 @Composable
-fun WorkflowPage(vm: WorkflowVM = koinViewModel()) {
+fun WorkflowPage(
+    readOnly: Boolean = false,
+    vm: WorkflowVM = koinViewModel(),
+) {
     val navController = LocalNavController.current
     var searchActive by rememberSaveable { mutableStateOf(false) }
 
@@ -85,7 +88,7 @@ fun WorkflowPage(vm: WorkflowVM = koinViewModel()) {
                 )
             } else {
                 TopAppBar(
-                    title = { Text("工作") },
+                    title = { Text(if (readOnly) "旧版历史" else "工作") },
                     navigationIcon = { BackButton() },
                     actions = {
                         IconButton(onClick = { searchActive = true }) {
@@ -98,15 +101,17 @@ fun WorkflowPage(vm: WorkflowVM = koinViewModel()) {
                                 Icon(HugeIcons.Refresh01, contentDescription = "刷新")
                             }
                         }
-                        IconButton(onClick = { navController.navigate(Screen.WorkflowSettings) }) {
-                            Icon(HugeIcons.Settings03, contentDescription = "工作连接设置")
+                        if (!readOnly) {
+                            IconButton(onClick = { navController.navigate(Screen.WorkflowSettings) }) {
+                                Icon(HugeIcons.Settings03, contentDescription = "工作连接设置")
+                            }
                         }
                     },
                 )
             }
         },
         floatingActionButton = {
-            if (vm.status == WorkflowConnectionStatus.Connected) {
+            if (!readOnly && vm.status == WorkflowConnectionStatus.Connected) {
                 FloatingActionButton(onClick = { navController.navigate(Screen.WorkNewTask()) }) {
                     Icon(HugeIcons.Add01, contentDescription = "新建任务")
                 }
@@ -118,9 +123,13 @@ fun WorkflowPage(vm: WorkflowVM = koinViewModel()) {
                 results = vm.searchResults,
                 query = vm.searchQuery,
                 contentPadding = contentPadding,
-                onOpen = { session -> navController.navigate(Screen.WorkflowSession(session.id)) },
+                onOpen = { session ->
+                    navController.navigate(
+                        if (readOnly) Screen.LegacyWorkflowSession(session.id) else Screen.WorkflowSession(session.id)
+                    )
+                },
             )
-            vm.status != WorkflowConnectionStatus.Connected -> WorkflowEmptyState(
+            !readOnly && vm.status != WorkflowConnectionStatus.Connected -> WorkflowEmptyState(
                 modifier = Modifier.fillMaxSize().padding(contentPadding),
                 title = "连接开发环境后开始工作",
                 description = "在设置中连接一次 Happy，之后这里会保留全部远程 Coding 会话。",
@@ -131,17 +140,20 @@ fun WorkflowPage(vm: WorkflowVM = koinViewModel()) {
                 modifier = Modifier.fillMaxSize().padding(contentPadding),
                 contentAlignment = Alignment.Center,
             ) { CircularProgressIndicator() }
-            else -> WorkHomeContent(vm = vm, contentPadding = contentPadding)
+            else -> WorkHomeContent(vm = vm, contentPadding = contentPadding, readOnly = readOnly)
         }
     }
 }
 
 @Composable
-private fun WorkHomeContent(vm: WorkflowVM, contentPadding: PaddingValues) {
+private fun WorkHomeContent(vm: WorkflowVM, contentPadding: PaddingValues, readOnly: Boolean) {
     val navController = LocalNavController.current
     val waiting = vm.sessions.filter { it.approvals.isNotEmpty() }
     val running = vm.sessions.filter { it.active && it.approvals.isEmpty() }
-    val recent = vm.sessions.filter { !it.active && it.approvals.isEmpty() }.take(15)
+    val recent = vm.sessions.filter { !it.active && it.approvals.isEmpty() }
+        .let { if (readOnly) it else it.take(15) }
+    fun sessionScreen(session: WorkSession): Screen =
+        if (readOnly) Screen.LegacyWorkflowSession(session.id) else Screen.WorkflowSession(session.id)
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -149,36 +161,48 @@ private fun WorkHomeContent(vm: WorkflowVM, contentPadding: PaddingValues) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         vm.syncError?.let { message -> item { InlineStatus(message, vm::refresh) } }
+        if (readOnly) {
+            item {
+                Text(
+                    "这里仅保留 0.1.13 Happy 历史用于查看和回滚；不能发送、审批、恢复或删除。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(8.dp),
+                )
+            }
+        }
 
         if (waiting.isNotEmpty()) {
             item { SectionHeader("等待我处理 (${waiting.size})") }
             items(waiting, key = { "waiting-${it.id}" }) { session ->
                 SessionListItem(session, highlight = true) {
-                    navController.navigate(Screen.WorkflowSession(session.id))
+                    navController.navigate(sessionScreen(session))
                 }
             }
         }
         if (running.isNotEmpty()) {
             item { SectionHeader("进行中 (${running.size})") }
             items(running, key = { "running-${it.id}" }) { session ->
-                SessionListItem(session) { navController.navigate(Screen.WorkflowSession(session.id)) }
+                SessionListItem(session) { navController.navigate(sessionScreen(session)) }
             }
         }
-        item { SectionHeader("仓库") }
-        item {
-            PresetRow(
-                presets = vm.presets,
-                onOpen = { preset ->
-                    navController.navigate(Screen.WorkflowProject(preset.machineId, preset.path))
-                },
-                onNewTask = { preset -> navController.navigate(Screen.WorkNewTask(presetId = preset.id)) },
-                onCreate = { navController.navigate(Screen.WorkPresetEdit()) },
-            )
+        if (!readOnly) {
+            item { SectionHeader("仓库") }
+            item {
+                PresetRow(
+                    presets = vm.presets,
+                    onOpen = { preset ->
+                        navController.navigate(Screen.WorkflowProject(preset.machineId, preset.path))
+                    },
+                    onNewTask = { preset -> navController.navigate(Screen.WorkNewTask(presetId = preset.id)) },
+                    onCreate = { navController.navigate(Screen.WorkPresetEdit()) },
+                )
+            }
         }
         if (recent.isNotEmpty()) {
             item { SectionHeader("最近") }
             items(recent, key = { "recent-${it.id}" }) { session ->
-                SessionListItem(session) { navController.navigate(Screen.WorkflowSession(session.id)) }
+                SessionListItem(session) { navController.navigate(sessionScreen(session)) }
             }
         }
         if (vm.sessions.isEmpty()) {
@@ -189,11 +213,14 @@ private fun WorkHomeContent(vm: WorkflowVM, contentPadding: PaddingValues) {
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
-                        "还没有远程会话。先添加仓库预设，或直接新建任务。",
+                        if (readOnly) "没有可查看的旧版 Happy 历史。" else
+                            "还没有远程会话。先添加仓库预设，或直接新建任务。",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    Button(onClick = { navController.navigate(Screen.WorkNewTask()) }) { Text("新建任务") }
+                    if (!readOnly) {
+                        Button(onClick = { navController.navigate(Screen.WorkNewTask()) }) { Text("新建任务") }
+                    }
                 }
             }
         }
