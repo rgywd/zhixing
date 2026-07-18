@@ -122,8 +122,7 @@ function startWireServices(home: AgentHome, machineId: string): { stop: () => Pr
     }
   }
   void publish()
-  const catalogTimer = setInterval(() => void publish(), 5 * 60_000)
-  catalogTimer.unref()
+  const catalogTimer = createServiceTimer(() => void publish(), 5 * 60_000)
   const poll = async () => {
     if (polling) return
     polling = true
@@ -144,8 +143,7 @@ function startWireServices(home: AgentHome, machineId: string): { stop: () => Pr
     }
   }
   void poll()
-  const runtimeTimer = setInterval(() => void poll(), 1_500)
-  runtimeTimer.unref()
+  const runtimeTimer = createServiceTimer(() => void poll(), 1_500)
   return {
     stop: async () => {
       clearInterval(catalogTimer)
@@ -153,6 +151,10 @@ function startWireServices(home: AgentHome, machineId: string): { stop: () => Pr
       await bridge.shutdown()
     },
   }
+}
+
+export function createServiceTimer(callback: () => void, intervalMs: number): NodeJS.Timeout {
+  return setInterval(callback, intervalMs)
 }
 
 export async function legacyLogin(recoveryKey: string): Promise<void> {
