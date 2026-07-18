@@ -93,4 +93,23 @@ class WorkSessionDisplayTest {
 
         assertEquals(WorkSessionStats(toolCalls = 2, editedFiles = 2, failures = 1), stats)
     }
+
+    @Test
+    fun `Claude ask stays pending until a later user reply and html becomes report card`() {
+        val question = ClaudeQuestion(question = "发布到哪里？", options = listOf("测试", "生产"))
+        val pending = buildWorkChatItems(
+            listOf(message("1", WorkRole.AGENT, WorkMessagePart.ClaudeAsk("请选择", listOf(question))))
+        ).single() as WorkChatItem.Ask
+        val answered = buildWorkChatItems(
+            listOf(
+                WorkMessage("ask", "s1", 1, WorkRole.AGENT, listOf(WorkMessagePart.ClaudeAsk("请选择", listOf(question))), 0),
+                WorkMessage("reply", "s1", 2, WorkRole.USER, listOf(WorkMessagePart.Text("测试")), 0),
+                WorkMessage("html", "s1", 3, WorkRole.AGENT, listOf(WorkMessagePart.HtmlReport("报告", "<p>ok</p>")), 0),
+            )
+        )
+
+        assertEquals(false, pending.answered)
+        assertTrue(answered.filterIsInstance<WorkChatItem.Ask>().single().answered)
+        assertEquals("报告", answered.filterIsInstance<WorkChatItem.HtmlReport>().single().title)
+    }
 }

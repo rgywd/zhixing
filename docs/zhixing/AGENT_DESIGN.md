@@ -100,8 +100,9 @@ package.json，不进 Android 构建图。
 
 ## 8. P2：Claude 通道（司南式"寻呼机"模型）
 
-状态：设计已批准（2026-07-17）；P2-1（Claude 短进程、resume、固定策略和 daemon 路由）与
-P2-2（Agent SDK 审批、本机 bridge、MCP 电话线）已于 2026-07-18 实现，P2-3 App 展示待继续。
+状态：设计已批准（2026-07-17）；P2-1（Claude 短进程、resume、固定策略和 daemon 路由）、
+P2-2（Agent SDK 审批、本机 bridge、MCP 电话线）与 P2-3（App 原生 ask/HTML/搜索边界）
+已于 2026-07-18 实现，待 P2-4 真机全链路验收。
 方向定调："对 Claude Code 改造而非复用"——彻底甩开 happy 对 Claude 的包裹层，
 只使用官方稳定面：Claude Agent SDK（驱动 Claude Code、resume 本机 transcript）+ MCP。
 参考来源：司南「会话」交互机制（同事方案），采纳其进程模型与电话线设计，

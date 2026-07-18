@@ -5,7 +5,7 @@ const MAX_BODY_BYTES = 1024 * 1024
 
 export interface ClaudeAskRequest {
   question?: string
-  questions?: Array<{ question: string; options?: string[] }>
+  questions?: Array<{ header?: string; question: string; options?: string[]; multiSelect?: boolean }>
 }
 
 export interface ClaudeBridgeHandlers {

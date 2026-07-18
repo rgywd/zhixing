@@ -291,7 +291,8 @@ function normalizeStringList(value: unknown): string[] {
 
 function formatAsk(input: ClaudeAskRequest): string {
   const lines = input.questions?.flatMap((item, index) => {
-    const header = input.questions!.length > 1 ? `${index + 1}. ${item.question}` : item.question
+    const label = item.header?.trim() || item.question
+    const header = input.questions!.length > 1 ? `${index + 1}. ${label}` : label
     return item.options?.length ? [header, ...item.options.map((option) => `- ${option}`)] : [header]
   })
   return lines?.join('\n') || input.question?.trim() || 'Claude 需要你的决定。'

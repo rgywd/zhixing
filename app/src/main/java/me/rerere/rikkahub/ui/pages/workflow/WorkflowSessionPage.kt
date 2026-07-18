@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +43,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -66,6 +69,7 @@ import me.rerere.rikkahub.data.workflow.WorkApproval
 import me.rerere.rikkahub.data.workflow.WorkChatItem
 import me.rerere.rikkahub.data.workflow.WorkSession
 import me.rerere.rikkahub.data.workflow.buildWorkChatItems
+import me.rerere.rikkahub.data.workflow.secureHtmlReportDocument
 import me.rerere.rikkahub.data.workflow.sessionStats
 import me.rerere.rikkahub.ui.components.message.MessagePartsBlock
 import me.rerere.rikkahub.ui.components.nav.BackButton
@@ -80,6 +84,7 @@ fun WorkflowSessionPage(
     vm: WorkflowSessionVM = koinViewModel(parameters = { parametersOf(sessionId) }),
 ) {
     val navController = LocalNavController.current
+    val context = LocalContext.current
     var stopConfirmation by remember { mutableStateOf(false) }
     var modeConfirmation by remember { mutableStateOf(false) }
     var approvalConfirmation by remember { mutableStateOf<ApprovalConfirmation?>(null) }
@@ -194,6 +199,17 @@ fun WorkflowSessionPage(
                                 ),
                             )
                         }
+                        is WorkChatItem.Ask -> ClaudeAskCard(
+                            item = item,
+                            enabled = vm.session?.active == true && !vm.isActing,
+                            onSend = vm::send,
+                        )
+                        is WorkChatItem.HtmlReport -> HtmlReportCard(item.title) {
+                            val content = secureHtmlReportDocument(item.title, item.html)
+                            val contentId = me.rerere.rikkahub.ui.components.webview.WebViewContentCache
+                                .store(context.cacheDir, content)
+                            navController.navigate(Screen.WorkHtmlReport(item.title, contentId))
+                        }
                     }
                 }
                 items(vm.session?.approvals.orEmpty(), key = WorkApproval::id) { approval ->
@@ -264,6 +280,108 @@ fun WorkflowSessionPage(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun ClaudeAskCard(
+    item: WorkChatItem.Ask,
+    enabled: Boolean,
+    onSend: (String) -> Boolean,
+) {
+    var selections by remember(item.key) { mutableStateOf<Map<Int, Set<String>>>(emptyMap()) }
+    var submitted by remember(item.key) { mutableStateOf(false) }
+    val questions = item.questions.takeIf { it.isNotEmpty() }
+    val answered = item.answered || submitted
+    val selectableQuestions = questions.orEmpty().mapIndexedNotNull { index, question ->
+        (index to question).takeIf { question.options.isNotEmpty() }
+    }
+    val canSubmit = !answered && enabled && selectableQuestions.isNotEmpty() &&
+        selectableQuestions.all { (index, _) -> selections[index].orEmpty().isNotEmpty() }
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (answered) MaterialTheme.colorScheme.surfaceContainer
+            else MaterialTheme.colorScheme.secondaryContainer,
+        ),
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(if (answered) "已回复" else "Claude 在等你的决定", fontWeight = FontWeight.SemiBold)
+            if (questions == null) {
+                Text(item.prompt, style = MaterialTheme.typography.bodyMedium)
+            } else {
+                questions.forEachIndexed { index, question ->
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        question.header?.let {
+                            Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Text(question.question, style = MaterialTheme.typography.bodyMedium)
+                        question.options.forEach { option ->
+                            val selected = option in selections[index].orEmpty()
+                            FilterChip(
+                                selected = selected,
+                                enabled = !answered && enabled,
+                                onClick = {
+                                    val current = selections[index].orEmpty()
+                                    val next = if (question.multiSelect) {
+                                        if (selected) current - option else current + option
+                                    } else {
+                                        setOf(option)
+                                    }
+                                    selections = selections + (index to next)
+                                },
+                                label = { Text(option) },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            if (!answered && selectableQuestions.isNotEmpty()) {
+                Button(
+                    onClick = {
+                        val answer = questions.orEmpty().mapIndexedNotNull { index, question ->
+                            val values = selections[index].orEmpty()
+                            values.takeIf { it.isNotEmpty() }?.let {
+                                "${question.header ?: question.question}：${it.joinToString("、")}"
+                            }
+                        }.joinToString("\n")
+                        if (answer.isNotBlank() && onSend(answer)) submitted = true
+                    },
+                    enabled = canSubmit,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) {
+                    Text("发送答复")
+                }
+            }
+            Text(
+                if (answered) "答复已进入当前 Claude 会话。" else "也可以直接在下方输入其他答复。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HtmlReportCard(title: String, onOpen: () -> Unit) {
+    Card(
+        onClick = onOpen,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(HugeIcons.File02, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("打开只读报告", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 

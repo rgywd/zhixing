@@ -71,12 +71,14 @@ class WorkFtsManager(private val database: AppDatabase) {
     }
 }
 
-private fun WorkMessage.extractFtsText(): String = parts.joinToString("\n") { part ->
+internal fun WorkMessage.extractFtsText(): String = parts.joinToString("\n") { part ->
     when (part) {
         is WorkMessagePart.Text -> part.text
-        is WorkMessagePart.Reasoning -> part.text
-        is WorkMessagePart.ToolCall -> part.title ?: part.name
-        is WorkMessagePart.Raw -> part.text
+        is WorkMessagePart.ClaudeAsk -> buildString {
+            appendLine(part.prompt)
+            part.questions.forEach { appendLine(it.question) }
+        }
+        is WorkMessagePart.HtmlReport -> part.title
         else -> ""
     }
 }.trim()

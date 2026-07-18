@@ -21,6 +21,15 @@ sealed interface WorkChatItem {
     ) : WorkChatItem
 
     data class Note(override val key: String, val text: String) : WorkChatItem
+
+    data class Ask(
+        override val key: String,
+        val prompt: String,
+        val questions: List<ClaudeQuestion>,
+        val answered: Boolean,
+    ) : WorkChatItem
+
+    data class HtmlReport(override val key: String, val title: String, val html: String) : WorkChatItem
 }
 
 fun buildWorkChatItems(messages: List<WorkMessage>): List<WorkChatItem> {
@@ -67,7 +76,7 @@ fun buildWorkChatItems(messages: List<WorkMessage>): List<WorkChatItem> {
                 is WorkMessagePart.Reasoning -> appendPart(role, key, UIMessagePart.Reasoning(reasoning = part.text))
                 is WorkMessagePart.ToolCall -> {
                     val result = part.callId?.let(resultsByCallId::get)
-                    result?.let { pairedResults += part.callId!! }
+                    result?.let { pairedResults += requireNotNull(part.callId) }
                     appendPart(
                         role, key,
                         UIMessagePart.Tool(
@@ -108,6 +117,19 @@ fun buildWorkChatItems(messages: List<WorkMessage>): List<WorkChatItem> {
                         flushBlock()
                         items += WorkChatItem.Note(key = key, text = note)
                     }
+                }
+                is WorkMessagePart.ClaudeAsk -> {
+                    flushBlock()
+                    items += WorkChatItem.Ask(
+                        key = key,
+                        prompt = part.prompt,
+                        questions = part.questions,
+                        answered = messages.any { later -> later.role == WorkRole.USER && later.seq > message.seq },
+                    )
+                }
+                is WorkMessagePart.HtmlReport -> {
+                    flushBlock()
+                    items += WorkChatItem.HtmlReport(key = key, title = part.title, html = part.html)
                 }
                 is WorkMessagePart.Raw -> appendPart(
                     role, key,
