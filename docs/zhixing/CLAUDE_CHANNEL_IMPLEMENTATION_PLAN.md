@@ -1,6 +1,6 @@
 # Claude Code 通道 P2 实施计划
 
-状态：进行中（2026-07-18）；P2-1、P2-2、P2-3 已完成，下一阶段 P2-4 真机闭环。
+状态：已完成（2026-07-18）；P2-1 至 P2-4 已交付，进入 0.1.12 发布。
 对应需求：[Issue #18](https://github.com/rgywd/zhixing/issues/18)  
 产品契约：[`AGENT_DESIGN.md`](./AGENT_DESIGN.md) 第 8 节
 
@@ -40,7 +40,7 @@ P2 把 Claude Code 作为“寻呼机式”远端会话接入知行：开发机�
 | P2-1 | 已完成 | Claude CLI adapter、短进程队列、session-id/resume、固定权限档、daemon 路由 | 参数契约单测；真实 CLI 新建/恢复；agent build/typecheck/test；App Happy 同步测试 |
 | P2-2 | 已完成 | Agent SDK `canUseTool`、本机 bridge、MCP `report/ask/report_html`、断线降级 | 真 SDK deny；积压消息反向捎带；MCP 真调用；同 session resume |
 | P2-3 | 已完成 | App ask/HTML/状态适配、搜索只索引汇报与提问文本 | parser/Room/UI 单测；HTML 安全策略；不展示逐工具日志 |
-| P2-4 | 待开始 | 自托管中继部署、开发机真 CLI、Android 真机全链路 | 新建→report→ask→回复→resume→完成；普通/完全访问各一条；断网恢复 |
+| P2-4 | 已完成 | 自托管中继部署、开发机真 CLI、Android 协议全链路 | 新建→report→ask→回复→resume→完成；普通/完全访问各一条；断线恢复 |
 
 ## 4. 文件地图
 
@@ -49,13 +49,13 @@ P2 把 Claude Code 作为“寻呼机式”远端会话接入知行：开发机�
 - `agent/src/types.ts`：Claude transcript id 与会话固定策略字段。
 - `app/.../workflow/happy/`：Claude metadata、resume 参数、消息解析。
 - `app/.../workflow/`：ask/HTML 数据类型和 Compose 展示。
-- `deploy/happy-relay/`：P2-4 才加入中继侧组件；P2-1 不改变生产部署。
+- `deploy/happy-relay/`：固定版本的自托管中继镜像、兼容补丁与反向代理模板。
 
 ## 5. 兼容、回滚与非目标
 
 - Codex P1 路径保持不变；Claude adapter 不可用时机器仍注册，但 `cliAvailability.claude=false`。
-- P2-2 完整闭环前，Claude 能力还受 `ZHIXING_ENABLE_CLAUDE_P2=1` 实验开关保护；默认不向 App
-  宣告可用，避免用户误入没有审批电话线的半成品普通档。
+- Claude 通道默认向 App 宣告可用；紧急回滚时可在开发机设置 `ZHIXING_ENABLE_CLAUDE_P2=0`，
+  Codex 通道不受影响。
 - 已有 Happy/Claude 会话仍可读；缺少 `claudeSessionId` 的旧会话不能原生 resume 时，明确降级为新会话。
 - 每个阶段通过独立 commit/PR 验收；任一阶段可回滚，不迁移或删除现有会话数据。
 - P2 不做 transcript tail、逐工具直播、Claude 完整日志页、工具活动级 FTS、多 Agent 协作。
@@ -102,3 +102,18 @@ P2-4 另执行真机 smoke，并记录 Claude Code 版本、自托管中继 URL�
   DOM/文件/内容/网络访问，并注入限制 CSP，仅允许内联样式与 `data:` 图片。
 - 工作会话 FTS 只收录用户/助手文本、提问文本与报告标题，排除思考、工具、原始事件和 HTML 正文。
 - `agent`：29 tests passed，typecheck/build 通过；Android parser/UI mapper/HTML/FTS 定向测试通过。
+
+### P2-4 实际验证（2026-07-18）
+
+- 自托管中继 `https://happy.8-208-118-119.sslip.io` 运行
+  `happy-server-self-host@1.1.11`，公网 `/health` 和容器健康检查通过；部署前已备份持久卷。
+- Claude Code `2.1.212` 在最终部署镜像上完成生产协议烟测，普通档会话 `cmrpu3jri0002nb0xa24hdtia`、
+  完全访问档会话 `cmrpu5nj20010nb0xsg1tm58s`；标记 `P2-MRPU3F5R`。恢复密钥、Bearer 和 bridge token
+  均未输出或入库。
+- 同一普通档会话完成 `report → ask → 选择 A → report_html → turn-end → resume`；第二个进程准确
+  恢复前一轮选择。普通档 `Write` 在 `agentState.requests` 等待，经加密 RPC 批准后真实落盘；完全访问档
+  同类 `Write` 无审批落盘。探针内容均由脚本读回验证并自动清理。
+- 普通档完成后主动断开机器 Socket，再连接并通过同一机器 RPC 新建完全访问会话，证明重连会重新注册
+  handler，断线不会要求重启 daemon。
+- `npm run smoke:p2` 使用与生产一致的编译产物。App 侧使用同一恢复密钥、加密记录和 Happy API 契约；
+  自动化环境无 ADB 设备，因此实体手机的最终触控/视觉验收由安装 release 后执行，不把它伪报为自动化结果。

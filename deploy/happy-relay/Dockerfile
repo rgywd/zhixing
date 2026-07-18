@@ -10,6 +10,9 @@ COPY package.json package-lock.json ./
 
 RUN npm ci --omit=dev
 
+COPY patch-pglite-bytes.mjs ./
+RUN node patch-pglite-bytes.mjs
+
 ENV NODE_ENV=production \
     DATA_DIR=/data \
     PGLITE_DIR=/data/pglite \

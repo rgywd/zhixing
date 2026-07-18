@@ -1,6 +1,7 @@
 # 知行自托管中继运行手册
 
-状态：部署材料已实现；生产部署和手机/开发机全链路切换按本手册验收。
+状态：已部署并通过生产协议验收（2026-07-18）。当前个人端点为
+`https://happy.8-208-118-119.sslip.io`；切换服务器时仍按本手册重新验收。
 
 协议审计基线：[`slopus/happy@3f161de`](https://github.com/slopus/happy/commit/3f161de70541b1cedaf0b7547ed70889d8dae22d)，与
 `HappyProtocol.UPSTREAM_COMMIT` 一致；部署包固定为该基线中的 `happy-server-self-host@1.1.11`。
@@ -71,6 +72,15 @@ sudo certbot --nginx -d happy.example.com
 ```bash
 curl --fail https://happy.example.com/health
 ```
+
+`/health` 只证明 HTTP 进程存活，不证明加密机器注册和 Prisma BYTEA 返回链路可用。本仓固定的
+`happy-server-self-host@1.1.11` 搭配 `pglite-prisma-adapter@0.7.2` 时，PGlite 的 `Uint8Array`
+可能在 Prisma JSON 边界变成数字键对象，进而使 `/v1/machines` 返回 `P2023`。镜像构建会运行
+`patch-pglite-bytes.mjs`，在 adapter 的 ESM/CJS 输出层把 BYTEA 统一转换为普通 number array；
+补丁使用精确匹配并在上游代码漂移时直接让镜像构建失败，避免静默发布错误镜像。
+
+因此首次部署和每次升级都必须额外运行 `agent` 的 `npm run smoke:p2`：它会创建临时加密机器与会话，
+验证消息、Claude MCP、审批 RPC 和重连，结束后清理本地探针；恢复密钥只通过环境变量传入，不能写进日志。
 
 仓库提供的 Nginx 模板还会拒绝编码斜杠、反斜杠和编码 `..`，避免反向代理与静态文件路由产生
 解析差异。`happy-server-self-host@1.1.11` 的依赖审计会报告 `@fastify/static` 公告；当前服务未启用

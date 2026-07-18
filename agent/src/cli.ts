@@ -12,7 +12,7 @@ const USAGE = `zhixing-agent ${AGENT_VERSION} — 知行开发机代理
 环境变量:
   ZHIXING_RELAY_URL     中继服务器地址（默认 Happy 官方中继，自托管后改为自己的）
   ZHIXING_AGENT_HOME    配置目录（默认 ~/.zhixing-agent）
-  ZHIXING_ENABLE_CLAUDE_P2=1  P2 联调期开启 Claude 通道（完整闭环前默认关闭）
+  ZHIXING_ENABLE_CLAUDE_P2=0  紧急关闭 Claude 通道（默认启用）
 `
 
 async function main(): Promise<void> {

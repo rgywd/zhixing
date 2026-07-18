@@ -25,7 +25,7 @@ describe('AgentManager', () => {
     expect(codex.spawn).toHaveBeenCalledTimes(1)
   })
 
-  it('默认关闭半成品 Claude 通道，只有显式实验开关才开放', async () => {
+  it('默认开放 Claude 通道，仍允许开发机紧急关闭', async () => {
     const codex = fakeManager('codex-session')
     const claude = fakeManager('claude-session')
     const manager = new AgentManager(
@@ -34,8 +34,9 @@ describe('AgentManager', () => {
     )
     await expect(manager.spawn({ directory: '/repo', agent: 'claude' })).resolves.toMatchObject({ type: 'error' })
     expect(claude.spawn).not.toHaveBeenCalled()
+    expect(isClaudeP2Enabled({})).toBe(true)
     expect(isClaudeP2Enabled({ ZHIXING_ENABLE_CLAUDE_P2: '1' })).toBe(true)
-    expect(isClaudeP2Enabled({ ZHIXING_ENABLE_CLAUDE_P2: 'true' })).toBe(false)
+    expect(isClaudeP2Enabled({ ZHIXING_ENABLE_CLAUDE_P2: '0' })).toBe(false)
   })
 
   it('停止与关机同时清理两类 runner', async () => {
