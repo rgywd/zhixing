@@ -1,0 +1,21 @@
+{
+  "name": "wire-v1-aes-256-gcm-aad",
+  "keyHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "nonceHex": "a0a1a2a3a4a5a6a7a8a9aaab",
+  "header": {
+    "v": 1,
+    "id": "msg_01",
+    "accountId": "acct_test",
+    "senderDeviceId": "agent_test",
+    "targetId": "account_test",
+    "streamId": "thread_test",
+    "seq": 1,
+    "createdAt": 1784397723000,
+    "expiresAt": null,
+    "keyId": "key_test"
+  },
+  "plaintextUtf8": "知行 Wire v1",
+  "plaintextBase64Url": "55-l6KGMIFdpcmUgdjE",
+  "aadBase64Url": "WlhXMQAGbXNnXzAxAAlhY2N0X3Rlc3QACmFnZW50X3Rlc3QADGFjY291bnRfdGVzdAALdGhyZWFkX3Rlc3QAAAAAAAAAAQAAAZ92ZHV4__________8ACGtleV90ZXN0",
+  "cipherBundleBase64Url": "AaChoqOkpaanqKmqqwGH2cXkRyLoCxfi83FLEOWrPpP4AFrAfuDjvCjh0g"
+}
