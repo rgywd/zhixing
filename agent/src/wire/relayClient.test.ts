@@ -72,6 +72,17 @@ describe('WireRelayAgentClient', () => {
     })
     expect(home.loadWireState().pending).toEqual({})
     expect(home.loadWireState().sequences.keys_phone_1).toBe(1)
+
+    const relay = new WireRelayAgentClient(home)
+    await Promise.all([
+      relay.publish('runtime.event', { index: 1 }, 'runtime_machine_1'),
+      relay.publish('runtime.event', { index: 2 }, 'runtime_machine_1'),
+      relay.publish('runtime.event', { index: 3 }, 'runtime_machine_1'),
+    ])
+    expect(envelopes.filter((item) => item.streamId === 'runtime_machine_1_phone_1').map((item) => item.seq))
+      .toEqual([1, 2, 3])
+    expect(home.loadWireState().sequences.keys_phone_1).toBe(4)
+    expect(home.loadWireState().pending).toEqual({})
   })
 })
 

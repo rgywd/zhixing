@@ -12,7 +12,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -26,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -143,13 +146,51 @@ private fun CodexHomeContent(vm: CodexWorkflowVM, padding: PaddingValues) {
 fun CodexProjectPage(projectId: String, vm: CodexWorkflowVM = koinViewModel()) {
     val navController = LocalNavController.current
     var filter by rememberSaveable { mutableStateOf(ProjectFilter.ALL) }
+    var showNewTask by rememberSaveable { mutableStateOf(false) }
+    var newTaskText by rememberSaveable { mutableStateOf("") }
     val project = vm.project(projectId)
+    LaunchedEffect(vm.newThreadTarget) {
+        vm.newThreadTarget?.let { (machineId, threadId) ->
+            vm.consumeNewThreadTarget()
+            navController.navigate(Screen.CodexThread(machineId, threadId))
+        }
+    }
+    if (showNewTask && project != null) {
+        AlertDialog(
+            onDismissRequest = { if (!vm.isStartingTask) showNewTask = false },
+            title = { Text("在 ${project.displayName} 新建任务") },
+            text = {
+                OutlinedTextField(
+                    value = newTaskText,
+                    onValueChange = { newTaskText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("描述要完成的工作") },
+                    minLines = 3,
+                    maxLines = 8,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { vm.startTask(project, newTaskText); showNewTask = false; newTaskText = "" },
+                    enabled = newTaskText.isNotBlank() && !vm.isStartingTask,
+                ) { Text("开始") }
+            },
+            dismissButton = { TextButton(onClick = { showNewTask = false }) { Text("取消") } },
+        )
+    }
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(project?.displayName ?: "项目", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { BackButton() },
             )
+        },
+        floatingActionButton = {
+            if (project != null) {
+                FloatingActionButton(onClick = { showNewTask = true }, containerColor = MaterialTheme.colorScheme.primaryContainer) {
+                    Text("＋ 新建")
+                }
+            }
         },
     ) { padding ->
         if (project == null) {
@@ -164,6 +205,7 @@ fun CodexProjectPage(projectId: String, vm: CodexWorkflowVM = koinViewModel()) {
             contentPadding = padding + PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            vm.statusMessage?.let { message -> item { OfflineStatus(message, vm::refresh) } }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ProjectFilter.entries.forEach { value ->

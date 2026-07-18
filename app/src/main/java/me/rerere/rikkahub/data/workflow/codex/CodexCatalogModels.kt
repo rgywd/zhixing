@@ -73,6 +73,14 @@ data class CodexThread(
 data class CodexThreadDetail(
     val thread: CodexThread?,
     val turns: List<CodexTurn>,
+    val approvals: List<CodexApproval> = emptyList(),
+)
+
+data class CodexApproval(
+    val approvalId: String,
+    val kind: String,
+    val summary: String,
+    val createdAt: Long,
 )
 
 data class CodexTurn(
@@ -204,4 +212,54 @@ data class CatalogItemPayload(
     val text: String? = null,
     val status: String? = null,
     val raw: JsonObject = JsonObject(emptyMap()),
+)
+
+@Serializable
+data class RuntimeCommandPayload(
+    val command: String,
+    val machineId: String,
+    val threadId: String? = null,
+    val cwd: String? = null,
+    val text: String? = null,
+    val confirmedUnknown: Boolean? = null,
+    val approvalId: String? = null,
+    val decision: String? = null,
+    val model: String? = null,
+    val effort: String? = null,
+    val approvalPolicy: String? = null,
+    val sandbox: String? = null,
+)
+
+@Serializable
+data class RuntimeEventPayload(
+    val machineId: String,
+    val threadId: String,
+    val eventId: String,
+    val type: String,
+    val at: Long,
+    val bindingId: String? = null,
+    val state: String? = null,
+    val turnId: String? = null,
+    val itemId: String? = null,
+    val itemType: String? = null,
+    val role: String? = null,
+    val text: String? = null,
+    val status: String? = null,
+    val approvalId: String? = null,
+    val kind: String? = null,
+    val summary: String? = null,
+    val decision: String? = null,
+    val message: String? = null,
+    val payload: JsonObject = JsonObject(emptyMap()),
+)
+
+@Serializable
+data class CommandResultPayload(
+    val requestId: String? = null,
+    val machineId: String,
+    val threadId: String? = null,
+    val command: String,
+    val ok: Boolean,
+    val error: String? = null,
+    val result: JsonObject? = null,
 )

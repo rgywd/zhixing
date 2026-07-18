@@ -140,6 +140,21 @@ export class CodexAppServerClient {
     await this.request('turn/interrupt', { threadId, turnId })
   }
 
+  async steerTurn(threadId: string, expectedTurnId: string, text: string): Promise<void> {
+    await this.request('turn/steer', {
+      threadId,
+      expectedTurnId,
+      input: [{ type: 'text', text }],
+    })
+  }
+
+  async forkThread(threadId: string): Promise<{ threadId: string }> {
+    const result = (await this.request('thread/fork', { threadId })) as { thread?: { id?: string } }
+    const forkedThreadId = result.thread?.id
+    if (!forkedThreadId) throw new Error('thread/fork response missing thread.id')
+    return { threadId: forkedThreadId }
+  }
+
   get serverInfo(): CodexInitializeInfo | null {
     return this.initializeInfo
   }

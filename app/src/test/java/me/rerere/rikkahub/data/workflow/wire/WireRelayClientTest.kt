@@ -12,6 +12,7 @@ import me.rerere.rikkahub.data.workflow.codex.CatalogSnapshotPayload
 import me.rerere.rikkahub.data.workflow.codex.CatalogSnapshotChunkPayload
 import me.rerere.rikkahub.data.workflow.codex.ThreadDetailPayload
 import me.rerere.rikkahub.data.workflow.codex.WireCatalogSink
+import me.rerere.rikkahub.data.workflow.codex.RuntimeCommandPayload
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -19,6 +20,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -118,6 +120,52 @@ class WireRelayClientTest {
         server.takeRequest()
         assertEquals("/v1/acks", server.takeRequest().path)
         assertEquals("/v1/acks", server.takeRequest().path)
+    }
+
+    @Test
+    fun encryptsRuntimeCommandForTheSelectedAgentAndPersistsSequences() = runBlocking {
+        val rootSecret = ByteArray(32) { 5 }
+        val credentials = WireRelayCredentials(
+            serverUrl = server.url("/").toString().trimEnd('/'),
+            accountId = "account_1",
+            deviceId = "phone_1",
+            token = "t".repeat(43),
+            tokenExpiresAt = Long.MAX_VALUE,
+            rootSecret = WireRecoveryKeyCodec.encode(rootSecret),
+        )
+        server.enqueue(jsonResponse(
+            """{"devices":[{"deviceId":"machine_1","publicKey":"${WireKeys.deriveContentPublicKey(rootSecret).base64Url()}","deviceType":"agent","lastSeenAt":100,"revokedAt":null}]}"""
+        ))
+        server.enqueue(jsonResponse("""{"status":"accepted","id":"key","deliveredTo":["machine_1"]}"""))
+        server.enqueue(jsonResponse("""{"status":"accepted","id":"command","deliveredTo":["machine_1"]}"""))
+        val store = FakeCredentialsStore(credentials)
+
+        val requestId = client(store, FakeCatalogSink()).sendRuntimeCommand(
+            RuntimeCommandPayload(
+                command = "turn.start",
+                machineId = "machine_1",
+                threadId = "thread_1",
+                text = "继续",
+                confirmedUnknown = true,
+            )
+        )
+
+        assertTrue(requestId.isNotBlank())
+        assertEquals("/v1/devices", server.takeRequest().path)
+        val keyEnvelope = json.decodeFromString<RelayEnvelope>(server.takeRequest().body.readUtf8())
+        val commandEnvelope = json.decodeFromString<RelayEnvelope>(server.takeRequest().body.readUtf8())
+        val dataKey = requireNotNull(
+            WireKeys.unwrapDataKey(keyEnvelope.cipherBundle, WireKeys.deriveContentSecretKey(rootSecret))
+        )
+        val plaintext = WireCrypto().decryptBytes(
+            commandEnvelope.cipherBundle,
+            dataKey,
+            commandEnvelope.toWireEnvelope().header,
+        ).toString(Charsets.UTF_8)
+        assertTrue(plaintext.contains("\"type\":\"runtime.command\""))
+        assertTrue(plaintext.contains("\"text\":\"继续\""))
+        assertEquals(1L, store.load()?.outgoingSequences?.get("keys_machine_1"))
+        assertEquals(emptyMap<String, WireStoredEnvelope>(), store.load()?.pendingEnvelopes)
     }
 
     private fun client(store: WireCredentialsStore, sink: WireCatalogSink) = WireRelayClient(
