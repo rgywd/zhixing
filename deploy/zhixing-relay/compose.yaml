@@ -1,0 +1,52 @@
+services:
+  relay:
+    build:
+      context: ../../relay
+    image: zhixing-relay:0.2.0
+    restart: unless-stopped
+    environment:
+      ZHIXING_RELAY_HOST: 0.0.0.0
+      ZHIXING_RELAY_PORT: 3100
+      ZHIXING_RELAY_DATA_DIR: /data
+      ZHIXING_RELAY_LOG_LEVEL: ${ZHIXING_RELAY_LOG_LEVEL:-info}
+      ZHIXING_RELAY_TOKEN_TTL_MS: ${ZHIXING_RELAY_TOKEN_TTL_MS:-2592000000}
+      ZHIXING_RELAY_CHALLENGE_TTL_MS: ${ZHIXING_RELAY_CHALLENGE_TTL_MS:-60000}
+    ports:
+      - 127.0.0.1:3100:3100
+    volumes:
+      - zhixing-relay-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 768m
+    cpus: 1.5
+
+  caddy:
+    image: caddy:2.11.4-alpine
+    profiles: [bundled-proxy]
+    restart: unless-stopped
+    depends_on:
+      relay:
+        condition: service_healthy
+    environment:
+      ZHIXING_RELAY_DOMAIN: ${ZHIXING_RELAY_DOMAIN:?set ZHIXING_RELAY_DOMAIN}
+    ports:
+      - 80:80
+      - 443:443
+      - 443:443/udp
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  zhixing-relay-data:
+    name: zhixing-relay-data
+  caddy-data:
+  caddy-config:
