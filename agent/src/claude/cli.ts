@@ -13,8 +13,17 @@ export interface ClaudeInvocation {
   permissionMode: ClaudePermissionMode
   model?: string
   effort?: string
+  allowedTools?: string[]
   disallowedTools?: string[]
   environment?: Record<string, string>
+  settings?: Record<string, unknown>
+  mcpConfig?: Record<string, unknown>
+  strictMcpConfig?: boolean
+  appendSystemPrompt?: string
+  onPermission?: (
+    tool: string,
+    input: Record<string, unknown>,
+  ) => Promise<{ approved: boolean; message?: string }>
 }
 
 export interface ClaudeResult {
@@ -46,6 +55,13 @@ export function buildClaudeArgs(invocation: ClaudeInvocation): string[] {
   }
   if (invocation.model) args.push('--model', invocation.model)
   if (invocation.effort) args.push('--effort', invocation.effort)
+  if (invocation.settings) args.push('--settings', JSON.stringify(invocation.settings))
+  if (invocation.mcpConfig) args.push('--mcp-config', JSON.stringify(invocation.mcpConfig))
+  if (invocation.strictMcpConfig) args.push('--strict-mcp-config')
+  if (invocation.appendSystemPrompt) args.push('--append-system-prompt', invocation.appendSystemPrompt)
+  if (invocation.allowedTools?.length) {
+    args.push('--allowedTools', ...invocation.allowedTools)
+  }
   if (invocation.disallowedTools?.length) {
     args.push('--disallowedTools', ...invocation.disallowedTools)
   }

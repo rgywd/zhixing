@@ -5,12 +5,14 @@ import { log } from '../daemon.js'
 import { SessionRuntime } from '../session.js'
 import type { Credentials, SpawnParams } from '../types.js'
 import {
-  ClaudeCliProcess,
   ClaudeProcessInterruptedError,
   type ClaudePermissionMode,
   type ClaudeProcessPort,
   normalizeClaudePermissionMode,
 } from './cli.js'
+import { ClaudeLocalBridge, type ClaudeAskRequest } from './bridge.js'
+import { buildClaudeTelephoneConfig } from './integration.js'
+import { ClaudeSdkProcess } from './sdk.js'
 
 export interface ClaudeRunnerContext {
   serverUrl: string
@@ -36,6 +38,8 @@ export class ClaudeSessionRunner {
   private readonly queue: Array<{ text: string; meta: Record<string, unknown> }> = []
   private running = false
   private activeProcess: ClaudeProcessPort | null = null
+  private bridge: ClaudeLocalBridge | null = null
+  private pendingAsk: ((answer: string) => void) | null = null
   onClosed: (sessionId: string) => void = () => {}
 
   private constructor(
@@ -54,7 +58,7 @@ export class ClaudeSessionRunner {
   static async spawn(
     context: ClaudeRunnerContext,
     params: SpawnParams,
-    processFactory: ProcessFactory = () => new ClaudeCliProcess(),
+    processFactory: ProcessFactory = () => new ClaudeSdkProcess(),
   ): Promise<ClaudeSessionRunner> {
     const runner = new ClaudeSessionRunner(context, params, processFactory)
     const api = new HappyApi(context.serverUrl, context.clientId)
@@ -77,6 +81,12 @@ export class ClaudeSessionRunner {
       onUserMessage: (text, meta) => runner.enqueue(text, meta),
       onAbort: () => runner.interrupt(),
     })
+    runner.bridge = new ClaudeLocalBridge({
+      report: (input) => runner.handleReport(input.text),
+      ask: (input) => runner.handleAsk(input),
+      reportHtml: (input) => runner.handleReportHtml(input.html, input.title),
+    })
+    await runner.bridge.start()
     runner.runtime.connect()
     log(`Claude 会话已建立: session=${session.id} transcript=${runner.claudeSessionId}`)
     return runner
@@ -84,6 +94,9 @@ export class ClaudeSessionRunner {
 
   async stop(): Promise<void> {
     this.interrupt()
+    this.pendingAsk?.('')
+    this.pendingAsk = null
+    await this.bridge?.close()
     await this.runtime.close('cancelled')
     this.onClosed(this.sessionId)
   }
@@ -93,6 +106,12 @@ export class ClaudeSessionRunner {
   }
 
   private enqueue(text: string, meta: Record<string, unknown>): void {
+    if (this.pendingAsk) {
+      const answer = this.pendingAsk
+      this.pendingAsk = null
+      answer(text)
+      return
+    }
     this.queue.push({ text, meta })
     void this.drainQueue()
   }
@@ -136,6 +155,9 @@ export class ClaudeSessionRunner {
     this.runtime.beginTurn()
     await this.runtime.postEvent({ t: 'turn-start' })
     try {
+      const bridge = this.bridge
+      if (!bridge) throw new Error('Claude local bridge is not running')
+      const telephone = buildClaudeTelephoneConfig()
       const result = await process.run({
         cwd: this.params.directory,
         prompt: text,
@@ -145,6 +167,15 @@ export class ClaudeSessionRunner {
         model: config.model,
         effort: config.effort,
         disallowedTools: config.disallowedTools,
+        environment: {
+          ...this.params.environmentVariables,
+          ZHIXING_CLAUDE_BRIDGE_URL: bridge.url,
+          ZHIXING_CLAUDE_BRIDGE_TOKEN: bridge.bearerToken,
+        },
+        mcpConfig: telephone.mcpConfig,
+        appendSystemPrompt: telephone.appendSystemPrompt,
+        allowedTools: telephone.allowedTools,
+        onPermission: (tool, input) => this.handlePermission(tool, input),
       })
       if (result.sessionId) this.claudeSessionId = result.sessionId
       this.hasTranscript = true
@@ -167,6 +198,56 @@ export class ClaudeSessionRunner {
       this.runtime.endTurn()
       this.activeProcess = null
     }
+  }
+
+  private async handlePermission(tool: string, input: unknown): Promise<{ approved: boolean; message?: string }> {
+    try {
+      const answer = await withTimeout(
+        this.runtime.requestPermission(randomUUID(), tool, input, 150_000),
+        160_000,
+        '远程审批通道超时',
+      )
+      return {
+        approved: answer.approved,
+        message: answer.approved ? undefined : '用户拒绝、取消或未在时限内批准此操作。',
+      }
+    } catch {
+      return { approved: false, message: '远程审批通道不可用或已超时。' }
+    }
+  }
+
+  private async handleReport(text: string): Promise<{ backlog: string[] }> {
+    await this.runtime.postEvent({ t: 'text', text })
+    const backlog = this.queue.splice(0).map((item) => item.text)
+    return { backlog }
+  }
+
+  private async handleAsk(input: ClaudeAskRequest): Promise<{ status: 'answered' | 'timeout'; answer?: string }> {
+    const text = formatAsk(input)
+    await this.runtime.postEvent({ t: 'service', kind: 'claude-ask', text, questions: input.questions })
+    if (this.pendingAsk) return { status: 'timeout' }
+    const answer = await new Promise<string>((resolve) => {
+      const timer = setTimeout(() => {
+        if (this.pendingAsk === settle) this.pendingAsk = null
+        resolve('')
+      }, 150_000)
+      const settle = (value: string) => {
+        clearTimeout(timer)
+        resolve(value)
+      }
+      this.pendingAsk = settle
+    })
+    return answer ? { status: 'answered', answer } : { status: 'timeout' }
+  }
+
+  private async handleReportHtml(html: string, title?: string): Promise<void> {
+    await this.runtime.postEvent({
+      t: 'service',
+      kind: 'claude-report-html',
+      text: title || 'Claude 报告',
+      title,
+      html,
+    })
   }
 }
 
@@ -206,4 +287,28 @@ function normalizeStringList(value: unknown): string[] {
   if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
   if (typeof value === 'string') return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
   return []
+}
+
+function formatAsk(input: ClaudeAskRequest): string {
+  const lines = input.questions?.flatMap((item, index) => {
+    const header = input.questions!.length > 1 ? `${index + 1}. ${item.question}` : item.question
+    return item.options?.length ? [header, ...item.options.map((option) => `- ${option}`)] : [header]
+  })
+  return lines?.join('\n') || input.question?.trim() || 'Claude 需要你的决定。'
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
 }

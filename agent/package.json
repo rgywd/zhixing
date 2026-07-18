@@ -17,8 +17,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.214",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "socket.io-client": "^4.8.1",
-    "tweetnacl": "^1.0.3"
+    "tweetnacl": "^1.0.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",
