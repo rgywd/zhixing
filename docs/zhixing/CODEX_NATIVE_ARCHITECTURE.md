@@ -126,7 +126,7 @@ Windows 真机验证结果：
 
 - 独立 App Server 可以在 Desktop 运行时 `thread/list` 和 `thread/read(includeTurns=true)`，读取真实名称、CWD、父子关系、Turn/Item 和已落盘状态。
 - Desktop 内置 App Server 是其 stdio 子进程，没有可复用的 TCP/Unix 控制端点。
-- 第二个 App Server对 Desktop 已加载的 Thread 返回 `notLoaded`，不能订阅第一个进程的实时事件。
+- 第二个 App Server 对 Desktop 已加载的 Thread 返回 `notLoaded`，不能订阅第一个进程的实时事件。
 
 因此：
 

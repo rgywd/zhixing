@@ -90,22 +90,21 @@ auth seed 生成 Ed25519 签名身份；content seed 生成 X25519/NaCl box 内�
   "createdAt": 1784397723000,
   "expiresAt": null,
   "keyId": "opaque",
-  "nonce": "base64url",
-  "ciphertext": "base64url"
+  "cipherBundle": "base64url"
 }
 ```
 
 约束：
 
 - ID 字段只允许 `[A-Za-z0-9_-]`，不能包含控制字符。
-- `(accountId, senderDeviceId, streamId, seq)` 唯一且单调。
+- `(accountId, senderDeviceId, streamId, seq)` 唯一且单调；同一 tuple 对应不同 `id` 或密文时必须拒绝为 sequence collision。
 - `id` 全局幂等；重复提交返回首次 ACK。
 - Relay 不能修改 envelope 后仍通过认证。
 - Relay 不读取解密 payload 的 `type`。
 
 ## 5. Cipher bundle v1
 
-Happy AES bundle version 0 没有 AAD，Wire v1 必须使用独立格式：
+Happy AES bundle version 0 没有 AAD，Wire v1 必须使用独立格式。envelope 的 `cipherBundle` 是下列完整字节序列的 base64url 编码，不再重复传递 nonce：
 
 ```text
 0x01 || nonce[12] || AES-256-GCM(ciphertext || tag[16])
@@ -179,7 +178,7 @@ UTF8("ZXW1")
 
 ```json
 {
-  "threadId": "uuidv7",
+  "threadId": "codex-thread-uuid",
   "projectId": "uuid",
   "name": "接入 AnySearch 搜索服务",
   "preview": "...",
@@ -196,7 +195,7 @@ UTF8("ZXW1")
 }
 ```
 
-`runtimeState` 只能是 Agent 已确认的 `connected|idle|running|waiting_approval|disconnected|unknown`。Desktop 来源且无 RuntimeBinding 时必须是 `unknown`。
+`threadId` 保存 Codex App Server 返回的 Thread ID，并以 `(machineId, threadId)` 作为全局业务键；产品层不得另造会话 ID。`runtimeState` 只能是 Agent 已确认的 `connected|idle|running|waiting_approval|disconnected|unknown`。Desktop 来源且无 RuntimeBinding 时必须是 `unknown`。
 
 ### 7.4 Snapshot 和 delta
 
@@ -216,7 +215,7 @@ UTF8("ZXW1")
 ```json
 {
   "snapshotId": "uuidv7",
-  "threadId": "uuidv7",
+  "threadId": "codex-thread-uuid",
   "revision": 9,
   "chunkIndex": 0,
   "chunkCount": 4,
@@ -274,7 +273,7 @@ Android 只发送：
 
 - `archive` 是默认整理操作。
 - `delete` 要求开发机在线、App Server 成功确认，然后写 tombstone。
-- tombstone 包含 threadId、deletionRevision、deletedAt，不含正文。
+- tombstone 包含 machineId、threadId、deletionRevision、deletedAt，不含正文。
 - 所有设备确认 tombstone 或超过明确保留期后，Relay 才清理旧密文。
 - 手机只清 Room 缓存是本地操作，不能显示为永久删除。
 - tombstone revision 阻止旧设备重新上传已删除 Thread。

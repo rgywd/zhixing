@@ -204,7 +204,7 @@ GREEN：
 
 ## 3. 并行冲突管理
 
-- #48 当前修改 AppDatabase、Memory 和 `IMPLEMENTATION_PLAN.md`；P0 只新增独立文档。
+- 并行 #48 涉及 AppDatabase、Memory 和 `IMPLEMENTATION_PLAN.md`；P0 只新增独立文档。
 - Room migration 阶段必须从 #48 合并后的数据库版本继续编号，禁止预占 v27。
 - `docs/zhixing/IMPLEMENTATION_PLAN.md` 只在阶段收口时小改；0.2.0 细节留在独立文档。
 - 每次开分支前记录 `origin/main` commit；PR 描述列出同步 commit 和测试结果。
