@@ -58,10 +58,10 @@ Agent 的加密能力载荷额外包含：
 
 用途必须域分离：
 
-- auth seed：`HMAC-SHA512("Zhixing Wire v1 auth", rootSecret)[0..31]`
-- content seed：`HMAC-SHA512("Zhixing Wire v1 content", rootSecret)[0..31]`
+- auth seed：`HMAC-SHA512(key=UTF8("Zhixing Wire v1 auth"), data=rootSecret)[0..31]`
+- content seed：`HMAC-SHA512(key=UTF8("Zhixing Wire v1 content"), data=rootSecret)[0..31]`
 
-auth seed 生成 Ed25519 签名身份；content seed 生成 X25519/NaCl box 内容密钥。不得继续使用 `Happy EnCoder` 派生域。
+auth seed 直接作为 Ed25519 seed；content seed 直接作为 X25519/NaCl box secret key。不得继续使用 `Happy EnCoder` 派生域。
 
 ### 3.2 Account 与 device
 
@@ -75,6 +75,14 @@ auth seed 生成 Ed25519 签名身份；content seed 生成 X25519/NaCl box 内�
 - catalog、每个 Thread 内容流和控制流使用独立随机 32-byte data key。
 - data key 对每台授权设备使用 NaCl box 封装。
 - 撤销设备后新数据必须轮换 key；历史数据是否重加密由显式安全操作决定。
+
+封装格式是 base64url（无 padding）编码的：
+
+```text
+0x01 || ephemeralPublicKey[32] || nonce[24] || NaClBox(dataKey[32])[48]
+```
+
+收件设备使用自己的 content secret key、bundle 内 ephemeral public key 和 nonce 解包。version 0 属于 Happy 历史格式，Wire v1 只写 version 1。
 
 ## 4. Relay-visible envelope
 
@@ -98,6 +106,7 @@ auth seed 生成 Ed25519 签名身份；content seed 生成 X25519/NaCl box 内�
 
 - ID 字段只允许 `[A-Za-z0-9_-]`，不能包含控制字符。
 - `(accountId, senderDeviceId, streamId, seq)` 唯一且单调；同一 tuple 对应不同 `id` 或密文时必须拒绝为 sequence collision。
+- JSON 中的 seq 和毫秒时间戳必须位于 `0..2^53-1`，保证 Node/Kotlin 无损互操作；AAD 仍使用 U64BE/I64BE 固定宽度编码。
 - `id` 全局幂等；重复提交返回首次 ACK。
 - Relay 不能修改 envelope 后仍通过认证。
 - Relay 不读取解密 payload 的 `type`。
