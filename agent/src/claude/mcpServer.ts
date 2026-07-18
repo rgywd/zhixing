@@ -29,7 +29,12 @@ server.registerTool(
     inputSchema: {
       question: z.string().max(2_000).optional(),
       questions: z
-        .array(z.object({ question: z.string().min(1).max(1_000), options: z.array(z.string().max(200)).max(8).optional() }))
+        .array(z.object({
+          header: z.string().max(80).optional(),
+          question: z.string().min(1).max(1_000),
+          options: z.array(z.string().max(200)).max(8).optional(),
+          multiSelect: z.boolean().optional(),
+        }))
         .min(1)
         .max(4)
         .optional(),

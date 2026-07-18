@@ -118,11 +118,33 @@ sealed interface WorkMessagePart {
     @SerialName("event")
     data class Event(val kind: String, val text: String? = null) : WorkMessagePart
 
+    @Serializable
+    @SerialName("claude_ask")
+    data class ClaudeAsk(
+        val prompt: String,
+        val questions: List<ClaudeQuestion> = emptyList(),
+    ) : WorkMessagePart
+
+    @Serializable
+    @SerialName("html_report")
+    data class HtmlReport(
+        val title: String,
+        val html: String,
+    ) : WorkMessagePart
+
     /** 未识别的记录类型，保底不丢内容 */
     @Serializable
     @SerialName("raw")
     data class Raw(val kind: String, val text: String) : WorkMessagePart
 }
+
+@Serializable
+data class ClaudeQuestion(
+    val header: String? = null,
+    val question: String,
+    val options: List<String> = emptyList(),
+    val multiSelect: Boolean = false,
+)
 
 data class WorkMessage(
     val id: String,

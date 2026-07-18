@@ -129,6 +129,7 @@ import me.rerere.rikkahub.ui.pages.webview.WebViewPage
 import me.rerere.rikkahub.ui.pages.workflow.WorkNewTaskPage
 import me.rerere.rikkahub.ui.pages.workflow.WorkPresetEditPage
 import me.rerere.rikkahub.ui.pages.workflow.WorkSessionLogPage
+import me.rerere.rikkahub.ui.pages.workflow.WorkHtmlReportPage
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowPage
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowProjectPage
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowSessionPage
@@ -373,6 +374,10 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.WorkSessionLog> { key ->
                                 WorkSessionLogPage(key.id)
+                            }
+
+                            entry<Screen.WorkHtmlReport> { key ->
+                                WorkHtmlReportPage(key.title, key.contentId)
                             }
 
                             entry<Screen.WorkNewTask> { key ->
@@ -643,6 +648,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data class WorkSessionLog(val id: String) : Screen
+
+    @Serializable
+    data class WorkHtmlReport(val title: String, val contentId: String) : Screen
 
     @Serializable
     data class WorkNewTask(

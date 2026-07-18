@@ -166,6 +166,20 @@ private fun buildLogEntries(messages: List<WorkMessage>, filter: LogFilter): Lis
                     title = part.kind,
                     body = part.text,
                 ).takeIf { filter == LogFilter.ALL || filter == LogFilter.EVENTS }
+                is WorkMessagePart.ClaudeAsk -> LogEntry(
+                    key = key,
+                    time = message.createdAt,
+                    kind = "提问",
+                    title = "等待用户答复",
+                    body = part.prompt,
+                ).takeIf { filter == LogFilter.ALL || filter == LogFilter.EVENTS }
+                is WorkMessagePart.HtmlReport -> LogEntry(
+                    key = key,
+                    time = message.createdAt,
+                    kind = "报告",
+                    title = part.title,
+                    body = "HTML 报告内容仅在只读报告页展示",
+                ).takeIf { filter == LogFilter.ALL || filter == LogFilter.EVENTS }
                 is WorkMessagePart.Raw -> LogEntry(
                     key = key,
                     time = message.createdAt,

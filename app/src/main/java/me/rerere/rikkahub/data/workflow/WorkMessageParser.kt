@@ -159,7 +159,7 @@ object WorkMessageParser {
                 if (event.boolean("thinking") == true) WorkMessagePart.Reasoning(text)
                 else WorkMessagePart.Text(text)
             }
-            "service" -> event.string("text")?.let { WorkMessagePart.Event("service", it) }
+            "service" -> parseServiceEvent(event)
             "tool-call-start" -> WorkMessagePart.ToolCall(
                 name = event.string("name") ?: "tool",
                 input = event["args"].toCompactText(),
@@ -181,6 +181,37 @@ object WorkMessageParser {
             }
         }
         return part?.let { Parsed(role, listOf(it)) }
+    }
+
+    private fun parseServiceEvent(event: JsonObject): WorkMessagePart? {
+        return when (event.string("kind")) {
+        "claude-ask" -> {
+            val prompt = event.string("text")?.takeIf(String::isNotBlank) ?: return null
+            val questions = (event["questions"] as? JsonArray).orEmpty().mapNotNull { item ->
+                val question = item as? JsonObject ?: return@mapNotNull null
+                val text = question.string("question")?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                ClaudeQuestion(
+                    header = question.string("header")?.takeIf(String::isNotBlank),
+                    question = text,
+                    options = (question["options"] as? JsonArray).orEmpty().mapNotNull { option ->
+                        (option as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
+                    },
+                    multiSelect = question.boolean("multiSelect") ?: false,
+                )
+            }
+            WorkMessagePart.ClaudeAsk(prompt = prompt, questions = questions)
+        }
+        "claude-report-html" -> {
+            val html = event.string("html")?.takeIf(String::isNotBlank) ?: return null
+            WorkMessagePart.HtmlReport(
+                title = event.string("title")?.takeIf(String::isNotBlank)
+                    ?: event.string("text")?.takeIf(String::isNotBlank)
+                    ?: "Claude 报告",
+                html = html,
+            )
+        }
+            else -> event.string("text")?.let { WorkMessagePart.Event("service", it) }
+        }
     }
 
     private fun fallbackRaw(type: String?, data: JsonObject): WorkMessagePart? {

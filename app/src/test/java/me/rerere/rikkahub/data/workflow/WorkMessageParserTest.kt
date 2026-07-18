@@ -116,6 +116,36 @@ class WorkMessageParserTest {
     }
 
     @Test
+    fun `parses Claude ask and html report service events`() {
+        val ask = parse(
+            """{"role":"session","content":{"id":"a1","role":"agent","ev":{"t":"service","kind":"claude-ask","text":"请选择发布方式","questions":[{"header":"发布","question":"发布到哪里？","options":["测试","生产"],"multiSelect":false}]}}}"""
+        )
+        val report = parse(
+            """{"role":"session","content":{"id":"h1","role":"agent","ev":{"t":"service","kind":"claude-report-html","title":"构建报告","html":"<h1>通过</h1>"}}}"""
+        )
+
+        assertEquals(
+            listOf(
+                WorkMessagePart.ClaudeAsk(
+                    prompt = "请选择发布方式",
+                    questions = listOf(
+                        ClaudeQuestion(
+                            header = "发布",
+                            question = "发布到哪里？",
+                            options = listOf("测试", "生产"),
+                        )
+                    ),
+                )
+            ),
+            ask?.parts,
+        )
+        assertEquals(
+            listOf(WorkMessagePart.HtmlReport(title = "构建报告", html = "<h1>通过</h1>")),
+            report?.parts,
+        )
+    }
+
+    @Test
     fun `skips token count and keeps unknown types as raw`() {
         assertNull(parse("""{"role":"agent","content":{"type":"codex","data":{"type":"token_count","total":123}}}"""))
 
@@ -142,6 +172,8 @@ class WorkMessageParserTest {
             WorkMessagePart.Text("hi"),
             WorkMessagePart.ToolCall(name = "Bash", input = "{}", callId = "c1"),
             WorkMessagePart.Event("ready"),
+            WorkMessagePart.ClaudeAsk("选一个"),
+            WorkMessagePart.HtmlReport("报告", "<p>ok</p>"),
         )
 
         val encoded = json.encodeToString(parts)
