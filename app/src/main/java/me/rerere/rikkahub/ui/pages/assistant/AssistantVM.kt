@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.data.datastore.Settings
@@ -12,6 +13,7 @@ import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Avatar
+import me.rerere.rikkahub.data.model.MemoryKind
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 
@@ -83,10 +85,16 @@ class AssistantVM(
         }
     }
 
-    fun getMemories(assistant: Assistant) =
+    fun getMemories(assistant: Assistant) = combine(
+        memoryRepository.getGlobalMemoriesFlow(),
         if (assistant.useGlobalMemory) {
             memoryRepository.getGlobalMemoriesFlow()
         } else {
             memoryRepository.getMemoriesOfAssistantFlow(assistant.id.toString())
-        }
+        },
+    ) { global, scoped ->
+        (global.filter { it.kind == MemoryKind.PROFILE } +
+            scoped.filter { it.kind == MemoryKind.CONTEXT })
+            .distinctBy { it.id }
+    }
 }

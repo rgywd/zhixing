@@ -79,7 +79,7 @@
   <string name="assistant_page_delete_header">删除 Header</string>
   <string name="assistant_page_enter_image_url">输入图片URL</string>
   <string name="assistant_page_global_memory">全局记忆</string>
-  <string name="assistant_page_global_memory_desc">使用全局共享内存而非助手隔离内存。启用后，所有助手共享同一内存存储</string>
+  <string name="assistant_page_global_memory_desc">使用全局共享的“记住的事”，而不是当前助手的独立情境。我的画像始终全局共享。</string>
   <string name="assistant_page_header_name">Header 名称</string>
   <string name="assistant_page_header_value">Header 值</string>
   <string name="assistant_page_image_url">图片URL</string>
@@ -95,6 +95,17 @@
   <string name="assistant_page_local_tools_tts_desc">让AI使用您所选的TTS服务为您朗读文本</string>
   <string name="assistant_page_local_tools_tts_title">文字转语音</string>
   <string name="assistant_page_manage_memory_title">管理记忆</string>
+  <string name="assistant_page_profile_memory">我的画像</string>
+  <string name="assistant_page_profile_memory_desc">稳定的个人事实与偏好，供所有启用记忆的助手使用。</string>
+  <string name="assistant_page_context_memory">记住的事</string>
+  <string name="assistant_page_context_memory_desc">保存在当前所选全局或单助手范围内的通用情境。</string>
+  <string name="assistant_page_archived_memory">已归档</string>
+  <string name="assistant_page_archived_memory_desc">保留历史，但不会进入日常对话。</string>
+  <string name="assistant_page_add_memory">添加记忆</string>
+  <string name="assistant_page_edit_memory">编辑记忆</string>
+  <string name="assistant_page_archive_memory">归档记忆</string>
+  <string name="assistant_page_restore_memory">恢复记忆</string>
+  <string name="assistant_page_memory_empty">这里还没有内容。</string>
   <string name="assistant_page_max_tokens">最大Token数</string>
   <string name="assistant_page_max_tokens_desc">最大生成Token数量。留空表示无限制。</string>
   <string name="assistant_page_max_tokens_limit">限制：%d 个Token</string>
@@ -247,6 +258,8 @@
   <string name="chat_message_tool_clipboard_read">读取剪贴板</string>
   <string name="chat_message_tool_clipboard_write">写入剪贴板</string>
   <string name="chat_message_tool_create_memory">创建了记忆</string>
+  <string name="chat_message_tool_archive_memory">归档了记忆</string>
+  <string name="chat_message_tool_restore_memory">恢复了记忆</string>
   <string name="chat_message_tool_delete_memory">删除了记忆</string>
   <string name="chat_message_tool_denied">已拒绝</string>
   <string name="chat_message_tool_deny">拒绝</string>

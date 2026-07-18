@@ -85,6 +85,8 @@ import java.time.format.DateTimeFormatter
 object MemoryToolUI : ToolUIRenderer {
     private const val ACTION_CREATE = "create"
     private const val ACTION_EDIT = "edit"
+    private const val ACTION_ARCHIVE = "archive"
+    private const val ACTION_RESTORE = "restore"
     private const val ACTION_DELETE = "delete"
 
     override val toolName: String = "memory_tool"
@@ -93,7 +95,8 @@ object MemoryToolUI : ToolUIRenderer {
         context.arguments.getStringContent("action")
 
     override fun icon(context: ToolUIContext): ImageVector = when (action(context)) {
-        ACTION_DELETE -> HugeIcons.Eraser
+        ACTION_DELETE, ACTION_ARCHIVE -> HugeIcons.Eraser
+        ACTION_RESTORE -> HugeIcons.Refresh01
         else -> HugeIcons.QuillWrite01
     }
 
@@ -101,12 +104,14 @@ object MemoryToolUI : ToolUIRenderer {
     override fun title(context: ToolUIContext): String = when (action(context)) {
         ACTION_CREATE -> stringResource(R.string.chat_message_tool_create_memory)
         ACTION_EDIT -> stringResource(R.string.chat_message_tool_edit_memory)
+        ACTION_ARCHIVE -> stringResource(R.string.chat_message_tool_archive_memory)
+        ACTION_RESTORE -> stringResource(R.string.chat_message_tool_restore_memory)
         ACTION_DELETE -> stringResource(R.string.chat_message_tool_delete_memory)
         else -> stringResource(R.string.chat_message_tool_call_generic, toolName)
     }
 
     override fun hasSummary(context: ToolUIContext): Boolean =
-        action(context) in listOf(ACTION_CREATE, ACTION_EDIT) &&
+        action(context) in listOf(ACTION_CREATE, ACTION_EDIT, ACTION_ARCHIVE, ACTION_RESTORE) &&
             context.content.getStringContent("content") != null
 
     @Composable

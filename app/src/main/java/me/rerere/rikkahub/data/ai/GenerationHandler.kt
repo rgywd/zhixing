@@ -102,11 +102,14 @@ class GenerationHandler(
                     }
                     buildMemoryTools(
                         json = json,
-                        onCreation = { content ->
-                            memoryRepo.addMemory(memoryAssistantId, content)
+                        onCreation = { kind, content ->
+                            memoryRepo.addMemory(memoryAssistantId, content, kind)
                         },
                         onUpdate = { id, content ->
                             memoryRepo.updateContent(id, content)
+                        },
+                        onStateChange = { id, state ->
+                            memoryRepo.updateState(id, state)
                         },
                         onDelete = { id ->
                             memoryRepo.deleteMemory(id)

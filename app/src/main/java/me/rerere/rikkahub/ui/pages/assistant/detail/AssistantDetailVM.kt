@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -22,6 +23,8 @@ import me.rerere.rikkahub.data.files.SkillMetadata
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.Avatar
+import me.rerere.rikkahub.data.model.MemoryKind
+import me.rerere.rikkahub.data.model.MemoryState
 import me.rerere.rikkahub.data.model.Tag
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
@@ -66,14 +69,39 @@ class AssistantDetailVM(
             scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = Assistant()
         )
 
-    val memories = assistant
+    private val globalMemories = memoryRepository.getAllGlobalMemoriesFlow()
+
+    private val scopedMemories = assistant
         .flatMapLatest { currentAssistant ->
             if (currentAssistant.useGlobalMemory) {
-                memoryRepository.getGlobalMemoriesFlow()
+                memoryRepository.getAllGlobalMemoriesFlow()
             } else {
-                memoryRepository.getMemoriesOfAssistantFlow(assistantId.toString())
+                memoryRepository.getAllMemoriesOfAssistantFlow(assistantId.toString())
             }
         }
+
+    val profileMemories = globalMemories
+        .map { memories ->
+            memories.filter { it.kind == MemoryKind.PROFILE && it.state == MemoryState.ACTIVE }
+        }
+        .stateIn(
+            scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
+        )
+
+    val contextMemories = scopedMemories
+        .map { memories ->
+            memories.filter { it.kind == MemoryKind.CONTEXT && it.state == MemoryState.ACTIVE }
+        }
+        .stateIn(
+            scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
+        )
+
+    val archivedMemories = combine(globalMemories, scopedMemories) { global, scoped ->
+        (global.filter { it.kind == MemoryKind.PROFILE } +
+            scoped.filter { it.kind == MemoryKind.CONTEXT })
+            .distinctBy(AssistantMemory::id)
+            .filter { it.state == MemoryState.ARCHIVED }
+    }
         .stateIn(
             scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
         )
@@ -187,7 +215,8 @@ class AssistantDetailVM(
             }
             memoryRepository.addMemory(
                 assistantId = memoryAssistantId,
-                content = memory.content
+                content = memory.content,
+                kind = memory.kind,
             )
         }
     }
@@ -201,6 +230,18 @@ class AssistantDetailVM(
     fun deleteMemory(memory: AssistantMemory) {
         viewModelScope.launch {
             memoryRepository.deleteMemory(id = memory.id)
+        }
+    }
+
+    fun archiveMemory(memory: AssistantMemory) {
+        viewModelScope.launch {
+            memoryRepository.updateState(id = memory.id, state = MemoryState.ARCHIVED)
+        }
+    }
+
+    fun restoreMemory(memory: AssistantMemory) {
+        viewModelScope.launch {
+            memoryRepository.updateState(id = memory.id, state = MemoryState.ACTIVE)
         }
     }
 
