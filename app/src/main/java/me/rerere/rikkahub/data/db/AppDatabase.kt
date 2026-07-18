@@ -7,6 +7,7 @@ import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import me.rerere.ai.core.TokenUsage
 import me.rerere.rikkahub.data.db.dao.ConversationDAO
+import me.rerere.rikkahub.data.db.dao.CodexCatalogDAO
 import me.rerere.rikkahub.data.db.dao.FavoriteDAO
 import me.rerere.rikkahub.data.db.dao.FolderDAO
 import me.rerere.rikkahub.data.db.dao.GenMediaDAO
@@ -19,6 +20,16 @@ import me.rerere.rikkahub.data.db.dao.WorkRepoPresetDAO
 import me.rerere.rikkahub.data.db.dao.WorkSessionDAO
 import me.rerere.rikkahub.data.db.dao.WorkspaceDAO
 import me.rerere.rikkahub.data.db.entity.ConversationEntity
+import me.rerere.rikkahub.data.db.entity.CodexApprovalEntity
+import me.rerere.rikkahub.data.db.entity.CodexCatalogSyncEntity
+import me.rerere.rikkahub.data.db.entity.CodexCatalogChunkEntity
+import me.rerere.rikkahub.data.db.entity.CodexItemEntity
+import me.rerere.rikkahub.data.db.entity.CodexMachineEntity
+import me.rerere.rikkahub.data.db.entity.CodexProjectEntity
+import me.rerere.rikkahub.data.db.entity.CodexRuntimeBindingEntity
+import me.rerere.rikkahub.data.db.entity.CodexThreadEntity
+import me.rerere.rikkahub.data.db.entity.CodexTombstoneEntity
+import me.rerere.rikkahub.data.db.entity.CodexTurnEntity
 import me.rerere.rikkahub.data.db.entity.FavoriteEntity
 import me.rerere.rikkahub.data.db.entity.FolderEntity
 import me.rerere.rikkahub.data.db.entity.GenMediaEntity
@@ -49,8 +60,18 @@ import me.rerere.rikkahub.utils.JsonInstant
         WorkMessageEntity::class,
         WorkMachineEntity::class,
         WorkRepoPresetEntity::class,
+        CodexMachineEntity::class,
+        CodexProjectEntity::class,
+        CodexThreadEntity::class,
+        CodexTurnEntity::class,
+        CodexItemEntity::class,
+        CodexRuntimeBindingEntity::class,
+        CodexApprovalEntity::class,
+        CodexCatalogSyncEntity::class,
+        CodexCatalogChunkEntity::class,
+        CodexTombstoneEntity::class,
     ],
-    version = 27,
+    version = 28,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -73,6 +94,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         AutoMigration(from = 24, to = 25),
         AutoMigration(from = 25, to = 26),
         AutoMigration(from = 26, to = 27),
+        AutoMigration(from = 27, to = 28),
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -100,6 +122,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun workMachineDao(): WorkMachineDAO
 
     abstract fun workRepoPresetDao(): WorkRepoPresetDAO
+
+    abstract fun codexCatalogDao(): CodexCatalogDAO
 }
 
 object TokenUsageConverter {

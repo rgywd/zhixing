@@ -169,6 +169,10 @@ val dataSourceModule = module {
     }
 
     single {
+        get<AppDatabase>().codexCatalogDao()
+    }
+
+    single {
         MessageFtsManager(get())
     }
 

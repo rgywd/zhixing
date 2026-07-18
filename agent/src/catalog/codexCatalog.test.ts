@@ -90,6 +90,18 @@ describe('Codex catalog', () => {
     expect(third.threads[0].runtimeState).toBe('running')
   })
 
+  it('caps oversized previews before publishing the catalog', async () => {
+    const { registry } = await registryFixture()
+    const client = new FakeCatalogClient({
+      'active:root': page([thread('thread_large', { preview: 'x'.repeat(8_000) })]),
+      'archived:root': page([]),
+    })
+
+    const snapshot = await serviceFor(client, registry).snapshot()
+
+    expect(snapshot.threads[0].preview).toHaveLength(4_000)
+  })
+
   it('normalizes on-demand turns and isolates unknown item kinds', async () => {
     const { registry } = await registryFixture()
     const client = new FakeCatalogClient({ 'active:root': page([]), 'archived:root': page([]) })

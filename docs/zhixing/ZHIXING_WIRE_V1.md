@@ -76,6 +76,18 @@ auth seed 直接作为 Ed25519 seed；content seed 直接作为 X25519/NaCl box 
 - data key 对每台授权设备使用 NaCl box 封装。
 - 撤销设备后新数据必须轮换 key；历史数据是否重加密由显式安全操作决定。
 
+data key 通过一个设备定向的保留 envelope 分发，避免把 key wrapper 放进尚需该 key 才能解密的 payload：
+
+- `targetId` 是接收设备 ID；
+- `streamId` 是 `keys_<deviceId>`；
+- `keyId` 是随后数据 envelope 引用的随机 ID；
+- `cipherBundle` 直接承载下述 NaCl box 封装，不是 AES-GCM bundle；
+- 接收端必须先成功解封、加密保存 wrapper 并 ACK key envelope，才能应用引用该 `keyId` 的数据 envelope；
+- `keys_` 是 Wire v1 保留 stream 前缀，其他 stream 的 `cipherBundle` 仍严格使用第 5 节格式。
+
+发送端要把待提交 envelope 原样持久化后再请求 Relay。进程崩溃时重放同一个 envelope ID 和密文，不能重新生成同一 seq；
+Relay 返回 accepted/duplicate 后才推进本地连续序号。
+
 封装格式是 base64url（无 padding）编码的：
 
 ```text
@@ -215,6 +227,26 @@ UTF8("ZXW1")
 - subagent 通过 `parentThreadId` 挂载；Automation 根据 `threadSource`/已验证元数据标记，不能误用 `sourceKinds`。
 - archived 使用独立分页。
 
+当完整 Catalog snapshot 的 UTF-8 JSON 超过发送端直传阈值时，改发 `catalog.snapshot.chunk`：
+
+```json
+{
+  "snapshotId": "uuidv7",
+  "revision": 12,
+  "generatedAt": 1784397723000,
+  "machine": {},
+  "chunkIndex": 0,
+  "chunkCount": 13,
+  "contentHash": "sha256-of-concatenated-raw-chunks",
+  "chunkHash": "sha256-of-this-raw-chunk",
+  "contentBase64": "base64url-of-utf8-json"
+}
+```
+
+raw chunk JSON 只包含 `projects` 和 `threads`；projects 只需出现在首块。接收端逐块解密后先验证 `chunkHash`，
+持久化所有 raw chunk；只有索引连续、元数据一致、块数齐全且拼接后的 `contentHash` 通过，才在一个 Room 事务中替换旧目录。
+缺块、应用重启或新快照未完成时继续展示旧 revision。未完成块最多保留 24 小时。
+
 ## 8. Thread detail 与 chunk
 
 `thread.read` 由 Agent 调用 `thread/read(includeTurns=true)` 并规范化 Turn/Item。
@@ -277,6 +309,7 @@ Android 只发送：
 - out-of-order：暂存到有界窗口；超过窗口或超时发送 `sync.gap`。
 - expired 控制请求不得执行；历史快照可以没有 expiresAt。
 - 退避使用指数增长和 jitter，危险控制请求只允许相同 requestId 重试。
+- 新注册设备第一次看到某个 sender/stream 时，可以把首个已投递 seq 作为该设备的初始连续基线；此后必须严格连续。
 
 ## 12. 归档和删除
 

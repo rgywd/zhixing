@@ -4,8 +4,25 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
 import type { Credentials, MachineIdentity, MachineMetadata } from './types.js'
 
-export const AGENT_VERSION = '0.1.0'
+export const AGENT_VERSION = '0.2.0-dev.1'
 export const DEFAULT_SERVER_URL = 'https://api.cluster-fluster.com'
+export const DEFAULT_WIRE_RELAY_URL = 'https://relay.8-208-118-119.sslip.io'
+
+export interface WireAgentCredentials {
+  serverUrl: string
+  accountId: string
+  deviceId: string
+  token: string
+  tokenExpiresAt: number
+  rootSecret: string
+}
+
+export interface WireAgentState {
+  sequences: Record<string, number>
+  pending: Record<string, import('./wire/types.js').WireEnvelope>
+  lastCatalogRevision: number | null
+  lastPublishedAt: number | null
+}
 
 export function isClaudeP2Enabled(environment: NodeJS.ProcessEnv = process.env): boolean {
   return environment.ZHIXING_ENABLE_CLAUDE_P2 !== '0'
@@ -50,6 +67,27 @@ export class AgentHome {
 
   saveCredentials(credentials: Credentials): void {
     this.writeJson('credentials.json', credentials, 0o600)
+  }
+
+  loadWireCredentials(): WireAgentCredentials | null {
+    return this.readJson<WireAgentCredentials>('wire-credentials.json')
+  }
+
+  saveWireCredentials(credentials: WireAgentCredentials): void {
+    this.writeJson('wire-credentials.json', credentials, 0o600)
+  }
+
+  loadWireState(): WireAgentState {
+    return this.readJson<WireAgentState>('wire-state.json') ?? {
+      sequences: {},
+      pending: {},
+      lastCatalogRevision: null,
+      lastPublishedAt: null,
+    }
+  }
+
+  saveWireState(state: WireAgentState): void {
+    this.writeJson('wire-state.json', state, 0o600)
   }
 
   machineMetadata(): MachineMetadata {

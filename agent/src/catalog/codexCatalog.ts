@@ -166,7 +166,7 @@ function toSummary(
     threadId: thread.id,
     projectId,
     name: titleFor(thread),
-    preview: thread.preview,
+    preview: thread.preview.slice(0, MAX_PREVIEW_CHARS),
     createdAt: secondsToMillis(thread.createdAt),
     updatedAt: secondsToMillis(thread.updatedAt),
     recencyAt: secondsToMillis(thread.recencyAt ?? thread.updatedAt),
@@ -181,6 +181,8 @@ function toSummary(
     rawStatus: thread.status.type === 'unknown' ? (thread.status.rawType ?? 'unknown') : thread.status.type,
   }
 }
+
+const MAX_PREVIEW_CHARS = 4_000
 
 function runtimeState(thread: CodexThread): CatalogRuntimeState {
   switch (thread.status.type) {

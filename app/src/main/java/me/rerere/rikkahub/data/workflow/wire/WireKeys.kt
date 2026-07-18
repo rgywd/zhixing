@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.workflow.wire
 
 import com.iwebpp.crypto.TweetNaclFast
 import java.util.Base64
+import java.security.SecureRandom
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
@@ -12,6 +13,22 @@ object WireKeys {
 
     fun deriveContentPublicKey(rootSecret: ByteArray): ByteArray =
         TweetNaclFast.Box.keyPair_fromSecretKey(deriveContentSecretKey(rootSecret)).publicKey
+
+    fun wrapDataKey(
+        dataKey: ByteArray,
+        recipientPublicKey: ByteArray,
+        secureRandom: SecureRandom = SecureRandom(),
+    ): String {
+        require(dataKey.size == 32)
+        require(recipientPublicKey.size == TweetNaclFast.Box.publicKeyLength)
+        val ephemeralSecret = ByteArray(TweetNaclFast.Box.secretKeyLength).also(secureRandom::nextBytes)
+        val ephemeral = TweetNaclFast.Box.keyPair_fromSecretKey(ephemeralSecret)
+        val nonce = ByteArray(TweetNaclFast.Box.nonceLength).also(secureRandom::nextBytes)
+        val ciphertext = requireNotNull(TweetNaclFast.Box(recipientPublicKey, ephemeral.secretKey).box(dataKey, nonce))
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(
+            byteArrayOf(WRAPPED_KEY_VERSION) + ephemeral.publicKey + nonce + ciphertext
+        )
+    }
 
     fun unwrapDataKey(bundleBase64Url: String, recipientSecretKey: ByteArray): ByteArray? = runCatching {
         require(recipientSecretKey.size == TweetNaclFast.Box.secretKeyLength)

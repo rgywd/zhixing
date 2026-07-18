@@ -28,8 +28,14 @@ import me.rerere.rikkahub.ui.pages.workflow.happy.HappyProtocol
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappyRelaySettingsStore
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncApi
 import me.rerere.rikkahub.ui.pages.workflow.happy.HappySocketClient
+import me.rerere.rikkahub.data.workflow.wire.WireRelayClient
+import me.rerere.rikkahub.data.workflow.wire.WireRelayCredentialsStore
+import me.rerere.rikkahub.data.workflow.wire.WireCredentialsStore
 import me.rerere.tts.provider.TTSManager
 import org.koin.dsl.module
+import org.koin.core.qualifier.named
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 val appModule = module {
     single<Json> { JsonInstant }
@@ -70,6 +76,25 @@ val appModule = module {
         HappySocketClient(
             json = get(),
             clientId = HappyProtocol.clientId(BuildConfig.VERSION_NAME),
+        )
+    }
+
+    single { WireRelayCredentialsStore(get(), get()) }
+    single<WireCredentialsStore> { get<WireRelayCredentialsStore>() }
+    single(named("wireRelayHttp")) {
+        OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+    single {
+        WireRelayClient(
+            client = get(named("wireRelayHttp")),
+            json = get(),
+            credentialsStore = get(),
+            catalogRepository = get(),
         )
     }
 

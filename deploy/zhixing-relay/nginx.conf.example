@@ -3,6 +3,8 @@ server {
     server_name relay.example.com;
 
     location / {
+        # Match Relay's 3 MiB JSON body limit; nginx defaults to 1 MiB.
+        client_max_body_size 3m;
         proxy_pass http://127.0.0.1:3100;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
