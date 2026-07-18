@@ -15,6 +15,7 @@
     "dev": "tsx src/cli.ts",
     "smoke:p2": "npm run build && node dist/p2Smoke.js",
     "smoke:p4": "npm run build && node dist/p4Smoke.js",
+    "smoke:p5": "npm run build && node dist/p5Smoke.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

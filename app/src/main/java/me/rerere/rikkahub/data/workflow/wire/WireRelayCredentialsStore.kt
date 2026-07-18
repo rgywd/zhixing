@@ -24,6 +24,23 @@ data class WireRelayCredentials(
     val rootSecret: String,
     val wrappedKeys: Map<String, String> = emptyMap(),
     val acknowledgements: Map<String, Long> = emptyMap(),
+    val outgoingSequences: Map<String, Long> = emptyMap(),
+    val pendingEnvelopes: Map<String, WireStoredEnvelope> = emptyMap(),
+)
+
+@Serializable
+data class WireStoredEnvelope(
+    val v: Int,
+    val id: String,
+    val accountId: String,
+    val senderDeviceId: String,
+    val targetId: String,
+    val streamId: String,
+    val seq: Long,
+    val createdAt: Long,
+    val expiresAt: Long? = null,
+    val keyId: String,
+    val cipherBundle: String,
 )
 
 interface WireCredentialsStore {

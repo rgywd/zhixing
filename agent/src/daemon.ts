@@ -9,6 +9,8 @@ import { MachineSocket } from './socket.js'
 import type { SpawnParams, SpawnResult } from './types.js'
 import { resolveCodexBinary } from './codex/binary.js'
 import { publishCatalogOnce } from './wire/catalogPublisher.js'
+import { WireRelayAgentClient } from './wire/relayClient.js'
+import { WireCodexRuntimeBridge } from './wire/runtimeBridge.js'
 
 export interface SpawnDelegate {
   spawn(params: SpawnParams): Promise<SpawnResult>
@@ -30,8 +32,8 @@ function cliAvailable(binary: string, versionArgs = ['--version']): boolean {
 
 export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
   const home = new AgentHome()
-  const stopWirePublisher = startWireCatalogPublisher(home)
   const settings = home.loadSettings()
+  const wire = startWireServices(home, settings.machineId)
   const credentials = home.loadCredentials()
   if (!credentials) {
     throw new Error('尚未登录：先运行 `zhixing-agent login <恢复密钥>`')
@@ -86,19 +88,22 @@ export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
     process.once('SIGTERM', () => resolve())
   })
   socket.close()
-  stopWirePublisher()
+  await wire.stop()
   await delegate.shutdown?.()
   log('守护进程已退出')
 }
 
-function startWireCatalogPublisher(home: AgentHome): () => void {
-  if (!home.loadWireCredentials()) return () => {}
+function startWireServices(home: AgentHome, machineId: string): { stop: () => Promise<void> } {
+  if (!home.loadWireCredentials()) return { stop: async () => {} }
+  const relay = new WireRelayAgentClient(home)
+  const bridge = new WireCodexRuntimeBridge(relay, { machineId })
   let publishing = false
+  let polling = false
   const publish = async () => {
     if (publishing) return
     publishing = true
     try {
-      const result = await publishCatalogOnce(home)
+      const result = await publishCatalogOnce(home, false, relay)
       if (!result.skipped) {
         log(`Codex 目录已同步: ${result.projects} 项目 / ${result.threads} 对话 / ${result.recipients} 设备`)
       }
@@ -109,9 +114,29 @@ function startWireCatalogPublisher(home: AgentHome): () => void {
     }
   }
   void publish()
-  const timer = setInterval(() => void publish(), 5 * 60_000)
-  timer.unref()
-  return () => clearInterval(timer)
+  const catalogTimer = setInterval(() => void publish(), 5 * 60_000)
+  catalogTimer.unref()
+  const poll = async () => {
+    if (polling) return
+    polling = true
+    try {
+      await bridge.pollOnce()
+    } catch (error) {
+      log(`Codex 远程控制同步失败: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      polling = false
+    }
+  }
+  void poll()
+  const runtimeTimer = setInterval(() => void poll(), 1_500)
+  runtimeTimer.unref()
+  return {
+    stop: async () => {
+      clearInterval(catalogTimer)
+      clearInterval(runtimeTimer)
+      await bridge.shutdown()
+    },
+  }
 }
 
 export async function login(recoveryKey: string): Promise<void> {

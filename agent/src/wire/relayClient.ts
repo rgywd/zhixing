@@ -2,8 +2,8 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import nacl from 'tweetnacl'
 import type { AgentHome, WireAgentCredentials, WireAgentState } from '../config.js'
 import { DEFAULT_WIRE_RELAY_URL } from '../config.js'
-import { encryptWireBytes } from './crypto.js'
-import { deriveWireAuthKeyPair, deriveWireContentKeyPair, wrapWireDataKey } from './keys.js'
+import { decryptWireBytes, encryptWireBytes } from './crypto.js'
+import { deriveWireAuthKeyPair, deriveWireContentKeyPair, unwrapWireDataKey, wrapWireDataKey } from './keys.js'
 import type { WireEnvelope, WireEnvelopeHeader } from './types.js'
 
 const AUTH_DOMAIN = Buffer.from('Zhixing Relay auth v1\n', 'utf8')
@@ -27,6 +27,7 @@ export interface WirePayload {
 export class WireRelayAgentClient {
   private credentials: WireAgentCredentials
   private state: WireAgentState
+  private operationQueue: Promise<void> = Promise.resolve()
 
   constructor(private readonly home: AgentHome, credentials?: WireAgentCredentials) {
     this.credentials = credentials ?? requiredCredentials(home)
@@ -86,22 +87,132 @@ export class WireRelayAgentClient {
     return result.devices
   }
 
-  async publish(type: string, body: unknown, streamPrefix: string): Promise<number> {
-    await this.flushPending()
-    const recipients = (await this.devices()).filter(
-      (device) => device.deviceType === 'android' && device.revokedAt === null,
-    )
+  async publish(type: string, body: unknown, streamPrefix: string, requestId: string | null = null): Promise<number> {
+    return this.exclusive(async () => {
+      await this.flushPending()
+      const recipients = (await this.devices()).filter(
+        (device) => device.deviceType === 'android' && device.revokedAt === null,
+      )
+      return this.publishToRecipients(recipients, type, body, streamPrefix, requestId)
+    })
+  }
+
+  async publishToDevice(
+    targetDeviceId: string,
+    type: string,
+    body: unknown,
+    streamPrefix: string,
+    requestId: string | null = null,
+  ): Promise<number> {
+    return this.exclusive(async () => {
+      await this.flushPending()
+      const recipient = (await this.devices()).find(
+        (device) => device.deviceId === targetDeviceId && device.revokedAt === null,
+      )
+      if (!recipient) throw new Error(`目标设备不可用: ${targetDeviceId}`)
+      return this.publishToRecipients([recipient], type, body, streamPrefix, requestId)
+    })
+  }
+
+  async revokeDevice(deviceId: string): Promise<void> {
+    await relayRequest(this.credentials.serverUrl, `/v1/devices/${encodeURIComponent(deviceId)}`, {
+      method: 'DELETE',
+      headers: authHeaders(this.credentials),
+    })
+  }
+
+  discardPendingForTarget(deviceId: string): number {
+    let discarded = 0
+    for (const [streamId, envelope] of Object.entries(this.state.pending)) {
+      if (envelope.targetId !== deviceId) continue
+      delete this.state.pending[streamId]
+      discarded += 1
+    }
+    if (discarded > 0) this.persist()
+    return discarded
+  }
+
+  private async publishToRecipients(
+    recipients: RelayDevice[],
+    type: string,
+    body: unknown,
+    streamPrefix: string,
+    requestId: string | null,
+  ): Promise<number> {
     if (recipients.length === 0) return 0
     const dataKey = randomBytes(32)
     const keyId = opaqueUuid()
     const rootSecret = Buffer.from(this.credentials.rootSecret, 'base64url')
-    const payload: WirePayload = { type, schema: 1, requestId: null, sentAt: Date.now(), body }
+    const payload: WirePayload = { type, schema: 1, requestId, sentAt: Date.now(), body }
 
     for (const recipient of recipients) {
       await this.sendWrappedKey(recipient, keyId, dataKey)
       await this.sendEncryptedPayload(recipient.deviceId, `${streamPrefix}_${recipient.deviceId}`, keyId, dataKey, payload)
     }
     return recipients.length
+  }
+
+  async poll(limit = 100): Promise<{ payloads: WirePayload[]; gapDetected: boolean }> {
+    return this.exclusive(() => this.pollUnlocked(limit))
+  }
+
+  private async pollUnlocked(limit: number): Promise<{ payloads: WirePayload[]; gapDetected: boolean }> {
+    const response = await relayRequest<{ envelopes: WireEnvelope[] }>(
+      this.credentials.serverUrl,
+      `/v1/outbox?limit=${Math.max(1, Math.min(200, limit))}`,
+      { headers: authHeaders(this.credentials) },
+    )
+    const payloads: WirePayload[] = []
+    for (const envelope of response.envelopes) {
+      const acknowledgementKey = `${envelope.senderDeviceId}|${envelope.streamId}`
+      const previous = this.state.acknowledgements[acknowledgementKey]
+      if (previous !== undefined && envelope.seq > previous + 1) {
+        return { payloads, gapDetected: true }
+      }
+      if (previous !== undefined && envelope.seq <= previous) {
+        await this.acknowledge(envelope)
+        continue
+      }
+      if (envelope.streamId.startsWith('keys_')) {
+        const rootSecret = Buffer.from(this.credentials.rootSecret, 'base64url')
+        const secretKey = deriveWireContentKeyPair(rootSecret).secretKey
+        const dataKey = unwrapWireDataKey(envelope.cipherBundle, secretKey)
+        if (!dataKey) throw new Error('无法解封 Android 请求密钥')
+        this.state.wrappedKeys[envelope.keyId] = envelope.cipherBundle
+      } else {
+        const wrappedKey = this.state.wrappedKeys[envelope.keyId]
+        if (!wrappedKey) throw new Error(`缺少 Android 请求密钥 ${envelope.keyId}`)
+        const rootSecret = Buffer.from(this.credentials.rootSecret, 'base64url')
+        const dataKey = unwrapWireDataKey(wrappedKey, deriveWireContentKeyPair(rootSecret).secretKey)
+        if (!dataKey) throw new Error('Android 请求密钥已损坏')
+        const plaintext = decryptWireBytes(envelope.cipherBundle, dataKey, envelope)
+        const payload = JSON.parse(Buffer.from(plaintext).toString('utf8')) as WirePayload
+        if (payload.schema !== 1 || typeof payload.type !== 'string') throw new Error('不支持的 Wire 请求载荷')
+        payloads.push(payload)
+      }
+      this.state.acknowledgements[acknowledgementKey] = envelope.seq
+      this.persist()
+      await this.acknowledge(envelope)
+    }
+    return { payloads, gapDetected: false }
+  }
+
+  requestState(requestId: string): WireAgentState['requests'][string] | undefined {
+    return this.state.requests[requestId]
+  }
+
+  markRequest(requestId: string, state: 'inflight' | 'completed', result?: unknown, error?: string): void {
+    this.state.requests[requestId] = {
+      state,
+      updatedAt: Date.now(),
+      ...(result === undefined ? {} : { result }),
+      ...(error === undefined ? {} : { error }),
+    }
+    const cutoff = Date.now() - 7 * 24 * 60 * 60_000
+    for (const [id, request] of Object.entries(this.state.requests)) {
+      if (request.updatedAt < cutoff) delete this.state.requests[id]
+    }
+    this.persist()
   }
 
   catalogPublishState(): Pick<WireAgentState, 'lastCatalogRevision' | 'lastPublishedAt'> {
@@ -187,8 +298,26 @@ export class WireRelayAgentClient {
     this.persist()
   }
 
+  private async acknowledge(envelope: WireEnvelope): Promise<void> {
+    await relayRequest(this.credentials.serverUrl, '/v1/acks', {
+      method: 'POST',
+      headers: authHeaders(this.credentials),
+      body: JSON.stringify({
+        senderDeviceId: envelope.senderDeviceId,
+        streamId: envelope.streamId,
+        seq: envelope.seq,
+      }),
+    })
+  }
+
   private persist(): void {
     this.home.saveWireState(this.state)
+  }
+
+  private async exclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.operationQueue.then(operation, operation)
+    this.operationQueue = result.then(() => undefined, () => undefined)
+    return result
   }
 }
 
@@ -244,9 +373,11 @@ function authHeaders(credentials: WireAgentCredentials): Record<string, string> 
 }
 
 async function relayRequest<T = unknown>(origin: string, path: string, init: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) }
+  if (init.body !== undefined && init.body !== null) headers['Content-Type'] = 'application/json'
   const response = await fetch(`${origin}${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+    headers,
   })
   const text = await response.text()
   if (!response.ok) throw new Error(`Relay HTTP ${response.status} ${path}: ${safeRelayError(text)}`)

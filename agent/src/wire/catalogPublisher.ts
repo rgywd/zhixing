@@ -11,14 +11,17 @@ import type { CatalogProject, CatalogThreadSummary, CodexCatalogSnapshot } from 
 
 const REPUBLISH_INTERVAL_MS = 5 * 60_000
 
-export async function publishCatalogOnce(home: AgentHome, force = false): Promise<{
+export async function publishCatalogOnce(
+  home: AgentHome,
+  force = false,
+  relay = new WireRelayAgentClient(home),
+): Promise<{
   revision: number
   projects: number
   threads: number
   recipients: number
   skipped: boolean
 }> {
-  const relay = new WireRelayAgentClient(home)
   const settings = home.loadSettings()
   const client = new CodexAppServerClient(undefined, undefined, () => {})
   try {

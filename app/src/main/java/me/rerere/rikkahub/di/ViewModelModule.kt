@@ -90,6 +90,7 @@ val viewModelModule = module {
             machineId = params[0],
             threadId = params[1],
             repository = get(),
+            relayClient = get(),
         )
     }
     viewModelOf(::WorkNewTaskVM)

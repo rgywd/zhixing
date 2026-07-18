@@ -12,6 +12,8 @@ import me.rerere.rikkahub.data.db.entity.CodexCatalogSyncEntity
 import me.rerere.rikkahub.data.db.entity.CodexItemEntity
 import me.rerere.rikkahub.data.db.entity.CodexMachineEntity
 import me.rerere.rikkahub.data.db.entity.CodexProjectEntity
+import me.rerere.rikkahub.data.db.entity.CodexApprovalEntity
+import me.rerere.rikkahub.data.db.entity.CodexRuntimeBindingEntity
 import me.rerere.rikkahub.data.db.entity.CodexThreadEntity
 import me.rerere.rikkahub.data.db.entity.CodexTurnEntity
 
@@ -19,6 +21,8 @@ interface WireCatalogSink {
     suspend fun applySnapshot(snapshot: CatalogSnapshotPayload, syncedAt: Long = System.currentTimeMillis()): Boolean
     suspend fun applySnapshotChunk(chunk: CatalogSnapshotChunkPayload, receivedAt: Long = System.currentTimeMillis()): Boolean
     suspend fun applyThreadDetail(detail: ThreadDetailPayload)
+    suspend fun applyRuntimeEvent(event: RuntimeEventPayload) = Unit
+    suspend fun applyCommandResult(result: CommandResultPayload) = Unit
 }
 
 class CodexCatalogRepository(
@@ -50,7 +54,8 @@ class CodexCatalogRepository(
         dao.observeThread(machineId, threadId),
         dao.observeTurns(machineId, threadId),
         dao.observeItems(machineId, threadId),
-    ) { thread, turns, items ->
+        dao.observeApprovals(machineId, threadId),
+    ) { thread, turns, items, approvals ->
         val itemsByTurn = items.groupBy(CodexItemEntity::turnId)
         CodexThreadDetail(
             thread = thread?.toModel(),
@@ -71,6 +76,14 @@ class CodexCatalogRepository(
                             status = item.status,
                         )
                     },
+                )
+            },
+            approvals = approvals.map { approval ->
+                CodexApproval(
+                    approvalId = approval.approvalId,
+                    kind = approval.kind,
+                    summary = approval.summary,
+                    createdAt = approval.createdAt,
                 )
             },
         )
@@ -156,6 +169,107 @@ class CodexCatalogRepository(
             }
         }
         dao.replaceThreadDetail(detail.machineId, detail.threadId, turns, items)
+    }
+
+    override suspend fun applyRuntimeEvent(event: RuntimeEventPayload) {
+        when (event.type) {
+            "runtime.connected" -> {
+                dao.upsertRuntimeBinding(
+                    CodexRuntimeBindingEntity(
+                        machineId = event.machineId,
+                        threadId = event.threadId,
+                        bindingId = requireNotNull(event.bindingId),
+                        state = event.state ?: "idle",
+                        updatedAt = event.at,
+                    )
+                )
+                dao.updateThreadRuntime(event.machineId, event.threadId, event.state ?: "idle", event.at)
+            }
+            "turn.started" -> {
+                val turnId = requireNotNull(event.turnId)
+                dao.upsertTurns(
+                    listOf(
+                        CodexTurnEntity(
+                            machineId = event.machineId,
+                            threadId = event.threadId,
+                            turnId = turnId,
+                            status = "inProgress",
+                            startedAt = event.at,
+                            completedAt = null,
+                            durationMs = null,
+                            error = null,
+                            position = dao.turnPosition(event.machineId, event.threadId, turnId)
+                                ?: dao.nextTurnPosition(event.machineId, event.threadId),
+                        )
+                    )
+                )
+                dao.updateThreadRuntime(event.machineId, event.threadId, "running", event.at)
+            }
+            "item.started", "item.delta", "item.completed" -> {
+                val turnId = requireNotNull(event.turnId)
+                val itemId = requireNotNull(event.itemId)
+                dao.upsertItems(
+                    listOf(
+                        CodexItemEntity(
+                            machineId = event.machineId,
+                            threadId = event.threadId,
+                            turnId = turnId,
+                            itemId = itemId,
+                            type = event.itemType ?: "opaque",
+                            rawType = event.itemType ?: "opaque",
+                            role = event.role ?: "unknown",
+                            text = event.text,
+                            status = event.status ?: if (event.type == "item.completed") "completed" else "inProgress",
+                            rawJson = "{}",
+                            position = dao.itemPosition(event.machineId, event.threadId, turnId, itemId)
+                                ?: dao.nextItemPosition(event.machineId, event.threadId, turnId),
+                        )
+                    )
+                )
+            }
+            "turn.completed" -> {
+                val turnId = requireNotNull(event.turnId)
+                dao.upsertTurns(
+                    listOf(
+                        CodexTurnEntity(
+                            machineId = event.machineId,
+                            threadId = event.threadId,
+                            turnId = turnId,
+                            status = event.status ?: "completed",
+                            startedAt = null,
+                            completedAt = event.at,
+                            durationMs = null,
+                            error = null,
+                            position = dao.turnPosition(event.machineId, event.threadId, turnId)
+                                ?: dao.nextTurnPosition(event.machineId, event.threadId),
+                        )
+                    )
+                )
+                dao.updateThreadRuntime(event.machineId, event.threadId, "idle", event.at)
+            }
+            "approval.requested" -> dao.upsertApprovals(
+                listOf(
+                    CodexApprovalEntity(
+                        machineId = event.machineId,
+                        threadId = event.threadId,
+                        approvalId = requireNotNull(event.approvalId),
+                        kind = event.kind ?: "permission",
+                        summary = event.summary ?: "请求授权",
+                        payloadJson = json.encodeToString(event.payload),
+                        createdAt = event.at,
+                    )
+                )
+            )
+            "approval.resolved" -> dao.deleteApproval(
+                event.machineId,
+                event.threadId,
+                requireNotNull(event.approvalId),
+            )
+            "thread.archive" -> dao.updateThreadArchived(event.machineId, event.threadId, true, event.at)
+            "thread.unarchive" -> dao.updateThreadArchived(event.machineId, event.threadId, false, event.at)
+            "thread.delete" -> dao.deleteThreadWithDetails(event.machineId, event.threadId)
+            "error" -> dao.updateThreadRuntime(event.machineId, event.threadId, "system_error", event.at)
+        }
     }
 }
 

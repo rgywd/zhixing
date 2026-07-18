@@ -20,6 +20,14 @@ export interface WireAgentCredentials {
 export interface WireAgentState {
   sequences: Record<string, number>
   pending: Record<string, import('./wire/types.js').WireEnvelope>
+  wrappedKeys: Record<string, string>
+  acknowledgements: Record<string, number>
+  requests: Record<string, {
+    state: 'inflight' | 'completed'
+    updatedAt: number
+    result?: unknown
+    error?: string
+  }>
   lastCatalogRevision: number | null
   lastPublishedAt: number | null
 }
@@ -78,11 +86,15 @@ export class AgentHome {
   }
 
   loadWireState(): WireAgentState {
-    return this.readJson<WireAgentState>('wire-state.json') ?? {
-      sequences: {},
-      pending: {},
-      lastCatalogRevision: null,
-      lastPublishedAt: null,
+    const existing = this.readJson<Partial<WireAgentState>>('wire-state.json') ?? {}
+    return {
+      sequences: existing.sequences ?? {},
+      pending: existing.pending ?? {},
+      wrappedKeys: existing.wrappedKeys ?? {},
+      acknowledgements: existing.acknowledgements ?? {},
+      requests: existing.requests ?? {},
+      lastCatalogRevision: existing.lastCatalogRevision ?? null,
+      lastPublishedAt: existing.lastPublishedAt ?? null,
     }
   }
 
