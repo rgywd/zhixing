@@ -1,12 +1,16 @@
 {
   "name": "zhixing-agent",
-  "version": "0.2.0-dev.1",
-  "description": "知行自研开发机代理：连接中继，向手机端提供 Codex 与 Claude Code 远程会话",
+  "version": "0.2.0",
+  "description": "知行自研开发机代理：通过 Wire v1 中继向手机端提供 Codex 原生远程会话",
   "license": "MIT",
   "type": "module",
   "bin": {
     "zhixing-agent": "dist/cli.js"
   },
+  "files": [
+    "dist/**/*.js",
+    "!dist/**/*.test.js"
+  ],
   "engines": {
     "node": ">=20"
   },
