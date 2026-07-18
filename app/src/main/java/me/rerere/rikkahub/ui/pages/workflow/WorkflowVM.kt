@@ -21,8 +21,9 @@ class WorkflowVM(
 ) : ViewModel() {
     var recoveryKey by mutableStateOf("")
         private set
-    var relayUrl by mutableStateOf(repository.relayServerUrl.value)
-        private set
+    private val relayUrlEditor = RelayUrlEditorState(repository.relayServerUrl.value)
+    val relayUrl: String
+        get() = relayUrlEditor.value
     var relayUrlError by mutableStateOf<String?>(null)
         private set
     var isSavingRelayUrl by mutableStateOf(false)
@@ -51,7 +52,8 @@ class WorkflowVM(
     private var searchJob: Job? = null
 
     val projects by derivedStateOf { buildWorkflowProjects(sessions, machines) }
-    val relayUrlChanged by derivedStateOf { relayUrl.trim().trimEnd('/') != repository.relayServerUrl.value }
+    val relayUrlChanged: Boolean
+        get() = relayUrlEditor.changed
 
     init {
         viewModelScope.launch { repository.observeMachines().collect { machines = it } }
@@ -94,7 +96,7 @@ class WorkflowVM(
     }
 
     fun updateRelayUrl(value: String) {
-        relayUrl = value
+        relayUrlEditor.update(value)
         relayUrlError = null
     }
 
@@ -103,7 +105,7 @@ class WorkflowVM(
         isSavingRelayUrl = true
         viewModelScope.launch {
             try {
-                relayUrl = repository.updateRelayServerUrl(relayUrl)
+                relayUrlEditor.markSaved(repository.updateRelayServerUrl(relayUrl))
                 relayUrlError = null
             } catch (exception: IllegalArgumentException) {
                 relayUrlError = exception.message ?: "中继地址格式不正确"
@@ -183,6 +185,22 @@ class WorkflowVM(
     private companion object {
         const val SNAPSHOT_THROTTLE_MS = 2_000L
         const val SEARCH_DEBOUNCE_MS = 250L
+    }
+}
+
+internal class RelayUrlEditorState(initialValue: String) {
+    var value by mutableStateOf(initialValue)
+        private set
+    private var persistedValue by mutableStateOf(initialValue)
+    val changed by derivedStateOf { value.trim().trimEnd('/') != persistedValue }
+
+    fun update(value: String) {
+        this.value = value
+    }
+
+    fun markSaved(normalizedValue: String) {
+        persistedValue = normalizedValue
+        value = normalizedValue
     }
 }
 

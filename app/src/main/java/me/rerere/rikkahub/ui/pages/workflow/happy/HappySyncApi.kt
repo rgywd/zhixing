@@ -126,6 +126,12 @@ class HappySyncApi(
         post("/v3/sessions/${session.id}/messages", credentials, body)
     }
 
+    /** Permanently deletes the remote session and all records owned by it. */
+    suspend fun deleteSession(credentials: HappyCredentials, sessionId: String) =
+        withContext(Dispatchers.IO) {
+            delete("/v1/sessions/$sessionId", credentials)
+        }
+
     private fun get(path: String, credentials: HappyCredentials): String {
         val request = Request.Builder()
             .url("${(serverUrl ?: credentials.serverUrl).trimEnd('/')}$path")
@@ -155,6 +161,19 @@ class HappySyncApi(
             val responseBody = response.body.string()
             if (!response.isSuccessful) throw HappySyncException(response.code, path)
             responseBody
+        }
+    }
+
+    private fun delete(path: String, credentials: HappyCredentials) {
+        val request = Request.Builder()
+            .url("${(serverUrl ?: credentials.serverUrl).trimEnd('/')}$path")
+            .header("Authorization", "Bearer ${credentials.token}")
+            .header("Content-Type", "application/json")
+            .header("X-Happy-Client", clientId)
+            .delete()
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw HappySyncException(response.code, path)
         }
     }
 

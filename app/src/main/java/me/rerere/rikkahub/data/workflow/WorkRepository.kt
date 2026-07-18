@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import me.rerere.rikkahub.data.db.dao.WorkMachineDAO
@@ -201,34 +202,38 @@ class WorkRepository(
     suspend fun syncMessages(sessionId: String) {
         val credentials = loadCredentials() ?: return
         val session = requireProtocolSession(sessionId)
-        val afterSeq = messageDao.maxSeq(sessionId) ?: 0
-        val records = syncApi.fetchMessages(credentials, session, afterSeq)
-        if (records.isEmpty()) return
-        var latestMode: Pair<Long, String>? = null
-        val entities = records.mapNotNull { record ->
-            val parsed = WorkMessageParser.parse(record.body) ?: return@mapNotNull null
-            parsed.permissionMode?.let { mode ->
-                if (latestMode == null || record.seq > latestMode!!.first) {
-                    latestMode = record.seq to mode
+        snapshotMutex.withLock {
+            // Deletion may have won the lock after requireProtocolSession refreshed the cache.
+            if (!protocolSessions.containsKey(sessionId)) return@withLock
+            val afterSeq = messageDao.maxSeq(sessionId) ?: 0
+            val records = syncApi.fetchMessages(credentials, session, afterSeq)
+            if (records.isEmpty()) return@withLock
+            var latestMode: Pair<Long, String>? = null
+            val entities = records.mapNotNull { record ->
+                val parsed = WorkMessageParser.parse(record.body) ?: return@mapNotNull null
+                parsed.permissionMode?.let { mode ->
+                    if (latestMode == null || record.seq > latestMode!!.first) {
+                        latestMode = record.seq to mode
+                    }
                 }
-            }
-            WorkMessageEntity.fromModel(
-                WorkMessage(
-                    id = record.id,
-                    sessionId = sessionId,
-                    seq = record.seq,
-                    role = parsed.role,
-                    parts = parsed.parts,
-                    createdAt = record.createdAt,
+                WorkMessageEntity.fromModel(
+                    WorkMessage(
+                        id = record.id,
+                        sessionId = sessionId,
+                        seq = record.seq,
+                        role = parsed.role,
+                        parts = parsed.parts,
+                        createdAt = record.createdAt,
+                    )
                 )
-            )
+            }
+            if (entities.isNotEmpty()) {
+                messageDao.upsertAll(entities)
+                runCatching { ftsManager.indexMessages(entities.map(WorkMessageEntity::toModel)) }
+            }
+            // 其他客户端也可能切换过模式，用最新用户消息的 meta 回填会话级模式
+            latestMode?.let { (_, mode) -> sessionDao.updatePermissionMode(sessionId, mode) }
         }
-        if (entities.isNotEmpty()) {
-            messageDao.upsertAll(entities)
-            runCatching { ftsManager.indexMessages(entities.map(WorkMessageEntity::toModel)) }
-        }
-        // 其他客户端也可能切换过模式，用最新用户消息的 meta 回填会话级模式
-        latestMode?.let { (_, mode) -> sessionDao.updatePermissionMode(sessionId, mode) }
     }
 
     /**
@@ -281,6 +286,29 @@ class WorkRepository(
 
     suspend fun abort(sessionId: String) {
         socketClient.abort(requireCredentials(), requireProtocolSession(sessionId))
+    }
+
+    /**
+     * Permanently deletes a Happy session. Active local runners are stopped best-effort first;
+     * remote deletion itself only needs account credentials, so undecryptable sessions remain deletable.
+     */
+    suspend fun deleteSession(sessionId: String) {
+        val credentials = requireCredentials()
+        snapshotMutex.withLock {
+            val localSession = sessionDao.getById(sessionId)?.toModel()
+            val protocolSession = protocolSessions[sessionId]
+            val machine = (protocolSession?.machineId ?: localSession?.machineId)?.let(protocolMachines::get)
+            if (localSession?.active == true && machine?.active == true) {
+                withTimeoutOrNull(DELETE_STOP_TIMEOUT_MS) {
+                    runCatching { socketClient.stopSession(credentials, machine, sessionId) }
+                }
+            }
+            syncApi.deleteSession(credentials, sessionId)
+            protocolSessions.remove(sessionId)
+            messageDao.deleteBySession(sessionId)
+            sessionDao.deleteById(sessionId)
+            runCatching { ftsManager.deleteSession(sessionId) }
+        }
     }
 
     suspend fun approve(sessionId: String, approvalId: String, forSession: Boolean) {
@@ -419,6 +447,7 @@ class WorkRepository(
     private companion object {
         const val SESSION_WAIT_ATTEMPTS = 10
         const val SESSION_WAIT_INTERVAL_MS = 1_000L
+        const val DELETE_STOP_TIMEOUT_MS = 5_000L
     }
 }
 

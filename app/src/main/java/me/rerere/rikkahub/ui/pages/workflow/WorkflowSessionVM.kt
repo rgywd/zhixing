@@ -36,6 +36,8 @@ class WorkflowSessionVM(
         private set
     var resumedSessionId by mutableStateOf<String?>(null)
         private set
+    var deleted by mutableStateOf(false)
+        private set
 
     /** 会话级执行模式；随每条消息显式下发，CLI 侧粘滞 */
     var fullAccess by mutableStateOf(false)
@@ -101,6 +103,22 @@ class WorkflowSessionVM(
     fun stop() {
         if (session == null) return
         act("已请求停止任务") { repository.abort(sessionId) }
+    }
+
+    fun delete() {
+        if (session == null || isActing) return
+        viewModelScope.launch {
+            isActing = true
+            actionError = null
+            try {
+                repository.deleteSession(sessionId)
+                deleted = true
+            } catch (throwable: Throwable) {
+                actionError = throwable.toWorkflowMessage()
+            } finally {
+                isActing = false
+            }
+        }
     }
 
     fun resumeSession() {

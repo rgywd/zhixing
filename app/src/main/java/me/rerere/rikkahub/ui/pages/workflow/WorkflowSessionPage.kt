@@ -55,6 +55,7 @@ import me.rerere.asr.ASRStatus
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.File02
 import me.rerere.hugeicons.stroke.ArrowUp02
+import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.ui.components.ai.AsrButton
 import me.rerere.rikkahub.ui.components.ai.TextInputRow
@@ -86,6 +87,7 @@ fun WorkflowSessionPage(
     val navController = LocalNavController.current
     val context = LocalContext.current
     var stopConfirmation by remember { mutableStateOf(false) }
+    var deleteConfirmation by remember { mutableStateOf(false) }
     var modeConfirmation by remember { mutableStateOf(false) }
     var approvalConfirmation by remember { mutableStateOf<ApprovalConfirmation?>(null) }
     val listState = rememberLazyListState()
@@ -102,6 +104,9 @@ fun WorkflowSessionPage(
             vm.consumeResumedSession()
             navController.navigate(Screen.WorkflowSession(id))
         }
+    }
+    LaunchedEffect(vm.deleted) {
+        if (vm.deleted) navController.popBackStack()
     }
 
     Scaffold(
@@ -129,6 +134,12 @@ fun WorkflowSessionPage(
                 actions = {
                     IconButton(onClick = { navController.navigate(Screen.WorkSessionLog(sessionId)) }) {
                         Icon(HugeIcons.File02, contentDescription = "完整日志")
+                    }
+                    IconButton(
+                        onClick = { deleteConfirmation = true },
+                        enabled = vm.session != null && !vm.isActing,
+                    ) {
+                        Icon(HugeIcons.Delete01, contentDescription = "删除会话")
                     }
                     TextButton(
                         onClick = { stopConfirmation = true },
@@ -259,6 +270,22 @@ fun WorkflowSessionPage(
             onConfirm = {
                 stopConfirmation = false
                 vm.stop()
+            },
+        )
+    }
+    if (deleteConfirmation) {
+        ConfirmationDialog(
+            title = "永久删除这个会话？",
+            summary = vm.session.targetSummary() + if (vm.session?.active == true) {
+                "\n会先尝试停止开发机上的任务，再永久删除中继中的会话和消息。此操作无法恢复。"
+            } else {
+                "\n将永久删除中继中的会话和消息。此操作无法恢复。"
+            },
+            confirmText = "永久删除",
+            onDismiss = { deleteConfirmation = false },
+            onConfirm = {
+                deleteConfirmation = false
+                vm.delete()
             },
         )
     }

@@ -74,6 +74,7 @@ jobs:
             --tests me.rerere.rikkahub.data.datastore.AgentPlanSpeechKeyResolutionTest \
             --tests me.rerere.rikkahub.data.ai.tools.local.GitHubIssueToolTest \
             --tests me.rerere.rikkahub.data.github.GitHubIssueClientTest \
+            --tests me.rerere.rikkahub.ui.pages.workflow.RelayUrlEditorStateTest \
             --tests 'me.rerere.rikkahub.ui.pages.workflow.happy.*' \
             --tests me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigureConvertToTest
 
