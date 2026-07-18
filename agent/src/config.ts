@@ -8,7 +8,7 @@ export const AGENT_VERSION = '0.1.0'
 export const DEFAULT_SERVER_URL = 'https://api.cluster-fluster.com'
 
 export function isClaudeP2Enabled(environment: NodeJS.ProcessEnv = process.env): boolean {
-  return environment.ZHIXING_ENABLE_CLAUDE_P2 === '1'
+  return environment.ZHIXING_ENABLE_CLAUDE_P2 !== '0'
 }
 
 export interface AgentSettings {

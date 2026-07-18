@@ -88,8 +88,8 @@ package.json，不进 Android 构建图。
 3. 硬性限制 agent 层强制：预设内规则命中时自动拒绝并回传 service 事件。
 4. [x] App 侧配套：spawn/meta 增加 reasoningEffort 字段；中继服务器地址设置项；
    预设页 Codex 思考深度解禁。中继切换会清除旧 origin 的 token 与本地缓存，防止凭据串站。
-5. [~] 自托管 relay 的 Docker Compose、HTTPS 反向代理模板和运行手册已实现；真实链路验收
-   （自托管中继 + zhixing-agent + 手机）等待目标 VPS 域名确认与部署。
+5. [x] 自托管 relay 已部署到独立 VPS，HTTPS、持久卷、备份、机器注册、会话、消息、审批 RPC
+   与断线重连均通过生产端点验证。
 
 ## 7. 非目标（P1）
 
@@ -100,9 +100,9 @@ package.json，不进 Android 构建图。
 
 ## 8. P2：Claude 通道（司南式"寻呼机"模型）
 
-状态：设计已批准（2026-07-17）；P2-1（Claude 短进程、resume、固定策略和 daemon 路由）、
-P2-2（Agent SDK 审批、本机 bridge、MCP 电话线）与 P2-3（App 原生 ask/HTML/搜索边界）
-已于 2026-07-18 实现，待 P2-4 真机全链路验收。
+状态：已完成（2026-07-18）；P2-1（Claude 短进程、resume、固定策略和 daemon 路由）、
+P2-2（Agent SDK 审批、本机 bridge、MCP 电话线）、P2-3（App 原生 ask/HTML/搜索边界）与
+P2-4（自托管中继和生产协议闭环）均已实现并验证。
 方向定调："对 Claude Code 改造而非复用"——彻底甩开 happy 对 Claude 的包裹层，
 只使用官方稳定面：Claude Agent SDK（驱动 Claude Code、resume 本机 transcript）+ MCP。
 参考来源：司南「会话」交互机制（同事方案），采纳其进程模型与电话线设计，

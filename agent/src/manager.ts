@@ -14,7 +14,7 @@ export interface AgentManagerContext {
   clientId: string
   machineId: string
   credentials: Credentials
-  /** P2-2 完整闭环前默认关闭，避免 App 把半成品 Claude 通道展示为可用 */
+  /** 默认启用；仅供紧急回滚时显式关闭 Claude 通道 */
   enableClaude?: boolean
 }
 
@@ -34,7 +34,7 @@ export class AgentManager {
       if (!this.claudeEnabled) {
         return Promise.resolve({
           type: 'error',
-          errorMessage: 'Claude P2 尚处于联调阶段；开发机需显式设置 ZHIXING_ENABLE_CLAUDE_P2=1',
+          errorMessage: 'Claude 通道已被开发机设置 ZHIXING_ENABLE_CLAUDE_P2=0 关闭',
         })
       }
       return this.claude.spawn(params)
