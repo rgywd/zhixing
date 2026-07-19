@@ -138,6 +138,7 @@ import me.rerere.rikkahub.ui.pages.workflow.codex.CodexConnectionSettingsPage
 import me.rerere.rikkahub.ui.pages.workflow.codex.CodexProjectPage
 import me.rerere.rikkahub.ui.pages.workflow.codex.CodexThreadPage
 import me.rerere.rikkahub.ui.pages.workflow.codex.CodexWorkflowPage
+import me.rerere.rikkahub.ui.pages.workflow.codex.DirectWorkRoute
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.ui.theme.RikkahubTheme
 import me.rerere.rikkahub.utils.CrashHandler
@@ -365,7 +366,7 @@ class RouteActivity : ComponentActivity() {
                             }
 
                             entry<Screen.Workflow> {
-                                if (BuildConfig.CODEX_WORKFLOW_ENABLED) CodexWorkflowPage() else WorkflowPage()
+                                if (BuildConfig.CODEX_WORKFLOW_ENABLED) DirectWorkRoute() else WorkflowPage()
                             }
 
                             entry<Screen.LegacyWorkflow> {
@@ -405,7 +406,7 @@ class RouteActivity : ComponentActivity() {
                             }
 
                             entry<Screen.CodexWorkflow> {
-                                CodexWorkflowPage()
+                                DirectWorkRoute()
                             }
 
                             entry<Screen.CodexProject> { key ->

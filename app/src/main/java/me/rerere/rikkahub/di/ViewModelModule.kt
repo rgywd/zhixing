@@ -26,6 +26,7 @@ import me.rerere.rikkahub.ui.pages.workflow.WorkflowVM
 import me.rerere.rikkahub.ui.pages.workflow.WorkflowSessionVM
 import me.rerere.rikkahub.ui.pages.workflow.codex.CodexThreadVM
 import me.rerere.rikkahub.ui.pages.workflow.codex.CodexWorkflowVM
+import me.rerere.rikkahub.ui.pages.workflow.codex.DirectWorkVM
 import org.koin.core.module.dsl.viewModel
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
@@ -85,6 +86,15 @@ val viewModelModule = module {
     viewModelOf(::StatsVM)
     viewModelOf(::WorkflowVM)
     viewModelOf(::CodexWorkflowVM)
+    viewModel<DirectWorkVM> { params ->
+        DirectWorkVM(
+            repositoryId = params[0],
+            client = get(),
+            connectionStore = get(),
+            workUiStore = get(),
+            attachmentClient = get(),
+        )
+    }
     viewModel<CodexThreadVM> { params ->
         CodexThreadVM(
             machineId = params[0],

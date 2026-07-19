@@ -10,6 +10,9 @@ import kotlin.time.Instant
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.work.AppServerAttachedFile
+import me.rerere.rikkahub.data.work.AppServerAttachmentManifest
+import me.rerere.rikkahub.data.work.AppServerCommandInputs
 
 /**
  * The single presentation boundary between Codex app-server Items and Zhixing's
@@ -125,22 +128,42 @@ object CodexMessageProjector {
 
     private fun CodexItem.userParts(attachments: Map<String, CodexAttachment>): List<UIMessagePart> {
         val content = raw["content"] as? JsonArray ?: return emptyList()
-        return content.mapNotNull { element ->
+        val manifestedNames = content.mapNotNull { element ->
             val part = element as? JsonObject ?: return@mapNotNull null
+            part.string("text")?.let(AppServerAttachmentManifest::parse)
+        }.flatMap { parsed -> parsed.files.map(AppServerAttachedFile::name) }.toSet()
+        val commandNames = content.mapNotNull { element ->
+            val part = element as? JsonObject ?: return@mapNotNull null
+            part.string("text")?.let(AppServerAttachmentManifest::parse)?.visibleText
+        }.flatMap { AppServerCommandInputs.names(it) }.toSet()
+        return content.flatMap { element ->
+            val part = element as? JsonObject ?: return@flatMap emptyList()
             when (part.string("type")) {
-                "text" -> part.string("text")?.let(UIMessagePart::Text)
-                "image" -> part.string("url")?.let(UIMessagePart::Image)
+                "text" -> part.string("text")?.let(AppServerAttachmentManifest::parse)?.let { parsed ->
+                    listOfNotNull(
+                        parsed.visibleText.takeIf(String::isNotBlank)?.let(UIMessagePart::Text),
+                    ) + parsed.files.map { file ->
+                        attachments[file.path]?.let { attachment ->
+                            UIMessagePart.Document(attachment.localUri, attachment.fileName, attachment.mime)
+                        } ?: UIMessagePart.Text("@${file.name}")
+                    }
+                }.orEmpty()
+                "image" -> part.string("url")?.let { listOf(UIMessagePart.Image(it)) }.orEmpty()
                 "localImage" -> part.string("path")?.let { path ->
-                    attachments[path]?.let { attachment -> UIMessagePart.Image(attachment.localUri) }
-                        ?: UIMessagePart.Text("[图片：${path.fileName()}（仅开发机可用）]")
-                }
-                "skill" -> part.string("name")?.let { UIMessagePart.Text("\$$it", metadata = part) }
+                    listOf(attachments[path]?.let { attachment -> UIMessagePart.Image(attachment.localUri) }
+                        ?: UIMessagePart.Text("[图片：${path.fileName()}（仅开发机可用）]"))
+                }.orEmpty()
+                "skill" -> part.string("name")?.takeUnless { it in commandNames }
+                    ?.let { UIMessagePart.Text("\$$it", metadata = part) }
+                    ?.let(::listOf).orEmpty()
                 "mention" -> part.string("path")?.let { path ->
-                    attachments[path]?.let { attachment ->
+                    part.string("name")?.takeIf { it in manifestedNames || it in commandNames }?.let { emptyList() }
+                        ?: attachments[path]?.let { attachment -> listOf(
                         UIMessagePart.Document(attachment.localUri, attachment.fileName, attachment.mime)
-                    } ?: part.string("name")?.let { UIMessagePart.Text("@$it", metadata = part) }
-                }
-                else -> null
+                    ) } ?: part.string("name")?.let { listOf(UIMessagePart.Text("@$it", metadata = part)) }
+                        ?: emptyList()
+                }.orEmpty()
+                else -> emptyList()
             }
         }
     }

@@ -3,6 +3,7 @@ package me.rerere.rikkahub.data.work
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -45,11 +46,13 @@ class AppServerJsonRpcClientTest {
     @Test
     fun `sends bearer and completes initialize before becoming ready`() = runBlocking {
         val frames = Collections.synchronizedList(mutableListOf<JsonObject>())
+        val initializedSeen = CountDownLatch(1)
         server.enqueue(webSocketResponse { socket, message ->
             frames += message
             if (message.string("method") == "initialize") {
                 socket.send("""{"id":${message["id"]},"result":{"userAgent":"codex-test","platformFamily":"windows"}}""")
             }
+            if (message.string("method") == "initialized") initializedSeen.countDown()
         })
         val client = client()
 
@@ -59,6 +62,7 @@ class AppServerJsonRpcClientTest {
         assertEquals("Bearer secret-token", handshake.getHeader("Authorization"))
         assertEquals("codex-test", info.string("userAgent"))
         assertEquals(AppServerConnectionPhase.READY, client.state.value.phase)
+        assertTrue(initializedSeen.await(2, TimeUnit.SECONDS))
         assertEquals(listOf("initialize", "initialized"), frames.map { it.string("method") })
         val initialize = frames.first()
         assertEquals("zhixing_android", initialize["params"]!!.jsonObject["clientInfo"]!!.jsonObject.string("name"))
@@ -102,14 +106,45 @@ class AppServerJsonRpcClientTest {
             }
         })
         val client = client()
+        val notificationResult = async(start = CoroutineStart.UNDISPATCHED) {
+            withTimeout(2_000) { client.notifications.first() }
+        }
+        val requestResult = async(start = CoroutineStart.UNDISPATCHED) {
+            withTimeout(2_000) { client.serverRequests.first() }
+        }
         client.connect(endpoint())
 
-        val notification = withTimeout(2_000) { client.notifications.first() }
-        val request = withTimeout(2_000) { client.serverRequests.first() }
+        val notification = notificationResult.await()
+        val request = requestResult.await()
         assertEquals("turn/started", notification.method)
         assertEquals("item/commandExecution/requestApproval", request.method)
         client.respond(request, buildJsonObject { put("decision", "decline") })
         assertTrue(responseSeen.await(2, TimeUnit.SECONDS))
+        client.disconnect()
+    }
+
+    @Test
+    fun `broadcasts a notification to every repository controller`() = runBlocking {
+        server.enqueue(webSocketResponse { socket, message ->
+            when (message.string("method")) {
+                "initialize" -> socket.send("""{"id":${message["id"]},"result":{}}""")
+                "initialized" -> socket.send(
+                    """{"method":"turn/started","params":{"threadId":"thread_1","turn":{"id":"turn_1"}}}"""
+                )
+            }
+        })
+        val client = client()
+        val first = async(start = CoroutineStart.UNDISPATCHED) {
+            withTimeout(2_000) { client.notifications.first() }
+        }
+        val second = async(start = CoroutineStart.UNDISPATCHED) {
+            withTimeout(2_000) { client.notifications.first() }
+        }
+
+        client.connect(endpoint())
+
+        assertEquals("turn/started", first.await().method)
+        assertEquals("turn/started", second.await().method)
         client.disconnect()
     }
 

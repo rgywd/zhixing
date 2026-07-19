@@ -21,13 +21,10 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PermanentNavigationDrawer
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.adaptive.currentWindowDpSize
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberDrawerState
@@ -42,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -298,12 +296,10 @@ private fun ChatPageContent(
 
     TTSAutoPlay(vm = vm, setting = setting, conversation = conversation)
 
-    Surface(
-        color = MaterialTheme.colorScheme.background,
-        modifier = Modifier.fillMaxSize()
-    ) {
-        AssistantBackground(setting = setting, modifier = Modifier.hazeSource(hazeState))
-        Scaffold(
+    NativeChatScaffold(
+        background = {
+            AssistantBackground(setting = setting, modifier = Modifier.hazeSource(hazeState))
+        },
             topBar = {
                 TopBar(
                     settings = setting,
@@ -407,7 +403,7 @@ private fun ChatPageContent(
                     },
                 )
             },
-            containerColor = Color.Transparent,
+        containerColor = Color.Transparent,
         ) { innerPadding ->
             ChatList(
                 innerPadding = innerPadding,
@@ -484,18 +480,17 @@ private fun ChatPageContent(
                     vm.saveConversationAsync()
                 },
             )
-        }
+    }
 
-        if (showFilesSheet) {
-            ChatFilesPickerSheet(
-                inputState = inputState,
-                setting = setting,
-                conversation = conversation,
-                assistant = assistant,
-                vm = vm,
-                onDismiss = { showFilesSheet = false },
-            )
-        }
+    if (showFilesSheet) {
+        ChatFilesPickerSheet(
+            inputState = inputState,
+            setting = setting,
+            conversation = conversation,
+            assistant = assistant,
+            vm = vm,
+            onDismiss = { showFilesSheet = false },
+        )
     }
 }
 
@@ -509,6 +504,7 @@ private fun ChatFilesPickerSheet(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val toaster = LocalToaster.current
     val filesManager: FilesManager = koinInject()
     var showInjectionSheet by remember { mutableStateOf(false) }
@@ -636,7 +632,7 @@ private fun ChatFilesPickerSheet(
                         val localUri = filesManager.createChatFilesByContents(listOf(uri)).firstOrNull()
                             ?: run {
                                 toaster.show(
-                                    context.getString(R.string.chat_input_file_read_failed, fileName),
+                                    resources.getString(R.string.chat_input_file_read_failed, fileName),
                                     type = ToastType.Error
                                 )
                                 return@mapNotNull null
@@ -644,7 +640,7 @@ private fun ChatFilesPickerSheet(
                         UIMessagePart.Document(url = localUri.toString(), fileName = fileName, mime = mime)
                     } else {
                         toaster.show(
-                            context.getString(R.string.chat_input_unsupported_file_type, fileName),
+                            resources.getString(R.string.chat_input_unsupported_file_type, fileName),
                             type = ToastType.Error
                         )
                         null
@@ -721,8 +717,8 @@ private fun TopBar(
         onUpdateTitle(it)
     }
 
-    TopAppBar(
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+    NativeChatTopBar(
+        containerColor = Color.Transparent,
         navigationIcon = {
             if (!bigScreen) {
                 IconButton(

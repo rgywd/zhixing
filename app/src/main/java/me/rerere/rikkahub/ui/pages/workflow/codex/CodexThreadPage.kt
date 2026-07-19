@@ -1,7 +1,5 @@
 package me.rerere.rikkahub.ui.pages.workflow.codex
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,14 +36,11 @@ import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import me.rerere.rikkahub.data.workflow.codex.CodexApproval
 import me.rerere.rikkahub.data.workflow.codex.CodexMessageProjector
-import me.rerere.rikkahub.data.files.FilesManager
-import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.ui.components.ai.CodexChatComposer
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.message.MessagePartsBlock
 import me.rerere.rikkahub.ui.context.LocalNavController
 import org.koin.androidx.compose.koinViewModel
-import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
 
 @Composable
@@ -55,21 +50,11 @@ fun CodexThreadPage(
     vm: CodexThreadVM = koinViewModel(parameters = { parametersOf(machineId, threadId) }),
 ) {
     val navController = LocalNavController.current
-    val filesManager: FilesManager = koinInject()
     val detail = vm.detail
     val hazeState = rememberHazeState()
     var menuExpanded by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
-    val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        uris.forEach { uri ->
-            val name = filesManager.getFileNameFromUri(uri) ?: "file"
-            val mime = filesManager.getFileMimeType(uri) ?: "application/octet-stream"
-            filesManager.createChatFilesByContents(listOf(uri)).firstOrNull()?.let { localUri ->
-                if (mime.startsWith("image/")) vm.inputState.addImages(listOf(localUri))
-                else vm.inputState.addFiles(listOf(UIMessagePart.Document(localUri.toString(), name, mime)))
-            }
-        }
-    }
+    var showWorkOptions by remember { mutableStateOf(false) }
     LaunchedEffect(vm.deleted) {
         if (vm.deleted) navController.popBackStack()
     }
@@ -160,23 +145,14 @@ fun CodexThreadPage(
                     models = vm.runtimeCatalog?.models.orEmpty(),
                     selectedModel = vm.selectedModel,
                     selectedEffort = vm.selectedEffort,
-                    fastMode = vm.fastMode,
-                    permissionProfiles = vm.runtimeCatalog?.permissionProfiles.orEmpty(),
-                    selectedPermission = vm.selectedPermission,
                     skills = vm.runtimeCatalog?.skills.orEmpty(),
                     plugins = vm.runtimeCatalog?.plugins.orEmpty(),
                     apps = vm.runtimeCatalog?.apps.orEmpty(),
-                    capabilities = vm.runtimeCatalog?.capabilities
-                        ?: me.rerere.rikkahub.data.workflow.codex.CodexCatalogCapabilities(),
-                    selectedSkills = vm.selectedSkills,
                     runtimeSettings = vm.runtimeSettings,
                     hazeState = hazeState,
                     onSelectModel = vm::selectModel,
                     onSelectEffort = vm::selectEffort,
-                    onFastModeChange = vm::updateFastMode,
-                    onSelectPermission = vm::selectPermission,
-                    onToggleSkill = vm::toggleSkill,
-                    onAddAttachment = { attachmentPicker.launch(arrayOf("*/*")) },
+                    onAddAttachment = { showWorkOptions = true },
                     onSend = vm::send,
                     onStop = vm::interrupt,
                 )
@@ -252,6 +228,18 @@ fun CodexThreadPage(
                 )
             }
         }
+    }
+    if (showWorkOptions) {
+        CodexWorkOptionsSheet(
+            state = vm.inputState,
+            fastMode = vm.fastMode,
+            fastSupported = vm.selectedModel?.serviceTiers?.any { it.id == "priority" } == true,
+            permissionProfiles = vm.runtimeCatalog?.permissionProfiles.orEmpty(),
+            selectedPermission = vm.selectedPermission,
+            onFastModeChange = vm::updateFastMode,
+            onPermissionChange = vm::selectPermission,
+            onDismiss = { showWorkOptions = false },
+        )
     }
 }
 

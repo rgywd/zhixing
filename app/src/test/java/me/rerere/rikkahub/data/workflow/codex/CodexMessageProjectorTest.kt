@@ -5,6 +5,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import me.rerere.rikkahub.data.work.AppServerAttachedFile
+import me.rerere.rikkahub.data.work.AppServerAttachmentManifest
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessagePart
@@ -114,6 +116,82 @@ class CodexMessageProjectorTest {
 
         assertEquals("file:///phone/bug.png", (parts[0] as UIMessagePart.Image).url)
         assertEquals("spec.pdf", (parts[1] as UIMessagePart.Document).fileName)
+    }
+
+    @Test
+    fun `hides local attachment manifest while retaining an attachment label`() {
+        val prompt = AppServerAttachmentManifest.append(
+            "检查这个文件",
+            listOf(AppServerAttachedFile("spec.md", "C:/uploads/spec.md", "text/markdown")),
+        )
+        val detail = detail(
+            CodexItem(
+                "user_1", "userMessage", "userMessage", "user", prompt, "completed",
+                buildJsonObject {
+                    putJsonArray("content") {
+                        add(buildJsonObject { put("type", "text"); put("text", prompt) })
+                        add(buildJsonObject { put("type", "mention"); put("path", "C:/uploads/spec.md"); put("name", "spec.md") })
+                    }
+                },
+            )
+        )
+
+        val parts = CodexMessageProjector.project(detail).single().parts.filterIsInstance<UIMessagePart.Text>()
+
+        assertEquals(listOf("检查这个文件", "@spec.md"), parts.map { it.text })
+        assertTrue(parts.none { it.text.contains("zhixing_file_attachments") })
+    }
+
+    @Test
+    fun `keeps a native document part for an attachment uploaded in this session`() {
+        val prompt = AppServerAttachmentManifest.append(
+            "检查这个文件",
+            listOf(AppServerAttachedFile("spec.md", "C:/uploads/spec.md", "text/markdown")),
+        )
+        val detail = detail(
+            CodexItem(
+                "user_1", "userMessage", "userMessage", "user", prompt, "completed",
+                buildJsonObject {
+                    putJsonArray("content") {
+                        add(buildJsonObject { put("type", "text"); put("text", prompt) })
+                    }
+                },
+            )
+        ).copy(
+            attachments = mapOf(
+                "C:/uploads/spec.md" to CodexAttachment(
+                    "C:/uploads/spec.md",
+                    "content://phone/spec.md",
+                    "spec.md",
+                    "text/markdown",
+                )
+            )
+        )
+
+        val parts = CodexMessageProjector.project(detail).single().parts
+
+        assertEquals("检查这个文件", (parts[0] as UIMessagePart.Text).text)
+        assertEquals("spec.md", (parts[1] as UIMessagePart.Document).fileName)
+    }
+
+    @Test
+    fun `structured slash inputs do not duplicate the visible command`() {
+        val detail = detail(
+            CodexItem(
+                "user_1", "userMessage", "userMessage", "user", "/imagegen 画一张图", "completed",
+                buildJsonObject {
+                    putJsonArray("content") {
+                        add(buildJsonObject { put("type", "text"); put("text", "/imagegen 画一张图") })
+                        add(buildJsonObject { put("type", "skill"); put("name", "imagegen"); put("path", "C:/skills/imagegen/SKILL.md") })
+                        add(buildJsonObject { put("type", "mention"); put("name", "imagegen"); put("path", "app://imagegen") })
+                    }
+                },
+            )
+        )
+
+        val parts = CodexMessageProjector.project(detail).single().parts.filterIsInstance<UIMessagePart.Text>()
+
+        assertEquals(listOf("/imagegen 画一张图"), parts.map { it.text })
     }
 
     @Test

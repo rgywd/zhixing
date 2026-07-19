@@ -33,7 +33,10 @@ import me.rerere.rikkahub.data.workflow.wire.WireRelayCredentialsStore
 import me.rerere.rikkahub.data.workflow.wire.WireCredentialsStore
 import me.rerere.rikkahub.data.work.AppServerJsonRpcClient
 import me.rerere.rikkahub.data.work.EncryptedWorkConnectionStore
+import me.rerere.rikkahub.data.work.FileWorkUiStore
 import me.rerere.rikkahub.data.work.WorkConnectionStore
+import me.rerere.rikkahub.data.work.WorkUiStore
+import me.rerere.rikkahub.data.work.SupervisorAttachmentClient
 import me.rerere.tts.provider.TTSManager
 import org.koin.dsl.module
 import org.koin.core.qualifier.named
@@ -104,6 +107,8 @@ val appModule = module {
     // 0.2.0 direct path is added beside Wire until the full cutover gate passes.
     single { EncryptedWorkConnectionStore(get(), get()) }
     single<WorkConnectionStore> { get<EncryptedWorkConnectionStore>() }
+    single { FileWorkUiStore(get(), get()) }
+    single<WorkUiStore> { get<FileWorkUiStore>() }
     single(named("appServerWebSocket")) {
         OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
@@ -117,6 +122,16 @@ val appModule = module {
             json = get(),
         )
     }
+    single(named("workSupervisor")) {
+        OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(120, TimeUnit.SECONDS)
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
+    }
+    single { SupervisorAttachmentClient(get(), get(named("workSupervisor")), get()) }
 
     single {
         UpdateChecker(get())

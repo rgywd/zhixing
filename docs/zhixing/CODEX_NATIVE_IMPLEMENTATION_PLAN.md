@@ -1,6 +1,6 @@
 # 知行 Chat/Work 双模式与 App Server 直连实施计划
 
-状态：Executing
+状态：Executing（Android/loopback 闭环完成；Tailscale WSS 真机链路与发布验收待完成）
 日期：2026-07-19
 分支：`feat/66-work-mode-direct`
 跟踪：[GitHub Issue #66](https://github.com/rgywd/zhixing/issues/66)
@@ -195,7 +195,7 @@ npm run build
 
 ## 7. Phase D：共享 Chat 页面壳
 
-状态：待办
+状态：完成
 
 目标：不再维护独立 Codex Thread Scaffold，把普通 Chat 与 Work Chat 的差异收敛为 runtime/controller。
 
@@ -253,7 +253,7 @@ GREEN：
 
 ## 8. Phase E：侧边栏双模式与仓库分组
 
-状态：待办
+状态：完成
 
 目标：删除独立 Work 首页，把模式与仓库切换放入现有 Drawer。
 
@@ -291,7 +291,7 @@ GREEN：
 
 ## 9. Phase F：现有设置中的 Work 卡片
 
-状态：待办
+状态：完成
 
 目标：删除独立 Work 设置首页，在现有 `SettingPage` 内完成连接、仓库和诊断管理。
 
@@ -317,13 +317,13 @@ GREEN：
 
 ## 10. Phase G：直连切换与缓存迁移
 
-状态：待办
+状态：完成（direct 默认路径与旧数据隔离完成；Tailscale 外网验证仍由 Phase C 阻断）
 
 目标：在 direct 真实闭环通过后，把 Work 默认数据面从 Wire 切到 App Server。
 
 规则：
 
-- 增加新的 Room migration，不改写已发布 schema 31；
+- 新版 Work 会话选择、草稿和仓库配置写入独立原子文件 `work-ui.json`，不改写已发布 Room schema 31；
 - 保留旧 Codex Item cache 并按 `(connectionId, threadId)` 映射；
 - direct snapshot 成功前不覆盖旧缓存；
 - Wire/Relay/旧 Agent 保持可切回只读，不在本阶段删除；
@@ -343,7 +343,7 @@ GREEN：
 
 ## 11. Phase H：删除旁路与完整验收
 
-状态：待办
+状态：进行中（产品旁路已隐藏，历史/回滚代码保留一个发布周期）
 
 目标：删除产品运行时中已无引用的独立 Work UI 和翻译逻辑，但保留明确的历史/回滚材料。
 
@@ -441,3 +441,17 @@ Set-Location ..
 - 2026-07-19：Phase C 已完成 loopback App Server 生命周期、独立 supervisor bearer、状态/重启、
   受控附件、Tailscale 探针和 Wire 并行启动；Agent 20 个测试文件 75 项、typecheck/build 全绿，
   真实本机探针得到 ready=200、附件上传=201、哈希一致、删除=200。Tailscale 安装仍需 Windows UAC 完成。
+- 2026-07-19：完成 Phase D–F：Chat/Work 共用 `NativeChatScaffold`、原生消息 renderer 与输入组件；
+  Drawer 同行模式开关、显式仓库分组和现有 SettingPage Work CardGroup 已在模拟器验证。旧版数据只从
+  Work 设置卡片进入只读核对，不进入新版首页。
+- 2026-07-19：完成 loopback direct 对话闭环：模型、effort、上下文、Fast/权限面板、`/` 完成项、
+  text、系统相册图片、文件上传、Markdown、Reasoning、Tool 与 inline approval 均走官方 App Server。
+  图片识别实测返回截图时间 `5:37`；文件实测读取并返回文稿一级标题。
+- 2026-07-19：修复三项真实运行缺陷：稀疏 `turn/completed` 不再抹掉流式 Items；新 Thread 清空旧
+  token usage；App Server 事件改为广播并按 threadId 过滤，避免多个仓库控制器互相吞回复。
+- 2026-07-19：Catalog 仍采用客户端 bundled presets 乐观启用、后台合并服务端列表；标题、附件清单
+  和结构化 Skill/App/Plugin 输入统一在投影边界清洗，不向用户泄露协议内部文本。
+- 2026-07-20：安装最新 x86_64 Debug APK 后完成进程级复验：Work 面板在 1080×2400 下可滚动访问
+  仓库、Fast 与三档权限；唯一消息 `EVENT_BUS_OK` 经 App Server 实时返回，强制停止并重启应用后仍可从
+  当前 Work Thread 恢复。Android 单测/构建、Agent 测试/typecheck/build 均通过；Tailscale WSS 真机链路
+  仍等待 Windows UAC 安装与登录，因此不进入发布阶段。

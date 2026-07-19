@@ -434,7 +434,7 @@ private fun InjectionQuickConfigSheet(
 }
 
 @Composable
-private fun ImagePickButton(onClick: () -> Unit = {}) {
+fun ImagePickButton(onClick: () -> Unit = {}) {
     BigIconTextButton(icon = {
         Icon(HugeIcons.Image02, null)
     }, text = {

@@ -4,11 +4,12 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
@@ -54,16 +55,23 @@ class AppServerJsonRpcClient(
     private val generation = AtomicLong(0)
     private val nextRequestId = AtomicLong(1)
     private val pending = ConcurrentHashMap<String, PendingRequest>()
-    private val notificationChannel = Channel<AppServerNotification>(NOTIFICATION_CAPACITY)
-    private val serverRequestChannel = Channel<AppServerRequest>(SERVER_REQUEST_CAPACITY)
+    private val notificationFlow = MutableSharedFlow<AppServerNotification>(
+        extraBufferCapacity = NOTIFICATION_CAPACITY,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    private val serverRequestFlow = MutableSharedFlow<AppServerRequest>(
+        extraBufferCapacity = SERVER_REQUEST_CAPACITY,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
     private val mutableState = MutableStateFlow(AppServerConnectionState())
 
     @Volatile
     private var socket: WebSocket? = null
 
     val state: StateFlow<AppServerConnectionState> = mutableState.asStateFlow()
-    val notifications = notificationChannel.receiveAsFlow()
-    val serverRequests = serverRequestChannel.receiveAsFlow()
+    /** Broadcasts each frame to every repository controller; controllers filter by threadId. */
+    val notifications = notificationFlow.asSharedFlow()
+    val serverRequests = serverRequestFlow.asSharedFlow()
 
     suspend fun connect(endpoint: AppServerEndpoint): JsonObject = connectionMutex.withLock {
         val url = validateEndpoint(endpoint)
@@ -227,13 +235,13 @@ class AppServerJsonRpcClient(
             return
         }
         if (id != null && method != null) {
-            check(serverRequestChannel.trySend(AppServerRequest(id, method, message["params"] ?: JsonNull)).isSuccess) {
+            check(serverRequestFlow.tryEmit(AppServerRequest(id, method, message["params"] ?: JsonNull))) {
                 "App Server request queue is full"
             }
             return
         }
         if (method != null) {
-            check(notificationChannel.trySend(AppServerNotification(method, message["params"] ?: JsonNull)).isSuccess) {
+            check(notificationFlow.tryEmit(AppServerNotification(method, message["params"] ?: JsonNull))) {
                 "App Server notification queue is full"
             }
         }
