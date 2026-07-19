@@ -90,7 +90,7 @@ git diff --check
 
 ## 5. Phase B：直连 transport contract
 
-状态：待办
+状态：完成
 
 目标：先用纯 Kotlin/OkHttp 建立可测试的 App Server JSON-RPC client，不接 UI、不切默认路由。
 
@@ -135,7 +135,7 @@ Focused verify：
 
 ## 6. Phase C：薄 supervisor 与开发机探针
 
-状态：待办
+状态：进行中（loopback supervisor 已完成；Tailscale 登录与 Serve 真机探针待完成）
 
 目标：在现有 Wire 翻译网关旁新增独立 supervisor 能力和开发机探针。此阶段不改动旧 Work
 默认数据面，也不删除、停用或降级现有 Wire 网关；真正的切换只允许在 Phase G 的 direct
@@ -435,3 +435,9 @@ Set-Location ..
 - 2026-07-19：本机核验 `codex-cli 0.144.0` App Server WebSocket/auth/daemon；确认 Tailscale 尚未安装。
 - 2026-07-19：完成 Phase A 文档基线；独立审查首轮发现发布顺序、active runtime contract、
   supervisor 传输安全和 Room 版本四项阻断，全部修复后复审 PASS。
+- 2026-07-19：完成 Phase B 旁路 Android transport：WSS bearer、initialize、RPC correlation、
+  notification/server request、断线清理、退避、Keystore 连接存储、静态模型兜底和 schema 兼容门；
+  focused Android 测试 8 项通过。
+- 2026-07-19：Phase C 已完成 loopback App Server 生命周期、独立 supervisor bearer、状态/重启、
+  受控附件、Tailscale 探针和 Wire 并行启动；Agent 20 个测试文件 75 项、typecheck/build 全绿，
+  真实本机探针得到 ready=200、附件上传=201、哈希一致、删除=200。Tailscale 安装仍需 Windows UAC 完成。

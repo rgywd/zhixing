@@ -11,6 +11,7 @@ import { resolveCodexBinary } from './codex/binary.js'
 import { publishCatalogOnce } from './wire/catalogPublisher.js'
 import { WireRelayAgentClient } from './wire/relayClient.js'
 import { WireCodexRuntimeBridge } from './wire/runtimeBridge.js'
+import { CodexSupervisor } from './supervisor/index.js'
 
 export interface SpawnDelegate {
   spawn(params: SpawnParams): Promise<SpawnResult>
@@ -33,20 +34,33 @@ function cliAvailable(binary: string, versionArgs = ['--version']): boolean {
 export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
   const home = new AgentHome()
   const settings = home.loadSettings()
-  if (!home.loadWireCredentials()) {
-    throw new Error('尚未登录：先运行 `zhixing-agent login <恢复密钥>`')
+  let supervisor: CodexSupervisor | null = null
+  if (process.env.ZHIXING_ENABLE_DIRECT_SUPERVISOR !== '0') {
+    try {
+      supervisor = new CodexSupervisor(home, log)
+      await supervisor.start()
+      log('Codex direct supervisor 已启动（App Server 与管理 API 仅监听 loopback）')
+    } catch (error) {
+      supervisor = null
+      log(`Codex direct supervisor 启动失败，旧 Wire 继续可用: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
-  const wire = startWireServices(home, settings.machineId)
+  const wire = home.loadWireCredentials() ? startWireServices(home, settings.machineId) : null
+  if (!wire && !supervisor) {
+    throw new Error('尚未登录 Wire，且 direct supervisor 未能启动')
+  }
   if (process.env.ZHIXING_ENABLE_LEGACY_HAPPY !== '1') {
-    log('Codex Wire 守护进程运行中（Ctrl+C 退出）')
+    log(wire ? 'Codex Wire + direct supervisor 运行中（Ctrl+C 退出）' : 'Codex direct supervisor 运行中（Ctrl+C 退出）')
     await waitForShutdownSignal()
-    await wire.stop()
+    await wire?.stop()
+    await supervisor?.stop()
     log('守护进程已退出')
     return
   }
   const credentials = home.loadCredentials()
   if (!credentials) {
-    await wire.stop()
+    await wire?.stop()
+    await supervisor?.stop()
     throw new Error('旧版 Happy 兼容已启用，但尚未登录：先运行 `zhixing-agent legacy-login <恢复密钥>`')
   }
 
@@ -96,7 +110,8 @@ export async function runDaemon(delegate?: SpawnDelegate): Promise<void> {
   log('守护进程运行中（Ctrl+C 退出）')
   await waitForShutdownSignal()
   socket.close()
-  await wire.stop()
+  await wire?.stop()
+  await supervisor?.stop()
   await delegate.shutdown?.()
   log('守护进程已退出')
 }
@@ -166,7 +181,7 @@ export async function legacyLogin(recoveryKey: string): Promise<void> {
   log(`旧版 Happy 登录成功，凭据已保存到 ${home.dir}（服务器: ${settings.serverUrl}）`)
 }
 
-function waitForShutdownSignal(): Promise<void> {
+export function waitForShutdownSignal(): Promise<void> {
   return new Promise((resolve) => {
     process.once('SIGINT', () => resolve())
     process.once('SIGTERM', () => resolve())
