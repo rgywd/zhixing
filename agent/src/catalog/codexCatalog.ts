@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { access } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import type { CodexCompatibility } from '../codex/compatibility.js'
 import { analyzeCodexCompatibility } from '../codex/compatibility.js'
@@ -47,11 +48,13 @@ export interface CodexCatalogOptions {
   schemaHash: string | null
   now?: () => number
   gitRootDetector?: (cwd: string) => Promise<string | null>
+  pathExists?: (cwd: string) => Promise<boolean>
 }
 
 export class CodexCatalogService {
   private readonly now: () => number
   private readonly gitRootDetector: (cwd: string) => Promise<string | null>
+  private readonly pathExists: (cwd: string) => Promise<boolean>
 
   constructor(
     private readonly client: CodexCatalogClient,
@@ -60,6 +63,7 @@ export class CodexCatalogService {
   ) {
     this.now = options.now ?? Date.now
     this.gitRootDetector = options.gitRootDetector ?? detectGitRoot
+    this.pathExists = options.pathExists ?? defaultPathExists
   }
 
   async snapshot(): Promise<CodexCatalogSnapshot> {
@@ -80,9 +84,17 @@ export class CodexCatalogService {
       this.gitRootDetector,
       8,
     )
+    const projectRoots = new Map(
+      entries.map(({ thread }) => {
+        const projectPath = roots.get(thread.cwd) ?? thread.cwd
+        return [projectPath, normalizeProjectPath(projectPath, info.platformFamily).canonicalRoot]
+      }),
+    )
+    const existingPaths = await detectPaths([...new Set(projectRoots.values())], this.pathExists, 8)
     for (const { thread, archived: isArchived } of entries) {
       const gitRoot = roots.get(thread.cwd) ?? null
-      const normalized = normalizeProjectPath(gitRoot ?? thread.cwd, info.platformFamily)
+      const projectPath = gitRoot ?? thread.cwd
+      const normalized = normalizeProjectPath(projectPath, info.platformFamily)
       const stored = await this.registry.resolve(this.options.machineId, normalized)
       const updatedAt = secondsToMillis(thread.updatedAt)
       const existingProject = projectById.get(stored.projectId)
@@ -91,6 +103,8 @@ export class CodexCatalogService {
         machineId: this.options.machineId,
         displayName: stored.displayName,
         canonicalRoot: stored.canonicalRoot,
+        existsOnDisk:
+          existingPaths.get(normalized.canonicalRoot) === true || existingProject?.existsOnDisk === true,
         vcs: {
           kind: thread.gitInfo ? 'git' : 'none',
           originUrl: thread.gitInfo?.originUrl ?? existingProject?.vcs.originUrl ?? null,
@@ -233,6 +247,35 @@ async function detectRoots(
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, cwds.length) }, () => worker()))
   return output
+}
+
+async function detectPaths(
+  paths: string[],
+  detector: (cwd: string) => Promise<boolean>,
+  concurrency: number,
+): Promise<Map<string, boolean>> {
+  const output = new Map<string, boolean>()
+  let cursor = 0
+  async function worker(): Promise<void> {
+    while (true) {
+      const index = cursor
+      cursor += 1
+      const cwd = paths[index]
+      if (cwd === undefined) return
+      output.set(cwd, await detector(cwd))
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, paths.length) }, () => worker()))
+  return output
+}
+
+async function defaultPathExists(cwd: string): Promise<boolean> {
+  try {
+    await access(cwd)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function fingerprintCatalog(

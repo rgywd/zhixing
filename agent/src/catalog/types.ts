@@ -25,6 +25,7 @@ export interface CatalogProject {
   machineId: string
   displayName: string
   canonicalRoot: string
+  existsOnDisk: boolean
   vcs: {
     kind: 'git' | 'none'
     originUrl: string | null

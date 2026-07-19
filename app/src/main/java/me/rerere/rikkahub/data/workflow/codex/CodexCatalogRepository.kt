@@ -12,9 +12,11 @@ import me.rerere.rikkahub.data.db.entity.CodexCatalogSyncEntity
 import me.rerere.rikkahub.data.db.entity.CodexItemEntity
 import me.rerere.rikkahub.data.db.entity.CodexMachineEntity
 import me.rerere.rikkahub.data.db.entity.CodexProjectEntity
+import me.rerere.rikkahub.data.db.entity.CodexProjectPreferenceEntity
 import me.rerere.rikkahub.data.db.entity.CodexApprovalEntity
 import me.rerere.rikkahub.data.db.entity.CodexRuntimeBindingEntity
 import me.rerere.rikkahub.data.db.entity.CodexThreadEntity
+import me.rerere.rikkahub.data.db.entity.CodexThreadPreferenceEntity
 import me.rerere.rikkahub.data.db.entity.CodexTurnEntity
 
 interface WireCatalogSink {
@@ -33,32 +35,79 @@ class CodexCatalogRepository(
         dao.observeMachines(),
         dao.observeProjects(),
         dao.observeThreads(),
-    ) { machineEntities, projectEntities, threadEntities ->
+        dao.observeProjectPreferences(),
+        dao.observePinnedThreadPreferences(),
+    ) { machineEntities, projectEntities, threadEntities, projectPreferences, threadPreferences ->
         val machines = machineEntities.associate { it.machineId to it.toModel() }
+        val projectPreferenceById = projectPreferences.associateBy(CodexProjectPreferenceEntity::projectId)
+        val pinnedThreadIds = threadPreferences.mapTo(hashSetOf()) { it.machineId to it.threadId }
         val threads = threadEntities.groupBy(CodexThreadEntity::projectId)
         projectEntities.map { entity ->
+            val preference = projectPreferenceById[entity.projectId]
             entity.toModel(
                 machine = machines[entity.machineId],
-                threads = threads[entity.projectId].orEmpty().map(CodexThreadEntity::toModel),
+                threads = threads[entity.projectId].orEmpty().map { thread ->
+                    thread.toModel(isPinned = thread.machineId to thread.threadId in pinnedThreadIds)
+                },
+                isPinned = preference?.isPinned == true,
+                isHidden = preference?.isHidden == true,
             )
         }
+    }
+
+    suspend fun setProjectPinned(projectId: String, isPinned: Boolean) {
+        val current = dao.projectPreference(projectId)
+        dao.upsertProjectPreference(
+            CodexProjectPreferenceEntity(
+                projectId = projectId,
+                isPinned = isPinned,
+                isHidden = if (isPinned) false else current?.isHidden == true,
+                updatedAt = System.currentTimeMillis(),
+            )
+        )
+    }
+
+    suspend fun setProjectHidden(projectId: String, isHidden: Boolean) {
+        val current = dao.projectPreference(projectId)
+        dao.upsertProjectPreference(
+            CodexProjectPreferenceEntity(
+                projectId = projectId,
+                isPinned = if (isHidden) false else current?.isPinned == true,
+                isHidden = isHidden,
+                updatedAt = System.currentTimeMillis(),
+            )
+        )
+    }
+
+    suspend fun setThreadPinned(machineId: String, threadId: String, isPinned: Boolean) {
+        dao.upsertThreadPreference(
+            CodexThreadPreferenceEntity(
+                machineId = machineId,
+                threadId = threadId,
+                isPinned = isPinned,
+                updatedAt = System.currentTimeMillis(),
+            )
+        )
     }
 
     fun observeMachines(): Flow<List<CodexMachine>> =
         dao.observeMachines().map { machines -> machines.map(CodexMachineEntity::toModel) }
 
-    fun observeThread(machineId: String, threadId: String): Flow<CodexThread?> =
-        dao.observeThread(machineId, threadId).map { it?.toModel() }
+    fun observeThread(machineId: String, threadId: String): Flow<CodexThread?> = combine(
+        dao.observeThread(machineId, threadId),
+        dao.observeThreadPreference(machineId, threadId),
+    ) { thread, preference -> thread?.toModel(isPinned = preference?.isPinned == true) }
 
     fun observeThreadDetail(machineId: String, threadId: String): Flow<CodexThreadDetail> = combine(
         dao.observeThread(machineId, threadId),
         dao.observeTurns(machineId, threadId),
         dao.observeItems(machineId, threadId),
         dao.observeApprovals(machineId, threadId),
-    ) { thread, turns, items, approvals ->
+        dao.observeThreadPreference(machineId, threadId),
+    ) { thread, turns, items, approvals, preference ->
         val itemsByTurn = items.groupBy(CodexItemEntity::turnId)
         CodexThreadDetail(
-            thread = thread?.toModel(),
+            thread = thread?.toModel(isPinned = preference?.isPinned == true),
             turns = turns.map { turn ->
                 CodexTurn(
                     turnId = turn.turnId,
@@ -289,19 +338,27 @@ private fun CodexMachineEntity.toModel() = CodexMachine(
     lastSeenAt = lastSeenAt,
 )
 
-private fun CodexProjectEntity.toModel(machine: CodexMachine?, threads: List<CodexThread>) = CodexProject(
+private fun CodexProjectEntity.toModel(
+    machine: CodexMachine?,
+    threads: List<CodexThread>,
+    isPinned: Boolean,
+    isHidden: Boolean,
+) = CodexProject(
     projectId = projectId,
     machineId = machineId,
     displayName = displayName,
     canonicalRoot = canonicalRoot,
+    existsOnDisk = existsOnDisk,
     vcsKind = vcsKind,
     branch = vcsBranch,
     updatedAt = updatedAt,
+    isPinned = isPinned,
+    isHidden = isHidden,
     machine = machine,
     threads = threads.sortedByDescending(CodexThread::recencyAt),
 )
 
-private fun CodexThreadEntity.toModel() = CodexThread(
+private fun CodexThreadEntity.toModel(isPinned: Boolean = false) = CodexThread(
     machineId = machineId,
     threadId = threadId,
     projectId = projectId,
@@ -318,6 +375,7 @@ private fun CodexThreadEntity.toModel() = CodexThread(
     isAutomation = isAutomation,
     runtimeState = CodexRuntimeState.fromWire(runtimeState),
     rawStatus = rawStatus,
+    isPinned = isPinned,
 )
 
 private fun CatalogMachinePayload.toEntity() = CodexMachineEntity(
@@ -339,6 +397,7 @@ private fun CatalogProjectPayload.toEntity() = CodexProjectEntity(
     machineId = machineId,
     displayName = displayName,
     canonicalRoot = canonicalRoot,
+    existsOnDisk = existsOnDisk,
     vcsKind = vcs.kind,
     vcsOriginUrl = vcs.originUrl,
     vcsBranch = vcs.branch,

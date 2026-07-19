@@ -40,15 +40,21 @@ data class CodexProject(
     val machineId: String,
     val displayName: String,
     val canonicalRoot: String,
+    val existsOnDisk: Boolean,
     val vcsKind: String,
     val branch: String?,
     val updatedAt: Long,
+    val isPinned: Boolean,
+    val isHidden: Boolean,
     val machine: CodexMachine?,
     val threads: List<CodexThread>,
 ) {
     val primaryThreads: List<CodexThread> get() = threads.filter { !it.isSubagent && !it.isAutomation }
+    val currentThreads: List<CodexThread> get() = primaryThreads.filterNot(CodexThread::archived)
+    val archivedThreads: List<CodexThread> get() = primaryThreads.filter(CodexThread::archived)
     val automations: List<CodexThread> get() = threads.filter(CodexThread::isAutomation)
     val needsAttention: Int get() = threads.count { it.runtimeState.needsAttention }
+    val activeAt: Long get() = currentThreads.maxOfOrNull(CodexThread::recencyAt) ?: updatedAt
 }
 
 data class CodexThread(
@@ -68,6 +74,7 @@ data class CodexThread(
     val isAutomation: Boolean,
     val runtimeState: CodexRuntimeState,
     val rawStatus: String,
+    val isPinned: Boolean,
 )
 
 data class CodexThreadDetail(
@@ -153,6 +160,7 @@ data class CatalogProjectPayload(
     val machineId: String,
     val displayName: String,
     val canonicalRoot: String,
+    val existsOnDisk: Boolean = true,
     val vcs: CatalogVcsPayload,
     val updatedAt: Long,
 )

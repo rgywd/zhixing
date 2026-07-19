@@ -17,6 +17,7 @@ import me.rerere.rikkahub.data.workflow.codex.CodexThread
 import me.rerere.rikkahub.data.workflow.codex.CodexThreadDetail
 import me.rerere.rikkahub.data.workflow.codex.CodexRuntimeState
 import me.rerere.rikkahub.data.workflow.codex.RuntimeCommandPayload
+import me.rerere.rikkahub.data.workflow.codex.curateCodexHome
 import me.rerere.rikkahub.data.workflow.codex.needsAttention
 import me.rerere.rikkahub.data.workflow.wire.WireRelayClient
 
@@ -52,6 +53,7 @@ class CodexWorkflowVM(
             .filter { !it.isSubagent && it.runtimeState.needsAttention }
             .sortedByDescending(CodexThread::recencyAt)
     }
+    val homeCatalog by derivedStateOf { curateCodexHome(projects) }
 
     init {
         viewModelScope.launch { repository.observeProjects().collect { projects = it } }
@@ -84,6 +86,18 @@ class CodexWorkflowVM(
     }
 
     fun project(projectId: String): CodexProject? = projects.firstOrNull { it.projectId == projectId }
+
+    fun setProjectPinned(project: CodexProject, isPinned: Boolean) {
+        viewModelScope.launch { repository.setProjectPinned(project.projectId, isPinned) }
+    }
+
+    fun setProjectHidden(project: CodexProject, isHidden: Boolean) {
+        viewModelScope.launch { repository.setProjectHidden(project.projectId, isHidden) }
+    }
+
+    fun setThreadPinned(thread: CodexThread, isPinned: Boolean) {
+        viewModelScope.launch { repository.setThreadPinned(thread.machineId, thread.threadId, isPinned) }
+    }
 
     fun refresh() {
         if (isRefreshing) return
@@ -160,6 +174,10 @@ class CodexWorkflowVM(
 
     fun startTask(project: CodexProject, text: String) {
         val prompt = text.trim()
+        if (!project.existsOnDisk) {
+            statusMessage = "开发机上的项目目录已不存在，无法新建任务"
+            return
+        }
         if (prompt.isEmpty() || isStartingTask || !relayClient.connected) return
         viewModelScope.launch {
             isStartingTask = true
@@ -192,7 +210,7 @@ class CodexWorkflowVM(
 class CodexThreadVM(
     private val machineId: String,
     private val threadId: String,
-    repository: CodexCatalogRepository,
+    private val repository: CodexCatalogRepository,
     private val relayClient: WireRelayClient,
 ) : ViewModel() {
     var detail by mutableStateOf(CodexThreadDetail(null, emptyList()))
@@ -302,6 +320,9 @@ class CodexThreadVM(
     fun archive() = command("thread.archive")
     fun unarchive() = command("thread.unarchive")
     fun delete() = command("thread.delete")
+    fun setPinned(isPinned: Boolean) {
+        viewModelScope.launch { repository.setThreadPinned(machineId, threadId, isPinned) }
+    }
 
     fun resolveApproval(approvalId: String, decision: String) = command(
         "approval.resolve",
