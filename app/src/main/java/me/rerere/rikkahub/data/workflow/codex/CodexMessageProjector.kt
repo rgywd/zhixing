@@ -3,7 +3,9 @@ package me.rerere.rikkahub.data.workflow.codex
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
 import kotlin.time.Instant
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.ToolApprovalState
@@ -88,7 +90,8 @@ object CodexMessageProjector {
         turnCompletedAt: Long?,
     ): List<UIMessagePart> = when (rawType) {
         "userMessage" -> userParts(attachments).ifEmpty { textPart() }
-        "agentMessage", "plan" -> textPart()
+        "agentMessage" -> textPart()
+        "plan" -> listOf(planPart())
         "reasoning" -> listOfNotNull(
             text?.takeIf(String::isNotBlank)?.let {
                 val now = System.currentTimeMillis()
@@ -156,6 +159,20 @@ object CodexMessageProjector {
             toolName = name,
             input = input.ifBlank { "{}" },
             output = output,
+        )
+    }
+
+    private fun CodexItem.planPart(): UIMessagePart.Tool {
+        val structuredPlan = buildJsonObject {
+            raw.forEach { (key, value) -> put(key, value) }
+            put("status", status)
+            text?.takeIf(String::isNotBlank)?.let { put("text", it) }
+        }
+        return UIMessagePart.Tool(
+            toolCallId = itemId,
+            toolName = "update_plan",
+            input = structuredPlan.toString(),
+            metadata = structuredPlan,
         )
     }
 

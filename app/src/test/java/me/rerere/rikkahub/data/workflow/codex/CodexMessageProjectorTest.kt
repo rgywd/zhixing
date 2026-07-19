@@ -1,6 +1,8 @@
 package me.rerere.rikkahub.data.workflow.codex
 
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import me.rerere.ai.core.MessageRole
@@ -157,7 +159,16 @@ class CodexMessageProjectorTest {
                 "user_1", "userMessage", "userMessage", "user", "开始", "completed",
                 buildJsonObject { putJsonArray("content") { add(buildJsonObject { put("type", "text"); put("text", "开始") }) } },
             ),
-            CodexItem("plan_1", "plan", "plan", "agent", "先检查再实现", "completed"),
+            CodexItem(
+                "plan_1", "plan", "plan", "agent", "先检查再实现", "completed",
+                buildJsonObject {
+                    put("explanation", "执行计划")
+                    putJsonArray("plan") {
+                        add(buildJsonObject { put("step", "先检查"); put("status", "completed") })
+                        add(buildJsonObject { put("step", "再实现"); put("status", "in_progress") })
+                    }
+                },
+            ),
             CodexItem("reason_1", "reasoning", "reasoning", "agent", "分析依赖", "completed"),
             CodexItem(
                 "file_1", "fileChange", "fileChange", "tool", "修改文件", "completed",
@@ -216,7 +227,16 @@ class CodexMessageProjectorTest {
                     error = null,
                     items = listOf(
                         CodexItem("user_1", "userMessage", "userMessage", "user", "调研并实现", "completed"),
-                        CodexItem("plan_1", "plan", "plan", "agent", "1. 调研\n2. 实现", "completed"),
+                        CodexItem(
+                            "plan_1", "plan", "plan", "agent", "1. 调研\n2. 实现", "completed",
+                            buildJsonObject {
+                                put("explanation", "先调研后实现")
+                                putJsonArray("plan") {
+                                    add(buildJsonObject { put("step", "调研"); put("status", "completed") })
+                                    add(buildJsonObject { put("step", "实现"); put("status", "in_progress") })
+                                }
+                            },
+                        ),
                         CodexItem(
                             "web_1", "webSearch", "webSearch", "tool", "查询官方文档", "completed",
                             buildJsonObject { put("query", "Codex app-server") },
@@ -252,7 +272,11 @@ class CodexMessageProjectorTest {
         val blocks = CodexMessageProjector.project(detail)
         assertEquals(listOf(MessageRole.USER, MessageRole.ASSISTANT, MessageRole.USER, MessageRole.ASSISTANT), blocks.map { it.role })
         val firstAssistant = blocks[1].parts
-        assertTrue(firstAssistant[0] is UIMessagePart.Text)
+        val plan = firstAssistant[0] as UIMessagePart.Tool
+        assertEquals("plan_1", plan.toolCallId)
+        assertEquals("update_plan", plan.toolName)
+        assertEquals("先调研后实现", plan.inputAsJson().jsonObject["explanation"]?.jsonPrimitive?.content)
+        assertEquals("completed", plan.inputAsJson().jsonObject["status"]?.jsonPrimitive?.content)
         assertEquals("web_search", (firstAssistant[1] as UIMessagePart.Tool).toolName)
         assertEquals("github.get_issue", (firstAssistant[2] as UIMessagePart.Tool).toolName)
         val secondAssistant = blocks[3].parts

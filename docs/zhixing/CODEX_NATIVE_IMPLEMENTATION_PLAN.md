@@ -248,6 +248,10 @@ npm run build
   恢复 30 号 schema 并生成 31 号 schema。`Migration_30_31_Test` 通过 ADB/AndroidJUnitRunner
   在 Android 35 模拟器执行（1/1）；保留旧 0.2.1 数据覆盖安装后正常恢复 `RouteActivity`，
   logcat 无 Room identity/SafeMode/FATAL 错误，证据为本地 `build/ui-audit/codex-room31-upgrade.png`。
+- 2026-07-19：第二轮独立审查仅余一项 FAIL：`plan` 仍被投影为普通文本，与合同的
+  `UIMessagePart.Tool(toolName=update_plan)` 相反；其余 P0 与 Room 30→31 兼容门全部 PASS。
+- 2026-07-19：将历史与实时 `plan` 统一投影为稳定 itemId 的 `update_plan` Tool，input/metadata
+  保留原始结构化 plan、explanation、status 和文本；多 Turn 与历史/实时等价测试改为断言 Tool 投影。
 
 ## 12. 延期项
 
