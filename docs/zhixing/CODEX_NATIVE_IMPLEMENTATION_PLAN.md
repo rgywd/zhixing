@@ -468,3 +468,7 @@ Set-Location ..
 - 2026-07-20：修正无 Supervisor 兼容门：直接校验 initialize 的精确受审 `userAgent` 与平台字段，未知版本
   保持只读；Supervisor schema/method facts 只用于升级到 `FULL`。同时对 text-only 模型携带图片实施发送前
   拦截，保留草稿与附件并提示切换模型；未知 opaque notification 默认不进入聊天 UI。
+- 2026-07-20：Direct Thread 接入现有 Room 31 Codex cache：页面启动先恢复当前 Thread，官方快照立即
+  落库，流式事件短防抖刷新，网络恢复后再以 `thread/read` 覆盖；离线不恢复可操作审批。新增仪器测试完成
+  “写入 → 关闭数据库 → 重新打开 → 读取消息与附件”进程重启闭环。`thread/start` 成功后也会先保存 Thread
+  指针与快照，避免后续读取失败留下不可恢复的孤儿会话；模型 reroute 后 UI 显示实际执行模型。

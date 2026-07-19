@@ -97,8 +97,16 @@ object AppServerCompatibilityGate {
         }
     }
 
+    fun evaluateWithSupervisor(
+        direct: AppServerCompatibility,
+        facts: AppServerRuntimeFacts,
+    ): AppServerCompatibility = if (direct.level == AppServerCompatibilityLevel.TEXT_ONLY) {
+        evaluate(facts)
+    } else {
+        direct
+    }
+
     private val VERSION_PATTERN = Regex(
-        "(?:Codex Desktop|codex[^/ ]*)/(\\d+\\.\\d+\\.\\d+)",
-        RegexOption.IGNORE_CASE,
+        "^Codex Desktop/(\\d+\\.\\d+\\.\\d+) \\([^()\\r\\n]+\\)$",
     )
 }

@@ -93,6 +93,7 @@ val viewModelModule = module {
             connectionStore = get(),
             workUiStore = get(),
             attachmentClient = get(),
+            catalogRepository = get(),
         )
     }
     viewModel<CodexThreadVM> { params ->

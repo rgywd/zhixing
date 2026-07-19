@@ -82,9 +82,31 @@ class BundledCodexCatalogTest {
             put("platformFamily", "windows")
             put("platformOs", "windows")
         })
+        val spoofed = AppServerCompatibilityGate.evaluateInitialize(buildJsonObject {
+            put("userAgent", "prefix Codex Desktop/0.144.0 (Windows; x86_64) unknown (test; 0)")
+            put("codexHome", "C:/Users/test/.codex")
+            put("platformFamily", "windows")
+            put("platformOs", "windows")
+        })
+        val missingField = AppServerCompatibilityGate.evaluateInitialize(buildJsonObject {
+            put("userAgent", "Codex Desktop/0.144.0 (Windows; x86_64)")
+            put("codexHome", "C:/Users/test/.codex")
+            put("platformFamily", "windows")
+        })
 
         assertEquals(AppServerCompatibilityLevel.TEXT_ONLY, direct.level)
         assertEquals(AppServerCompatibilityLevel.INCOMPATIBLE, unreviewed.level)
+        assertEquals(AppServerCompatibilityLevel.READ_ONLY, spoofed.level)
+        assertEquals(AppServerCompatibilityLevel.READ_ONLY, missingField.level)
+        assertEquals(
+            AppServerCompatibilityLevel.INCOMPATIBLE,
+            AppServerCompatibilityGate.evaluateWithSupervisor(unreviewed, AppServerRuntimeFacts(
+                codexVersion = AppServerCompatibilityGate.REVIEWED_CODEX_VERSION,
+                schemaHash = AppServerCompatibilityGate.REVIEWED_SCHEMA_HASH,
+                methods = AppServerCompatibilityGate.requiredWriteMethods,
+                attachmentSupervisorReady = true,
+            )).level,
+        )
     }
 
     @Test

@@ -45,6 +45,7 @@ import me.rerere.rikkahub.data.work.WorkUiStore
 import me.rerere.rikkahub.data.workflow.codex.CodexApproval
 import me.rerere.rikkahub.data.workflow.codex.CodexAttachment
 import me.rerere.rikkahub.data.workflow.codex.CodexCatalogCapabilities
+import me.rerere.rikkahub.data.workflow.codex.CodexCatalogRepository
 import me.rerere.rikkahub.data.workflow.codex.CodexPermissionProfile
 import me.rerere.rikkahub.data.workflow.codex.CodexModelOption
 import me.rerere.rikkahub.data.workflow.codex.CodexReasoningOption
@@ -62,6 +63,7 @@ class DirectWorkVM(
     private val connectionStore: WorkConnectionStore,
     private val workUiStore: WorkUiStore,
     private val attachmentClient: SupervisorAttachmentClient,
+    private val catalogRepository: CodexCatalogRepository,
 ) : ViewModel() {
     val inputState = ChatInputState()
     var repository by mutableStateOf<WorkRepositoryConfig?>(null)
@@ -95,6 +97,7 @@ class DirectWorkVM(
     private var currentTurnId: String? = null
     private var acceptedPreferences = WorkRepositoryPreferences()
     private var reconnectJob: Job? = null
+    private var cacheJob: Job? = null
     private var reconnectAttempt = 0
     private val reconnectPolicy = AppServerBackoffPolicy()
     private val pendingRequests = mutableMapOf<String, AppServerRequest>()
@@ -149,6 +152,18 @@ class DirectWorkVM(
                 val notificationThreadId = (notification.params as? JsonObject)?.string("threadId")
                 if (notificationThreadId == null || notificationThreadId == detail.thread?.threadId) {
                     runtimeSettings = AppServerRuntimeMapper.applyNotification(runtimeSettings, notification)
+                    if (notification.method == "model/rerouted") {
+                        runtimeSettings.model?.let { actualModel ->
+                            selectedModelId = actualModel
+                            runtimeCatalog = runtimeCatalog.copy(
+                                models = runtimeCatalog.models.withSelectedModelFallback(),
+                            )
+                            selectedEffort = selectedModel?.supportedReasoningEfforts
+                                ?.firstOrNull { it.reasoningEffort == selectedEffort }
+                                ?.reasoningEffort
+                                ?: selectedModel?.defaultReasoningEffort
+                        }
+                    }
                 }
                 if (notificationThreadId == detail.thread?.threadId) {
                     if (notification.method == "turn/started") {
@@ -156,6 +171,7 @@ class DirectWorkVM(
                     }
                     if (notification.method == "turn/completed") currentTurnId = null
                 }
+                if (notificationThreadId == detail.thread?.threadId) scheduleCache()
             }
         }
         viewModelScope.launch {
@@ -186,9 +202,21 @@ class DirectWorkVM(
                         payload = displayParams,
                     )
                 )
+                scheduleCache()
             }
         }
-        connect()
+        viewModelScope.launch {
+            val repo = repository
+            val threadId = repo?.currentThreadId
+            if (repo != null && threadId != null) {
+                catalogRepository.loadDirectThread(repo.machineId ?: "direct", threadId)?.let { cached ->
+                    detail = cached.copy(cwd = cached.cwd ?: repo.path, approvals = emptyList())
+                    currentTurnId = AppServerThreadReducer.activeTurnId(detail)
+                    statusMessage = "已载入本机历史，正在连接 Codex…"
+                }
+            }
+            connect()
+        }
     }
 
     fun connect() {
@@ -301,6 +329,7 @@ class DirectWorkVM(
                         ),
                     )
                     currentTurnId = turn.string("id")
+                    scheduleCache()
                 }
                 inputState.clearInput()
                 persistDraft("")
@@ -425,6 +454,7 @@ class DirectWorkVM(
         val request = pendingRequests.remove(approvalId) ?: return
         client.respond(request, buildJsonObject { put("decision", decision) })
         detail = detail.copy(approvals = detail.approvals.filterNot { it.approvalId == approvalId })
+        scheduleCache()
     }
 
     fun resolveInteraction(approvalId: String, answer: String) {
@@ -450,12 +480,14 @@ class DirectWorkVM(
             })
         })
         detail = detail.copy(approvals = detail.approvals.filterNot { it.approvalId == approvalId })
+        scheduleCache()
     }
 
     fun cancelInteraction(approvalId: String) {
         val request = pendingRequests.remove(approvalId) ?: return
         client.respondError(request, -32800, "User cancelled")
         detail = detail.copy(approvals = detail.approvals.filterNot { it.approvalId == approvalId })
+        scheduleCache()
     }
 
     private suspend fun startThread(): String {
@@ -469,12 +501,14 @@ class DirectWorkVM(
         })
         detail = AppServerThreadReducer.snapshot(result, repo.id, repo.machineId ?: "direct")
         val threadId = requireNotNull(detail.thread?.threadId)
+        workUiStore.updateRepositorySession(repo.id, currentThreadId = threadId)
+        persistCacheNow()
         val fixture = client.request("thread/read", buildJsonObject {
             put("threadId", threadId)
             put("includeTurns", true)
         })
         detail = AppServerThreadReducer.snapshot(fixture, repo.id, repo.machineId ?: "direct")
-        workUiStore.updateRepositorySession(repo.id, currentThreadId = threadId)
+        persistCacheNow()
         return threadId
     }
 
@@ -488,6 +522,7 @@ class DirectWorkVM(
             })
             detail = AppServerThreadReducer.snapshot(snapshot, repo.id, repo.machineId ?: "direct")
             currentTurnId = AppServerThreadReducer.activeTurnId(detail)
+            persistCacheNow()
         }.onFailure { statusMessage = "历史同步失败：${it.message ?: "未知错误"}" }.isSuccess
     }
 
@@ -557,8 +592,16 @@ class DirectWorkVM(
             statusMessage = compatibility.reason
             return
         }
+        if (direct.level != AppServerCompatibilityLevel.TEXT_ONLY) {
+            compatibility = direct
+            statusMessage = compatibility.reason
+            return
+        }
         compatibility = runCatching {
-            AppServerCompatibilityGate.evaluate(attachmentClient.runtimeFacts(credentials))
+            AppServerCompatibilityGate.evaluateWithSupervisor(
+                direct,
+                attachmentClient.runtimeFacts(credentials),
+            )
         }.getOrElse { error ->
             if (direct.level == AppServerCompatibilityLevel.TEXT_ONLY) direct.copy(
                 reason = "${direct.reason}；Supervisor 探针失败：${error.message ?: "未知错误"}",
@@ -591,6 +634,7 @@ class DirectWorkVM(
                 )
             }
         })
+        scheduleCache()
         return buildJsonArray {
             contents.forEach { part ->
                 when (part) {
@@ -660,6 +704,21 @@ class DirectWorkVM(
             permissions = selectedPermission,
             updatedAt = System.currentTimeMillis(),
         )
+    }
+
+    private fun scheduleCache() {
+        if (detail.thread == null) return
+        cacheJob?.cancel()
+        cacheJob = viewModelScope.launch {
+            delay(150)
+            catalogRepository.cacheDirectThread(detail)
+        }
+    }
+
+    private suspend fun persistCacheNow() {
+        cacheJob?.cancel()
+        cacheJob = null
+        catalogRepository.cacheDirectThread(detail)
     }
 
     private fun List<CodexModelOption>.withSelectedModelFallback(): List<CodexModelOption> {
