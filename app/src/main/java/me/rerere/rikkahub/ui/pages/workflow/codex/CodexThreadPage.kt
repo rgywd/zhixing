@@ -87,7 +87,10 @@ fun CodexThreadPage(
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Text(
-                            if (vm.isRunning) "正在执行" else "Codex 任务",
+                            listOfNotNull(
+                                "重点".takeIf { detail.thread?.isPinned == true },
+                                if (vm.isRunning) "正在执行" else "Codex 任务",
+                            ).joinToString(" · "),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -99,6 +102,13 @@ fun CodexThreadPage(
                     Box {
                         TextButton(onClick = { menuExpanded = true }) { Text("管理") }
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text(if (detail.thread?.isPinned == true) "取消重点" else "设为重点") },
+                                onClick = {
+                                    menuExpanded = false
+                                    vm.setPinned(detail.thread?.isPinned != true)
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text(if (detail.thread?.archived == true) "取消归档" else "归档") },
                                 onClick = {

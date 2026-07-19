@@ -102,6 +102,19 @@ describe('Codex catalog', () => {
     expect(snapshot.threads[0].preview).toHaveLength(4_000)
   })
 
+  it('marks projects whose working directory no longer exists', async () => {
+    const { registry } = await registryFixture()
+    const client = new FakeCatalogClient({
+      'active:root': page([thread('thread_deleted')]),
+      'archived:root': page([]),
+    })
+    const service = serviceFor(client, registry, async () => false)
+
+    const snapshot = await service.snapshot()
+
+    expect(snapshot.projects[0].existsOnDisk).toBe(false)
+  })
+
   it('normalizes on-demand turns and isolates unknown item kinds', async () => {
     const { registry } = await registryFixture()
     const client = new FakeCatalogClient({ 'active:root': page([]), 'archived:root': page([]) })
@@ -169,7 +182,11 @@ class FakeCatalogClient implements CodexCatalogClient {
   }
 }
 
-function serviceFor(client: FakeCatalogClient, registry: ProjectRegistry): CodexCatalogService {
+function serviceFor(
+  client: FakeCatalogClient,
+  registry: ProjectRegistry,
+  pathExists: (cwd: string) => Promise<boolean> = async () => true,
+): CodexCatalogService {
   return new CodexCatalogService(client, registry, {
     machineId: 'machine_1',
     machineDisplayName: 'Minecraft',
@@ -177,6 +194,7 @@ function serviceFor(client: FakeCatalogClient, registry: ProjectRegistry): Codex
     schemaHash: CODEX_SCHEMA_BASELINE.schemaHash,
     now: () => 1_800_000_000_000,
     gitRootDetector: async (cwd) => cwd,
+    pathExists,
   })
 }
 

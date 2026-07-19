@@ -12,8 +12,10 @@ import me.rerere.rikkahub.data.db.entity.CodexCatalogChunkEntity
 import me.rerere.rikkahub.data.db.entity.CodexItemEntity
 import me.rerere.rikkahub.data.db.entity.CodexMachineEntity
 import me.rerere.rikkahub.data.db.entity.CodexProjectEntity
+import me.rerere.rikkahub.data.db.entity.CodexProjectPreferenceEntity
 import me.rerere.rikkahub.data.db.entity.CodexRuntimeBindingEntity
 import me.rerere.rikkahub.data.db.entity.CodexThreadEntity
+import me.rerere.rikkahub.data.db.entity.CodexThreadPreferenceEntity
 import me.rerere.rikkahub.data.db.entity.CodexTombstoneEntity
 import me.rerere.rikkahub.data.db.entity.CodexTurnEntity
 
@@ -25,8 +27,17 @@ interface CodexCatalogDAO {
     @Query("SELECT * FROM codex_projects ORDER BY updated_at DESC")
     fun observeProjects(): Flow<List<CodexProjectEntity>>
 
+    @Query("SELECT * FROM codex_project_preferences")
+    fun observeProjectPreferences(): Flow<List<CodexProjectPreferenceEntity>>
+
     @Query("SELECT * FROM codex_threads ORDER BY recency_at DESC")
     fun observeThreads(): Flow<List<CodexThreadEntity>>
+
+    @Query("SELECT * FROM codex_thread_preferences WHERE is_pinned = 1")
+    fun observePinnedThreadPreferences(): Flow<List<CodexThreadPreferenceEntity>>
+
+    @Query("SELECT * FROM codex_thread_preferences WHERE machine_id = :machineId AND thread_id = :threadId")
+    fun observeThreadPreference(machineId: String, threadId: String): Flow<CodexThreadPreferenceEntity?>
 
     @Query("SELECT * FROM codex_threads WHERE machine_id = :machineId AND thread_id = :threadId")
     fun observeThread(machineId: String, threadId: String): Flow<CodexThreadEntity?>
@@ -69,7 +80,19 @@ interface CodexCatalogDAO {
     suspend fun upsertProjects(projects: List<CodexProjectEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertProjectPreference(preference: CodexProjectPreferenceEntity)
+
+    @Query("SELECT * FROM codex_project_preferences WHERE project_id = :projectId")
+    suspend fun projectPreference(projectId: String): CodexProjectPreferenceEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertThreads(threads: List<CodexThreadEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertThreadPreference(preference: CodexThreadPreferenceEntity)
+
+    @Query("SELECT * FROM codex_thread_preferences WHERE machine_id = :machineId AND thread_id = :threadId")
+    suspend fun threadPreference(machineId: String, threadId: String): CodexThreadPreferenceEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertSync(sync: CodexCatalogSyncEntity)

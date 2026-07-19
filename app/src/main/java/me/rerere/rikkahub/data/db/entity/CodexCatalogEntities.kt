@@ -29,9 +29,18 @@ data class CodexProjectEntity(
     @ColumnInfo(name = "machine_id") val machineId: String,
     @ColumnInfo(name = "display_name") val displayName: String,
     @ColumnInfo(name = "canonical_root") val canonicalRoot: String,
+    @ColumnInfo(name = "exists_on_disk", defaultValue = "1") val existsOnDisk: Boolean,
     @ColumnInfo(name = "vcs_kind") val vcsKind: String,
     @ColumnInfo(name = "vcs_origin_url") val vcsOriginUrl: String?,
     @ColumnInfo(name = "vcs_branch") val vcsBranch: String?,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
+@Entity(tableName = "codex_project_preferences", primaryKeys = ["project_id"])
+data class CodexProjectPreferenceEntity(
+    @ColumnInfo(name = "project_id") val projectId: String,
+    @ColumnInfo(name = "is_pinned") val isPinned: Boolean,
+    @ColumnInfo(name = "is_hidden") val isHidden: Boolean,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
 )
 
@@ -58,6 +67,14 @@ data class CodexThreadEntity(
     @ColumnInfo(name = "is_automation") val isAutomation: Boolean,
     @ColumnInfo(name = "runtime_state") val runtimeState: String,
     @ColumnInfo(name = "raw_status") val rawStatus: String,
+)
+
+@Entity(tableName = "codex_thread_preferences", primaryKeys = ["machine_id", "thread_id"])
+data class CodexThreadPreferenceEntity(
+    @ColumnInfo(name = "machine_id") val machineId: String,
+    @ColumnInfo(name = "thread_id") val threadId: String,
+    @ColumnInfo(name = "is_pinned") val isPinned: Boolean,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
 )
 
 @Entity(

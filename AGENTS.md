@@ -63,9 +63,10 @@
 ## Concepts
 
 - **Remote Development Workflow**: The native Compose `工作` entry groups persistent Codex sessions by machine and
-  working directory. Complete session history comes from Happy `/v2/sessions`; `/v2/sessions/active` is presence-only
-  and must never be used as the project data source. Account credentials and machine diagnostics belong in settings.
-  See `docs/zhixing/NATIVE_WORKFLOW.md`.
+  working directory. The transport keeps complete active and archived history, while the home page is a curated view:
+  pinned projects plus a bounded set of recent projects. Archive-only, missing-directory, and user-hidden projects stay
+  available through project management and search. Local pin/hide preferences must survive catalog replacement. Account
+  credentials and machine diagnostics belong in settings. See `docs/zhixing/NATIVE_WORKFLOW.md`.
 
 - **Assistant**: An assistant configuration with system prompts, model parameters, and conversation isolation. Each
   assistant maintains its own settings including temperature, context size, custom headers, tools, memory options, regex
