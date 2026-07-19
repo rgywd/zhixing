@@ -76,6 +76,14 @@ SettingsStore
 
 均为可选能力。不可用时只禁用对应入口并提供可恢复错误，不能阻断本地会话浏览与设置访问。
 
+### Codex 远程运行时
+
+Codex Thread 不进入本地 Provider `ChatService` 生成链，也不复制成普通 `Conversation`。Agent/Wire/Room
+保存 Codex Thread/Turn/Item 事实，Android 通过 `CodexRuntimeItemReducer` 与 `CodexMessageProjector` 生成临时
+`UIMessage/UIMessagePart` 视图，并复用相同 ChatTimeline、ChatComposer、Markdown、思考和 Tool UI。
+历史 snapshot 与实时 event 必须经过同一 projector。完整合同见
+[`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md)。
+
 ### 可选知行服务端（后续）
 
 如需要服务端，首选新增独立 `SyncGateway` 边界：

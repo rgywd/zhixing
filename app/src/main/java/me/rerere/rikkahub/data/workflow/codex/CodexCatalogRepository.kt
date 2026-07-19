@@ -5,6 +5,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import java.util.Base64
 import me.rerere.rikkahub.data.db.entity.CodexCatalogChunkEntity
 import me.rerere.rikkahub.data.db.dao.CodexCatalogDAO
@@ -15,7 +17,13 @@ import me.rerere.rikkahub.data.db.entity.CodexProjectEntity
 import me.rerere.rikkahub.data.db.entity.CodexProjectPreferenceEntity
 import me.rerere.rikkahub.data.db.entity.CodexApprovalEntity
 import me.rerere.rikkahub.data.db.entity.CodexRuntimeBindingEntity
+import me.rerere.rikkahub.data.db.entity.CodexRuntimeCatalogEntity
+import me.rerere.rikkahub.data.db.entity.CodexRuntimeSettingsEntity
+import me.rerere.rikkahub.data.db.entity.CodexAttachmentEntity
+import me.rerere.rikkahub.data.db.entity.CodexDraftEntity
+import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.db.entity.CodexThreadEntity
+import me.rerere.rikkahub.data.db.entity.CodexThreadDetailRevisionEntity
 import me.rerere.rikkahub.data.db.entity.CodexThreadPreferenceEntity
 import me.rerere.rikkahub.data.db.entity.CodexTurnEntity
 
@@ -23,14 +31,64 @@ interface WireCatalogSink {
     suspend fun applySnapshot(snapshot: CatalogSnapshotPayload, syncedAt: Long = System.currentTimeMillis()): Boolean
     suspend fun applySnapshotChunk(chunk: CatalogSnapshotChunkPayload, receivedAt: Long = System.currentTimeMillis()): Boolean
     suspend fun applyThreadDetail(detail: ThreadDetailPayload)
+    suspend fun applyThreadDetailChunk(chunk: ThreadDetailChunkPayload, receivedAt: Long = System.currentTimeMillis()): Boolean
     suspend fun applyRuntimeEvent(event: RuntimeEventPayload) = Unit
     suspend fun applyCommandResult(result: CommandResultPayload) = Unit
+    suspend fun applyRuntimeCatalog(catalog: RuntimeCatalogPayload) = Unit
 }
 
 class CodexCatalogRepository(
     private val dao: CodexCatalogDAO,
     private val json: Json,
 ) : WireCatalogSink {
+    suspend fun currentThreadDetailRevision(machineId: String, threadId: String): Long =
+        dao.threadDetailRevision(machineId, threadId)?.revision ?: -1L
+
+    fun observeRuntimeCatalog(machineId: String, cwd: String): Flow<RuntimeCatalogPayload?> =
+        dao.observeRuntimeCatalog(machineId, cwd).map { entity ->
+            entity?.let { runCatching { json.decodeFromString<RuntimeCatalogPayload>(it.payloadJson) }.getOrNull() }
+        }
+
+    fun observeRuntimeSettings(machineId: String, threadId: String): Flow<CodexRuntimeSettingsState> =
+        dao.observeRuntimeSettings(machineId, threadId).map { it?.toModel() ?: CodexRuntimeSettingsState() }
+
+    override suspend fun applyRuntimeCatalog(catalog: RuntimeCatalogPayload) {
+        dao.upsertRuntimeCatalog(
+            CodexRuntimeCatalogEntity(
+                machineId = catalog.machineId,
+                cwd = catalog.cwd,
+                payloadJson = json.encodeToString(catalog),
+                updatedAt = catalog.generatedAt,
+            )
+        )
+    }
+
+    suspend fun rememberAttachment(
+        machineId: String,
+        threadId: String,
+        remotePath: String,
+        localUri: String,
+        fileName: String,
+        mime: String,
+    ) {
+        dao.upsertAttachment(
+            CodexAttachmentEntity(machineId, threadId, remotePath, localUri, fileName, mime, System.currentTimeMillis())
+        )
+    }
+
+    suspend fun loadDraft(machineId: String, threadId: String): List<UIMessagePart> =
+        dao.draft(machineId, threadId)?.let { entity ->
+            runCatching { json.decodeFromString<List<UIMessagePart>>(entity.contentsJson) }.getOrDefault(emptyList())
+        }.orEmpty()
+
+    suspend fun saveDraft(machineId: String, threadId: String, contents: List<UIMessagePart>) {
+        val meaningful = contents.any { it !is UIMessagePart.Text || it.text.isNotBlank() }
+        if (!meaningful) {
+            dao.deleteDraft(machineId, threadId)
+        } else {
+            dao.upsertDraft(CodexDraftEntity(machineId, threadId, json.encodeToString(contents), System.currentTimeMillis()))
+        }
+    }
     fun observeProjects(): Flow<List<CodexProject>> = combine(
         dao.observeMachines(),
         dao.observeProjects(),
@@ -104,7 +162,16 @@ class CodexCatalogRepository(
         dao.observeItems(machineId, threadId),
         dao.observeApprovals(machineId, threadId),
         dao.observeThreadPreference(machineId, threadId),
-    ) { thread, turns, items, approvals, preference ->
+        dao.observeProjectForThread(machineId, threadId),
+        dao.observeAttachments(machineId, threadId),
+    ) { values ->
+        val thread = values[0] as CodexThreadEntity?
+        @Suppress("UNCHECKED_CAST") val turns = values[1] as List<CodexTurnEntity>
+        @Suppress("UNCHECKED_CAST") val items = values[2] as List<CodexItemEntity>
+        @Suppress("UNCHECKED_CAST") val approvals = values[3] as List<CodexApprovalEntity>
+        val preference = values[4] as CodexThreadPreferenceEntity?
+        val project = values[5] as CodexProjectEntity?
+        @Suppress("UNCHECKED_CAST") val attachments = values[6] as List<CodexAttachmentEntity>
         val itemsByTurn = items.groupBy(CodexItemEntity::turnId)
         CodexThreadDetail(
             thread = thread?.toModel(isPinned = preference?.isPinned == true),
@@ -123,6 +190,8 @@ class CodexCatalogRepository(
                             role = item.role,
                             text = item.text,
                             status = item.status,
+                            raw = runCatching { json.parseToJsonElement(item.rawJson).jsonObject }
+                                .getOrDefault(JsonObject(emptyMap())),
                         )
                     },
                 )
@@ -133,7 +202,13 @@ class CodexCatalogRepository(
                     kind = approval.kind,
                     summary = approval.summary,
                     createdAt = approval.createdAt,
+                    payload = runCatching { json.parseToJsonElement(approval.payloadJson).jsonObject }
+                        .getOrDefault(JsonObject(emptyMap())),
                 )
+            },
+            cwd = project?.canonicalRoot,
+            attachments = attachments.associate { entity ->
+                entity.remotePath to CodexAttachment(entity.remotePath, entity.localUri, entity.fileName, entity.mime)
             },
         )
     }
@@ -187,6 +262,8 @@ class CodexCatalogRepository(
     }
 
     override suspend fun applyThreadDetail(detail: ThreadDetailPayload) {
+        val currentRevision = dao.threadDetailRevision(detail.machineId, detail.threadId)?.revision ?: -1L
+        if (!shouldApplyThreadDetail(currentRevision, detail.revision)) return
         val turns = detail.turns.mapIndexed { index, turn ->
             CodexTurnEntity(
                 machineId = detail.machineId,
@@ -217,10 +294,50 @@ class CodexCatalogRepository(
                 )
             }
         }
-        dao.replaceThreadDetail(detail.machineId, detail.threadId, turns, items)
+        dao.replaceThreadDetail(
+            detail.machineId,
+            detail.threadId,
+            turns,
+            items,
+            CodexThreadDetailRevisionEntity(detail.machineId, detail.threadId, detail.revision, System.currentTimeMillis()),
+        )
+    }
+
+    override suspend fun applyThreadDetailChunk(chunk: ThreadDetailChunkPayload, receivedAt: Long): Boolean {
+        require(chunk.chunkCount in 1..MAX_CATALOG_CHUNKS)
+        require(chunk.chunkIndex in 0 until chunk.chunkCount)
+        val bytes = Base64.getUrlDecoder().decode(chunk.contentBase64)
+        require(bytes.sha256() == chunk.chunkHash) { "thread detail chunk hash mismatch" }
+        dao.deleteOldCatalogChunks(receivedAt - CHUNK_RETENTION_MS)
+        dao.upsertCatalogChunk(
+            CodexCatalogChunkEntity(
+                snapshotId = "detail:${chunk.detailId}",
+                chunkIndex = chunk.chunkIndex,
+                chunkCount = chunk.chunkCount,
+                revision = chunk.revision,
+                generatedAt = receivedAt,
+                machineJson = "${chunk.machineId}\n${chunk.threadId}",
+                contentHash = chunk.contentHash,
+                chunkHash = chunk.chunkHash,
+                contentBase64 = chunk.contentBase64,
+                receivedAt = receivedAt,
+            )
+        )
+        val stored = dao.catalogChunks("detail:${chunk.detailId}")
+        if (stored.size != chunk.chunkCount) return false
+        require(stored.all { it.revision == chunk.revision }) { "thread detail revision conflict" }
+        val detail = ThreadDetailChunkAssembler.assemble(stored, json)
+        applyThreadDetail(detail)
+        dao.deleteCatalogChunks("detail:${chunk.detailId}")
+        return true
     }
 
     override suspend fun applyRuntimeEvent(event: RuntimeEventPayload) {
+        if (event.type == "thread.settings" || event.type == "token.usage") {
+            val current = dao.runtimeSettings(event.machineId, event.threadId)
+            dao.upsertRuntimeSettings(mergeRuntimeSettings(current, event))
+            return
+        }
         when (event.type) {
             "runtime.connected" -> {
                 dao.upsertRuntimeBinding(
@@ -236,20 +353,11 @@ class CodexCatalogRepository(
             }
             "turn.started" -> {
                 val turnId = requireNotNull(event.turnId)
+                val current = dao.turn(event.machineId, event.threadId, turnId)
+                val position = current?.position ?: dao.nextTurnPosition(event.machineId, event.threadId)
                 dao.upsertTurns(
                     listOf(
-                        CodexTurnEntity(
-                            machineId = event.machineId,
-                            threadId = event.threadId,
-                            turnId = turnId,
-                            status = "inProgress",
-                            startedAt = event.at,
-                            completedAt = null,
-                            durationMs = null,
-                            error = null,
-                            position = dao.turnPosition(event.machineId, event.threadId, turnId)
-                                ?: dao.nextTurnPosition(event.machineId, event.threadId),
-                        )
+                        mergeRuntimeTurn(current, event, position)
                     )
                 )
                 dao.updateThreadRuntime(event.machineId, event.threadId, "running", event.at)
@@ -257,6 +365,20 @@ class CodexCatalogRepository(
             "item.started", "item.delta", "item.completed" -> {
                 val turnId = requireNotNull(event.turnId)
                 val itemId = requireNotNull(event.itemId)
+                val current = dao.item(event.machineId, event.threadId, turnId, itemId)
+                val currentItem = current?.let { entity ->
+                    CodexItem(
+                        itemId = entity.itemId,
+                        type = entity.type,
+                        rawType = entity.rawType,
+                        role = entity.role,
+                        text = entity.text,
+                        status = entity.status,
+                        raw = runCatching { json.parseToJsonElement(entity.rawJson).jsonObject }
+                            .getOrDefault(JsonObject(emptyMap())),
+                    )
+                }
+                val item = CodexRuntimeItemReducer.apply(currentItem, event)
                 dao.upsertItems(
                     listOf(
                         CodexItemEntity(
@@ -264,13 +386,13 @@ class CodexCatalogRepository(
                             threadId = event.threadId,
                             turnId = turnId,
                             itemId = itemId,
-                            type = event.itemType ?: "opaque",
-                            rawType = event.itemType ?: "opaque",
-                            role = event.role ?: "unknown",
-                            text = event.text,
-                            status = event.status ?: if (event.type == "item.completed") "completed" else "inProgress",
-                            rawJson = "{}",
-                            position = dao.itemPosition(event.machineId, event.threadId, turnId, itemId)
+                            type = item.type,
+                            rawType = item.rawType,
+                            role = item.role,
+                            text = item.text,
+                            status = item.status,
+                            rawJson = json.encodeToString(item.raw),
+                            position = current?.position
                                 ?: dao.nextItemPosition(event.machineId, event.threadId, turnId),
                         )
                     )
@@ -278,20 +400,11 @@ class CodexCatalogRepository(
             }
             "turn.completed" -> {
                 val turnId = requireNotNull(event.turnId)
+                val current = dao.turn(event.machineId, event.threadId, turnId)
+                val position = current?.position ?: dao.nextTurnPosition(event.machineId, event.threadId)
                 dao.upsertTurns(
                     listOf(
-                        CodexTurnEntity(
-                            machineId = event.machineId,
-                            threadId = event.threadId,
-                            turnId = turnId,
-                            status = event.status ?: "completed",
-                            startedAt = null,
-                            completedAt = event.at,
-                            durationMs = null,
-                            error = null,
-                            position = dao.turnPosition(event.machineId, event.threadId, turnId)
-                                ?: dao.nextTurnPosition(event.machineId, event.threadId),
-                        )
+                        mergeRuntimeTurn(current, event, position)
                     )
                 )
                 dao.updateThreadRuntime(event.machineId, event.threadId, "idle", event.at)
@@ -321,6 +434,30 @@ class CodexCatalogRepository(
         }
     }
 }
+
+internal fun mergeRuntimeTurn(
+    current: CodexTurnEntity?,
+    event: RuntimeEventPayload,
+    position: Int,
+): CodexTurnEntity {
+    require(event.type == "turn.started" || event.type == "turn.completed") { "not a turn event: ${event.type}" }
+    val startedAt = current?.startedAt ?: event.at.takeIf { event.type == "turn.started" }
+    val completedAt = event.at.takeIf { event.type == "turn.completed" }
+    return CodexTurnEntity(
+        machineId = event.machineId,
+        threadId = event.threadId,
+        turnId = requireNotNull(event.turnId),
+        status = if (event.type == "turn.started") "inProgress" else event.status ?: "completed",
+        startedAt = startedAt,
+        completedAt = completedAt,
+        durationMs = completedAt?.let { end -> startedAt?.let { start -> (end - start).coerceAtLeast(0) } },
+        error = event.message ?: current?.error,
+        position = position,
+    )
+}
+
+internal fun shouldApplyThreadDetail(currentRevision: Long, incomingRevision: Long): Boolean =
+    incomingRevision >= currentRevision
 
 private const val MAX_CATALOG_CHUNKS = 1_000
 private const val CHUNK_RETENTION_MS = 24 * 60 * 60 * 1_000L
@@ -376,6 +513,31 @@ private fun CodexThreadEntity.toModel(isPinned: Boolean = false) = CodexThread(
     runtimeState = CodexRuntimeState.fromWire(runtimeState),
     rawStatus = rawStatus,
     isPinned = isPinned,
+)
+
+internal fun mergeRuntimeSettings(
+    current: CodexRuntimeSettingsEntity?,
+    event: RuntimeEventPayload,
+) = CodexRuntimeSettingsEntity(
+    machineId = event.machineId,
+    threadId = event.threadId,
+    model = event.model ?: current?.model,
+    effort = event.effort ?: current?.effort,
+    serviceTier = event.serviceTier ?: current?.serviceTier,
+    permissions = event.permissions ?: current?.permissions,
+    usedTokens = event.usedTokens ?: current?.usedTokens,
+    contextWindow = event.contextWindow ?: current?.contextWindow,
+    updatedAt = event.at,
+)
+
+internal fun CodexRuntimeSettingsEntity.toModel() = CodexRuntimeSettingsState(
+    model = model,
+    effort = effort,
+    serviceTier = serviceTier,
+    permissions = permissions,
+    usedTokens = usedTokens,
+    contextWindow = contextWindow,
+    updatedAt = updatedAt,
 )
 
 private fun CatalogMachinePayload.toEntity() = CodexMachineEntity(

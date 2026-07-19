@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.data.workflow.wire
 
+import java.io.File
 import java.util.Base64
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
@@ -11,6 +12,7 @@ import me.rerere.rikkahub.data.workflow.codex.CatalogMachinePayload
 import me.rerere.rikkahub.data.workflow.codex.CatalogSnapshotPayload
 import me.rerere.rikkahub.data.workflow.codex.CatalogSnapshotChunkPayload
 import me.rerere.rikkahub.data.workflow.codex.ThreadDetailPayload
+import me.rerere.rikkahub.data.workflow.codex.ThreadDetailChunkPayload
 import me.rerere.rikkahub.data.workflow.codex.WireCatalogSink
 import me.rerere.rikkahub.data.workflow.codex.RuntimeCommandPayload
 import okhttp3.OkHttpClient
@@ -168,6 +170,25 @@ class WireRelayClientTest {
         assertEquals(emptyMap<String, WireStoredEnvelope>(), store.load()?.pendingEnvelopes)
     }
 
+    @Test
+    fun sharedAndroidTurnStartFixtureDecodesToTheExactAgentContract() {
+        val fixture = sequenceOf(
+            File("docs/zhixing/fixtures/runtime-command-turn-start.json"),
+            File("../docs/zhixing/fixtures/runtime-command-turn-start.json"),
+        ).first(File::isFile)
+        val command = json.decodeFromString<RuntimeCommandPayload>(fixture.readText())
+
+        assertEquals("turn.start", command.command)
+        assertEquals("C:\\repo", command.cwd)
+        assertEquals("gpt-5.4", command.model)
+        assertEquals("max", command.effort)
+        assertEquals("priority", command.serviceTier)
+        assertEquals(":workspace", command.permissions)
+        assertEquals(listOf("text", "skill"), command.input.map { it.type })
+        assertEquals("review", command.input[1].name)
+        assertEquals("C:\\skills\\review\\SKILL.md", command.input[1].path)
+    }
+
     private fun client(store: WireCredentialsStore, sink: WireCatalogSink) = WireRelayClient(
         client = OkHttpClient(),
         json = json,
@@ -230,6 +251,7 @@ private class FakeCatalogSink : WireCatalogSink {
     }
     override suspend fun applySnapshotChunk(chunk: CatalogSnapshotChunkPayload, receivedAt: Long): Boolean = false
     override suspend fun applyThreadDetail(detail: ThreadDetailPayload) = Unit
+    override suspend fun applyThreadDetailChunk(chunk: ThreadDetailChunkPayload, receivedAt: Long): Boolean = false
 }
 
 private fun ByteArray.base64Url(): String = Base64.getUrlEncoder().withoutPadding().encodeToString(this)

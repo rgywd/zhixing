@@ -91,6 +91,7 @@ val viewModelModule = module {
             threadId = params[1],
             repository = get(),
             relayClient = get(),
+            filesManager = get(),
         )
     }
     viewModelOf(::WorkNewTaskVM)

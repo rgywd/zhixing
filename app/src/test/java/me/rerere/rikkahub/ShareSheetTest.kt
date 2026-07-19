@@ -40,8 +40,8 @@ class ShareSheetTest {
         assertEquals("Test OpenAI", decodedOpenAI.name)
         assertEquals("sk-test-key", decodedOpenAI.apiKey)
         assertEquals("https://api.openai.com/v1", decodedOpenAI.baseUrl)
-        assertEquals(1, decodedOpenAI.models.size)
-        assertEquals("gpt-4", decodedOpenAI.models[0].displayName)
+        // 分享串有意不携带模型目录，接收端会从 Provider 重新同步。
+        assertEquals(0, decodedOpenAI.models.size)
     }
 
     @Test

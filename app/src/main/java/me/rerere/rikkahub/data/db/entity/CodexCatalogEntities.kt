@@ -126,6 +126,61 @@ data class CodexRuntimeBindingEntity(
 )
 
 @Entity(
+    tableName = "codex_thread_detail_revisions",
+    primaryKeys = ["machine_id", "thread_id"],
+)
+data class CodexThreadDetailRevisionEntity(
+    @ColumnInfo(name = "machine_id") val machineId: String,
+    @ColumnInfo(name = "thread_id") val threadId: String,
+    @ColumnInfo(name = "revision") val revision: Long,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
+@Entity(tableName = "codex_runtime_catalogs", primaryKeys = ["machine_id", "cwd"])
+data class CodexRuntimeCatalogEntity(
+    @ColumnInfo(name = "machine_id") val machineId: String,
+    @ColumnInfo(name = "cwd") val cwd: String,
+    @ColumnInfo(name = "payload_json") val payloadJson: String,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
+@Entity(tableName = "codex_runtime_settings", primaryKeys = ["machine_id", "thread_id"])
+data class CodexRuntimeSettingsEntity(
+    @ColumnInfo(name = "machine_id") val machineId: String,
+    @ColumnInfo(name = "thread_id") val threadId: String,
+    @ColumnInfo(name = "model") val model: String?,
+    @ColumnInfo(name = "effort") val effort: String?,
+    @ColumnInfo(name = "service_tier") val serviceTier: String?,
+    @ColumnInfo(name = "permissions") val permissions: String?,
+    @ColumnInfo(name = "used_tokens") val usedTokens: Long?,
+    @ColumnInfo(name = "context_window") val contextWindow: Long?,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
+@Entity(
+    tableName = "codex_attachments",
+    primaryKeys = ["machine_id", "thread_id", "remote_path"],
+    indices = [Index(value = ["machine_id", "thread_id"])],
+)
+data class CodexAttachmentEntity(
+    @ColumnInfo(name = "machine_id") val machineId: String,
+    @ColumnInfo(name = "thread_id") val threadId: String,
+    @ColumnInfo(name = "remote_path") val remotePath: String,
+    @ColumnInfo(name = "local_uri") val localUri: String,
+    @ColumnInfo(name = "file_name") val fileName: String,
+    @ColumnInfo(name = "mime") val mime: String,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+)
+
+@Entity(tableName = "codex_drafts", primaryKeys = ["machine_id", "thread_id"])
+data class CodexDraftEntity(
+    @ColumnInfo(name = "machine_id") val machineId: String,
+    @ColumnInfo(name = "thread_id") val threadId: String,
+    @ColumnInfo(name = "contents_json") val contentsJson: String,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
+@Entity(
     tableName = "codex_approvals",
     primaryKeys = ["machine_id", "thread_id", "approval_id"],
     indices = [Index(value = ["machine_id", "thread_id"])],

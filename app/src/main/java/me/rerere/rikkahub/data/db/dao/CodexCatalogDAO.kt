@@ -14,7 +14,12 @@ import me.rerere.rikkahub.data.db.entity.CodexMachineEntity
 import me.rerere.rikkahub.data.db.entity.CodexProjectEntity
 import me.rerere.rikkahub.data.db.entity.CodexProjectPreferenceEntity
 import me.rerere.rikkahub.data.db.entity.CodexRuntimeBindingEntity
+import me.rerere.rikkahub.data.db.entity.CodexRuntimeCatalogEntity
+import me.rerere.rikkahub.data.db.entity.CodexRuntimeSettingsEntity
+import me.rerere.rikkahub.data.db.entity.CodexAttachmentEntity
+import me.rerere.rikkahub.data.db.entity.CodexDraftEntity
 import me.rerere.rikkahub.data.db.entity.CodexThreadEntity
+import me.rerere.rikkahub.data.db.entity.CodexThreadDetailRevisionEntity
 import me.rerere.rikkahub.data.db.entity.CodexThreadPreferenceEntity
 import me.rerere.rikkahub.data.db.entity.CodexTombstoneEntity
 import me.rerere.rikkahub.data.db.entity.CodexTurnEntity
@@ -43,6 +48,12 @@ interface CodexCatalogDAO {
     fun observeThread(machineId: String, threadId: String): Flow<CodexThreadEntity?>
 
     @Query(
+        "SELECT p.* FROM codex_projects p INNER JOIN codex_threads t ON t.project_id = p.project_id " +
+            "WHERE t.machine_id = :machineId AND t.thread_id = :threadId LIMIT 1"
+    )
+    fun observeProjectForThread(machineId: String, threadId: String): Flow<CodexProjectEntity?>
+
+    @Query(
         "SELECT * FROM codex_turns WHERE machine_id = :machineId AND thread_id = :threadId " +
             "ORDER BY position ASC"
     )
@@ -55,10 +66,37 @@ interface CodexCatalogDAO {
     fun observeItems(machineId: String, threadId: String): Flow<List<CodexItemEntity>>
 
     @Query(
+        "SELECT * FROM codex_turns WHERE machine_id = :machineId AND thread_id = :threadId " +
+            "AND turn_id = :turnId LIMIT 1"
+    )
+    suspend fun turn(machineId: String, threadId: String, turnId: String): CodexTurnEntity?
+
+    @Query(
+        "SELECT * FROM codex_items WHERE machine_id = :machineId AND thread_id = :threadId " +
+            "AND turn_id = :turnId AND item_id = :itemId LIMIT 1"
+    )
+    suspend fun item(machineId: String, threadId: String, turnId: String, itemId: String): CodexItemEntity?
+
+    @Query(
         "SELECT * FROM codex_approvals WHERE machine_id = :machineId AND thread_id = :threadId " +
             "ORDER BY created_at ASC"
     )
     fun observeApprovals(machineId: String, threadId: String): Flow<List<CodexApprovalEntity>>
+
+    @Query("SELECT * FROM codex_runtime_catalogs WHERE machine_id = :machineId AND cwd = :cwd LIMIT 1")
+    fun observeRuntimeCatalog(machineId: String, cwd: String): Flow<CodexRuntimeCatalogEntity?>
+
+    @Query("SELECT * FROM codex_runtime_settings WHERE machine_id = :machineId AND thread_id = :threadId LIMIT 1")
+    fun observeRuntimeSettings(machineId: String, threadId: String): Flow<CodexRuntimeSettingsEntity?>
+
+    @Query("SELECT * FROM codex_runtime_settings WHERE machine_id = :machineId AND thread_id = :threadId LIMIT 1")
+    suspend fun runtimeSettings(machineId: String, threadId: String): CodexRuntimeSettingsEntity?
+
+    @Query("SELECT * FROM codex_drafts WHERE machine_id = :machineId AND thread_id = :threadId LIMIT 1")
+    suspend fun draft(machineId: String, threadId: String): CodexDraftEntity?
+
+    @Query("SELECT * FROM codex_attachments WHERE machine_id = :machineId AND thread_id = :threadId")
+    fun observeAttachments(machineId: String, threadId: String): Flow<List<CodexAttachmentEntity>>
 
     @Query(
         "SELECT DISTINCT t.* FROM codex_threads t " +
@@ -112,11 +150,35 @@ interface CodexCatalogDAO {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertTurns(turns: List<CodexTurnEntity>)
 
+    @Query(
+        "SELECT * FROM codex_thread_detail_revisions WHERE machine_id = :machineId " +
+            "AND thread_id = :threadId LIMIT 1"
+    )
+    suspend fun threadDetailRevision(machineId: String, threadId: String): CodexThreadDetailRevisionEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertThreadDetailRevision(revision: CodexThreadDetailRevisionEntity)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertItems(items: List<CodexItemEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertRuntimeBinding(binding: CodexRuntimeBindingEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertRuntimeCatalog(catalog: CodexRuntimeCatalogEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertRuntimeSettings(settings: CodexRuntimeSettingsEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAttachment(attachment: CodexAttachmentEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDraft(draft: CodexDraftEntity)
+
+    @Query("DELETE FROM codex_drafts WHERE machine_id = :machineId AND thread_id = :threadId")
+    suspend fun deleteDraft(machineId: String, threadId: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertApprovals(approvals: List<CodexApprovalEntity>)
@@ -182,6 +244,18 @@ interface CodexCatalogDAO {
     @Query("DELETE FROM codex_runtime_bindings WHERE machine_id = :machineId AND thread_id = :threadId")
     suspend fun deleteRuntimeBinding(machineId: String, threadId: String)
 
+    @Query("DELETE FROM codex_runtime_settings WHERE machine_id = :machineId AND thread_id = :threadId")
+    suspend fun deleteRuntimeSettings(machineId: String, threadId: String)
+
+    @Query("DELETE FROM codex_attachments WHERE machine_id = :machineId AND thread_id = :threadId")
+    suspend fun deleteAttachments(machineId: String, threadId: String)
+
+    @Query("DELETE FROM codex_drafts WHERE machine_id = :machineId AND thread_id = :threadId")
+    suspend fun deleteDrafts(machineId: String, threadId: String)
+
+    @Query("DELETE FROM codex_thread_detail_revisions WHERE machine_id = :machineId AND thread_id = :threadId")
+    suspend fun deleteThreadDetailRevision(machineId: String, threadId: String)
+
     @Query("DELETE FROM codex_threads WHERE machine_id = :machineId AND thread_id = :threadId")
     suspend fun deleteThread(machineId: String, threadId: String)
 
@@ -220,11 +294,16 @@ interface CodexCatalogDAO {
         threadId: String,
         turns: List<CodexTurnEntity>,
         items: List<CodexItemEntity>,
-    ) {
+        revision: CodexThreadDetailRevisionEntity,
+    ): Boolean {
+        val currentRevision = threadDetailRevision(machineId, threadId)?.revision ?: -1L
+        if (revision.revision < currentRevision) return false
         deleteItems(machineId, threadId)
         deleteTurns(machineId, threadId)
         if (turns.isNotEmpty()) upsertTurns(turns)
         if (items.isNotEmpty()) upsertItems(items)
+        upsertThreadDetailRevision(revision)
+        return true
     }
 
     @Transaction
@@ -233,6 +312,10 @@ interface CodexCatalogDAO {
         deleteTurns(machineId, threadId)
         deleteApprovals(machineId, threadId)
         deleteRuntimeBinding(machineId, threadId)
+        deleteRuntimeSettings(machineId, threadId)
+        deleteAttachments(machineId, threadId)
+        deleteDrafts(machineId, threadId)
+        deleteThreadDetailRevision(machineId, threadId)
         deleteThread(machineId, threadId)
     }
 }

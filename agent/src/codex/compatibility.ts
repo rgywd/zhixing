@@ -2,7 +2,7 @@ import type { CodexInitializeInfo } from './protocol.js'
 
 export const CODEX_SCHEMA_BASELINE = Object.freeze({
   codexVersion: '0.144.x',
-  experimentalApi: false,
+  experimentalApi: true,
   schemaHash: 'e75404842a291fc0473a34abc0d3cd9b036182210f3c0e37709515dbab247ba0',
   operations: [
     'thread.list',

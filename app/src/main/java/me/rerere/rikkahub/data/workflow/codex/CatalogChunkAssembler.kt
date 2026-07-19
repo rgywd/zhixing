@@ -37,5 +37,37 @@ internal object CatalogChunkAssembler {
     }
 }
 
+internal object ThreadDetailChunkAssembler {
+    fun assemble(chunks: List<CodexCatalogChunkEntity>, json: Json): ThreadDetailPayload {
+        require(chunks.isNotEmpty()) { "thread detail chunks are empty" }
+        val first = chunks.first()
+        require(chunks.size == first.chunkCount)
+        require(chunks.map { it.chunkIndex } == (0 until first.chunkCount).toList()) {
+            "thread detail chunks are not contiguous"
+        }
+        require(chunks.all {
+            it.chunkCount == first.chunkCount && it.contentHash == first.contentHash &&
+                it.machineJson == first.machineJson
+        }) { "thread detail chunk metadata mismatch" }
+        val decoded = chunks.map { stored ->
+            Base64.getUrlDecoder().decode(stored.contentBase64).also { bytes ->
+                require(bytes.sha256() == stored.chunkHash) { "stored thread detail chunk hash mismatch" }
+            }
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+        decoded.forEach(digest::update)
+        require(digest.digest().toHex() == first.contentHash) { "thread detail hash mismatch" }
+        val target = first.machineJson.split('\n', limit = 2)
+        require(target.size == 2) { "thread detail target metadata is invalid" }
+        return json.decodeFromString<ThreadDetailPayload>(
+            decoded.fold(ByteArray(0)) { result, bytes -> result + bytes }.toString(Charsets.UTF_8)
+        ).also { detail ->
+            require(detail.machineId == target[0] && detail.threadId == target[1]) {
+                "thread detail target mismatch"
+            }
+        }
+    }
+}
+
 internal fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256").digest(this).toHex()
 private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }

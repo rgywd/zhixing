@@ -1,210 +1,450 @@
-# 知行 0.2.0：Codex 原生工作架构
+# 知行 Codex 原生会话：协议、交互与实现合同
 
-状态：Accepted baseline
+状态：Accepted implementation contract
 日期：2026-07-19
 跟踪：GitHub Issue #49
+适用基线：Android / Agent / Relay `v0.2.1` 之后的 0.2.x 打磨
 
-## 1. 要解决的问题
+## 1. 产品结论
 
-0.1.x 的“工作”模块以 Happy Session 为核心。项目由 `machineId + path` 临时聚合，只有经过 Happy 创建或恢复的 Codex Thread 才会进入手机端。结果是 Codex Thread、Happy Session、仓库预设和前端会话同时表达同一件事，历史、状态和恢复语义容易漂移。
+“工作”不是 Codex 任务监控器，也不是 Happy 会话浏览器。目标是在知行 Android 中，获得与 Codex
+桌面应用同一类的持续开发体验：选择一个项目和历史任务，看到完整上下文，发送文本、图片、文件、
+Skill 或 mention，选择模型、思考深度、Fast 和访问权限，并持续收到正文、思考、计划、工具、文件修改、
+审批、用量和错误。
 
-0.2.0 把产品重新定义为 Codex 原生移动客户端：
+Codex 只替换知行既有聊天体系的**运行后端**，不得替换它的聊天交互和渲染资产：
 
-- Codex App Server 的 Thread / Turn / Item 是工作会话的事实来源。
-- 手机能按项目浏览 Codex Desktop/CLI 已落盘的历史 Thread，并继续同一 Thread。
-- zhixing-agent 负责适配 Codex 版本和建立实时运行桥。
-- 自托管 Relay 只负责身份、机器信令、端到端加密盲转发、离线密文和通知。
-- Android 使用原生“项目 → 对话 → 消息/审批”交互，不暴露 Happy 技术对象。
+- 输入壳沿用知行现有 `ChatInputState`、附件、语音、IME、发送与停止交互；
+- 消息统一投影为 `UIMessage / UIMessagePart`；
+- Markdown、代码高亮、图片/文件、思考、工具、审批继续由现有消息组件渲染；
+- 历史恢复和实时增量进入同一投影器，不能形成两套展示结果；
+- Codex Thread 是事实来源，Room 只是加密内容在手机上的已解密缓存；
+- 项目与历史用于组织工作，在线状态用于辅助判断，不能取代聊天本身。
 
-## 2. 已锁定的决策
+0.2.1 基线中的 `CodexThreadPage` 曾使用自制纯文本 Item 气泡和 `OutlinedTextField`；本合同要求删除这套
+迁移脚手架，当前 0.2.x 实现已切换到共享输入与消息组件。
 
-1. 0.2.0 只做 Codex。Claude Code 新建和执行入口冻结，旧记录只读保留。
-2. 不把 ChatGPT Desktop UI、SQLite 或 `.codex-global-state.json` 作为正式运行接口。
-3. Agent 通过本机 stdio 连接 Codex App Server；手机不直接连接开发机端口。
-4. Happy 不再是目标协议或业务模型。0.1.13、旧 Relay 数据和服务器快照只用于只读与回滚。
-5. Android 不直接依赖 Codex 实验协议；Agent 输出版本化 Zhixing Wire v1。
-6. 同一 `machineId + codexThreadId` 永远是同一产品对话。运行桥重建不能产生重复对话。
-7. `main` 始终可部署；0.2.0 通过默认关闭的短分支增量合并，功能冻结后才创建 `release/0.2.0`。
+## 2. 用户问题与验收口径
 
-## 3. 当前链路
+### 2.1 要解决的问题
+
+1. 手机能看见 Desktop/CLI 已落盘的项目和历史 Thread，而不是只看最近活跃任务。
+2. 打开历史 Thread 立即看到完整消息，不需要另开对话询问“之前做到哪”。
+3. 手机继续同一 Thread 时，输入能力和 Codex 参数不能比桌面端显著残缺。
+4. AI 的正文、思考、工具和文件修改要进入正常聊天流，不能只在“完整日志”中刷屏。
+5. 网络或开发机临时离线时，历史、搜索和草稿仍可用；恢复后可以明确重试。
+
+### 2.2 P0 验收
+
+- 文本、图片和通用文件可发送；图片以 Codex 原生 image/localImage 输入进入 Turn。
+- 模型和思考深度来自当前 Agent 运行的 Codex `model/list`，按模型动态校验。
+- 支持 `priority` Fast、权限 Profile、Skill 和 mention；插件/App 至少可列出并显示实际可用状态。
+- 历史中的用户、助手、思考、命令、文件修改、MCP、Web Search 和协作工具得到结构化展示。
+- 实时回答、思考、命令输出、文件变更和工具进度在现有聊天流中增量更新。
+- 显示当前模型、思考深度、Fast、权限和上下文用量；展示的是 App Server 确认值，不是手机猜测值。
+- 空闲发送创建 Turn，运行中发送使用 steer；停止使用 interrupt。
+- 审批内联到相应工具步骤；批准、拒绝、取消与 App Server 决策一一对应。
+
+## 3. 调研一：Desktop、CLI 与 App Server 的真实边界
+
+### 3.1 已验证事实
+
+2026-07-19 在当前 Windows 开发机完成以下验证：
+
+- ChatGPT Desktop 内置运行时实际启动
+  `codex.exe -c features.code_mode_host=true app-server --analytics-default-enabled`。
+- Desktop 随附 `codex.exe` 与 `%LOCALAPPDATA%/OpenAI/Codex/bin/.../codex.exe` 哈希一致，版本为
+  `0.144.0-alpha.4`；npm `@openai/codex` 运行时为 `0.144.0`。
+- npm CLI `0.144.0` 现场生成 598 个 app-server TypeScript schema 文件，目录 hash 为
+  `e75404842a291fc0473a34abc0d3cd9b036182210f3c0e37709515dbab247ba0`；Desktop 与 CLI
+  暴露同一 v2 Thread/Turn/Item 方法和类型家族。Agent 以该生成物 golden fixture 作为写入能力门，不能只看版本号猜兼容。
+- Desktop 内置 App Server 是私有 stdio 子进程，没有可附着的 TCP/Unix 端点。独立 App Server 当前也提供
+  WebSocket listen 模式，但知行 Agent 为避免额外暴露本机端口，仍启动自己的本地 stdio App Server；手机不能
+  直接接到 Desktop 进程。
+- 第二个 App Server 可以通过相同 `CODEX_HOME` 读取 Desktop/CLI 已落盘的 Thread、Turn 和 Item。
+- 第二个 App Server 无法订阅 Desktop 当前私有进程中的实时运行事件。Desktop 正在执行的 Thread 在
+  独立进程中可能表现为 `notLoaded`，继续前必须由用户确认接管。
+- 对真实历史 Thread 调用 `thread/read(includeTurns=true)` 可以返回完整历史；“手机无历史”不是 Codex
+  上游不保存，而是当前 Wire 请求、快照和 Android 展示链路的问题。
+
+### 3.2 当前运行时能力
+
+本机运行时已验证：
+
+- 模型目录：`model/list` 返回模型标识、展示名、输入模态、支持的思考档位和 service tier。
+- 当前模型包含 `gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`、`gpt-5.5`、
+  `gpt-5.3-codex-spark`；不能把这份快照硬编码为长期列表。
+- 思考档位不是封闭枚举。不同模型支持 `low` 到 `xhigh/max/ultra` 的不同子集。
+- Fast 对应 `serviceTier=priority`，不是模型名或本地 UI 假状态。
+- 权限使用 `permissionProfile/list` 的 profile，并由 Thread/Turn 响应确认实际
+  `activePermissionProfile`、sandbox 和 approval policy。
+- `skills/list` 按 CWD 动态返回 Skill；`plugin/list/read/install` 和 `app/list` 是独立能力。`app/list` 与
+  `item/tool/requestUserInput` 属于实验能力，Agent 初始化时必须声明 `experimentalApi=true`。
+- `thread/tokenUsage/updated` 返回本轮、总用量和 `modelContextWindow`。
+- `thread/turns/list` 可分页读取历史；`thread/items/list` 在当前运行时虽然出现在 schema 中，但实测返回
+  “not supported yet”，不能作为 P0 历史依赖。
+
+### 3.3 输入协议
+
+`turn/start.input` 的当前 `UserInput` 变体包括：
+
+- `text`：文本；
+- `image`：URL + detail；
+- `localImage`：开发机本地绝对路径 + detail；
+- `skill`：name + path；
+- `mention`：name + path。
+
+没有通用 `file` 变体。手机文件必须先通过 Wire 加密上传到 Agent 临时区，再由 Agent 写入开发机受控目录，
+随后以 mention/path 和配套文本提交。图片优先走 `localImage`。临时文件必须有大小、MIME、哈希、生命周期和
+清理合同。
+
+### 3.4 结论
+
+当前方向并不是“用了错误的 CLI 协议”。Desktop 和 CLI 共享同一 App Server 协议家族；问题是
+zhixing-agent 只包了极小子集，Android 又在其上重做了一套纯文本页面。修复重点是扩大适配器、保留结构和
+复用知行聊天体系，而不是抓取 Desktop 私有 SQLite、模拟 UI 或回到 Happy。
+
+## 4. 调研二：知行已有聊天链路与当前偏差
+
+### 4.1 已有成熟链路
+
+```text
+ChatPage
+  -> ChatInput / ChatInputState
+  -> List<UIMessagePart>
+  -> ChatService / GenerationHandler
+  -> streaming MessageChunk merge
+  -> Conversation / MessageNode
+  -> ChatList
+  -> ChatMessage / MessagePartsBlock
+  -> MarkdownBlock / Reasoning / Tool UI / attachments
+```
+
+现有能力不是若干零散组件，而是一套完整显示协议：
+
+- `ChatInputState` 保存文本、图片、视频、音频、文档、编辑状态和托管附件清理语义；
+- `ChatInput` 包含模型、思考、搜索、附件、语音、发送、停止、键盘和无障碍交互；
+- `UIMessage.appendChunk` 能按顺序合并 Text、Image、Reasoning 和带稳定 ID 的 Tool；
+- `MessagePartsBlock` 保留 Part 顺序，把连续 Reasoning/Tool 组合为 Chain of Thought；
+- 助手正文和思考都用 `MarkdownBlock`，生成中避免 SelectionContainer 并发问题；
+- Tool UI 已有 loading、审批、问答、图片输出、专用 renderer 和通用 fallback；
+- `WorkUiMapper` 已证明远程协议消息可以映射为 `UIMessagePart` 并复用同一渲染资产。
+
+### 4.2 0.2.1 基线 Codex 页的问题
+
+实施前链路是：
+
+```text
+ThreadDetailPayload
+  -> CodexTurn / CodexItem(text/status)
+  -> flatMap(items)
+  -> CodexItemRow(Text)
+
+draft: String
+  -> OutlinedTextField
+  -> RuntimeCommandPayload(text)
+```
+
+其损失包括：
+
+- `normalizeThreadDetail` 把 image/localImage 压成 `[图片]`；
+- reasoning、command、fileChange、MCP 等只保留摘要文本；
+- `CodexItem.raw` 在落入 Android 领域模型前被丢弃；
+- 只处理 agentMessage delta，忽略 reasoning、plan、command output、file patch、MCP progress、token usage、
+  settings 和 model reroute 等通知；
+- Thread start/resume 返回的实际模型、effort、service tier、权限、sandbox 和 approval policy 被丢弃；
+- 输入只有 text，没有附件、Skill、mention 或运行参数；
+- Thread 页自己渲染纯文本，绕过 Markdown、思考、工具和附件；
+- 历史只在首次进入时发送一次 `thread.detail`，失败被 `runCatching` 吞掉，没有可见状态和自动重试；
+- 完整历史以单个 envelope 发布，存在 Relay 3 MiB 上限和弱网失败风险。
+
+## 5. 目标架构
 
 ```mermaid
 flowchart LR
-    UI[Android Workflow UI] --> Room[Work Room tables]
-    Room --> HappyClient[Happy HTTP / Socket client]
-    HappyClient --> HappyRelay[Happy Relay]
-    HappyRelay --> Agent[zhixing-agent]
-    Agent --> AppServer[Codex App Server]
+    Desktop["ChatGPT Desktop / Codex CLI"] --> State["CODEX_HOME rollouts"]
+    State <--> AppServer["Codex App Server v2"]
+    AppServer <--> Adapter["zhixing-agent Codex adapter"]
+    Adapter <--> Projector["Wire event and snapshot projector"]
+    Projector <-->|"Wire v1 E2E ciphertext"| Relay["Blind Relay"]
+    Relay <-->|"Wire v1 E2E ciphertext"| Android["Android Wire client"]
+    Android --> Cache["Room cache: Codex facts"]
+    Cache --> ConversationAdapter["CodexConversationAdapter"]
+    ConversationAdapter --> ChatUI["Existing Chat timeline and composer"]
 ```
 
-当前限制：
+### 5.1 唯一事实来源
 
-- `WorkSession` 是 Happy Session，不是 Codex Thread。
-- `WorkflowProject` 从现有 Session 的路径推导，没有独立 Project 事实。
-- Agent 只实现 `thread/start`、`thread/resume` 和 `turn/start`，没有目录同步。
-- Relay 部署只是 `happy-server-self-host` 的包装镜像。
-- 首页仍同时展示运行态、仓库预设和最近会话，配置与内容混杂。
+- Codex Thread/Turn/Item 是远程开发对话事实。
+- `(machineId, threadId)` 是产品主键；不得另造一个本地 Conversation ID 表示同一 Thread。
+- Room 保存规范化 Codex 对象、opaque raw 和本地整理偏好，不能把它们复制成普通 Provider Conversation。
+- UI 可把 Codex 消息临时包装为 `UIMessage/MessageNode`，但这些是 projection，不反向覆盖 Codex 历史。
 
-## 4. 目标链路
+### 5.2 共享 UI 分层
 
-```mermaid
-flowchart LR
-    Desktop[ChatGPT Desktop] --> CodexState[Codex state / rollouts]
-    AppServer[Codex App Server] <--> CodexState
-    Agent[zhixing-agent\nCodex adapter + catalog + runtime] <--> AppServer
-    Agent <-->|Zhixing Wire v1 ciphertext| Relay[Zhixing Relay]
-    Relay <-->|Zhixing Wire v1 ciphertext| Android[Android]
-    Android --> Room[Room cache]
+目标不是让 Codex 直接进入现有 `ChatService` Provider 生成链，而是提取两层共享资产：
+
+1. `ChatTimeline`：接收稳定的 `MessageNode/UIMessage` 视图和动作 capability；
+2. `ChatComposer`：接收 `ChatInputState`、模型/思考/权限等展示模型，以及发送/停止/附件回调。
+
+本地 Provider Chat 和 Codex Runtime 分别提供 controller。这样复用交互和视觉，但不混淆持久化、分支、生成、
+工具执行和事实来源。
+
+## 6. Wire 领域合同
+
+### 6.1 Runtime settings
+
+Thread detail、start/resume 响应和 settings update 必须保留：
+
+```json
+{
+  "model": "gpt-5.6-sol",
+  "reasoningEffort": "high",
+  "serviceTier": "priority",
+  "permissionProfile": ":workspace",
+  "approvalPolicy": "on-request",
+  "sandbox": "workspace-write",
+  "cwd": "C:\\repo",
+  "tokenUsage": {
+    "last": 0,
+    "total": 0,
+    "modelContextWindow": 262144
+  }
+}
 ```
 
-### 4.1 Codex App Server
+Android 展示最近一次 App Server 确认值。命令发出后只能显示“正在切换”，收到响应或通知后才更新为实际值。
 
-拥有 Thread、Turn、Item、审批、归档、删除和恢复语义。0.2.0 的适配基线为本机生成的 `codex-cli 0.144.0` schema，但运行时必须握手并按 capability 降级，不能假定所有字段永久稳定。
+### 6.2 Catalogs
 
-### 4.2 zhixing-agent
+Agent 按 CWD 提供：
 
-Agent 是唯一 Codex 协议适配层：
+- `model.catalog`：模型、展示名、输入模态、efforts、tiers、默认值；
+- `permission.catalog`：profile ID、展示名、风险说明和实际 sandbox/approval 结果；
+- `skill.catalog`：name、path、description、enabled；
+- `plugin.catalog` / `app.catalog`：已安装、可用、授权或不可用状态。
 
-- 启动本机 App Server stdio 子进程。
-- 生成/校验 schema hash 与能力表。
-- 分页读取 Thread 目录和按需读取 Turn/Item。
-- 将 CWD 归一为 Project。
-- 把 Codex 事件映射为稳定 Wire 事件。
-- 处理 start/resume/fork/steer/interrupt/archive/delete/approval。
-- 为 Agent 接管的 Thread 维护唯一 RuntimeBinding。
+Catalog 带 revision、generatedAt 和 capability。未知字段前向兼容；更高 required capability 禁止写入但保留只读。
 
-### 4.3 Zhixing Relay
+### 6.3 Composer payload
 
-Relay 不理解 Codex 内容，仅承担：
+```json
+{
+  "command": "turn.start",
+  "machineId": "machine",
+  "threadId": "thread",
+  "input": [
+    {"type": "text", "text": "修复截图中的问题"},
+    {"type": "localImage", "path": "C:\\...\\uploads\\opaque\\screen.png", "detail": "auto"},
+    {"type": "skill", "name": "ui-review", "path": "C:\\...\\SKILL.md"}
+  ],
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "serviceTier": "priority",
+  "permissions": ":workspace"
+}
+```
 
-- 账户挑战认证、设备配对和撤销。
-- Android/Agent 在线状态与目标路由。
-- 幂等密文 envelope、ACK、短期 outbox 和离线快照。
-- RPC 超时、推送触发、健康检查、备份和恢复。
+手机先用 `attachment.upload` 分片传输本机 URI 内容。Agent 在 E2E 解密、大小/MIME/SHA-256 校验完成后返回
+受控临时路径，Android 才把该路径作为 app-server `localImage` 或 `mention` 放进结构化输入；用户不能手填
+开发机路径。开发机历史中的 `localImage` 则通过 `attachment.download` 按 Thread 引用白名单取回。
 
-Relay 不得记录项目路径、Thread 标题、消息正文、工具参数、Codex/ChatGPT 凭据或恢复种子。
+### 6.4 Thread snapshot
 
-### 4.4 Android
+- 使用 `thread/read(includeTurns=true)` 或 `thread/turns/list(itemsView=full)` 读取；不依赖当前不支持的
+  `thread/items/list`。
+- 快照按受控 UTF-8 字节大小分块，携带 detailId、machineId、threadId、chunkIndex/count、chunkHash、
+  contentHash 和 contentBase64。
+- Android 只有在全部块校验成功后才原子替换旧 revision；失败继续展示旧历史并重试缺块。
+- Item 必须保存 `id/type/status`、结构化 raw 和兼容用 text；不得只保存纯文本。raw 只在 E2E 密文和已配对设备
+  本地 Room 中保存，日志不得输出明文 payload。
 
-Room 是已解密数据的本机缓存，不是服务端真相。UI 只订阅 Project、Thread、Turn/Item、RuntimeBinding、Approval 和同步状态；不得重新拼装第二份会话状态。
+### 6.5 Runtime event
 
-## 5. 领域对象
+所有 Runtime 事件保留 `threadId/turnId/itemId/type/at/payload`；Wire envelope 的 per-stream `seq` 负责去重与
+gap 检测。至少覆盖：
 
-### Machine
+- turn started/completed；
+- item started/completed；
+- agent message delta；
+- reasoning summary/text delta 与 part added；
+- plan delta/updated；
+- command output delta；
+- file output/patch delta；
+- MCP/tool progress；
+- token usage；
+- thread settings、model reroute 和 error；
+- approval requested/resolved。
 
-- `machineId`：随机稳定 ID。
-- display name、platform、Agent/Codex 版本和 capabilities。
-- Relay presence 与最后在线时间。
+App Server 的原始 delta 先在 Agent 按 itemId 合并，再作为累计 Item snapshot 发布；Android 对同一 itemId 做幂等
+upsert。这样重复 envelope 不会重复拼字，seq gap 会触发完整 `thread.detail` 重同步。
 
-### Project
+## 7. Codex 到知行消息的映射
 
-- `projectId`：Agent 持久化随机 UUID；确定性恢复场景使用 keyed HMAC，禁止裸路径哈希。
-- `machineId`、加密 canonical root、display name、VCS 元数据、最近活动。
-- 路径归一处理 Windows 盘符大小写、`\\?\`、分隔符、尾斜杠、WSL 映射和 Git root。
-- 无法安全归一时保留原始 CWD 并进入“其他目录”，不得错误合并。
+| Codex Item / event | UI 投影 | 展示规则 |
+|---|---|---|
+| `userMessage.text` | `UIMessagePart.Text` | 用户气泡，Markdown 按现有规则 |
+| `userMessage.image/localImage` | `UIMessagePart.Image` | 通过加密附件缓存展示；不可取时显示带状态的附件占位 |
+| `skill` / `mention` | Text + metadata/chip | 保留 name/path 身份，正文不只显示 `$name` 字符串 |
+| `agentMessage` | `UIMessagePart.Text` | 现有 Markdown、代码高亮、引用和选择复制 |
+| `reasoning` | `UIMessagePart.Reasoning` | 流式预览、完成后折叠、显示耗时 |
+| `plan` | `UIMessagePart.Tool(toolName=update_plan)` | 结构化计划卡；无 renderer 时走通用 Tool fallback |
+| `commandExecution` | `UIMessagePart.Tool` | command/input、增量输出、状态、审批 |
+| `fileChange` | `UIMessagePart.Tool` | 文件路径、diff/patch、状态、审批 |
+| `mcpToolCall` | `UIMessagePart.Tool` | namespace/tool/input/output/progress |
+| `dynamicToolCall` | `UIMessagePart.Tool` | 稳定 itemId 作为 toolCallId |
+| `collabAgentToolCall` | `UIMessagePart.Tool` | 子任务标题、状态与结果，不平铺为独立主对话 |
+| `webSearch` | `UIMessagePart.Tool(search_web)` | 搜索过程与结果；正文引用仍由 Markdown 展示 |
+| compaction/review/reroute | 系统 Note 或 metadata | 仅有用户意义时显示，诊断信息不污染正文 |
+| approval request | 对应 Tool 的 Pending 状态 | 内联允许/拒绝/取消；找不到 Item 时才使用独立 fallback 卡 |
 
-### Thread
+投影必须保留 Item 原始顺序。Reasoning 和 Tool 连续出现时沿用现有 Chain of Thought 分组；正文前后顺序不能
+被按类型重排。
 
-- 业务主键：`machineId + codexThreadId`。
-- Project、name/preview、created/updated/recency、archived、source、parent/fork 关系。
-- `parentThreadId != null` 的 subagent 挂在父 Thread 内，不占主列表。
-- Automation 独立标记和筛选，默认不占项目首页。
+## 8. 流式与历史统一
 
-### RuntimeBinding
+### 8.1 Reducer
 
-- 表示 Agent 当前加载的 Thread 和实时事件连接。
-- 不创建另一条产品会话。
-- 同一机器/Thread 最多一个写入 binding；重复请求重连现有 binding。
+`CodexMessageProjector` 接收统一的 `CodexThreadDetail`：
 
-### ProjectPolicy
+- 完整 Thread snapshot 写入的结构化 Item；
+- `CodexRuntimeItemReducer` 将 RuntimeEvent 合并后写入的同形 Item；
+- command result 产生的设置、用量和审批状态。
 
-默认模型、思考深度、审批/沙箱和分支等配置。它属于设置，不是 Project 内容，也不在工作首页展示。
+输出是稳定 `List<CodexMessageBlock>`，内部直接承载既有 `UIMessagePart`。Item ID 作为 Part 身份；Turn ID 作为
+消息分组边界。
+实时增量与历史重放必须得到相同投影，测试使用同一 fixture 比较最终结构。
 
-## 6. Desktop 集成边界
+### 8.2 合并规则
 
-Windows 真机验证结果：
+- Agent 累计 text/reasoning snapshot upsert 到同一 Part，不为每个 delta 新建消息；
+- Tool 以 Item ID 更新 input/output/status/approval，不能通过标题猜测配对；
+- item completed 关闭相应 loading；turn completed 兜底关闭未完成 reasoning/tool；
+- 完整 detail 的全部块校验后原子替换旧 Turn/Item；未完成 detail 不覆盖旧历史；
+- 重复事件幂等，gap 触发 snapshot refresh，不猜测缺失文本；
+- App 重启后从 Room 恢复历史、草稿、revision 和最后连续 sequence。
 
-- 独立 App Server 可以在 Desktop 运行时 `thread/list` 和 `thread/read(includeTurns=true)`，读取真实名称、CWD、父子关系、Turn/Item 和已落盘状态。
-- Desktop 内置 App Server 是其 stdio 子进程，没有可复用的 TCP/Unix 控制端点。
-- 第二个 App Server 对 Desktop 已加载的 Thread 返回 `notLoaded`，不能订阅第一个进程的实时事件。
+## 9. 输入区合同
 
-因此：
+### 9.1 必须复用
 
-- Desktop/CLI 已落盘项目和历史可以自动同步。
-- Agent 启动或恢复的 Thread 支持完整实时控制。
-- Desktop 独立启动的活动 Thread 只能展示最后确认的历史；状态必须标为“桌面状态未知”，不能伪装在线。
-- 状态未知的 Desktop Thread 在 resume 前要求确认，避免两个 App Server 并发驱动。
-- 不用 tail 私有 JSONL、注入 Desktop stdio 或读取私有 SQLite 来伪造实时能力。
+Codex Thread 页使用与普通聊天一致的输入容器、文本编辑、附件预览、语音、发送/停止、IME 和安全区处理。
+不允许维护第二个纯文本 `draft: String + OutlinedTextField` 体系。
 
-## 7. Android 信息架构
+### 9.2 必须解耦
+
+现有 `ChatInput` 直接依赖 `Settings/Assistant/Provider Model`，需提取数据驱动接口：
+
+```kotlin
+data class ChatComposerOptions(
+    val models: List<ComposerModelOption>,
+    val selectedModel: String?,
+    val reasoningEfforts: List<ComposerReasoningOption>,
+    val selectedEffort: String?,
+    val fastEnabled: Boolean,
+    val permissionProfiles: List<ComposerPermissionOption>,
+    val selectedPermissionProfile: String?,
+    val skills: List<ComposerSkillOption>,
+    val contextUsage: ComposerContextUsage?,
+)
+```
+
+普通 Provider Chat 用 Adapter 把 `Settings/Assistant/Model` 转成该模型；Codex 用 `model/list` 等 catalog 转换。
+现有 `ReasoningLevel` 只到 `xhigh`，不能作为 Codex 协议枚举；UI 使用服务端广播字符串和展示标签。
+
+### 9.3 参数行为
+
+- 模型切换只展示该模型支持的 effort 和输入模态；不支持图片的模型在发送前给出明确错误。
+- Fast 是可见 toggle，并显示服务端确认状态。
+- 权限 Profile 是每个 Thread/Turn 的真实设置；危险档位切换继续使用明确确认。
+- 上下文长度显示已用/窗口和最近更新时间，不用手机估算替代服务端值。
+- Skill/mention 使用动态 catalog，选择后以结构化 Part 留在输入区，可单独删除。
+- 运行中发送按钮语义为“补充要求”；空闲为“发送”；同一位置显示停止能力。
+
+## 10. 页面交互
 
 ### 工作首页
 
-- 顶栏：工作、搜索、设置。
-- 仅有审批、失败或完成时显示紧凑“需要处理”。
-- 主体是纵向 Project 列表：项目名、最近 Thread 摘要、更新时间、在线/离线文字状态。
-- FAB 新建任务。
-- 不展示恢复密钥、中继协议、机器诊断、模型权限或仓库预设卡。
+- 只展示置顶项目和有限最近项目；完整目录进入“管理全部”。
+- 项目整理、归档、重点和搜索继续存在，但不把机器指标和运行日志堆在首页。
+- “需要处理”只作为快捷入口，不是页面主叙事。
 
 ### Project 页
 
-- 项目名和新建任务是主层级。
-- 筛选：全部、进行中、已完成、已归档；Automation 为二级筛选。
-- Thread 行显示标题、最近 Agent 摘要、时间和状态，不显示内部 ID。
-- subagent 在父 Thread 内折叠为“子任务 n”。
-- 路径、机器、Git root 和默认策略放入项目信息抽屉。
+- 以当前、重点、归档组织历史 Thread；subagent 挂在父 Thread。
+- Thread 行以标题、最后正文摘要和更新时间为主；状态是辅助信息。
+- 新建任务从项目上下文启动，并使用同一 Composer 参数模型。
 
 ### Thread 页
 
-- 首屏直接显示消息流，移除大块 `SessionTargetCard`。
-- AppBar 显示自适应标题和 Project 副标题；停止、归档、删除、诊断进入 overflow。
-- Agent 正文为主；工具活动折叠，思考和原始日志退居二级。
-- 审批卡内联展示目标、风险和允许一次/拒绝；状态不能只靠颜色。
-- 输入区保留草稿。开发机离线时禁止发送且不自动排队。
-- 运行中发送映射为 steer；空闲时映射为普通 turn。
+- 首屏是完整聊天时间线，不放大块“远程操作目标”卡。
+- 顶栏只保留自适应标题、项目副标题和必要的停止/管理动作。
+- 输入区和普通聊天一致；Codex 特有参数以紧凑按钮和 bottom sheet 出现。
+- 完整日志和 raw payload 只用于诊断；用户有意义的工具、思考和错误必须进入聊天流。
 
-### 新建任务与设置
+## 11. 状态、错误与降级
 
-新建任务默认只显示 Project、任务描述和开始；模型、思考深度、权限、分支放入高级设置。用户可见设置称为“开发环境”，Happy 字样退出 0.2.0 主 UI。
+- 手机离线：历史、搜索、草稿可用；发送禁用并说明原因。
+- Relay 不可达：保留旧 revision，提供显式重试；不显示空历史。
+- 开发机离线：历史可读，不自动排队危险操作。
+- 首次 detail 请求失败：进入可恢复错误并指数退避；不能吞错后永久停在空页。
+- snapshot 过大：自动分块；不能依赖 Relay 3 MiB 单包上限。
+- 单 Item 无法解析：保存 opaque raw，显示诊断 fallback，不清空整条 Thread。
+- Codex schema 不兼容：目录和缓存只读，控制面关闭并提示升级 Agent。
+- Desktop 状态未知：允许阅读；继续前确认接管，不伪装实时在线。
 
-## 8. 状态和降级
+## 12. 安全与隐私
 
-- 手机离线：Room 只读、展示最后同步时间、保留草稿。
-- Relay 不可达：历史可读并允许重试。
-- 开发机离线：执行禁用，历史和搜索可用。
-- Agent/Codex 不兼容：只读目录并提示升级 Agent。
-- 单 Thread 读取或解密失败：隔离对象，不清空其他项目。
-- 未知 Item：进入诊断层的 opaque fallback，不导致整条 Thread 无法读取。
+- 手机不直连开发机，不暴露 App Server、SSH 或终端端口。
+- Relay 只见 Wire envelope 元数据与密文，不见路径、标题、正文、工具参数和附件明文。
+- 附件端到端加密，Agent 解密后的临时文件限制在专用目录，校验路径、大小、MIME 和 SHA-256，并按 TTL 清理。
+- Codex/ChatGPT 登录态始终留在开发机 `CODEX_HOME`；Relay 和 Android 不持有账户 token。
+- 日志只记录 requestId、类型、字节数和脱敏错误，不记录恢复种子、密钥、完整路径或正文。
+- 中继地区不会改变 Codex 模型请求的开发机出口，也不能规避账号或地区政策。
 
-## 9. 安全边界
+## 13. 迁移与回滚
 
-- Wire v1 使用独立域分离和新密文 bundle；不与 Happy v0 密文混写。
-- 每条密文使用 AES-256-GCM，AAD 绑定 envelope 路由和序号。
-- data key 通过设备 X25519/NaCl box 封装；恢复种子和设备私钥永不上传。
-- Relay compromise 的保密承诺只覆盖正文；流量时间、大小、账户和路由元数据仍可见。
-- 已配对恶意设备、开发机本身被攻破和上游账号封禁不在 Relay 保密承诺内。
+- 保留 `v0.2.1` Room 30 和 Wire 数据；新增详情 revision 表必须通过 `30 -> 31`
+  增量 migration 引入，禁止改写已经发布的 30 号 schema。
+- 当前 `CodexItem.text` 可作为旧缓存 fallback，但新 snapshot 必须保存结构化内容；升级后按需刷新历史。
+- 旧 Happy 凭据、缓存、服务器和 `v0.1.13` Release 继续只读保留，不迁移成 Codex Thread。
+- 改造期间保持页面路由和 `(machineId, threadId)` 不变，避免历史深链失效。
+- 若新聊天投影失败，可临时回到只读旧 Item 页面；不得删除 Codex 历史、Wire 密文或 Happy 数据。
 
-## 10. 迁移与回滚
+## 14. 实施顺序
 
-- 0.2.0 新链路在完整闭环前默认关闭，不占用正式工作入口。
-- Happy 数据只读保留，不自动转换成 Codex 事实。
-- 切换失败时回到 0.1.13 客户端/Agent/Happy Relay；不删除新 Relay 密文、旧 Happy 数据或本机 Codex Thread。
-- 新 Relay 完成真实备份恢复和回滚演练后，才允许下线 Happy 容器。
+1. 先扩展 Agent/Wire 数据合同和 fixture，停止信息压平。
+2. 实现 snapshot/event 到 `UIMessagePart` 的纯 Kotlin projector，并用历史/实时等价测试保护。
+3. 抽取 `ChatTimeline` 和 `ChatComposer`，保持普通 Provider Chat 行为不变。
+4. 将 Codex Thread 页切到共享时间线，再接模型、effort、Fast、权限、Skill、附件和上下文。
+5. 增加 snapshot chunk、失败重试、离线和 schema 降级。
+6. 删除自制 `CodexItemRow` 与纯文本输入区。
+7. 完成 Agent、Android、Relay、APK 和真机交互验收。
 
-## 11. 非目标
+## 15. 自动化验收矩阵
 
-- Claude Code 账号或协议兼容。
-- 操作 ChatGPT Desktop UI。
-- 手机直连开发机端口。
-- 完整移动 IDE、多 Agent 编排、生产环境静默危险操作。
-- 为追求实时旁观而依赖 Codex 私有数据库或未承诺的 Desktop 内部协议。
+| 要求 | 必须证据 |
+|---|---|
+| 协议同族与能力发现 | Desktop 随附 runtime schema hash、model/profile/skill fixture |
+| 完整历史 | 多 Turn、多 Item、图片、reasoning/tool 的 snapshot projector 测试 |
+| 历史/实时一致 | snapshot 与等价 event replay 输出深度相等 |
+| 流式正文与思考 | delta 合并、完成状态、重复/gap 测试 |
+| 工具和审批 | command/file/MCP/approval 映射与交互测试 |
+| 输入参数 | model/effort/tier/profile/skill/input 转换契约测试 |
+| 图片和文件 | E2E attachment、哈希、路径逃逸、大小限制和清理测试 |
+| 弱网和大历史 | chunk 缺失/重试/原子替换/旧 revision 保留测试 |
+| 普通聊天无回归 | `ChatInput`、Provider model/reasoning 和 ChatMessage 既有测试 |
+| Android 交互 | 小屏/横屏/大字/明暗主题截图或真机检查 |
+| 构建 | Agent test/typecheck/build、Android focused/full tests、debug APK |
 
-## 12. 产品验收
+独立审查 BOT 必须逐条对照本矩阵。任何 P0 要求只有文档或 TODO、没有代码和验证证据，都判定为未完成。
 
-1. 手机按 Project 浏览 Desktop/CLI 已落盘主 Thread 和历史，不受 Happy 活跃窗口限制。
-2. 开发机离线时历史、搜索和草稿可用；上线后由用户明确发送。
-3. 恢复历史后继续同一 Codex Thread，不产生重复产品会话。
-4. Agent 接管的 Thread 支持正文、工具、审批、steer、interrupt 和完成状态实时闭环。
-5. Relay 无法读取路径、标题、正文和工具参数；重复、乱序和重放不制造重复状态。
-6. Codex 变化由 Agent capability/schema 适配，旧 Android 明确只读降级。
-7. 0.1.13 和旧服务器快照可完成可验证回滚。
+## 16. 非目标与延期
+
+- 不操作 ChatGPT Desktop UI，不注入其私有 stdio，不读取私有 SQLite 伪造实时事件。
+- 不恢复 Claude Code 写入通道；旧 Happy/Claude 只读保留。
+- 不做手机通用终端、完整 IDE 或远程文件浏览器。
+- 不把普通 Provider Chat 和 Codex Thread 合并成同一持久化数据库对象。
+- 不在 P0 承诺通用二进制文件能被模型原生理解；通用文件通过受控落盘和 mention 提供。
+- `thread/items/list` 未被当前运行时支持，在运行探针通过前不使用。
+- OpenAI 若未来公开 Desktop attach/remote-control 自托管端点，再以新 capability 评估，不提前假设。

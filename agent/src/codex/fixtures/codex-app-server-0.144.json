@@ -1,0 +1,17 @@
+{
+  "codexVersion": "0.144.0",
+  "generatedAt": "2026-07-19",
+  "generator": "codex app-server generate-ts",
+  "fileCount": 598,
+  "schemaHash": "e75404842a291fc0473a34abc0d3cd9b036182210f3c0e37709515dbab247ba0",
+  "representativeFiles": [
+    "v2/Thread.ts",
+    "v2/Turn.ts",
+    "v2/ThreadStartParams.ts",
+    "v2/TurnStartParams.ts",
+    "v2/TurnSteerParams.ts",
+    "v2/ModelListResponse.ts",
+    "v2/RequestUserInputParams.ts",
+    "v2/ServerNotification.ts"
+  ]
+}

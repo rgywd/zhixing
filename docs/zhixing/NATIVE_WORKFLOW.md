@@ -1,6 +1,11 @@
-# 原生远程工作流契约
+# 原生远程工作流契约（0.1.x Happy 历史）
 
-状态：数据层重构进行中（2026-07-16 起，按 Issue #18 重构为移动 Coding Session 客户端）
+状态：Historical / rollback only（2026-07-19 起不再作为 active 0.2.x 产品合同）
+
+> 本文保留 0.1.x Happy/Claude 实现与验收记录，用于旧数据只读和回滚。当前 Codex 产品、协议、聊天交互
+> 与实施验收的唯一基线是 [`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md) 和
+> [`CODEX_NATIVE_IMPLEMENTATION_PLAN.md`](./CODEX_NATIVE_IMPLEMENTATION_PLAN.md)。本文中的 Happy 主链、
+> Claude 一等 Agent、仓库预设和自制会话页描述不得用于新增 0.2.x 功能。
 
 关联需求：[GitHub Issue #10](https://github.com/rgywd/zhixing/issues/10)、[GitHub Issue #18](https://github.com/rgywd/zhixing/issues/18)
 
@@ -8,7 +13,7 @@
 
 知行在自身 Compose 界面中管理开发机上的 Coding Agent。手机只连接中继服务，不直接访问开发机、SSH、终端端口或 Codex app-server。
 
-第一条接入链路复用 Happy 的开放协议和现有 `happy codex` 电脑端：
+0.1.x 第一条接入链路复用 Happy 的开放协议和 `happy codex` 电脑端：
 
 ```text
 知行 Compose UI

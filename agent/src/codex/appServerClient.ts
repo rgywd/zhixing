@@ -35,13 +35,17 @@ export interface ThreadStartOptions {
   approvalPolicy: string
   sandbox: string
   reasoningEffort?: string
+  serviceTier?: string
+  permissions?: string
 }
 
 export interface TurnStartOptions {
   threadId: string
-  text: string
+  input: Array<Record<string, unknown>>
   model?: string
   effort?: string
+  serviceTier?: string
+  permissions?: string
 }
 
 export class CodexAppServerClient {
@@ -88,7 +92,7 @@ export class CodexAppServerClient {
 
     const initialized = await this.request('initialize', {
       clientInfo: { name: 'zhixing-agent', title: 'Zhixing Agent', version: '0.1.0' },
-      capabilities: { experimentalApi: false },
+      capabilities: { experimentalApi: true },
     })
     this.initializeInfo = parseInitializeInfo(initialized)
     this.notify('initialized', undefined)
@@ -102,13 +106,7 @@ export class CodexAppServerClient {
   }
 
   async startThread(options: ThreadStartOptions): Promise<{ threadId: string; raw: unknown }> {
-    const params: Record<string, unknown> = {
-      cwd: options.cwd,
-      approvalPolicy: options.approvalPolicy,
-      sandbox: options.sandbox,
-    }
-    if (options.model) params.model = options.model
-    if (options.reasoningEffort) params.config = { model_reasoning_effort: options.reasoningEffort }
+    const params = buildThreadParams(options)
     const result = (await this.request('thread/start', params)) as { thread?: { id?: string } }
     const threadId = result.thread?.id
     if (!threadId) throw new Error('thread/start response missing thread.id')
@@ -116,22 +114,19 @@ export class CodexAppServerClient {
   }
 
   async resumeThread(threadId: string, options: Partial<ThreadStartOptions> = {}): Promise<unknown> {
-    const params: Record<string, unknown> = { threadId }
-    if (options.cwd) params.cwd = options.cwd
-    if (options.approvalPolicy) params.approvalPolicy = options.approvalPolicy
-    if (options.sandbox) params.sandbox = options.sandbox
-    if (options.model) params.model = options.model
-    if (options.reasoningEffort) params.config = { model_reasoning_effort: options.reasoningEffort }
+    const params = buildThreadParams(options, threadId)
     return this.request('thread/resume', params)
   }
 
   async startTurn(options: TurnStartOptions): Promise<{ turnId: string | null }> {
     const params: Record<string, unknown> = {
       threadId: options.threadId,
-      input: [{ type: 'text', text: options.text }],
+      input: options.input,
     }
     if (options.model) params.model = options.model
     if (options.effort) params.effort = options.effort
+    if (options.serviceTier) params.serviceTier = options.serviceTier
+    if (options.permissions) params.permissions = options.permissions
     const result = (await this.request('turn/start', params)) as { turn?: { id?: string } }
     return { turnId: result.turn?.id ?? null }
   }
@@ -140,12 +135,32 @@ export class CodexAppServerClient {
     await this.request('turn/interrupt', { threadId, turnId })
   }
 
-  async steerTurn(threadId: string, expectedTurnId: string, text: string): Promise<void> {
+  async steerTurn(threadId: string, expectedTurnId: string, input: Array<Record<string, unknown>>): Promise<void> {
     await this.request('turn/steer', {
       threadId,
       expectedTurnId,
-      input: [{ type: 'text', text }],
+      input,
     })
+  }
+
+  async listModels(): Promise<unknown> {
+    return this.request('model/list', { limit: 100, includeHidden: false })
+  }
+
+  async listPermissionProfiles(cwd: string): Promise<unknown> {
+    return this.request('permissionProfile/list', { cwd, limit: 100 })
+  }
+
+  async listSkills(cwd: string): Promise<unknown> {
+    return this.request('skills/list', { cwds: [cwd], forceReload: false })
+  }
+
+  async listPlugins(cwd: string): Promise<unknown> {
+    return this.request('plugin/list', { cwds: [cwd] })
+  }
+
+  async listApps(): Promise<unknown> {
+    return this.request('app/list', { limit: 100, forceRefetch: false })
   }
 
   async forkThread(threadId: string): Promise<{ threadId: string }> {
@@ -260,4 +275,22 @@ export class CodexAppServerClient {
     this.child = null
     this.initializeInfo = null
   }
+}
+
+export function buildThreadParams(
+  options: Partial<ThreadStartOptions>,
+  threadId?: string,
+): Record<string, unknown> {
+  const params: Record<string, unknown> = {}
+  if (threadId) params.threadId = threadId
+  if (options.cwd) params.cwd = options.cwd
+  if (options.approvalPolicy) params.approvalPolicy = options.approvalPolicy
+  if (options.model) params.model = options.model
+  if (options.reasoningEffort) params.config = { model_reasoning_effort: options.reasoningEffort }
+  if (options.serviceTier) params.serviceTier = options.serviceTier
+  // App Server explicitly rejects a named permissions profile combined with
+  // legacy sandbox. Profiles are authoritative when selected.
+  if (options.permissions) params.permissions = options.permissions
+  else if (options.sandbox) params.sandbox = options.sandbox
+  return params
 }

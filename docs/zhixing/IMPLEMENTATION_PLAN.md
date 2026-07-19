@@ -53,7 +53,7 @@
 - [x] 在 Workspace 详情页提供知识空间状态、初始化和知识导入入口。
 - [x] 为初始化、中文检索、来源引用、路径边界和工具注册补测试。
 
-### Phase 2.2：原生远程工作流
+### Phase 2.2：原生远程工作流（0.1.x Happy 历史）
 
 完整契约见 [`NATIVE_WORKFLOW.md`](./NATIVE_WORKFLOW.md)。
 
@@ -65,7 +65,19 @@
 - [x] 使用当前真实 Happy/Codex 账户完成读写闭环与断线恢复验证。
 - [x] 工作流默认入口不再加载 Happy WebView；App 支持安全切换中继 origin，token 与中继绑定。
 - [x] 自托管 Happy Relay 的固定上游版本、Docker Compose、可选 Caddy、备份/升级/回滚手册已落库。
-- [ ] 在目标 VPS 完成 HTTPS 部署，并做手机 + zhixing-agent + Codex 的真实全链路验收。
+- [x] Happy 历史链路已完成并冻结为 0.1.x 回滚面；后续不再扩展。
+
+### Phase 2.4：Codex 原生会话交互打磨
+
+完整合同见 [`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md)，执行状态见
+[`CODEX_NATIVE_IMPLEMENTATION_PLAN.md`](./CODEX_NATIVE_IMPLEMENTATION_PLAN.md)。
+
+- [x] Agent/Wire 保留模型、权限、上下文、结构化 Item 和完整增量事件，不再压成纯文本。
+- [x] 历史 snapshot 与实时 event 统一投影为 `UIMessage/UIMessagePart`。
+- [x] Codex Thread 复用现有聊天输入、Markdown、思考、工具、审批和附件渲染。
+- [x] 接入动态 model/effort、Fast、permission profile、Skill、图片和通用文件。
+- [x] 大历史分块、首次同步重试、离线旧 revision 与 Desktop takeover 完成闭环。
+- [x] 经第三轮全新独立审查 BOT 按合同 P0 矩阵全项 PASS，阻断项为零。
 
 ### Phase 2.3：记忆 MVP
 
@@ -113,3 +125,15 @@
 - 知识空间核心测试：`KnowledgeSpaceManagerTest` 4 条通过，覆盖幂等初始化、中文检索、来源/行号引用、同名防覆盖与读取边界。
 - 知识空间 App 测试：`KnowledgeToolsTest`、`WorkspaceReminderTransformerTest`、`KnowledgeSpaceServiceTest` 共 6 条通过，覆盖审批默认值、无 RootFS 可用性和本地文本归一。
 - `:app:assembleDebug`：通过；知识空间 UI、资源、Koin 依赖、文档解析接线和四个 AI 工具完成编译与 APK 打包。
+
+## 2026-07-19 Codex 原生会话验证记录
+
+- Agent：17 个测试文件、70 项全部通过，TypeScript typecheck 与 build 通过。
+- Relay：3 个测试文件、7 项全部通过，TypeScript typecheck 与 build 通过。
+- Android：48 个测试类、223 项全部通过（0 failure、0 skipped），Debug APK 构建通过。
+- Room：保留已发布 30 号 schema，新增 `30 -> 31` AutoMigration；设备迁移测试 1/1 通过，
+  旧 0.2.1 数据覆盖安装后正常进入 `RouteActivity`，logcat 无 Room/SafeMode/FATAL 错误。
+- 共享 fixture 验证 Android `turn.start` 的 model/effort/Fast/profile/Skill 结构可由 Agent 原样执行；
+  全类型多 Turn snapshot 与累计 runtime event 重放得到相同 `UIMessagePart` 投影。
+- Android 35 x86_64 模拟器已覆盖浅色、深色、大字体、横屏和 IME。
+- 第三轮独立审查在 HEAD `6b01e4343` 对第 15 节全部 P0 给出 PASS，阻断项为零。
