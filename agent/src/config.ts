@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
 import type { Credentials, MachineIdentity, MachineMetadata } from './types.js'
 
-export const AGENT_VERSION = '0.2.0'
+export const AGENT_VERSION = '0.2.1'
 export const DEFAULT_SERVER_URL = 'https://api.cluster-fluster.com'
 export const DEFAULT_WIRE_RELAY_URL = 'https://relay.8-208-118-119.sslip.io'
 
