@@ -490,3 +490,8 @@ Set-Location ..
   generation 与 threadId，所有读重试和 model/skill/plugin/app 目录读取绑定同一代 WebSocket；listener 为
   notification/server request 标记来源代际，snapshot buffer 仅接收同代事件，跨开发机迟到事件只回写其原
   connectionId 缓存，不再进入当前聊天或可操作审批。
+- 2026-07-20：多仓库控制器审查后把 logical connectionId 所有权上移到单例 App Server client：transport
+  state、notification 与 server request 都携带 client 标记的 connectionId，非激活仓库不得参与重连；可见
+  snapshot 记录 generation watermark，同 connectionId 的旧代迟到事件不再重复追加。缓存审批只在当前进程
+  断线窗口展示，切仓库、切连接和进程恢复继续清空，避免恢复失效 request ID。该轮 Android 283 项单测、
+  Debug APK 构建与 AndroidTest Kotlin 编译全部通过。

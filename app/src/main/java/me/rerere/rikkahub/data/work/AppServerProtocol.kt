@@ -14,6 +14,8 @@ enum class AppServerConnectionPhase {
 
 data class AppServerConnectionState(
     val phase: AppServerConnectionPhase = AppServerConnectionPhase.DISCONNECTED,
+    /** Logical Work connection that owns this transport state. */
+    val connectionId: String? = null,
     val serverInfo: JsonObject? = null,
     val error: String? = null,
 )
@@ -21,6 +23,7 @@ data class AppServerConnectionState(
 data class AppServerEndpoint(
     val webSocketUrl: String,
     val bearerToken: String,
+    val connectionId: String = "default",
     /** Plain ws is only valid for a loopback listener or local unit test. */
     val allowInsecureLoopback: Boolean = false,
 )
@@ -29,6 +32,7 @@ data class AppServerNotification(
     val method: String,
     val params: JsonElement = JsonNull,
     val connectionGeneration: Long = 0,
+    val connectionId: String = "",
 )
 
 data class AppServerRequest(
@@ -36,6 +40,7 @@ data class AppServerRequest(
     val method: String,
     val params: JsonElement = JsonNull,
     val connectionGeneration: Long = 0,
+    val connectionId: String = "",
 )
 
 class AppServerRpcException(

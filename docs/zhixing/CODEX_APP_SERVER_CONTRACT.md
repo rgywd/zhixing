@@ -326,7 +326,8 @@ Android 只接受与上传请求 ID、大小和 SHA-256 全部匹配的回执。
   可见审批并立即持久化；读重试不得跨到替换后的 WebSocket；
 - 不完整 snapshot、解析失败或未完成 generation 保留旧数据，不允许覆盖已经接收的新事件；
   即使断线已推进 connection generation，也要把旧连接在断线前已接收的缓冲事件写入该连接缓存；旧审批保持
-  可见但不得跨 generation 回应，等待 App Server 重发后再恢复操作；
+  当前进程内可见但不得跨 generation 回应，等待 App Server 重发后再恢复操作；切仓库、切连接或进程恢复时
+  清空缓存审批，不把失去服务端 request ID 生命周期的确认卡恢复成可操作状态；
 - runtime Item 以稳定 itemId upsert；
 - Thread、Turn、Item raw 只保存在 App 私有 Room，不写普通日志；
 - 草稿按 `(connectionId, repositoryId, threadId?)` 保存；
@@ -341,6 +342,10 @@ Android 只接受与上传请求 ID、大小和 SHA-256 全部匹配的回执。
 - 每个 notification 和 server request 在 WebSocket listener 入队时记录来源 connection generation；事件只允许
   更新其来源 connectionId 的 Thread/cache，旧连接事件不得污染当前连接，snapshot buffer 也不得按 threadId
   吸收另一代连接的审批；
+- 单例 App Server client 是 logical connectionId 与 transport generation 的唯一身份源；repository ViewModel
+  不得自行猜测 generation 所属连接，只有当前激活仓库能发起重连；排队的连接请求进入 client 互斥区后还要
+  再次核对仓库激活身份，失活请求不得替换当前 socket；同 connectionId 的新 snapshot 建立 generation
+  watermark，低于 watermark 的迟到事件不得再次追加到可见消息；
 - `thread/start` 一旦收到成功响应，先把服务端 Thread ID 和最小 snapshot 写入其原 connectionId 的本地槽位，
   再检查租约决定是否继续 `thread/read/turn/start`，避免断线制造不可恢复的孤儿 Thread；
 - Chat Provider Conversation 不写入 Codex 表，Codex Thread 不写入 Provider Conversation 表。

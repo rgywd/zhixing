@@ -31,4 +31,28 @@ class DirectWorkCacheKeyTest {
         assertEquals(false, directWorkLeaseValid(true, 5, 9, lease))
         assertEquals(false, directWorkLeaseValid(true, 4, 10, lease))
     }
+
+    @Test
+    fun `two repository controllers cannot both claim an event from another connection`() {
+        assertEquals(
+            DirectWorkEventRoute.HISTORICAL,
+            directWorkEventRoute("connection-b", "connection-a", 8, 3),
+        )
+        assertEquals(
+            DirectWorkEventRoute.CURRENT,
+            directWorkEventRoute("connection-b", "connection-b", 8, 3),
+        )
+    }
+
+    @Test
+    fun `an old generation cannot append after a newer snapshot is visible`() {
+        assertEquals(
+            DirectWorkEventRoute.STALE,
+            directWorkEventRoute("connection-a", "connection-a", 7, 8),
+        )
+        assertEquals(
+            DirectWorkEventRoute.CURRENT,
+            directWorkEventRoute("connection-a", "connection-a", 8, 8),
+        )
+    }
 }

@@ -64,6 +64,7 @@ class AppServerJsonRpcClientTest {
         assertEquals("Bearer secret-token", handshake.getHeader("Authorization"))
         assertEquals("codex-test", info.string("userAgent"))
         assertEquals(AppServerConnectionPhase.READY, client.state.value.phase)
+        assertEquals("test-connection", client.state.value.connectionId)
         assertTrue(initializedSeen.await(2, TimeUnit.SECONDS))
         assertEquals(listOf("initialize", "initialized"), frames.map { it.string("method") })
         val initialize = frames.first()
@@ -149,6 +150,8 @@ class AppServerJsonRpcClientTest {
         assertTrue(notification.connectionGeneration > 0)
         assertEquals(client.connectionGeneration, notification.connectionGeneration)
         assertEquals(notification.connectionGeneration, request.connectionGeneration)
+        assertEquals("test-connection", notification.connectionId)
+        assertEquals(notification.connectionId, request.connectionId)
         client.respond(request, buildJsonObject { put("decision", "decline") })
         assertTrue(responseSeen.await(2, TimeUnit.SECONDS))
         client.disconnect()
@@ -205,9 +208,9 @@ class AppServerJsonRpcClientTest {
             if (message.string("method") == "initialize") socket.send("""{"id":${message["id"]},"result":{}}""")
         })
         val client = client()
-        client.connect(endpoint())
+        client.connect(endpoint("connection-a"))
         val oldGeneration = client.connectionGeneration
-        client.connect(endpoint())
+        client.connect(endpoint("connection-b"))
 
         val error = runCatching {
             client.request(
@@ -219,6 +222,27 @@ class AppServerJsonRpcClientTest {
         assertTrue(error is AppServerTransportException)
         assertFalse(replacementFrames.any { it.string("method") == "turn/start" })
         assertTrue(client.connectionGeneration != oldGeneration)
+        client.disconnect()
+    }
+
+    @Test
+    fun `an inactive repository cannot replace the current logical connection`() = runBlocking {
+        server.enqueue(webSocketResponse { socket, message ->
+            if (message.string("method") == "initialize") socket.send("""{"id":${message["id"]},"result":{}}""")
+        })
+        val client = client()
+        client.connect(endpoint("connection-a"))
+        val generation = client.connectionGeneration
+
+        val error = runCatching {
+            client.connect(endpoint("connection-b")) { error("repository is inactive") }
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
+        assertEquals(AppServerConnectionPhase.READY, client.state.value.phase)
+        assertEquals("connection-a", client.state.value.connectionId)
+        assertEquals(generation, client.connectionGeneration)
+        assertEquals(1, server.requestCount)
         client.disconnect()
     }
 
@@ -238,7 +262,7 @@ class AppServerJsonRpcClientTest {
             if (message.string("method") == "initialize") socket.send("""{"id":${message["id"]},"result":{}}""")
         })
         val client = client(backoffPolicy = AppServerBackoffPolicy(scheduleMs = listOf(1, 1), jitterRatio = 0.0))
-        client.connect(endpoint())
+        client.connect(endpoint("connection-a"))
         val oldGeneration = client.connectionGeneration
         val attempts = AtomicInteger(0)
         val retryEntered = CountDownLatch(1)
@@ -259,7 +283,7 @@ class AppServerJsonRpcClientTest {
         }
         assertTrue(retryEntered.await(2, TimeUnit.SECONDS))
 
-        client.connect(endpoint())
+        client.connect(endpoint("connection-b"))
         allowRetry.countDown()
 
         assertTrue(withTimeout(2_000) { read.await() } is AppServerTransportException)
@@ -293,9 +317,10 @@ class AppServerJsonRpcClientTest {
         openTimeoutMs = 2_000,
     )
 
-    private fun endpoint() = AppServerEndpoint(
+    private fun endpoint(connectionId: String = "test-connection") = AppServerEndpoint(
         webSocketUrl = server.url("/").toString().replaceFirst("http://", "ws://"),
         bearerToken = "secret-token",
+        connectionId = connectionId,
         allowInsecureLoopback = true,
     )
 

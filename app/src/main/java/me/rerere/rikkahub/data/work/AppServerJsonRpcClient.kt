@@ -49,7 +49,11 @@ class AppServerJsonRpcClient(
     private val openTimeoutMs: Long = 15_000,
 ) {
     private data class PendingRequest(val result: CompletableDeferred<JsonElement>)
-    private data class ActiveSocket(val webSocket: WebSocket, val generation: Long)
+    private data class ActiveSocket(
+        val webSocket: WebSocket,
+        val generation: Long,
+        val connectionId: String,
+    )
 
     private val webSocketClient = client.newBuilder()
         .followRedirects(false)
@@ -79,22 +83,35 @@ class AppServerJsonRpcClient(
     val notifications = notificationFlow.asSharedFlow()
     val serverRequests = serverRequestFlow.asSharedFlow()
 
-    suspend fun connect(endpoint: AppServerEndpoint): JsonObject = connectionMutex.withLock {
+    suspend fun connect(
+        endpoint: AppServerEndpoint,
+        beforeOpen: () -> Unit = {},
+    ): JsonObject = connectionMutex.withLock {
         val url = validateEndpoint(endpoint)
-        disconnectLocked()
+        beforeOpen()
+        disconnectLocked(publishState = false)
         val connectionGeneration = generation.incrementAndGet()
         val opened = CompletableDeferred<Unit>()
-        mutableState.value = AppServerConnectionState(AppServerConnectionPhase.CONNECTING)
+        mutableState.value = AppServerConnectionState(
+            phase = AppServerConnectionPhase.CONNECTING,
+            connectionId = endpoint.connectionId,
+        )
         val request = Request.Builder()
             .url(url)
             .header("Authorization", "Bearer ${endpoint.bearerToken}")
             .build()
-        val webSocket = webSocketClient.newWebSocket(request, listener(connectionGeneration, opened))
-        activeSocket = ActiveSocket(webSocket, connectionGeneration)
+        val webSocket = webSocketClient.newWebSocket(
+            request,
+            listener(connectionGeneration, endpoint.connectionId, opened),
+        )
+        activeSocket = ActiveSocket(webSocket, connectionGeneration, endpoint.connectionId)
 
         try {
             withTimeout(openTimeoutMs) { opened.await() }
-            mutableState.value = AppServerConnectionState(AppServerConnectionPhase.INITIALIZING)
+            mutableState.value = AppServerConnectionState(
+                phase = AppServerConnectionPhase.INITIALIZING,
+                connectionId = endpoint.connectionId,
+            )
             val initialized = requestInternal(
                 method = "initialize",
                 params = buildJsonObject {
@@ -110,6 +127,7 @@ class AppServerJsonRpcClient(
             notifyInternal("initialized", JsonObject(emptyMap()), connectionGeneration)
             mutableState.value = AppServerConnectionState(
                 phase = AppServerConnectionPhase.READY,
+                connectionId = endpoint.connectionId,
                 serverInfo = initialized,
             )
             initialized
@@ -121,6 +139,7 @@ class AppServerJsonRpcClient(
                 failPending(error)
                 mutableState.value = AppServerConnectionState(
                     phase = AppServerConnectionPhase.FAILED,
+                    connectionId = endpoint.connectionId,
                     error = error.message ?: "Codex App Server connection failed",
                 )
             }
@@ -221,7 +240,11 @@ class AppServerJsonRpcClient(
         }
     }
 
-    private fun listener(connectionGeneration: Long, opened: CompletableDeferred<Unit>) =
+    private fun listener(
+        connectionGeneration: Long,
+        connectionId: String,
+        opened: CompletableDeferred<Unit>,
+    ) =
         object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (generation.get() == connectionGeneration) opened.complete(Unit)
@@ -229,8 +252,15 @@ class AppServerJsonRpcClient(
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 if (generation.get() != connectionGeneration) return
-                runCatching { handleMessage(json.parseToJsonElement(text).jsonObject, connectionGeneration) }
-                    .onFailure { failConnection(connectionGeneration, AppServerTransportException("Invalid App Server frame", it)) }
+                runCatching {
+                    handleMessage(json.parseToJsonElement(text).jsonObject, connectionGeneration, connectionId)
+                }.onFailure {
+                    failConnection(
+                        connectionGeneration,
+                        connectionId,
+                        AppServerTransportException("Invalid App Server frame", it),
+                    )
+                }
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -240,6 +270,7 @@ class AppServerJsonRpcClient(
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 failConnection(
                     connectionGeneration,
+                    connectionId,
                     AppServerTransportException("Codex App Server closed ($code${reason.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty()})"),
                     disconnected = true,
                 )
@@ -247,11 +278,15 @@ class AppServerJsonRpcClient(
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 opened.completeExceptionally(t)
-                failConnection(connectionGeneration, AppServerTransportException("Codex App Server connection failed", t))
+                failConnection(
+                    connectionGeneration,
+                    connectionId,
+                    AppServerTransportException("Codex App Server connection failed", t),
+                )
             }
         }
 
-    private fun handleMessage(message: JsonObject, connectionGeneration: Long) {
+    private fun handleMessage(message: JsonObject, connectionGeneration: Long, connectionId: String) {
         val id = message["id"]
         val method = (message["method"] as? JsonPrimitive)?.contentOrNull
         if (id != null && (message.containsKey("result") || message.containsKey("error"))) {
@@ -276,6 +311,7 @@ class AppServerJsonRpcClient(
                 method,
                 message["params"] ?: JsonNull,
                 connectionGeneration,
+                connectionId,
             ))) {
                 "App Server request queue is full"
             }
@@ -286,6 +322,7 @@ class AppServerJsonRpcClient(
                 method,
                 message["params"] ?: JsonNull,
                 connectionGeneration,
+                connectionId,
             ))) {
                 "App Server notification queue is full"
             }
@@ -294,6 +331,7 @@ class AppServerJsonRpcClient(
 
     private fun failConnection(
         connectionGeneration: Long,
+        connectionId: String,
         error: Throwable,
         disconnected: Boolean = false,
     ) {
@@ -302,17 +340,23 @@ class AppServerJsonRpcClient(
         failPending(error)
         mutableState.value = AppServerConnectionState(
             phase = if (disconnected) AppServerConnectionPhase.DISCONNECTED else AppServerConnectionPhase.FAILED,
+            connectionId = connectionId,
             error = error.message,
         )
     }
 
-    private fun disconnectLocked() {
+    private fun disconnectLocked(publishState: Boolean = true) {
         generation.incrementAndGet()
         val oldSocket = activeSocket
         activeSocket = null
         oldSocket?.webSocket?.close(1000, "client disconnect")
         failPending(CancellationException("Codex App Server disconnected"))
-        mutableState.value = AppServerConnectionState(AppServerConnectionPhase.DISCONNECTED)
+        if (publishState) {
+            mutableState.value = AppServerConnectionState(
+                phase = AppServerConnectionPhase.DISCONNECTED,
+                connectionId = oldSocket?.connectionId ?: mutableState.value.connectionId,
+            )
+        }
     }
 
     private fun failPending(error: Throwable) {

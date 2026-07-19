@@ -127,6 +127,7 @@ private fun DirectWorkContent(
     val workState by workUiStore.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     LaunchedEffect(vm) {
+        vm.activate()
         snapshotFlow { vm.inputState.textContent.text.toString() }
             .debounce(350)
             .distinctUntilChanged()

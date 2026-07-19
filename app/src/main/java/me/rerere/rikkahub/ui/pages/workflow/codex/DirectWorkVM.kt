@@ -100,17 +100,18 @@ class DirectWorkVM(
         private set
 
     private var connection: WorkConnectionCredentials? = null
-    private var connectedConnectionId: String? = null
     private var currentTurnId: String? = null
     private var acceptedPreferences = WorkRepositoryPreferences()
     private var reconnectJob: Job? = null
+    private var connectJob: Job? = null
     private var cacheJob: Job? = null
+    private var initialLoadComplete = false
     private var reconnectAttempt = 0
     private val reconnectPolicy = AppServerBackoffPolicy()
     private val pendingRequests = mutableMapOf<String, PendingServerRequest>()
     private val snapshotBuffer = AppServerSnapshotBuffer()
     private val snapshotReadMutex = Mutex()
-    private val connectionIdsByGeneration = mutableMapOf<Long, String>()
+    private var visibleSnapshotGeneration = 0L
     private var writeGeneration = 0L
 
     val selectedModel get() = runtimeCatalog.models.firstOrNull { it.id == selectedModelId }
@@ -133,6 +134,19 @@ class DirectWorkVM(
         runtimeCatalog = runtimeCatalog.copy(cwd = repository?.path.orEmpty())
         viewModelScope.launch {
             client.state.collect { state ->
+                val expectedConnectionId = connection?.connectionId
+                if (
+                    state.connectionId != null &&
+                    expectedConnectionId != null &&
+                    state.connectionId != expectedConnectionId
+                ) {
+                    connected = false
+                    reconnectJob?.cancel()
+                    reconnectJob = null
+                    lockCompatibility("当前仓库的开发机连接未激活")
+                    statusMessage = "切回此仓库时将重新连接对应开发机"
+                    return@collect
+                }
                 connected = state.phase == AppServerConnectionPhase.READY
                 when (state.phase) {
                     AppServerConnectionPhase.READY -> {
@@ -144,7 +158,7 @@ class DirectWorkVM(
                     AppServerConnectionPhase.DISCONNECTED -> {
                         lockCompatibility(state.error ?: "与 Codex 的连接已断开")
                         statusMessage = state.error ?: "与 Codex 的连接已断开"
-                        scheduleReconnect()
+                        if (workUiStore.state.value.activeRepositoryId == repositoryId) scheduleReconnect()
                     }
                     AppServerConnectionPhase.CONNECTING,
                     AppServerConnectionPhase.INITIALIZING -> lockCompatibility("正在核对 Codex 兼容性")
@@ -163,11 +177,19 @@ class DirectWorkVM(
             client.notifications.collect { notification ->
                 val notificationThreadId = (notification.params as? JsonObject)?.string("threadId")
                 if (snapshotBuffer.offer(notification)) return@collect
-                val sourceConnectionId = connectionIdForGeneration(notification.connectionGeneration)
-                    ?: return@collect
-                if (sourceConnectionId != connection?.connectionId) {
-                    cacheHistoricalNotification(sourceConnectionId, notificationThreadId, notification)
-                    return@collect
+                val sourceConnectionId = notification.connectionId.takeIf(String::isNotBlank) ?: return@collect
+                when (directWorkEventRoute(
+                    sourceConnectionId = sourceConnectionId,
+                    activeConnectionId = connection?.connectionId,
+                    sourceGeneration = notification.connectionGeneration,
+                    visibleSnapshotGeneration = visibleSnapshotGeneration,
+                )) {
+                    DirectWorkEventRoute.HISTORICAL -> {
+                        cacheHistoricalNotification(sourceConnectionId, notificationThreadId, notification)
+                        return@collect
+                    }
+                    DirectWorkEventRoute.STALE -> return@collect
+                    DirectWorkEventRoute.CURRENT -> Unit
                 }
                 val activeThreadId = detail.thread?.threadId ?: activeRepositoryThreadId()
                 detail = AppServerThreadReducer.apply(detail, notification)
@@ -198,11 +220,19 @@ class DirectWorkVM(
         viewModelScope.launch {
             client.serverRequests.collect { request ->
                 if (snapshotBuffer.offer(request)) return@collect
-                val sourceConnectionId = connectionIdForGeneration(request.connectionGeneration)
-                    ?: return@collect
-                if (sourceConnectionId != connection?.connectionId) {
-                    cacheHistoricalRequest(sourceConnectionId, request)
-                    return@collect
+                val sourceConnectionId = request.connectionId.takeIf(String::isNotBlank) ?: return@collect
+                when (directWorkEventRoute(
+                    sourceConnectionId = sourceConnectionId,
+                    activeConnectionId = connection?.connectionId,
+                    sourceGeneration = request.connectionGeneration,
+                    visibleSnapshotGeneration = visibleSnapshotGeneration,
+                )) {
+                    DirectWorkEventRoute.HISTORICAL -> {
+                        cacheHistoricalRequest(sourceConnectionId, request)
+                        return@collect
+                    }
+                    DirectWorkEventRoute.STALE -> return@collect
+                    DirectWorkEventRoute.CURRENT -> Unit
                 }
                 val requestLease = DirectWorkWriteLease(writeGeneration, request.connectionGeneration)
                 applyServerRequest(request, requestLease = requestLease)
@@ -225,7 +255,8 @@ class DirectWorkVM(
                     statusMessage = "已载入本机历史，正在连接 Codex…"
                 }
             }
-            connect()
+            initialLoadComplete = true
+            if (workUiStore.state.value.activeRepositoryId == repositoryId) connect()
         }
     }
 
@@ -237,54 +268,66 @@ class DirectWorkVM(
         launchConnect()
     }
 
+    fun activate() {
+        if (initialLoadComplete && workUiStore.state.value.activeRepositoryId == repositoryId) connect()
+    }
+
     private fun launchConnect() {
-        if (client.state.value.phase == AppServerConnectionPhase.CONNECTING ||
-            client.state.value.phase == AppServerConnectionPhase.INITIALIZING
-        ) return
-        viewModelScope.launch {
-            val credentials = activeCredentials()
-            if (credentials == null) {
-                statusMessage = "请先在设置的 Work 卡片中配置开发机连接"
-                return@launch
-            }
-            val connectionChanged = connection?.connectionId != credentials.connectionId
-            repository?.let { workUiStore.bindRepositoryConnection(it.id, credentials.connectionId) }
-            connection = credentials
-            if (connectionChanged) restoreConnectionThread(credentials)
-            if (client.state.value.phase == AppServerConnectionPhase.READY &&
-                connectedConnectionId == credentials.connectionId
-            ) {
-                rememberConnectionGeneration(credentials.connectionId)
-                connected = true
-                statusMessage = null
-                finishCompatibilityGate(credentials)
-                return@launch
-            }
-            statusMessage = "正在连接 Codex…"
-            runCatching {
-                if (client.state.value.phase == AppServerConnectionPhase.READY) client.disconnect()
-                client.connect(
-                    AppServerEndpoint(
-                        webSocketUrl = credentials.appServerUrl,
-                        bearerToken = credentials.appServerToken,
-                        allowInsecureLoopback = credentials.appServerUrl.startsWith("ws://127.0.0.1") ||
-                            credentials.appServerUrl.startsWith("ws://localhost"),
+        if (connectJob?.isActive == true) return
+        connectJob = viewModelScope.launch {
+            try {
+                val credentials = activeCredentials()
+                if (credentials == null) {
+                    statusMessage = "请先在设置的 Work 卡片中配置开发机连接"
+                    return@launch
+                }
+                val connectionChanged = connection?.connectionId != credentials.connectionId
+                repository?.let { workUiStore.bindRepositoryConnection(it.id, credentials.connectionId) }
+                connection = credentials
+                if (connectionChanged) restoreConnectionThread(credentials)
+                if (client.state.value.phase == AppServerConnectionPhase.READY &&
+                    client.state.value.connectionId == credentials.connectionId
+                ) {
+                    connected = true
+                    statusMessage = null
+                    finishCompatibilityGate(credentials)
+                    return@launch
+                }
+                statusMessage = "正在连接 Codex…"
+                runCatching {
+                    client.connect(
+                        AppServerEndpoint(
+                            webSocketUrl = credentials.appServerUrl,
+                            bearerToken = credentials.appServerToken,
+                            connectionId = credentials.connectionId,
+                            allowInsecureLoopback = credentials.appServerUrl.startsWith("ws://127.0.0.1") ||
+                                credentials.appServerUrl.startsWith("ws://localhost"),
+                        ),
+                        beforeOpen = {
+                            check(workUiStore.state.value.activeRepositoryId == repositoryId) {
+                                "仓库已切换，取消旧连接请求"
+                            }
+                        },
                     )
-                )
-                rememberConnectionGeneration(credentials.connectionId)
-                connectedConnectionId = credentials.connectionId
-                connected = true
-                statusMessage = null
-                finishCompatibilityGate(credentials)
-            }.onFailure {
-                connected = false
-                statusMessage = it.message ?: "无法连接 Codex"
+                    connected = true
+                    statusMessage = null
+                    finishCompatibilityGate(credentials)
+                }.onFailure {
+                    connected = false
+                    statusMessage = it.message ?: "无法连接 Codex"
+                }
+            } finally {
+                connectJob = null
             }
         }
     }
 
     private fun scheduleReconnect() {
-        if (connection == null || reconnectJob?.isActive == true) return
+        if (
+            connection == null ||
+            reconnectJob?.isActive == true ||
+            workUiStore.state.value.activeRepositoryId != repositoryId
+        ) return
         val attempt = reconnectAttempt++
         reconnectJob = viewModelScope.launch {
             val waitMs = reconnectPolicy.delayMs(attempt, Random.nextDouble())
@@ -308,6 +351,7 @@ class DirectWorkVM(
         }
         detail = cached?.copy(cwd = cached.cwd ?: repo.path, approvals = emptyList())
             ?: CodexThreadDetail(null, emptyList())
+        visibleSnapshotGeneration = 0L
         currentTurnId = AppServerThreadReducer.activeTurnId(detail)
         pendingRequests.clear()
         runtimeSettings = runtimeSettings.copy(
@@ -390,14 +434,6 @@ class DirectWorkVM(
 
     private fun isCurrentGate(lease: DirectWorkWriteLease, connectionId: String): Boolean =
         isCurrentGeneration(lease) && connection?.connectionId == connectionId
-
-    private fun rememberConnectionGeneration(connectionId: String) {
-        connectionIdsByGeneration[client.connectionGeneration] = connectionId
-    }
-
-    private fun connectionIdForGeneration(connectionGeneration: Long): String? =
-        connectionIdsByGeneration[connectionGeneration]
-            ?: connection?.connectionId?.takeIf { connectionGeneration == client.connectionGeneration }
 
     private suspend fun cacheHistoricalNotification(
         connectionId: String,
@@ -840,7 +876,10 @@ class DirectWorkVM(
             (detail.thread?.threadId == threadId || detail.thread == null)
         if (visible) {
             detail = replayedDetail
-            if (fullSnapshot) pendingRequests.clear()
+            if (fullSnapshot) {
+                pendingRequests.clear()
+                visibleSnapshotGeneration = snapshotGeneration.connectionGeneration
+            }
             replayedRequests.forEach { (id, request) ->
                 pendingRequests[id] = PendingServerRequest(request, snapshotGeneration)
             }
@@ -1133,6 +1172,23 @@ private data class ProjectedServerRequest(
     val id: String,
     val detail: CodexThreadDetail,
 )
+
+internal enum class DirectWorkEventRoute {
+    CURRENT,
+    HISTORICAL,
+    STALE,
+}
+
+internal fun directWorkEventRoute(
+    sourceConnectionId: String,
+    activeConnectionId: String?,
+    sourceGeneration: Long,
+    visibleSnapshotGeneration: Long,
+): DirectWorkEventRoute = when {
+    sourceConnectionId != activeConnectionId -> DirectWorkEventRoute.HISTORICAL
+    sourceGeneration < visibleSnapshotGeneration -> DirectWorkEventRoute.STALE
+    else -> DirectWorkEventRoute.CURRENT
+}
 
 internal data class DirectWorkWriteLease(
     val compatibilityGeneration: Long,
