@@ -260,7 +260,7 @@ OpenAI 官方将 App Server 用于富客户端集成，但 WebSocket transport �
 | Work 分组是仓库 | 仓库增删改、选择持久化和不删除远端数据的测试 |
 | 无 Work 首页/任务表单 | 切换 Work 和新建 Thread 直接进入共享空白聊天壳 |
 | 复用原聊天详情 | Chat 与 Work 使用同一 Scaffold/Timeline/Composer 组件；无第二套输入框 |
-| 图片和文件 | 现有 + Sheet 选择、预览、受控上传、`localImage/mention` 全链路 |
+| 图片和文件 | 现有 + Sheet 选择、预览、受控上传；图片走 `localImage`，通用文件走受控本机路径清单（官方协议无通用 file item） |
 | 模型/思考不锁死 | 无网络/无 Catalog 时客户端预设可选；服务端拒绝后的明确回退测试 |
 | 权限与 Fast 收拢 | 只在 Work 的现有 + Sheet 中显示并随 Turn 生效 |
 | `/` 指令 | CompletionProvider 展示 Skill/插件/指令，选择后结构化发送 |

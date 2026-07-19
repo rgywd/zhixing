@@ -4,6 +4,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +24,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import kotlin.random.Random
 import me.rerere.rikkahub.BuildConfig
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -42,6 +44,7 @@ import okhttp3.WebSocketListener
 class AppServerJsonRpcClient(
     client: OkHttpClient,
     private val json: Json,
+    private val backoffPolicy: AppServerBackoffPolicy = AppServerBackoffPolicy(),
     private val requestTimeoutMs: Long = 30_000,
     private val openTimeoutMs: Long = 15_000,
 ) {
@@ -126,7 +129,16 @@ class AppServerJsonRpcClient(
         params: JsonElement = JsonObject(emptyMap()),
     ): JsonElement {
         check(state.value.phase == AppServerConnectionPhase.READY) { "Codex App Server is not ready" }
-        return requestInternal(method, params)
+        var attempt = 0
+        while (true) {
+            try {
+                return requestInternal(method, params)
+            } catch (error: AppServerRpcException) {
+                if (error.code != APP_SERVER_BUSY || attempt >= backoffPolicy.scheduleMs.lastIndex) throw error
+                delay(backoffPolicy.delayMs(attempt, Random.nextDouble()))
+                attempt += 1
+            }
+        }
     }
 
     fun notify(method: String, params: JsonElement = JsonObject(emptyMap())) {
@@ -282,8 +294,8 @@ class AppServerJsonRpcClient(
         val rawUrl = endpoint.webSocketUrl.trim()
         val transportScheme = rawUrl.substringBefore("://", missingDelimiterValue = "").lowercase()
         val httpUrl = when (transportScheme) {
-            "wss" -> "https://${rawUrl.substringAfter("://")}" 
-            "ws" -> "http://${rawUrl.substringAfter("://")}" 
+            "wss" -> "https://${rawUrl.substringAfter("://")}"
+            "ws" -> "http://${rawUrl.substringAfter("://")}"
             else -> rawUrl
         }
         val url = requireNotNull(httpUrl.toHttpUrlOrNull()) { "Invalid App Server WebSocket URL" }
@@ -299,6 +311,7 @@ class AppServerJsonRpcClient(
     }
 
     private companion object {
+        const val APP_SERVER_BUSY = -32001
         const val NOTIFICATION_CAPACITY = 1_024
         const val SERVER_REQUEST_CAPACITY = 64
     }

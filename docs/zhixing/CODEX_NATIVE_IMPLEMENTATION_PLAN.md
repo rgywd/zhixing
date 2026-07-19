@@ -455,3 +455,8 @@ Set-Location ..
   仓库、Fast 与三档权限；唯一消息 `EVENT_BUS_OK` 经 App Server 实时返回，强制停止并重启应用后仍可从
   当前 Work Thread 恢复。Android 单测/构建、Agent 测试/typecheck/build 均通过；Tailscale WSS 真机链路
   仍等待 Windows UAC 安装与登录，因此不进入发布阶段。
+- 2026-07-20：按独立审查阻塞项完成 release-blocker 收口：Chat/Work 共用 `NativeChatTimeline` 与
+  `ChatAttachmentActions`；仓库文件级增删改选/恢复、跨 Thread turn 隔离、运行中 Turn 恢复、内联
+  request_user_input、`-32001` 退避、断线自动重连、Supervisor schema 兼容门禁和运行参数拒绝回滚均进入
+  生产路径并补测试。Android 260 项单测、Debug APK、Compose 仪器测试编译与模式切换真机测试全绿；
+  最新 APK 经 loopback compatibility gate 实测收到 `DIRECT_GATE_OK`，普通 Chat 未建立 Work WebSocket。

@@ -9,6 +9,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -30,21 +36,30 @@ class SupervisorAttachmentClient(
     private val client: OkHttpClient,
     private val json: Json,
 ) {
+    suspend fun runtimeFacts(connection: WorkConnectionCredentials): AppServerRuntimeFacts = withContext(Dispatchers.IO) {
+        val origin = supervisorOrigin(connection)
+        val token = supervisorToken(connection)
+        val response = client.newCall(
+            Request.Builder()
+                .url("$origin/v1/status")
+                .header("Authorization", "Bearer $token")
+                .get()
+                .build()
+        ).execute()
+        response.use {
+            check(it.isSuccessful) { "Supervisor 状态读取失败（HTTP ${it.code}）" }
+            SupervisorRuntimeFactsMapper.map(json.parseToJsonElement(it.body.string()).jsonObject)
+        }
+    }
+
     suspend fun upload(
         connection: WorkConnectionCredentials,
         uri: Uri,
         fileName: String,
         mime: String,
     ): SupervisorAttachmentReceipt = withContext(Dispatchers.IO) {
-        val origin = requireNotNull(connection.supervisorUrl?.trim()?.trimEnd('/')) {
-            "请先在 Work 设置中配置 Supervisor 地址"
-        }
-        val token = requireNotNull(connection.supervisorToken?.takeIf(String::isNotBlank)) {
-            "请先在 Work 设置中配置 Supervisor Token"
-        }
-        require(origin.startsWith("https://") || origin.startsWith("http://127.0.0.1") || origin.startsWith("http://localhost")) {
-            "Supervisor 必须使用 HTTPS"
-        }
+        val origin = supervisorOrigin(connection)
+        val token = supervisorToken(connection)
         val bytes = when (uri.scheme) {
             "file" -> File(requireNotNull(uri.path)).readBytes()
             else -> context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
@@ -77,5 +92,36 @@ class SupervisorAttachmentClient(
 
     private companion object {
         const val MAX_BYTES = 25 * 1024 * 1024
+    }
+
+    private fun supervisorOrigin(connection: WorkConnectionCredentials): String {
+        val origin = requireNotNull(connection.supervisorUrl?.trim()?.trimEnd('/')) {
+            "请先在 Work 设置中配置 Supervisor 地址"
+        }
+        require(origin.startsWith("https://") || origin.startsWith("http://127.0.0.1") || origin.startsWith("http://localhost")) {
+            "Supervisor 必须使用 HTTPS"
+        }
+        return origin
+    }
+
+    private fun supervisorToken(connection: WorkConnectionCredentials): String =
+        requireNotNull(connection.supervisorToken?.takeIf(String::isNotBlank)) {
+            "请先在 Work 设置中配置 Supervisor Token"
+        }
+}
+
+internal object SupervisorRuntimeFactsMapper {
+    fun map(status: JsonObject): AppServerRuntimeFacts {
+        val appServer = status["appServer"] as? JsonObject ?: JsonObject(emptyMap())
+        val running = (appServer["running"] as? JsonPrimitive)?.booleanOrNull == true
+        return AppServerRuntimeFacts(
+            codexVersion = (appServer["codexVersion"] as? JsonPrimitive)?.contentOrNull,
+            schemaHash = (appServer["schemaHash"] as? JsonPrimitive)?.contentOrNull,
+            methods = (appServer["methods"] as? JsonArray)
+                .orEmpty()
+                .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                .toSet(),
+            attachmentSupervisorReady = running,
+        )
     }
 }

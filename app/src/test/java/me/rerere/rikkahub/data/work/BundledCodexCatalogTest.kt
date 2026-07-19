@@ -1,6 +1,10 @@
 package me.rerere.rikkahub.data.work
 
 import me.rerere.rikkahub.data.workflow.codex.CodexModelOption
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -79,6 +83,25 @@ class BundledCodexCatalogTest {
         )
 
         assertEquals(AppServerCompatibilityLevel.INCOMPATIBLE, result.level)
+    }
+
+    @Test
+    fun `supervisor status is mapped into compatibility facts`() {
+        val facts = SupervisorRuntimeFactsMapper.map(buildJsonObject {
+            put("appServer", buildJsonObject {
+                put("running", true)
+                put("codexVersion", AppServerCompatibilityGate.REVIEWED_CODEX_VERSION)
+                put("schemaHash", AppServerCompatibilityGate.REVIEWED_SCHEMA_HASH)
+                put("methods", buildJsonArray {
+                    AppServerCompatibilityGate.requiredWriteMethods.forEach { add(JsonPrimitive(it)) }
+                })
+            })
+        })
+
+        assertEquals(AppServerCompatibilityGate.REVIEWED_CODEX_VERSION, facts.codexVersion)
+        assertEquals(AppServerCompatibilityGate.requiredWriteMethods, facts.methods)
+        assertTrue(facts.attachmentSupervisorReady)
+        assertEquals(AppServerCompatibilityLevel.FULL, AppServerCompatibilityGate.evaluate(facts).level)
     }
 }
 

@@ -27,7 +27,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -40,9 +39,7 @@ import me.rerere.hugeicons.stroke.Package01
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.work.WorkRepositoryConfig
 import me.rerere.rikkahub.data.workflow.codex.CodexPermissionProfile
-import me.rerere.rikkahub.ui.components.ai.FilePickButton
-import me.rerere.rikkahub.ui.components.ai.ImagePickButton
-import me.rerere.rikkahub.ui.components.ai.TakePicButton
+import me.rerere.rikkahub.ui.components.ai.ChatAttachmentActions
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionCamera
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
@@ -118,17 +115,14 @@ fun CodexWorkOptionsSheet(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
-            ) {
-                // Keep this sheet in composition while the system picker/camera is open. The
-                // ActivityResult launcher is owned here; dismissing first unregisters it and
-                // silently drops the selected attachment.
-                TakePicButton(onLaunchCamera = takePhoto)
-                ImagePickButton(onClick = { imagePicker.launch("image/*") })
-                FilePickButton(onClick = { filePicker.launch(arrayOf("*/*")) })
-            }
+            // Keep this sheet in composition while the system picker/camera is open. The
+            // ActivityResult launcher is owned here; dismissing first unregisters it and
+            // silently drops the selected attachment.
+            ChatAttachmentActions(
+                onTakePic = takePhoto,
+                onPickImage = { imagePicker.launch("image/*") },
+                onPickFile = { filePicker.launch(arrayOf("*/*")) },
+            )
             HorizontalDivider()
             if (repositories.isNotEmpty()) {
                 Text("当前仓库", style = MaterialTheme.typography.titleSmall)

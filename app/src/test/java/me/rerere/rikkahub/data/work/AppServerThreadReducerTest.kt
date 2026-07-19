@@ -2,11 +2,26 @@ package me.rerere.rikkahub.data.work
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
+import me.rerere.rikkahub.data.workflow.codex.CodexThreadDetail
+import me.rerere.rikkahub.data.workflow.codex.CodexTurn
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppServerThreadReducerTest {
+    @Test
+    fun `active turn id restores the latest running turn after process restart`() {
+        val detail = CodexThreadDetail(
+            thread = null,
+            turns = listOf(
+                CodexTurn("done", "completed", null, null, null, emptyList()),
+                CodexTurn("running", "inProgress", null, null, null, emptyList()),
+            ),
+        )
+
+        assertEquals("running", AppServerThreadReducer.activeTurnId(detail))
+    }
+
     private val json = Json { ignoreUnknownKeys = true }
 
     @Test

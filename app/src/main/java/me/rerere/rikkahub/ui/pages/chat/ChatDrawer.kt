@@ -47,6 +47,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -755,7 +756,10 @@ private fun DrawerActions(navController: Navigator) {
 }
 
 @Composable
-fun WorkDrawerContent(navController: Navigator) {
+fun WorkDrawerContent(
+    navController: Navigator,
+    onRepositorySelected: () -> Unit = {},
+) {
     val scope = rememberCoroutineScope()
     val store = koinInject<WorkUiStore>()
     val state by store.state.collectAsStateWithLifecycle()
@@ -785,7 +789,10 @@ fun WorkDrawerContent(navController: Navigator) {
                             icon = HugeIcons.Folder01,
                             selected = repository.id == state.activeRepositoryId,
                             onClick = {
-                                scope.launch { store.selectRepository(repository.id) }
+                                scope.launch {
+                                    store.selectRepository(repository.id)
+                                    onRepositorySelected()
+                                }
                             },
                             onLongClick = { navController.navigate(Screen.Setting) },
                         )
@@ -935,14 +942,14 @@ private fun FolderBar(
 }
 
 @Composable
-private fun ChatWorkModeSwitch(
+internal fun ChatWorkModeSwitch(
     mode: WorkAppMode,
     onModeChange: (WorkAppMode) -> Unit,
 ) {
     Surface(
         shape = CircleShape,
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.padding(start = 6.dp),
+        modifier = Modifier.padding(start = 6.dp).testTag("chat-work-mode-switch"),
     ) {
         Row(modifier = Modifier.padding(2.dp)) {
             WorkModeButton("Chat", mode == WorkAppMode.CHAT) { onModeChange(WorkAppMode.CHAT) }

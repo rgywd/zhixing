@@ -409,18 +409,6 @@ class RouteActivity : ComponentActivity() {
                                 DirectWorkRoute()
                             }
 
-                            entry<Screen.CodexProject> { key ->
-                                CodexProjectPage(key.projectId)
-                            }
-
-                            entry<Screen.CodexThread> { key ->
-                                CodexThreadPage(key.machineId, key.threadId)
-                            }
-
-                            entry<Screen.CodexWorkflowSettings> {
-                                CodexConnectionSettingsPage()
-                            }
-
                             entry<Screen.Assistant> {
                                 AssistantPage()
                             }

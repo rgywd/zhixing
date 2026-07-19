@@ -116,23 +116,14 @@ internal fun FilesPicker(
             .fillMaxWidth()
             .padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        FlowRow(
-            modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally),
-            horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.Start),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            TakePicButton(onLaunchCamera = onTakePic)
-
-            ImagePickButton(onClick = onPickImage)
-
-            if (provider != null && provider is ProviderSetting.Google) {
-                VideoPickButton(onClick = onPickVideo)
-
-                AudioPickButton(onClick = onPickAudio)
-            }
-
-            FilePickButton(onClick = onPickFile)
-        }
+        ChatAttachmentActions(
+            allowVideoAndAudio = provider is ProviderSetting.Google,
+            onTakePic = onTakePic,
+            onPickImage = onPickImage,
+            onPickVideo = onPickVideo,
+            onPickAudio = onPickAudio,
+            onPickFile = onPickFile,
+        )
 
         HorizontalDivider(
             modifier = Modifier.fillMaxWidth()
@@ -296,6 +287,31 @@ internal fun FilesPicker(
         }, onConfirm = { additionalPrompt, targetTokens, keepRecentMessages ->
             onCompressContext(additionalPrompt, targetTokens, keepRecentMessages)
         })
+    }
+}
+
+/** Native attachment action row shared by ordinary Chat and Work. */
+@Composable
+internal fun ChatAttachmentActions(
+    allowVideoAndAudio: Boolean = false,
+    onTakePic: () -> Unit,
+    onPickImage: () -> Unit,
+    onPickVideo: () -> Unit = {},
+    onPickAudio: () -> Unit = {},
+    onPickFile: () -> Unit,
+) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.Start),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        TakePicButton(onLaunchCamera = onTakePic)
+        ImagePickButton(onClick = onPickImage)
+        if (allowVideoAndAudio) {
+            VideoPickButton(onClick = onPickVideo)
+            AudioPickButton(onClick = onPickAudio)
+        }
+        FilePickButton(onClick = onPickFile)
     }
 }
 

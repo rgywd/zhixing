@@ -19,6 +19,10 @@ import me.rerere.rikkahub.data.workflow.codex.CodexTurn
 
 /** Maps the official App Server v2 Thread/Turn/Item wire shape to the existing Zhixing projector model. */
 object AppServerThreadReducer {
+    fun activeTurnId(detail: CodexThreadDetail): String? = detail.turns
+        .lastOrNull { it.status == "inProgress" || it.status == "running" }
+        ?.turnId
+
     fun snapshot(result: JsonElement, repositoryId: String, machineId: String = "direct"): CodexThreadDetail {
         val thread = result.jsonObject["thread"]?.jsonObject ?: result.jsonObject
         return mapThread(thread, repositoryId, machineId)

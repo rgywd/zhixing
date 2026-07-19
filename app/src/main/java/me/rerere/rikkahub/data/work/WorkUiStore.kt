@@ -90,11 +90,16 @@ interface WorkUiStore {
     )
 }
 
-class FileWorkUiStore(
-    context: Context,
+class FileWorkUiStore private constructor(
+    private val stateFile: WorkStateFile,
     private val json: Json,
 ) : WorkUiStore {
-    private val atomicFile = AtomicFile(File(context.filesDir, FILE_NAME))
+    constructor(context: Context, json: Json) : this(
+        stateFile = AndroidAtomicWorkStateFile(File(context.filesDir, FILE_NAME)),
+        json = json,
+    )
+
+    internal constructor(file: File, json: Json) : this(JvmAtomicWorkStateFile(file), json)
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow(readState())
 
@@ -171,17 +176,37 @@ class FileWorkUiStore(
     }
 
     private fun readState(): WorkUiState = runCatching {
-        if (!atomicFile.baseFile.isFile) return@runCatching WorkUiState()
-        atomicFile.openRead().bufferedReader().use { reader ->
-            json.decodeFromString<WorkUiState>(reader.readText()).normalized()
-        }
+        if (!stateFile.exists()) return@runCatching WorkUiState()
+        json.decodeFromString<WorkUiState>(stateFile.readText()).normalized()
     }.getOrDefault(WorkUiState())
 
     private fun writeState(state: WorkUiState) {
+        stateFile.writeText(json.encodeToString(state))
+    }
+
+    private companion object {
+        const val FILE_NAME = "work-ui.json"
+    }
+}
+
+private interface WorkStateFile {
+    fun exists(): Boolean
+    fun readText(): String
+    fun writeText(value: String)
+}
+
+private class AndroidAtomicWorkStateFile(file: File) : WorkStateFile {
+    private val atomicFile = AtomicFile(file)
+
+    override fun exists(): Boolean = atomicFile.baseFile.isFile
+
+    override fun readText(): String = atomicFile.openRead().bufferedReader().use { it.readText() }
+
+    override fun writeText(value: String) {
         val stream = atomicFile.startWrite()
         try {
             OutputStreamWriter(stream).apply {
-                write(json.encodeToString(state))
+                write(value)
                 flush()
             }
             atomicFile.finishWrite(stream)
@@ -190,8 +215,19 @@ class FileWorkUiStore(
             throw error
         }
     }
+}
 
-    private companion object {
-        const val FILE_NAME = "work-ui.json"
+/** JVM-testable equivalent used only by the internal file constructor. */
+private class JvmAtomicWorkStateFile(private val file: File) : WorkStateFile {
+    override fun exists(): Boolean = file.isFile
+
+    override fun readText(): String = file.readText()
+
+    override fun writeText(value: String) {
+        file.parentFile?.mkdirs()
+        val temporary = File(file.parentFile, "${file.name}.tmp")
+        temporary.writeText(value)
+        check(!file.exists() || file.delete()) { "Unable to replace Work state" }
+        check(temporary.renameTo(file)) { "Unable to commit Work state" }
     }
 }

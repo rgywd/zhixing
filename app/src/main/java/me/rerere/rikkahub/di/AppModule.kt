@@ -107,7 +107,7 @@ val appModule = module {
     // 0.2.0 direct path is added beside Wire until the full cutover gate passes.
     single { EncryptedWorkConnectionStore(get(), get()) }
     single<WorkConnectionStore> { get<EncryptedWorkConnectionStore>() }
-    single { FileWorkUiStore(get(), get()) }
+    single { FileWorkUiStore(context = get(), json = get()) }
     single<WorkUiStore> { get<FileWorkUiStore>() }
     single(named("appServerWebSocket")) {
         OkHttpClient.Builder()

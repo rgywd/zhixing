@@ -181,8 +181,8 @@ App Server 支持的字段。仓库路径只能来自已保存的 `WorkRepositor
 规则：
 
 - 空闲发送为 `turn/start`；运行中有草稿发送为 `turn/steer`；
-- 文本、图片、Skill 和 mention 保持结构化顺序；
-- 通用文件由薄守护受控落盘后作为 mention/path + 说明文本提交；
+- 文本、图片和 Skill 保持 App Server 官方结构化顺序；`mention` 只用于协议定义的 App/Plugin 引用；
+- App Server 当前没有通用文件 input item。通用文件由薄守护受控落盘后，以本机绝对路径清单和说明文本提交，Codex 在开发机按需读取；不得伪装成 `mention`；
 - Android URI、content URI 和用户手填 Windows 路径不得直接发给 App Server；
 - 模型不支持图片时保留附件和草稿，提示用户切换，不丢内容；
 - 发送成功前不清空草稿；收到 Turn 接受响应后才转为消息投影。

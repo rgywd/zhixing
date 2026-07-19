@@ -91,6 +91,32 @@ class AppServerJsonRpcClientTest {
     }
 
     @Test
+    fun `retries app server busy responses with bounded backoff`() = runBlocking {
+        var attempts = 0
+        server.enqueue(webSocketResponse { socket, message ->
+            when (message.string("method")) {
+                "initialize" -> socket.send("""{"id":${message["id"]},"result":{}}""")
+                "thread/read" -> {
+                    attempts += 1
+                    if (attempts == 1) {
+                        socket.send("""{"id":${message["id"]},"error":{"code":-32001,"message":"busy"}}""")
+                    } else {
+                        socket.send("""{"id":${message["id"]},"result":{"thread":{"id":"thread_1"}}}""")
+                    }
+                }
+            }
+        })
+        val client = client()
+        client.connect(endpoint())
+
+        val result = client.request("thread/read")
+
+        assertEquals(2, attempts)
+        assertEquals("thread_1", result.jsonObject["thread"]!!.jsonObject.string("id"))
+        client.disconnect()
+    }
+
+    @Test
     fun `keeps notifications separate from server requests and can respond`() = runBlocking {
         val responseSeen = CountDownLatch(1)
         server.enqueue(webSocketResponse { socket, message ->
@@ -178,6 +204,7 @@ class AppServerJsonRpcClientTest {
     private fun client(requestTimeoutMs: Long = 2_000) = AppServerJsonRpcClient(
         client = OkHttpClient(),
         json = json,
+        backoffPolicy = AppServerBackoffPolicy(scheduleMs = listOf(1, 1), jitterRatio = 0.0),
         requestTimeoutMs = requestTimeoutMs,
         openTimeoutMs = 2_000,
     )

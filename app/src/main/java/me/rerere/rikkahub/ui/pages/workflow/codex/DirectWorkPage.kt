@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.DrawerValue
@@ -50,6 +49,7 @@ import me.rerere.rikkahub.ui.components.ai.CodexChatComposer
 import me.rerere.rikkahub.ui.components.message.MessagePartsBlock
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.pages.chat.NativeChatScaffold
+import me.rerere.rikkahub.ui.pages.chat.NativeChatTimeline
 import me.rerere.rikkahub.ui.pages.chat.NativeChatTopBar
 import me.rerere.rikkahub.ui.pages.chat.WorkDrawerContent
 import org.koin.androidx.compose.koinViewModel
@@ -92,7 +92,9 @@ private fun DirectWorkPage(
     } else {
         ModalNavigationDrawer(
             drawerState = drawerState,
-            drawerContent = { WorkDrawerContent(navController) },
+            drawerContent = {
+                WorkDrawerContent(navController) { scope.launch { drawerState.close() } }
+            },
         ) { content() }
     }
 }
@@ -190,7 +192,7 @@ private fun DirectWorkContent(
                 }
             },
         ) { padding ->
-            LazyColumn(
+            NativeChatTimeline(
                 state = listState,
                 modifier = Modifier.fillMaxSize().hazeSource(hazeState),
                 contentPadding = PaddingValues(
@@ -236,8 +238,14 @@ private fun DirectWorkContent(
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("需要你的确认", style = MaterialTheme.typography.titleSmall)
                             Text(approval.summary)
-                            TextButton(onClick = { vm.resolveApproval(approval.approvalId, "accept") }) { Text("允许一次") }
-                            TextButton(onClick = { vm.resolveApproval(approval.approvalId, "decline") }) { Text("拒绝") }
+                            if (approval.kind == "user_input") {
+                                Text("该交互请求缺少可定位的 Turn，已阻止错误答复。", style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = { vm.cancelInteraction(approval.approvalId) }) { Text("取消请求") }
+                            } else {
+                                TextButton(onClick = { vm.resolveApproval(approval.approvalId, "accept") }) { Text("允许一次") }
+                                TextButton(onClick = { vm.resolveApproval(approval.approvalId, "decline") }) { Text("拒绝") }
+                                TextButton(onClick = { vm.resolveApproval(approval.approvalId, "cancel") }) { Text("取消") }
+                            }
                         }
                     }
                 }
@@ -273,7 +281,9 @@ private fun DirectWorkEmptyPage() {
     val scope = rememberCoroutineScope()
     ModalNavigationDrawer(
         drawerState = drawerState,
-        drawerContent = { WorkDrawerContent(navController) },
+        drawerContent = {
+            WorkDrawerContent(navController) { scope.launch { drawerState.close() } }
+        },
     ) {
         NativeChatScaffold(
             topBar = {

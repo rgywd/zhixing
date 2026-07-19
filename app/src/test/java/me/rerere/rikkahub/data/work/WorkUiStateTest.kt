@@ -1,11 +1,18 @@
 package me.rerere.rikkahub.data.work
 
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 
 class WorkUiStateTest {
+    @get:Rule
+    val temporaryFolder = TemporaryFolder()
+
     @Test
     fun `normalization never imports or invents repositories`() {
         val state = WorkUiState(
@@ -63,5 +70,40 @@ class WorkUiStateTest {
         val preferences = WorkRepositoryPreferences(model = "legacy", effort = "high")
 
         assertEquals("high", preferences.effortFor("legacy"))
+    }
+
+    @Test
+    fun `file store persists add edit selection mode and local-only delete`() = runBlocking {
+        val file = temporaryFolder.newFile("work-ui.json")
+        file.delete() // A fresh install has no state file yet.
+        val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+        val first = WorkRepositoryConfig(
+            id = "one",
+            displayName = "Zhixing",
+            path = "C:/src/zhixing",
+            currentThreadId = "thread-one",
+        )
+        val second = WorkRepositoryConfig(
+            id = "two",
+            displayName = "Other",
+            path = "C:/src/other",
+            currentThreadId = "thread-two",
+        )
+        val store = FileWorkUiStore(file, json)
+
+        store.upsertRepository(first)
+        store.upsertRepository(second)
+        store.selectRepository(second.id)
+        store.setMode(WorkAppMode.WORK)
+        store.upsertRepository(second.copy(displayName = "Other edited", path = "D:/src/other"))
+        store.removeRepository(second.id)
+
+        val restored = FileWorkUiStore(file, json).state.value
+        assertEquals(WorkAppMode.WORK, restored.mode)
+        assertEquals(first.id, restored.activeRepositoryId)
+        assertEquals(listOf(first), restored.repositories)
+        // Removing a repository only removes its local mapping. Another repository's
+        // remote thread identity remains untouched and can still be resumed.
+        assertEquals("thread-one", restored.activeRepository?.currentThreadId)
     }
 }
