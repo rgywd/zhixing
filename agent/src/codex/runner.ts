@@ -134,7 +134,7 @@ export class CodexSessionRunner {
     try {
       const turn = await this.codex.startTurn({
         threadId: this.threadId,
-        text,
+        input: [{ type: 'text', text }],
         model: this.model,
         effort: this.effort,
       })

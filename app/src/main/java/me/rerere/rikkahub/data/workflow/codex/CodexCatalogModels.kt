@@ -1,7 +1,10 @@
 package me.rerere.rikkahub.data.workflow.codex
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 enum class CodexRuntimeState {
     UNKNOWN,
@@ -81,6 +84,15 @@ data class CodexThreadDetail(
     val thread: CodexThread?,
     val turns: List<CodexTurn>,
     val approvals: List<CodexApproval> = emptyList(),
+    val cwd: String? = null,
+    val attachments: Map<String, CodexAttachment> = emptyMap(),
+)
+
+data class CodexAttachment(
+    val remotePath: String,
+    val localUri: String,
+    val fileName: String,
+    val mime: String,
 )
 
 data class CodexApproval(
@@ -88,7 +100,11 @@ data class CodexApproval(
     val kind: String,
     val summary: String,
     val createdAt: Long,
-)
+    val payload: JsonObject = JsonObject(emptyMap()),
+) {
+    val itemId: String?
+        get() = (payload["itemId"] as? JsonPrimitive)?.contentOrNull
+}
 
 data class CodexTurn(
     val turnId: String,
@@ -106,6 +122,122 @@ data class CodexItem(
     val role: String,
     val text: String?,
     val status: String?,
+    val raw: JsonObject = JsonObject(emptyMap()),
+)
+
+@Serializable
+data class RuntimeCatalogPayload(
+    val machineId: String,
+    val cwd: String,
+    val models: List<CodexModelOption> = emptyList(),
+    val permissionProfiles: List<CodexPermissionProfile> = emptyList(),
+    val skills: List<CodexSkillOption> = emptyList(),
+    val plugins: List<CodexPluginOption> = emptyList(),
+    val apps: List<CodexAppOption> = emptyList(),
+    val generatedAt: Long,
+)
+
+@Serializable
+data class CodexModelOption(
+    val id: String,
+    val model: String,
+    val displayName: String,
+    val description: String = "",
+    val isDefault: Boolean = false,
+    val hidden: Boolean = false,
+    val defaultReasoningEffort: String,
+    val supportedReasoningEfforts: List<CodexReasoningOption> = emptyList(),
+    val inputModalities: List<String> = listOf("text", "image"),
+    val serviceTiers: List<CodexServiceTier> = emptyList(),
+    val defaultServiceTier: String? = null,
+)
+
+@Serializable
+data class CodexReasoningOption(
+    val reasoningEffort: String,
+    val description: String = "",
+)
+
+@Serializable
+data class CodexServiceTier(
+    val id: String,
+    val name: String,
+    val description: String = "",
+)
+
+@Serializable
+data class CodexPermissionProfile(
+    val id: String,
+    val allowed: Boolean,
+    val description: String? = null,
+)
+
+@Serializable
+data class CodexSkillOption(
+    val name: String,
+    val path: String,
+    val description: String = "",
+    val shortDescription: String? = null,
+    val enabled: Boolean = true,
+    val scope: String = "user",
+    @SerialName("interface") val interfaceInfo: CodexSkillInterface? = null,
+)
+
+@Serializable
+data class CodexSkillInterface(
+    val displayName: String? = null,
+    val shortDescription: String? = null,
+    val defaultPrompt: String? = null,
+)
+
+@Serializable
+data class CodexPluginOption(
+    val id: String,
+    val name: String,
+    val installed: Boolean = false,
+    val enabled: Boolean = false,
+    val availability: String = "AVAILABLE",
+    @SerialName("interface") val interfaceInfo: CodexPluginInterface? = null,
+)
+
+@Serializable
+data class CodexPluginInterface(
+    val displayName: String? = null,
+    val shortDescription: String? = null,
+)
+
+@Serializable
+data class CodexAppOption(
+    val id: String,
+    val name: String,
+    val description: String? = null,
+    val isAccessible: Boolean = false,
+    val isEnabled: Boolean = true,
+)
+
+data class CodexRuntimeSettingsState(
+    val model: String? = null,
+    val effort: String? = null,
+    val serviceTier: String? = null,
+    val permissions: String? = null,
+    val usedTokens: Long? = null,
+    val contextWindow: Long? = null,
+    val updatedAt: Long = 0,
+) {
+    val contextPercent: Int?
+        get() = if (usedTokens != null && contextWindow != null && contextWindow > 0) {
+            ((usedTokens * 100) / contextWindow).toInt().coerceIn(0, 100)
+        } else null
+}
+
+@Serializable
+data class CodexInputPayload(
+    val type: String,
+    val text: String? = null,
+    val url: String? = null,
+    val path: String? = null,
+    val name: String? = null,
+    val detail: String? = null,
 )
 
 val CodexRuntimeState.needsAttention: Boolean
@@ -229,13 +361,37 @@ data class RuntimeCommandPayload(
     val threadId: String? = null,
     val cwd: String? = null,
     val text: String? = null,
+    val input: List<CodexInputPayload> = emptyList(),
     val confirmedUnknown: Boolean? = null,
     val approvalId: String? = null,
     val decision: String? = null,
+    val answer: String? = null,
     val model: String? = null,
     val effort: String? = null,
     val approvalPolicy: String? = null,
     val sandbox: String? = null,
+    val serviceTier: String? = null,
+    val permissions: String? = null,
+    val attachmentId: String? = null,
+    val fileName: String? = null,
+    val mime: String? = null,
+    val chunkIndex: Int? = null,
+    val chunkCount: Int? = null,
+    val contentBase64: String? = null,
+    val sha256: String? = null,
+    val path: String? = null,
+)
+
+@Serializable
+data class ThreadDetailChunkPayload(
+    val detailId: String,
+    val machineId: String,
+    val threadId: String,
+    val chunkIndex: Int,
+    val chunkCount: Int,
+    val contentHash: String,
+    val chunkHash: String,
+    val contentBase64: String,
 )
 
 @Serializable
@@ -259,6 +415,12 @@ data class RuntimeEventPayload(
     val decision: String? = null,
     val message: String? = null,
     val payload: JsonObject = JsonObject(emptyMap()),
+    val model: String? = null,
+    val effort: String? = null,
+    val serviceTier: String? = null,
+    val permissions: String? = null,
+    val usedTokens: Long? = null,
+    val contextWindow: Long? = null,
 )
 
 @Serializable

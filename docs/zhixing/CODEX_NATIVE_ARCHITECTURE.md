@@ -21,8 +21,8 @@ Codex 只替换知行既有聊天体系的**运行后端**，不得替换它的�
 - Codex Thread 是事实来源，Room 只是加密内容在手机上的已解密缓存；
 - 项目与历史用于组织工作，在线状态用于辅助判断，不能取代聊天本身。
 
-当前 `CodexThreadPage` 自制的纯文本 Item 气泡和 `OutlinedTextField` 违反上述原则。它们属于迁移脚手架，
-不是目标产品。
+0.2.1 基线中的 `CodexThreadPage` 曾使用自制纯文本 Item 气泡和 `OutlinedTextField`；本合同要求删除这套
+迁移脚手架，当前 0.2.x 实现已切换到共享输入与消息组件。
 
 ## 2. 用户问题与验收口径
 
@@ -57,8 +57,9 @@ Codex 只替换知行既有聊天体系的**运行后端**，不得替换它的�
   `0.144.0-alpha.4`；npm `@openai/codex` 运行时为 `0.144.0`。
 - Desktop 与 npm CLI 生成的 337 个 app-server schema 单文件一致，属于同一 v2
   Thread/Turn/Item 协议家族。
-- Desktop 内置 App Server 是私有 stdio 子进程，没有可附着的 TCP/Unix 端点。知行 Agent 必须启动
-  自己的 App Server，不能把手机直接接到 Desktop 进程。
+- Desktop 内置 App Server 是私有 stdio 子进程，没有可附着的 TCP/Unix 端点。独立 App Server 当前也提供
+  WebSocket listen 模式，但知行 Agent 为避免额外暴露本机端口，仍启动自己的本地 stdio App Server；手机不能
+  直接接到 Desktop 进程。
 - 第二个 App Server 可以通过相同 `CODEX_HOME` 读取 Desktop/CLI 已落盘的 Thread、Turn 和 Item。
 - 第二个 App Server 无法订阅 Desktop 当前私有进程中的实时运行事件。Desktop 正在执行的 Thread 在
   独立进程中可能表现为 `notLoaded`，继续前必须由用户确认接管。
@@ -76,7 +77,8 @@ Codex 只替换知行既有聊天体系的**运行后端**，不得替换它的�
 - Fast 对应 `serviceTier=priority`，不是模型名或本地 UI 假状态。
 - 权限使用 `permissionProfile/list` 的 profile，并由 Thread/Turn 响应确认实际
   `activePermissionProfile`、sandbox 和 approval policy。
-- `skills/list` 按 CWD 动态返回 Skill；`plugin/list/read/install` 和 `app/list` 是独立能力。
+- `skills/list` 按 CWD 动态返回 Skill；`plugin/list/read/install` 和 `app/list` 是独立能力。`app/list` 与
+  `item/tool/requestUserInput` 属于实验能力，Agent 初始化时必须声明 `experimentalApi=true`。
 - `thread/tokenUsage/updated` 返回本轮、总用量和 `modelContextWindow`。
 - `thread/turns/list` 可分页读取历史；`thread/items/list` 在当前运行时虽然出现在 schema 中，但实测返回
   “not supported yet”，不能作为 P0 历史依赖。
@@ -127,9 +129,9 @@ ChatPage
 - Tool UI 已有 loading、审批、问答、图片输出、专用 renderer 和通用 fallback；
 - `WorkUiMapper` 已证明远程协议消息可以映射为 `UIMessagePart` 并复用同一渲染资产。
 
-### 4.2 当前 Codex 页的问题
+### 4.2 0.2.1 基线 Codex 页的问题
 
-当前链路是：
+实施前链路是：
 
 ```text
 ThreadDetailPayload
@@ -232,30 +234,34 @@ Catalog 带 revision、generatedAt 和 capability。未知字段前向兼容；�
   "threadId": "thread",
   "input": [
     {"type": "text", "text": "修复截图中的问题"},
-    {"type": "attachment", "attachmentId": "opaque", "name": "screen.png", "mime": "image/png"},
+    {"type": "localImage", "path": "C:\\...\\uploads\\opaque\\screen.png", "detail": "auto"},
     {"type": "skill", "name": "ui-review", "path": "C:\\...\\SKILL.md"}
   ],
   "model": "gpt-5.6-sol",
   "effort": "high",
   "serviceTier": "priority",
-  "permissionProfile": ":workspace"
+  "permissions": ":workspace"
 }
 ```
 
-Wire 不直接接受手机提供的开发机路径。`attachmentId` 指向已完成 E2E 上传且哈希校验通过的 Agent 临时文件；
-Agent 再转换为 app-server `localImage` 或 mention/path。
+手机先用 `attachment.upload` 分片传输本机 URI 内容。Agent 在 E2E 解密、大小/MIME/SHA-256 校验完成后返回
+受控临时路径，Android 才把该路径作为 app-server `localImage` 或 `mention` 放进结构化输入；用户不能手填
+开发机路径。开发机历史中的 `localImage` 则通过 `attachment.download` 按 Thread 引用白名单取回。
 
 ### 6.4 Thread snapshot
 
 - 使用 `thread/read(includeTurns=true)` 或 `thread/turns/list(itemsView=full)` 读取；不依赖当前不支持的
   `thread/items/list`。
-- 快照按 Turn 或受控字节大小分块，携带 snapshotId、revision、chunkIndex/count、chunkHash 和 contentHash。
+- 快照按受控 UTF-8 字节大小分块，携带 detailId、machineId、threadId、chunkIndex/count、chunkHash、
+  contentHash 和 contentBase64。
 - Android 只有在全部块校验成功后才原子替换旧 revision；失败继续展示旧历史并重试缺块。
-- Item 必须保存 `id/type/status`、结构化字段和 sanitized raw；不得只保存 `text`。
+- Item 必须保存 `id/type/status`、结构化 raw 和兼容用 text；不得只保存纯文本。raw 只在 E2E 密文和已配对设备
+  本地 Room 中保存，日志不得输出明文 payload。
 
 ### 6.5 Runtime event
 
-所有增量事件保留 `threadId/turnId/itemId/sequence/type/payload`。至少覆盖：
+所有 Runtime 事件保留 `threadId/turnId/itemId/type/at/payload`；Wire envelope 的 per-stream `seq` 负责去重与
+gap 检测。至少覆盖：
 
 - turn started/completed；
 - item started/completed；
@@ -269,7 +275,8 @@ Agent 再转换为 app-server `localImage` 或 mention/path。
 - thread settings、model reroute 和 error；
 - approval requested/resolved。
 
-事件 payload 不把累计文本当 delta。Wire 明确区分 `delta` 和 `snapshot`，Android reducer 以 sequence 幂等应用。
+App Server 的原始 delta 先在 Agent 按 itemId 合并，再作为累计 Item snapshot 发布；Android 对同一 itemId 做幂等
+upsert。这样重复 envelope 不会重复拼字，seq gap 会触发完整 `thread.detail` 重同步。
 
 ## 7. Codex 到知行消息的映射
 
@@ -297,22 +304,22 @@ Agent 再转换为 app-server `localImage` 或 mention/path。
 
 ### 8.1 Reducer
 
-`CodexConversationProjector` 同时接收：
+`CodexMessageProjector` 接收统一的 `CodexThreadDetail`：
 
-- 完整 Thread snapshot；
-- 后续 RuntimeEvent；
-- 本地 optimistic user input；
-- command result 和审批结果。
+- 完整 Thread snapshot 写入的结构化 Item；
+- `CodexRuntimeItemReducer` 将 RuntimeEvent 合并后写入的同形 Item；
+- command result 产生的设置、用量和审批状态。
 
-输出是稳定 `List<MessageNode>` 或等价 `List<UIMessage>` 视图。Item ID 作为 Part 身份；Turn ID 作为消息分组边界。
+输出是稳定 `List<CodexMessageBlock>`，内部直接承载既有 `UIMessagePart`。Item ID 作为 Part 身份；Turn ID 作为
+消息分组边界。
 实时增量与历史重放必须得到相同投影，测试使用同一 fixture 比较最终结构。
 
 ### 8.2 合并规则
 
-- agent text/reasoning delta 追加到同一 Part，不为每个 delta 新建消息；
+- Agent 累计 text/reasoning snapshot upsert 到同一 Part，不为每个 delta 新建消息；
 - Tool 以 Item ID 更新 input/output/status/approval，不能通过标题猜测配对；
 - item completed 关闭相应 loading；turn completed 兜底关闭未完成 reasoning/tool；
-- snapshot revision 高于本地时原子重建，再只应用其后 sequence；
+- 完整 detail 的全部块校验后原子替换旧 Turn/Item；未完成 detail 不覆盖旧历史；
 - 重复事件幂等，gap 触发 snapshot refresh，不猜测缺失文本；
 - App 重启后从 Room 恢复历史、草稿、revision 和最后连续 sequence。
 

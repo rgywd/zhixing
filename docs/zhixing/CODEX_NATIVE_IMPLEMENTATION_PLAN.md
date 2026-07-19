@@ -1,6 +1,6 @@
 # 知行 Codex 原生会话打磨实施计划
 
-状态：In progress
+状态：Implementation complete, awaiting independent audit
 日期：2026-07-19
 分支：`feat/49-codex-chat-parity`
 验收合同：[`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md)
@@ -24,7 +24,7 @@
 
 ## 3. Phase A：文档与事实基线
 
-状态：进行中
+状态：完成
 
 范围：
 
@@ -40,7 +40,7 @@
 
 ## 4. Phase B：Agent/App Server 保真适配
 
-状态：待实施
+状态：完成
 
 主要文件：
 
@@ -76,7 +76,7 @@ npm run build
 
 ## 5. Phase C：Wire 与 Room 合同
 
-状态：待实施
+状态：完成
 
 主要文件：
 
@@ -99,13 +99,14 @@ GREEN：
 - 结构化 Item、runtime settings、catalog 和 token usage 增量持久化。
 - v0.2.1 旧表增量迁移，旧 text 只作为 fallback。
 
-## 6. Phase D：CodexConversationProjector
+## 6. Phase D：Codex 消息投影器
 
-状态：待实施
+状态：完成
 
 主要文件：
 
-- 新增 `data/workflow/codex/CodexConversationProjector.kt`
+- 新增 `data/workflow/codex/CodexMessageProjector.kt`
+- 新增 `data/workflow/codex/CodexRuntimeItemReducer.kt`
 - 新增 projector fixture/tests
 - `ai/ui/Message.kt` 仅在确有共享缺口时做行为兼容扩展
 
@@ -126,12 +127,12 @@ GREEN：
 验证：
 
 ```powershell
-./gradlew.bat :app:testDebugUnitTest --tests "*CodexConversationProjectorTest*"
+./gradlew.bat :app:testDebugUnitTest --tests "*CodexMessageProjectorTest*"
 ```
 
 ## 7. Phase E：共享 Timeline 与 Composer
 
-状态：待实施
+状态：完成
 
 主要文件：
 
@@ -162,7 +163,7 @@ GREEN：
 
 ## 8. Phase F：附件、恢复与错误状态
 
-状态：待实施
+状态：完成
 
 范围：
 
@@ -180,7 +181,7 @@ GREEN：
 
 ## 9. Phase G：跨层回归与真机验收
 
-状态：待实施
+状态：完成
 
 自动化：
 
@@ -225,6 +226,17 @@ npm run build
 - 2026-07-19：确认当前缺口是适配器和页面旁路，而不是 Codex 不保存历史。
 - 2026-07-19：创建 `feat/49-codex-chat-parity`；远端 fetch 因本机 Schannel TLS 握手失败，
   创建分支前本地 `main...origin/main` 记录为 `0 0`，基线 `c7b041587`。
+- 2026-07-19：Agent 改为保真传递 App Server Item、运行时设置、catalog、审批与交互请求；
+  附件上传/下载增加哈希、大小、路径授权和 TTL，历史改为带 revision/hash 的分块原子提交。
+- 2026-07-19：Room schema `29 -> 30`；Android 新增 runtime catalog/settings、附件映射和草稿缓存，
+  snapshot 与 runtime event 统一通过 `CodexRuntimeItemReducer` 和 `CodexMessageProjector`。
+- 2026-07-19：Codex Thread 切换到共享 `ChatInput` 容器和 `MessagePartsBlock`，接入图片/文件、
+  model、effort、Fast、权限、Skill、插件/App 可用性、上下文用量、steer/interrupt 与内联审批。
+- 2026-07-19：自动化验证通过：Agent 17 个测试文件/63 项，Relay 3 个测试文件/7 项，
+  Android 213 项单测；三端 typecheck/build 与 debug APK 构建通过。
+- 2026-07-19：Android 35 x86_64 模拟器完成浅色、深色、大字体、横屏与 IME 场景检查；
+  证据保存在本地 `build/ui-audit/codex-final-*.png`。检查期间发现并修复运行中 reasoning
+  在开发机/手机时钟偏差下出现负计时的问题。
 
 ## 12. 延期项
 

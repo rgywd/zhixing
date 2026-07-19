@@ -6,7 +6,9 @@ import java.util.Base64
 import java.util.UUID
 import java.security.SecureRandom
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
@@ -20,9 +22,11 @@ import me.rerere.rikkahub.data.workflow.codex.CatalogSnapshotPayload
 import me.rerere.rikkahub.data.workflow.codex.CatalogSnapshotChunkPayload
 import me.rerere.rikkahub.data.workflow.codex.WireCatalogSink
 import me.rerere.rikkahub.data.workflow.codex.ThreadDetailPayload
+import me.rerere.rikkahub.data.workflow.codex.ThreadDetailChunkPayload
 import me.rerere.rikkahub.data.workflow.codex.RuntimeCommandPayload
 import me.rerere.rikkahub.data.workflow.codex.RuntimeEventPayload
 import me.rerere.rikkahub.data.workflow.codex.CommandResultPayload
+import me.rerere.rikkahub.data.workflow.codex.RuntimeCatalogPayload
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -159,6 +163,21 @@ class WireRelayClient(
         return result
     }
 
+    suspend fun awaitCommandResult(
+        machineId: String,
+        threadId: String?,
+        command: String,
+        requestId: String,
+        timeoutMs: Long = 60_000,
+    ): CommandResultPayload = withTimeout(timeoutMs) {
+        while (true) {
+            sync(200)
+            consumeCommandResult(machineId, threadId, command, requestId)?.let { return@withTimeout it }
+            delay(350)
+        }
+        @Suppress("UNREACHABLE_CODE") error("unreachable")
+    }
+
     fun disconnect() = credentialsStore.clear()
 
     private fun applyWrappedKey(credentials: WireRelayCredentials, envelope: RelayEnvelope): WireRelayCredentials {
@@ -180,7 +199,9 @@ class WireRelayClient(
             "catalog.snapshot" -> catalogRepository.applySnapshot(json.decodeFromJsonElement(payload.body))
             "catalog.snapshot.chunk" -> catalogRepository.applySnapshotChunk(json.decodeFromJsonElement(payload.body))
             "thread.detail" -> catalogRepository.applyThreadDetail(json.decodeFromJsonElement<ThreadDetailPayload>(payload.body))
+            "thread.detail.chunk" -> catalogRepository.applyThreadDetailChunk(json.decodeFromJsonElement<ThreadDetailChunkPayload>(payload.body))
             "runtime.event" -> catalogRepository.applyRuntimeEvent(json.decodeFromJsonElement<RuntimeEventPayload>(payload.body))
+            "runtime.catalog" -> catalogRepository.applyRuntimeCatalog(json.decodeFromJsonElement<RuntimeCatalogPayload>(payload.body))
             "command.result" -> {
                 val result = json.decodeFromJsonElement<CommandResultPayload>(payload.body)
                     .copy(requestId = payload.requestId)

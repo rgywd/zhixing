@@ -64,7 +64,8 @@ Android 的安全机制仍会要求用户在安装新版本时进行系统确认
 ./gradlew.bat :app:assembleDebug
 ```
 
-完整 `:app:testDebugUnitTest` 当前为 130 条测试中 9 条继承基线失败；发布流水线只放行已验证的产品身份、更新、Provider 配置和 Agent Plan 关键路径。
+截至 2026-07-19，完整 `:app:testDebugUnitTest` 为 213 条并全部通过；Agent 与 Relay 也必须分别通过
+测试、TypeScript 类型检查和构建后才能合并。
 
 ## 许可
 

@@ -11,6 +11,7 @@ import me.rerere.rikkahub.data.workflow.codex.CatalogMachinePayload
 import me.rerere.rikkahub.data.workflow.codex.CatalogSnapshotPayload
 import me.rerere.rikkahub.data.workflow.codex.CatalogSnapshotChunkPayload
 import me.rerere.rikkahub.data.workflow.codex.ThreadDetailPayload
+import me.rerere.rikkahub.data.workflow.codex.ThreadDetailChunkPayload
 import me.rerere.rikkahub.data.workflow.codex.WireCatalogSink
 import me.rerere.rikkahub.data.workflow.codex.RuntimeCommandPayload
 import okhttp3.OkHttpClient
@@ -230,6 +231,7 @@ private class FakeCatalogSink : WireCatalogSink {
     }
     override suspend fun applySnapshotChunk(chunk: CatalogSnapshotChunkPayload, receivedAt: Long): Boolean = false
     override suspend fun applyThreadDetail(detail: ThreadDetailPayload) = Unit
+    override suspend fun applyThreadDetailChunk(chunk: ThreadDetailChunkPayload, receivedAt: Long): Boolean = false
 }
 
 private fun ByteArray.base64Url(): String = Base64.getUrlEncoder().withoutPadding().encodeToString(this)

@@ -1,6 +1,6 @@
 # Zhixing Wire Protocol v1
 
-状态：Implemented core；会话保真扩展 v1.1 实施中
+状态：Implemented；会话保真扩展 v1.1 已落地
 日期：2026-07-19
 跟踪：GitHub Issue #49
 
@@ -290,53 +290,60 @@ Thread detail 不得只保存 `text/status`。规范化 Item 至少包含：
 }
 ```
 
-`raw` 是经过大小限制和敏感字段清理的前向兼容载体；已知字段必须进入 `content`，不能要求 Android 从 raw
-猜协议。用户输入中的 text/image/localImage/skill/mention 必须保留类型。旧客户端使用可选 `text` fallback。
+`raw` 是结构化前向兼容载体，经 E2E 加密后传输并只落在已配对设备本地；日志不得输出其明文。Android 的
+projector 对已知类型读取稳定字段，未知类型隔离为通用 Tool fallback。用户输入中的
+text/image/localImage/skill/mention 必须保留类型。旧客户端使用可选 `text` fallback。
 
-Thread detail 同时携带 App Server 最后确认的运行设置：model、reasoningEffort、serviceTier、
-permissionProfile、approvalPolicy、sandbox、cwd 和 tokenUsage。
+App Server 最后确认的 model、reasoningEffort、serviceTier、permission profile 和 token usage 通过同一 Thread
+流中的 `thread.settings` / `token.usage` RuntimeEvent 独立持久化，不由 Android 根据请求值猜测。
 
 大历史必须使用 chunk：
 
 ```json
 {
-  "snapshotId": "uuidv7",
+  "detailId": "uuidv7",
+  "machineId": "machine",
   "threadId": "codex-thread-uuid",
-  "revision": 9,
   "chunkIndex": 0,
   "chunkCount": 4,
   "contentHash": "sha256-of-complete-plaintext",
-  "turns": []
+  "chunkHash": "sha256-of-this-chunk",
+  "contentBase64": "base64url-of-utf8-detail-chunk"
 }
 ```
 
 - 单 chunk 解密明文上限和密文上限由 capability 声明。
 - 所有 chunk、总数和 hash 验证成功后才能提交新 revision。
-- 缺块、重复冲突或 hash 不符时保留旧 revision，并请求缺失块。
+- 缺块、重复冲突或 hash 不符时保留旧历史，并自动重试整个 detail 请求。
 - chunk 以受控 UTF-8 字节数切分，不能仅按 Item 数量估算；任何单 envelope 必须低于 Relay body/cipher limit。
 - 首次读取失败是可恢复状态；Android 自动重试并允许用户立即重试，不能吞错后永久显示空历史。
 
 ### 8.1 运行选项目录
 
-Agent 根据 Thread CWD 发布带 revision 的目录：
+Android 使用 `runtime.catalog` 命令按 Thread CWD 请求一次版本化目录，Agent 聚合：
 
-- `model.catalog`：id、displayName、inputModalities、supportedReasoningEfforts、serviceTiers、isDefault；
-- `permission.catalog`：profileId、displayName、description；
-- `skill.catalog`：name、path、description、enabled；
-- `plugin.catalog` / `app.catalog`：安装、启用、授权和不可用原因。
+- `model/list`：id、displayName、inputModalities、supportedReasoningEfforts、serviceTiers、isDefault；
+- `permissionProfile/list`：profile id、displayName、description、allowed；
+- `skills/list`：name、path、description、enabled；
+- `plugin/list` / `app/list`：安装、启用、授权和不可用原因。
 
 这些目录只存在于 E2E 密文。Android 不把本地 Provider `Model` 列表当成 Codex 模型事实。
 
 ### 8.2 附件
 
-手机附件使用独立 stream 和 data key。上传协议包含 attachmentId、name、MIME、byteLength、SHA-256、
-chunkIndex/count、chunkHash 和 contentHash。Agent 全部校验通过后写入专用临时目录并返回 opaque receipt；
-Android 只能在收到 receipt 后发 Turn。
+手机附件沿现有 E2E command stream 用 `attachment.upload` 分片。每块包含 attachmentId、fileName、MIME、
+完整内容 SHA-256、chunkIndex/count 和 contentBase64。Agent 校验附件 ID、文件名、MIME、每块 512 KiB 上限、
+总计 20 MiB 上限与完整 SHA-256 后写入 `~/.zhixing-agent/uploads/<attachmentId>/`，返回受控 localPath；Android
+只能在最后一块确认完成后发 Turn。
 
 - 图片 receipt 转为 app-server `localImage`；
 - 通用文件转为受控开发机路径并以 mention/path + 文本提交；
-- Android 不发送或选择开发机绝对路径；
+- Android 不允许用户输入或浏览开发机绝对路径；仅转发 Agent 对上传返回的路径；
 - Agent 拒绝路径逃逸、超限、hash 冲突和未知 attachmentId，并按 TTL 清理。
+
+读取历史中的开发机 `localImage` 使用 `attachment.download`：Agent 先读取指定 Thread 的完整 raw 历史，只允许
+下载其中实际引用的绝对路径，再以 320 KiB 分块返回；Android 校验 count 和完整 SHA-256 后存入自己的聊天文件区，
+并持久化 remotePath → localUri 映射。Agent 不提供任意文件读取接口。
 
 ## 9. 控制请求
 
@@ -352,9 +359,10 @@ Android 只发送：
 - `turn.steer`
 - `turn.interrupt`
 - `approval.resolve`
-- `runtime.options.refresh`
-- `thread.settings.update`
-- `attachment.begin|chunk|commit|discard`
+- `interaction.resolve`
+- `runtime.catalog`
+- `attachment.upload`
+- `attachment.download`
 
 所有请求包含 `requestId`、machineId、threadId（如适用）、用户可见目标摘要和 deadline。Agent 必须返回同 requestId 的一次性结果。
 
@@ -364,18 +372,18 @@ Android 只发送：
 {
   "input": [
     {"type":"text","text":"修复这个问题"},
-    {"type":"attachment","attachmentId":"opaque","name":"screen.png","mime":"image/png"},
+    {"type":"localImage","path":"C:\\...\\uploads\\opaque\\screen.png","detail":"auto"},
     {"type":"skill","name":"ui-review","path":"opaque-catalog-path"}
   ],
   "model":"gpt-5.6-sol",
   "effort":"high",
   "serviceTier":"priority",
-  "permissionProfile":":workspace"
+  "permissions":":workspace"
 }
 ```
 
-Skill/mention path 必须来自 Agent 发布的目录，attachmentId 必须来自已提交 receipt。Agent 将它们转换为
-当前 App Server schema 的 UserInput；未知输入类型拒绝对应 Turn，不得静默丢弃后只发送文本。
+Skill path 必须来自 Agent 发布的目录；localImage/mention path 必须来自本次 E2E 上传回执。Agent 将结构化 input
+原样交给当前 App Server；未知输入类型拒绝对应 Turn，不得静默丢弃后只发送文本。
 
 恢复优先使用 threadId。同一 Thread 已有 RuntimeBinding 时重连现有 binding。Desktop 状态未知时，resume 必须带用户确认标记；Agent 不做静默危险重试。
 
@@ -397,12 +405,11 @@ v1.1 RuntimeEvent 的共同字段为 `eventId/threadId/turnId/itemId/sequence/ty
 - `item.command.output_delta`
 - `item.file.output_delta|patch_updated`
 - `item.mcp.progress`
-- `thread.token_usage.updated`
-- `thread.settings.updated`
-- `thread.model_rerouted`
+- `token.usage`
+- `thread.settings`
 
-`payload.delta` 必须是本次增量，`payload.snapshot` 才能是累计值。Android 以 sequence 幂等归并；发现 gap 时
-请求 Thread snapshot，而不是把下一段文本直接拼上。
+App Server 原始 delta 在 Agent 内按 itemId 聚合；Wire 的 `item.delta.payload` 是该 Item 当前累计 snapshot。
+Android 按 envelope sequence 去重并按 itemId upsert；发现 gap 时请求 Thread snapshot，而不是把下一段文本直接拼上。
 
 未知 Codex Item 保存 `kind + opaque payload` 到诊断层，不进入普通 Agent 正文。
 
