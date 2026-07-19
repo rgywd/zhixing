@@ -6,8 +6,9 @@ import androidx.compose.runtime.setValue
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.async
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -33,6 +34,7 @@ import me.rerere.rikkahub.data.work.AppServerCompatibilityLevel
 import me.rerere.rikkahub.data.work.AppServerCommandInputs
 import me.rerere.rikkahub.data.work.AppServerEndpoint
 import me.rerere.rikkahub.data.work.AppServerJsonRpcClient
+import me.rerere.rikkahub.data.work.AppServerNotification
 import me.rerere.rikkahub.data.work.AppServerOptionRollback
 import me.rerere.rikkahub.data.work.AppServerRequest
 import me.rerere.rikkahub.data.work.AppServerRuntimeMapper
@@ -108,6 +110,7 @@ class DirectWorkVM(
     private val pendingRequests = mutableMapOf<String, PendingServerRequest>()
     private val snapshotBuffer = AppServerSnapshotBuffer()
     private val snapshotReadMutex = Mutex()
+    private val connectionIdsByGeneration = mutableMapOf<Long, String>()
     private var writeGeneration = 0L
 
     val selectedModel get() = runtimeCatalog.models.firstOrNull { it.id == selectedModelId }
@@ -159,10 +162,19 @@ class DirectWorkVM(
         viewModelScope.launch {
             client.notifications.collect { notification ->
                 val notificationThreadId = (notification.params as? JsonObject)?.string("threadId")
+                if (snapshotBuffer.offer(notification)) return@collect
+                val sourceConnectionId = connectionIdForGeneration(notification.connectionGeneration)
+                    ?: return@collect
+                if (sourceConnectionId != connection?.connectionId) {
+                    cacheHistoricalNotification(sourceConnectionId, notificationThreadId, notification)
+                    return@collect
+                }
                 val activeThreadId = detail.thread?.threadId ?: activeRepositoryThreadId()
-                val buffered = snapshotBuffer.offer(notification)
-                if (!buffered) detail = AppServerThreadReducer.apply(detail, notification)
-                if (notificationThreadId == null || notificationThreadId == activeThreadId) {
+                detail = AppServerThreadReducer.apply(detail, notification)
+                if (
+                    notification.connectionGeneration == client.connectionGeneration &&
+                    (notificationThreadId == null || notificationThreadId == activeThreadId)
+                ) {
                     runtimeSettings = AppServerRuntimeMapper.applyNotification(runtimeSettings, notification)
                     if (notification.method == "model/rerouted") {
                         runtimeSettings.model?.let { actualModel ->
@@ -177,18 +189,23 @@ class DirectWorkVM(
                         }
                     }
                 }
-                if (!buffered && notificationThreadId == detail.thread?.threadId) {
-                    if (notification.method == "turn/started") {
-                        currentTurnId = (notification.params as? JsonObject)?.get("turn")?.jsonObject?.string("id")
-                    }
-                    if (notification.method == "turn/completed") currentTurnId = null
+                if (notificationThreadId == detail.thread?.threadId) {
+                    currentTurnId = AppServerThreadReducer.activeTurnId(detail)
+                    scheduleCache()
                 }
-                if (!buffered && notificationThreadId == detail.thread?.threadId) scheduleCache()
             }
         }
         viewModelScope.launch {
             client.serverRequests.collect { request ->
-                if (!snapshotBuffer.offer(request)) applyServerRequest(request)
+                if (snapshotBuffer.offer(request)) return@collect
+                val sourceConnectionId = connectionIdForGeneration(request.connectionGeneration)
+                    ?: return@collect
+                if (sourceConnectionId != connection?.connectionId) {
+                    cacheHistoricalRequest(sourceConnectionId, request)
+                    return@collect
+                }
+                val requestLease = DirectWorkWriteLease(writeGeneration, request.connectionGeneration)
+                applyServerRequest(request, requestLease = requestLease)
             }
         }
         viewModelScope.launch {
@@ -237,6 +254,7 @@ class DirectWorkVM(
             if (client.state.value.phase == AppServerConnectionPhase.READY &&
                 connectedConnectionId == credentials.connectionId
             ) {
+                rememberConnectionGeneration(credentials.connectionId)
                 connected = true
                 statusMessage = null
                 finishCompatibilityGate(credentials)
@@ -253,6 +271,7 @@ class DirectWorkVM(
                             credentials.appServerUrl.startsWith("ws://localhost"),
                     )
                 )
+                rememberConnectionGeneration(credentials.connectionId)
                 connectedConnectionId = credentials.connectionId
                 connected = true
                 statusMessage = null
@@ -311,7 +330,7 @@ class DirectWorkVM(
         val threadId = workUiStore.state.value.repositories
             .firstOrNull { it.id == repositoryId }
             ?.threadIdFor(credentials.connectionId)
-        val fixturePassed = threadId?.let { readThreadSnapshot(it) } ?: true
+        val fixturePassed = threadId?.let { readThreadSnapshot(it, gate, credentials.connectionId) } ?: true
         if (!isCurrentGate(gate, credentials.connectionId)) return
         if (!fixturePassed) {
             compatibility = AppServerCompatibility(
@@ -319,7 +338,7 @@ class DirectWorkVM(
                 "当前 Thread 无法通过 thread/read 兼容性检查",
             )
             statusMessage = compatibility.reason
-            refreshCatalog(gate)
+            refreshCatalog(gate, credentials.connectionId)
             return
         }
         val evaluatedCompatibility = evaluateCompatibility(credentials)
@@ -347,7 +366,7 @@ class DirectWorkVM(
                 statusMessage = compatibility.reason
             }
         }
-        refreshCatalog(gate)
+        refreshCatalog(gate, credentials.connectionId)
     }
 
     private fun lockCompatibility(reason: String) {
@@ -371,6 +390,33 @@ class DirectWorkVM(
 
     private fun isCurrentGate(lease: DirectWorkWriteLease, connectionId: String): Boolean =
         isCurrentGeneration(lease) && connection?.connectionId == connectionId
+
+    private fun rememberConnectionGeneration(connectionId: String) {
+        connectionIdsByGeneration[client.connectionGeneration] = connectionId
+    }
+
+    private fun connectionIdForGeneration(connectionGeneration: Long): String? =
+        connectionIdsByGeneration[connectionGeneration]
+            ?: connection?.connectionId?.takeIf { connectionGeneration == client.connectionGeneration }
+
+    private suspend fun cacheHistoricalNotification(
+        connectionId: String,
+        threadId: String?,
+        notification: AppServerNotification,
+    ) {
+        val targetThreadId = threadId ?: return
+        if (repository?.threadIdFor(connectionId) != targetThreadId) return
+        val cached = catalogRepository.loadDirectThread(directCacheMachineId(connectionId), targetThreadId) ?: return
+        catalogRepository.cacheDirectThread(AppServerThreadReducer.apply(cached, notification))
+    }
+
+    private suspend fun cacheHistoricalRequest(connectionId: String, request: AppServerRequest) {
+        val threadId = (request.params as? JsonObject)?.string("threadId") ?: return
+        if (repository?.threadIdFor(connectionId) != threadId) return
+        val cached = catalogRepository.loadDirectThread(directCacheMachineId(connectionId), threadId) ?: return
+        val projected = projectServerRequest(cached, request) ?: return
+        catalogRepository.cacheDirectThread(projected.detail)
+    }
 
     private fun activeRepositoryThreadId(): String? {
         val connectionId = connection?.connectionId ?: return repository?.currentThreadId
@@ -417,6 +463,11 @@ class DirectWorkVM(
         requestLease: DirectWorkWriteLease = DirectWorkWriteLease(writeGeneration, client.connectionGeneration),
     ) {
         val projected = projectServerRequest(detail, request) ?: return
+        val currentPending = pendingRequests[projected.id]
+        if (
+            currentPending?.lease?.connectionGeneration == client.connectionGeneration &&
+            requestLease.connectionGeneration != client.connectionGeneration
+        ) return
         pendingRequests[projected.id] = PendingServerRequest(request, requestLease)
         detail = projected.detail
         if (cache) scheduleCache()
@@ -456,7 +507,7 @@ class DirectWorkVM(
                 if (turn != null) {
                     detail = AppServerThreadReducer.apply(
                         detail,
-                        me.rerere.rikkahub.data.work.AppServerNotification(
+                        AppServerNotification(
                             "turn/started",
                             buildJsonObject {
                                 put("threadId", threadId)
@@ -709,21 +760,35 @@ class DirectWorkVM(
             throw AppServerTransportException("连接已变化；新对话已记录，请切回原连接继续")
         }
         detail = createdDetail
-        check(readThreadSnapshot(threadId)) { "新 Thread 无法通过 thread/read 校验" }
+        check(readThreadSnapshot(threadId, lease, connectionAtStart.connectionId)) {
+            "新 Thread 无法通过 thread/read 校验"
+        }
         return threadId
     }
 
-    private suspend fun readThreadSnapshot(threadId: String): Boolean = snapshotReadMutex.withLock {
-        val repo = repository ?: return false
-        val snapshotGeneration = DirectWorkWriteLease(writeGeneration, client.connectionGeneration)
-        val snapshotConnectionId = connection?.connectionId ?: return false
+    private suspend fun readThreadSnapshot(
+        threadId: String,
+        snapshotGeneration: DirectWorkWriteLease,
+        snapshotConnectionId: String,
+    ): Boolean = snapshotReadMutex.withLock {
+        if (!isCurrentGate(snapshotGeneration, snapshotConnectionId)) return@withLock false
+        val repo = repository ?: return@withLock false
         val baseDetail = detail
-        snapshotBuffer.begin(threadId)
+        snapshotBuffer.begin(threadId, snapshotGeneration.connectionGeneration)
         try {
-            val snapshot = client.request("thread/read", buildJsonObject {
-                put("threadId", threadId)
-                put("includeTurns", true)
-            })
+            val snapshot = client.request(
+                "thread/read",
+                buildJsonObject {
+                    put("threadId", threadId)
+                    put("includeTurns", true)
+                },
+                expectedConnectionGeneration = snapshotGeneration.connectionGeneration,
+                beforeAttempt = {
+                    check(isCurrentGate(snapshotGeneration, snapshotConnectionId)) {
+                        "连接状态已变化，取消历史同步"
+                    }
+                },
+            )
             val mapped = AppServerThreadReducer.snapshot(
                 snapshot,
                 repo.id,
@@ -748,7 +813,7 @@ class DirectWorkVM(
                 threadId,
                 fullSnapshot = false,
             )
-            if (visible || connection?.connectionId == snapshotConnectionId) {
+            if (visible) {
                 statusMessage = "历史同步失败：${error.message ?: "未知错误"}"
             }
             false
@@ -771,7 +836,7 @@ class DirectWorkVM(
                 add(projected.id to request)
             }
         }
-        val visible = connection?.connectionId == snapshotConnectionId &&
+        val visible = isCurrentGate(snapshotGeneration, snapshotConnectionId) &&
             (detail.thread?.threadId == threadId || detail.thread == null)
         if (visible) {
             detail = replayedDetail
@@ -784,37 +849,64 @@ class DirectWorkVM(
             cacheJob = null
         }
         if (replayedDetail.thread != null) catalogRepository.cacheDirectThread(replayedDetail)
-        return visible && isCurrentGeneration(snapshotGeneration)
+        return visible
     }
 
-    private suspend fun refreshCatalog(gate: DirectWorkWriteLease) {
-        if (!isCurrentGeneration(gate)) return
-        val repo = repository ?: return
-        val modelCall = viewModelScope.async {
-            runCatching { client.request("model/list", buildJsonObject { put("includeHidden", false) }) }.getOrNull()
+    private suspend fun refreshCatalog(gate: DirectWorkWriteLease, expectedConnectionId: String) = coroutineScope {
+        if (!isCurrentGate(gate, expectedConnectionId)) return@coroutineScope
+        val repo = repository ?: return@coroutineScope
+        val repoPath = repo.path
+        val threadId = detail.thread?.threadId
+        val ensureCurrent = {
+            check(isCurrentGate(gate, expectedConnectionId)) { "连接状态已变化，取消目录刷新" }
         }
-        val skillsCall = viewModelScope.async {
+        val modelCall = async {
             runCatching {
-                client.request("skills/list", buildJsonObject {
-                    put("cwds", buildJsonArray { add(JsonPrimitive(repo.path)) })
-                    put("forceReload", false)
-                })
+                client.request(
+                    "model/list",
+                    buildJsonObject { put("includeHidden", false) },
+                    expectedConnectionGeneration = gate.connectionGeneration,
+                    beforeAttempt = ensureCurrent,
+                )
             }.getOrNull()
         }
-        val pluginsCall = viewModelScope.async {
+        val skillsCall = async {
             runCatching {
-                client.request("plugin/list", buildJsonObject {
-                    put("cwds", buildJsonArray { add(JsonPrimitive(repo.path)) })
-                })
+                client.request(
+                    "skills/list",
+                    buildJsonObject {
+                        put("cwds", buildJsonArray { add(JsonPrimitive(repoPath)) })
+                        put("forceReload", false)
+                    },
+                    expectedConnectionGeneration = gate.connectionGeneration,
+                    beforeAttempt = ensureCurrent,
+                )
             }.getOrNull()
         }
-        val appsCall = viewModelScope.async {
+        val pluginsCall = async {
             runCatching {
-                client.request("app/list", buildJsonObject {
-                    put("limit", 100)
-                    put("forceRefetch", false)
-                    detail.thread?.threadId?.let { put("threadId", it) }
-                })
+                client.request(
+                    "plugin/list",
+                    buildJsonObject {
+                        put("cwds", buildJsonArray { add(JsonPrimitive(repoPath)) })
+                    },
+                    expectedConnectionGeneration = gate.connectionGeneration,
+                    beforeAttempt = ensureCurrent,
+                )
+            }.getOrNull()
+        }
+        val appsCall = async {
+            runCatching {
+                client.request(
+                    "app/list",
+                    buildJsonObject {
+                        put("limit", 100)
+                        put("forceRefetch", false)
+                        threadId?.let { put("threadId", it) }
+                    },
+                    expectedConnectionGeneration = gate.connectionGeneration,
+                    beforeAttempt = ensureCurrent,
+                )
             }.getOrNull()
         }
         val models = AppServerRuntimeMapper.models(modelCall.await())
@@ -837,9 +929,9 @@ class DirectWorkVM(
             }
         val plugins = AppServerRuntimeMapper.plugins(pluginsCall.await())
         val apps = AppServerRuntimeMapper.apps(appsCall.await())
-        if (!isCurrentGeneration(gate)) return
+        if (!isCurrentGate(gate, expectedConnectionId)) return@coroutineScope
         val mergedModels = BundledCodexCatalog.merge(models).withSelectedModelFallback()
-        runtimeCatalog = defaultCatalog(repo.path).copy(
+        runtimeCatalog = defaultCatalog(repoPath).copy(
             models = mergedModels,
             skills = skills,
             plugins = plugins,

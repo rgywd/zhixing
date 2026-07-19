@@ -13,18 +13,21 @@ data class AppServerSnapshotReplay(
 /** Replays events that arrive while an older thread/read snapshot is in flight. */
 class AppServerSnapshotBuffer {
     private var loadingThreadId: String? = null
+    private var loadingConnectionGeneration: Long? = null
     private val notifications = mutableListOf<AppServerNotification>()
     private val serverRequests = mutableListOf<AppServerRequest>()
 
-    fun begin(threadId: String) {
+    fun begin(threadId: String, connectionGeneration: Long = 0) {
         check(loadingThreadId == null) { "A thread snapshot is already in flight" }
         loadingThreadId = threadId
+        loadingConnectionGeneration = connectionGeneration
         notifications.clear()
         serverRequests.clear()
     }
 
     fun offer(notification: AppServerNotification): Boolean {
         val loading = loadingThreadId ?: return false
+        if (notification.connectionGeneration != loadingConnectionGeneration) return false
         val notificationThreadId = (notification.params as? JsonObject)?.string("threadId") ?: return false
         if (notificationThreadId != loading) return false
         notifications += notification
@@ -33,6 +36,7 @@ class AppServerSnapshotBuffer {
 
     fun offer(request: AppServerRequest): Boolean {
         val loading = loadingThreadId ?: return false
+        if (request.connectionGeneration != loadingConnectionGeneration) return false
         val requestThreadId = (request.params as? JsonObject)?.string("threadId") ?: return false
         if (requestThreadId != loading) return false
         serverRequests += request
@@ -57,6 +61,7 @@ class AppServerSnapshotBuffer {
 
     private fun clear() {
         loadingThreadId = null
+        loadingConnectionGeneration = null
         notifications.clear()
         serverRequests.clear()
     }

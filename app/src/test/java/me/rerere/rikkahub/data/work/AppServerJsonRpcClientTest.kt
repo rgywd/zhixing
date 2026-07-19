@@ -3,7 +3,9 @@ package me.rerere.rikkahub.data.work
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -144,6 +146,9 @@ class AppServerJsonRpcClientTest {
         val request = requestResult.await()
         assertEquals("turn/started", notification.method)
         assertEquals("item/commandExecution/requestApproval", request.method)
+        assertTrue(notification.connectionGeneration > 0)
+        assertEquals(client.connectionGeneration, notification.connectionGeneration)
+        assertEquals(notification.connectionGeneration, request.connectionGeneration)
         client.respond(request, buildJsonObject { put("decision", "decline") })
         assertTrue(responseSeen.await(2, TimeUnit.SECONDS))
         client.disconnect()
@@ -218,6 +223,51 @@ class AppServerJsonRpcClientTest {
     }
 
     @Test
+    fun `a busy read retry cannot cross onto a replacement websocket`() = runBlocking {
+        server.enqueue(webSocketResponse { socket, message ->
+            when (message.string("method")) {
+                "initialize" -> socket.send("""{"id":${message["id"]},"result":{}}""")
+                "thread/read" -> socket.send(
+                    """{"id":${message["id"]},"error":{"code":-32001,"message":"busy"}}"""
+                )
+            }
+        })
+        val replacementFrames = Collections.synchronizedList(mutableListOf<JsonObject>())
+        server.enqueue(webSocketResponse { socket, message ->
+            replacementFrames += message
+            if (message.string("method") == "initialize") socket.send("""{"id":${message["id"]},"result":{}}""")
+        })
+        val client = client(backoffPolicy = AppServerBackoffPolicy(scheduleMs = listOf(1, 1), jitterRatio = 0.0))
+        client.connect(endpoint())
+        val oldGeneration = client.connectionGeneration
+        val attempts = AtomicInteger(0)
+        val retryEntered = CountDownLatch(1)
+        val allowRetry = CountDownLatch(1)
+        val read = async(Dispatchers.Default) {
+            runCatching {
+                client.request(
+                    "thread/read",
+                    expectedConnectionGeneration = oldGeneration,
+                    beforeAttempt = {
+                        if (attempts.incrementAndGet() == 2) {
+                            retryEntered.countDown()
+                            check(allowRetry.await(2, TimeUnit.SECONDS))
+                        }
+                    },
+                )
+            }.exceptionOrNull()
+        }
+        assertTrue(retryEntered.await(2, TimeUnit.SECONDS))
+
+        client.connect(endpoint())
+        allowRetry.countDown()
+
+        assertTrue(withTimeout(2_000) { read.await() } is AppServerTransportException)
+        assertFalse(replacementFrames.any { it.string("method") == "thread/read" })
+        client.disconnect()
+    }
+
+    @Test
     fun `rejects plain websocket outside explicit loopback`() = runBlocking {
         val client = client()
 
@@ -229,10 +279,16 @@ class AppServerJsonRpcClientTest {
         assertFalse(client.state.value.phase == AppServerConnectionPhase.READY)
     }
 
-    private fun client(requestTimeoutMs: Long = 2_000) = AppServerJsonRpcClient(
+    private fun client(
+        requestTimeoutMs: Long = 2_000,
+        backoffPolicy: AppServerBackoffPolicy = AppServerBackoffPolicy(
+            scheduleMs = listOf(1, 1),
+            jitterRatio = 0.0,
+        ),
+    ) = AppServerJsonRpcClient(
         client = OkHttpClient(),
         json = json,
-        backoffPolicy = AppServerBackoffPolicy(scheduleMs = listOf(1, 1), jitterRatio = 0.0),
+        backoffPolicy = backoffPolicy,
         requestTimeoutMs = requestTimeoutMs,
         openTimeoutMs = 2_000,
     )

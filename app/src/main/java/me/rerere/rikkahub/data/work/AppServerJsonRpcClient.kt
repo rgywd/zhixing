@@ -229,7 +229,7 @@ class AppServerJsonRpcClient(
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 if (generation.get() != connectionGeneration) return
-                runCatching { handleMessage(json.parseToJsonElement(text).jsonObject) }
+                runCatching { handleMessage(json.parseToJsonElement(text).jsonObject, connectionGeneration) }
                     .onFailure { failConnection(connectionGeneration, AppServerTransportException("Invalid App Server frame", it)) }
             }
 
@@ -251,7 +251,7 @@ class AppServerJsonRpcClient(
             }
         }
 
-    private fun handleMessage(message: JsonObject) {
+    private fun handleMessage(message: JsonObject, connectionGeneration: Long) {
         val id = message["id"]
         val method = (message["method"] as? JsonPrimitive)?.contentOrNull
         if (id != null && (message.containsKey("result") || message.containsKey("error"))) {
@@ -271,13 +271,22 @@ class AppServerJsonRpcClient(
             return
         }
         if (id != null && method != null) {
-            check(serverRequestFlow.tryEmit(AppServerRequest(id, method, message["params"] ?: JsonNull))) {
+            check(serverRequestFlow.tryEmit(AppServerRequest(
+                id,
+                method,
+                message["params"] ?: JsonNull,
+                connectionGeneration,
+            ))) {
                 "App Server request queue is full"
             }
             return
         }
         if (method != null) {
-            check(notificationFlow.tryEmit(AppServerNotification(method, message["params"] ?: JsonNull))) {
+            check(notificationFlow.tryEmit(AppServerNotification(
+                method,
+                message["params"] ?: JsonNull,
+                connectionGeneration,
+            ))) {
                 "App Server notification queue is full"
             }
         }

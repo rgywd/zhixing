@@ -92,6 +92,24 @@ class AppServerSnapshotBufferTest {
         )))
     }
 
+    @Test
+    fun `events from a replacement connection are never consumed by an older snapshot`() {
+        val buffer = AppServerSnapshotBuffer()
+        buffer.begin("thread-1", connectionGeneration = 4)
+
+        assertFalse(buffer.offer(AppServerNotification(
+            method = "turn/started",
+            params = buildJsonObject { put("threadId", "thread-1") },
+            connectionGeneration = 5,
+        )))
+        assertFalse(buffer.offer(AppServerRequest(
+            id = JsonPrimitive(9),
+            method = "item/commandExecution/requestApproval",
+            params = buildJsonObject { put("threadId", "thread-1") },
+            connectionGeneration = 5,
+        )))
+    }
+
     private fun snapshot(text: String) = CodexThreadDetail(
         thread = CodexThread(
             machineId = "direct:connection-1",

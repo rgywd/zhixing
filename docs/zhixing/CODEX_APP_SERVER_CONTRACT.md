@@ -321,8 +321,9 @@ Android 只接受与上传请求 ID、大小和 SHA-256 全部匹配的回执。
 ## 12. 缓存写入规则
 
 - Wire 分块 snapshot 继续使用 revision/hash 原子替换；Direct `thread/read` 没有服务端 revision，必须用
-  本地 read generation：请求在途期间缓冲同 Thread notification 和 server request，snapshot 解析后按到达顺序
-  重放；失败回放也必须重算 active turn、恢复可见审批并立即持久化；
+  固定的 `(connectionId, connection generation, threadId)` 读身份：请求在途期间只缓冲同连接代际、同 Thread
+  的 notification 和 server request，snapshot 解析后按到达顺序重放；失败回放也必须重算 active turn、恢复
+  可见审批并立即持久化；读重试不得跨到替换后的 WebSocket；
 - 不完整 snapshot、解析失败或未完成 generation 保留旧数据，不允许覆盖已经接收的新事件；
   即使断线已推进 connection generation，也要把旧连接在断线前已接收的缓冲事件写入该连接缓存；旧审批保持
   可见但不得跨 generation 回应，等待 App Server 重发后再恢复操作；
@@ -335,7 +336,11 @@ Android 只接受与上传请求 ID、大小和 SHA-256 全部匹配的回执。
 - 所有写 RPC、附件上传和审批响应都携带本地 connection generation 租约；断线或重连会使旧租约失效，
   旧协程不得向新 WebSocket 继续写入；
 - 兼容门在入口固定 connectionId、connection generation 与 gate generation；Supervisor 探针、fixture read、
-  catalog refresh 任一挂起点返回后不匹配就丢弃结果，旧 gate 不得晚领新租约；
+  catalog refresh 任一挂起点返回后不匹配就丢弃结果，旧 gate 不得晚领新租约；model/skill/plugin/app 目录读取
+  也必须携带该 connection generation，并在每次 busy retry 前复核完整 gate；
+- 每个 notification 和 server request 在 WebSocket listener 入队时记录来源 connection generation；事件只允许
+  更新其来源 connectionId 的 Thread/cache，旧连接事件不得污染当前连接，snapshot buffer 也不得按 threadId
+  吸收另一代连接的审批；
 - `thread/start` 一旦收到成功响应，先把服务端 Thread ID 和最小 snapshot 写入其原 connectionId 的本地槽位，
   再检查租约决定是否继续 `thread/read/turn/start`，避免断线制造不可恢复的孤儿 Thread；
 - Chat Provider Conversation 不写入 Codex 表，Codex Thread 不写入 Provider Conversation 表。
@@ -365,6 +370,8 @@ Android 只接受与上传请求 ID、大小和 SHA-256 全部匹配的回执。
 - WebSocket bearer、initialize 顺序、request/response/notification/server request；
 - request ID、超时、断线清理和单 socket 约束；
 - `-32001` 退避与 jitter；
+- busy read/catalog retry 期间替换 WebSocket 时，旧请求不得发送到新连接；
+- 同 threadId、不同 connection generation 的 notification/server request 不得进入旧 snapshot buffer；
 - bundled model 在 Catalog 失败时仍可选择；
 - 服务端拒绝 model/effort/tier/profile 后只回退对应字段；
 - snapshot 与 event replay 得到相同 `UIMessagePart`；

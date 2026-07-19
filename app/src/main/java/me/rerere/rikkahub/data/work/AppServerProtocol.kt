@@ -28,12 +28,14 @@ data class AppServerEndpoint(
 data class AppServerNotification(
     val method: String,
     val params: JsonElement = JsonNull,
+    val connectionGeneration: Long = 0,
 )
 
 data class AppServerRequest(
     val id: JsonElement,
     val method: String,
     val params: JsonElement = JsonNull,
+    val connectionGeneration: Long = 0,
 )
 
 class AppServerRpcException(

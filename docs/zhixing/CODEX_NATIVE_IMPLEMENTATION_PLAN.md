@@ -486,3 +486,7 @@ Set-Location ..
 - 2026-07-20：第二次竞态审查收口：兼容门入口固定 gate identity，所有挂起点返回后拒绝旧结果；
   `thread/start` 成功响应先按原 connectionId 记录 Thread/cache 再检查租约；断线导致 read 失败时仍把断线前
   已接收事件和审批回放到原连接缓存。审批响应成功后才移除 pending，新建失败保留原详情与未发送草稿。
+- 2026-07-20：第三次竞态审查收口：`thread/read` 在等待 snapshot mutex 前固定 connectionId、transport
+  generation 与 threadId，所有读重试和 model/skill/plugin/app 目录读取绑定同一代 WebSocket；listener 为
+  notification/server request 标记来源代际，snapshot buffer 仅接收同代事件，跨开发机迟到事件只回写其原
+  connectionId 缓存，不再进入当前聊天或可操作审批。
