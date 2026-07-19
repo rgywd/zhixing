@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, extname, join, posix, resolve, win32 } from 'node:path'
 import { normalizeThreadDetail } from '../catalog/threadDetail.js'
 import {
   CodexAppServerClient,
@@ -450,7 +450,7 @@ export class WireCodexRuntimeBridge {
       }
     })
     this.uploads.delete(attachmentId)
-    this.authorizedUploads.set(resolve(localPath), this.now() + UPLOAD_TTL_MS)
+    this.authorizedUploads.set(normalizeRuntimePath(localPath), this.now() + UPLOAD_TTL_MS)
     return { attachmentId, received, chunkCount, complete: true, localPath, mime }
   }
 
@@ -472,7 +472,7 @@ export class WireCodexRuntimeBridge {
 
   private async readAttachmentChunk(command: RuntimeCommand): Promise<unknown> {
     const threadId = requireString(command.threadId, 'threadId')
-    const requestedPath = resolve(requireString(command.path, 'path'))
+    const requestedPath = normalizeRuntimePath(requireString(command.path, 'path'))
     const chunkIndex = requireIndex(command.chunkIndex ?? 0, 'chunkIndex')
     const runtime = this.runtimes.get(threadId)
     const client = runtime?.client ?? this.clientFactory()
@@ -899,14 +899,15 @@ export class WireCodexRuntimeBridge {
         if (!/^(https?:\/\/|data:)/u.test(url)) throw new Error('远程图片地址无效')
       } else if (type === 'localImage' || type === 'mention') {
         if (type === 'localImage' && !modalities.includes('image')) throw new Error('所选模型不支持图片输入')
-        const path = resolve(requireString(input.path, 'input.path'))
+        const path = normalizeRuntimePath(requireString(input.path, 'input.path'))
         if (!await this.isAuthorizedUpload(path)) throw new Error('附件路径不是有效的上传回执')
         input.path = path
       } else if (type === 'skill') {
         const name = requireString(input.name, 'input.name')
-        const path = resolve(requireString(input.path, 'input.path'))
+        const path = normalizeRuntimePath(requireString(input.path, 'input.path'))
         const allowed = catalog.skills.map(asRecord).some((skill) =>
-          skill.name === name && typeof skill.path === 'string' && resolve(skill.path) === path && skill.enabled !== false)
+          skill.name === name && typeof skill.path === 'string'
+            && normalizeRuntimePath(skill.path) === path && skill.enabled !== false)
         if (!allowed) throw new Error('Skill 不属于当前工作目录的可用 catalog')
         input.path = path
       } else {
@@ -917,7 +918,7 @@ export class WireCodexRuntimeBridge {
   }
 
   private async isAuthorizedUpload(path: string): Promise<boolean> {
-    const root = resolve(this.uploadDirectory)
+    const root = normalizeRuntimePath(this.uploadDirectory)
     if (!isInside(root, path)) return false
     const expiresAt = this.authorizedUploads.get(path)
     return expiresAt != null && expiresAt >= this.now()
@@ -1155,7 +1156,7 @@ function collectLocalImagePaths(value: unknown, output = new Set<string>(), dept
   }
   if (typeof value !== 'object') return output
   const record = value as Record<string, unknown>
-  if (record.type === 'localImage' && typeof record.path === 'string') output.add(resolve(record.path))
+  if (record.type === 'localImage' && typeof record.path === 'string') output.add(normalizeRuntimePath(record.path))
   Object.values(record).forEach((entry) => collectLocalImagePaths(entry, output, depth + 1))
   return output
 }
@@ -1199,8 +1200,24 @@ function requireDefined<T>(value: T | undefined, message: string): T {
 }
 
 function isInside(root: string, candidate: string): boolean {
-  const path = relative(root, candidate)
-  return path !== '' && !path.startsWith('..') && !isAbsolute(path)
+  const rootWindows = isWindowsRuntimePath(root)
+  const candidateWindows = isWindowsRuntimePath(candidate)
+  const rootPosix = !rootWindows && posix.isAbsolute(root)
+  const candidatePosix = !candidateWindows && posix.isAbsolute(candidate)
+  if (rootWindows !== candidateWindows || rootPosix !== candidatePosix) return false
+  const api = rootWindows ? win32 : posix
+  const path = api.relative(root, candidate)
+  return path !== '' && !path.startsWith('..') && !api.isAbsolute(path)
+}
+
+export function normalizeRuntimePath(value: string): string {
+  if (isWindowsRuntimePath(value)) return win32.resolve(value)
+  if (posix.isAbsolute(value)) return posix.resolve(value)
+  return resolve(value)
+}
+
+function isWindowsRuntimePath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || /^\\\\/.test(value)
 }
 
 function hasInput(command: RuntimeCommand): boolean {

@@ -9,12 +9,20 @@ import {
   safeAttachmentId,
   safeFileName,
   safeMime,
+  normalizeRuntimePath,
   WireCodexRuntimeBridge,
   type RuntimeCodexClient,
   type RuntimeRelay,
 } from './runtimeBridge.js'
 
 describe('WireCodexRuntimeBridge', () => {
+  it('normalizes remote Windows and POSIX paths without applying the host path flavor', () => {
+    expect(normalizeRuntimePath('C:\\skills\\review\\..\\review\\SKILL.md'))
+      .toBe('C:\\skills\\review\\SKILL.md')
+    expect(normalizeRuntimePath('/opt/skills/review/../review/SKILL.md'))
+      .toBe('/opt/skills/review/SKILL.md')
+  })
+
   it('executes the shared Android turn-start contract fixture end to end', async () => {
     const body = JSON.parse(await readFile(
       new URL('../../../docs/zhixing/fixtures/runtime-command-turn-start.json', import.meta.url),

@@ -128,7 +128,7 @@
 
 ## 2026-07-19 Codex 原生会话验证记录
 
-- Agent：17 个测试文件、69 项全部通过，TypeScript typecheck 与 build 通过。
+- Agent：17 个测试文件、70 项全部通过，TypeScript typecheck 与 build 通过。
 - Relay：3 个测试文件、7 项全部通过，TypeScript typecheck 与 build 通过。
 - Android：48 个测试类、223 项全部通过（0 failure、0 skipped），Debug APK 构建通过。
 - Room：保留已发布 30 号 schema，新增 `30 -> 31` AutoMigration；设备迁移测试 1/1 通过，

@@ -254,6 +254,9 @@ npm run build
   保留原始结构化 plan、explanation、status 和文本；多 Turn 与历史/实时等价测试改为断言 Tool 投影。
 - 2026-07-19：第三轮全新独立审查基于 HEAD `6b01e4343` 逐项复核第 15 节，13 个验收面全部
   PASS，阻断项为零；独立重跑 Agent 69、Relay 7、Android 223 项并复核设备迁移 1/1 证据。
+- 2026-07-19：PR #64 首轮 CI 暴露 Linux runner 将 Windows Skill 路径当成相对路径；路径归一改为
+  显式选择 Win32/POSIX flavor，不再依赖 Agent 所在主机。新增跨平台路径测试后 Agent 70/70、
+  typecheck/build 在本地通过，等待 CI 复验。
 
 ## 12. 延期项
 
