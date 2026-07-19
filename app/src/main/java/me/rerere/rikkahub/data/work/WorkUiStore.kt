@@ -153,7 +153,14 @@ class FileWorkUiStore private constructor(
     override suspend fun clearCurrentThread(repositoryId: String) = update { current ->
         current.copy(
             repositories = current.repositories.map { repository ->
-                if (repository.id == repositoryId) repository.copy(currentThreadId = null, draft = "") else repository
+                if (repository.id != repositoryId) return@map repository
+                repository.copy(
+                    currentThreadId = null,
+                    threadIdsByConnection = repository.connectionId
+                        ?.let(repository.threadIdsByConnection::minus)
+                        ?: repository.threadIdsByConnection,
+                    draft = "",
+                )
             },
         )
     }
@@ -183,15 +190,16 @@ class FileWorkUiStore private constructor(
         current.copy(
             repositories = current.repositories.map { repository ->
                 if (repository.id != repositoryId) return@map repository
+                val activatesConnection = repository.connectionId == null || repository.connectionId == connectionId
                 repository.copy(
-                    connectionId = connectionId,
+                    connectionId = repository.connectionId ?: connectionId,
                     threadIdsByConnection = if (threadId == null) {
                         repository.threadIdsByConnection - connectionId
                     } else {
                         repository.threadIdsByConnection + (connectionId to threadId)
                     },
-                    currentThreadId = threadId,
-                    draft = if (threadId == null) "" else repository.draft,
+                    currentThreadId = if (activatesConnection) threadId else repository.currentThreadId,
+                    draft = if (activatesConnection && threadId == null) "" else repository.draft,
                 )
             },
         )

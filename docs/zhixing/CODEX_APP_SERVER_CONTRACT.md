@@ -324,12 +324,20 @@ Android 只接受与上传请求 ID、大小和 SHA-256 全部匹配的回执。
   本地 read generation：请求在途期间缓冲同 Thread notification 和 server request，snapshot 解析后按到达顺序
   重放；失败回放也必须重算 active turn、恢复可见审批并立即持久化；
 - 不完整 snapshot、解析失败或未完成 generation 保留旧数据，不允许覆盖已经接收的新事件；
+  即使断线已推进 connection generation，也要把旧连接在断线前已接收的缓冲事件写入该连接缓存；旧审批保持
+  可见但不得跨 generation 回应，等待 App Server 重发后再恢复操作；
 - runtime Item 以稳定 itemId upsert；
 - Thread、Turn、Item raw 只保存在 App 私有 Room，不写普通日志；
 - 草稿按 `(connectionId, repositoryId, threadId?)` 保存；
 - 当前 Thread 指针按 `(repositoryId, connectionId)` 隔离，并在 `thread/start` 成功后更新；
+- 切换 connection 时必须先恢复该连接的缓存 Thread；若无缓存则清空内存详情，禁止把上一连接的 Thread ID
+  发送给新连接；
 - 所有写 RPC、附件上传和审批响应都携带本地 connection generation 租约；断线或重连会使旧租约失效，
   旧协程不得向新 WebSocket 继续写入；
+- 兼容门在入口固定 connectionId、connection generation 与 gate generation；Supervisor 探针、fixture read、
+  catalog refresh 任一挂起点返回后不匹配就丢弃结果，旧 gate 不得晚领新租约；
+- `thread/start` 一旦收到成功响应，先把服务端 Thread ID 和最小 snapshot 写入其原 connectionId 的本地槽位，
+  再检查租约决定是否继续 `thread/read/turn/start`，避免断线制造不可恢复的孤儿 Thread；
 - Chat Provider Conversation 不写入 Codex 表，Codex Thread 不写入 Provider Conversation 表。
 
 ## 13. 兼容门

@@ -91,11 +91,20 @@ class WorkUiStateTest {
         store.updateDirectThread(repository.id, "connection-a", "thread-a")
         store.bindRepositoryConnection(repository.id, "connection-b")
         assertNull(store.state.value.activeRepository?.currentThreadId)
+        // A delayed thread/start response from A may still be recorded, but must not
+        // switch the repository away from the already active B connection.
+        store.updateDirectThread(repository.id, "connection-a", "thread-a-late")
+        assertEquals("connection-b", store.state.value.activeRepository?.connectionId)
+        assertNull(store.state.value.activeRepository?.currentThreadId)
+        store.updateDirectThread(repository.id, "connection-b", "thread-b")
+        store.clearCurrentThread(repository.id)
+        assertEquals("thread-a-late", store.state.value.activeRepository?.threadIdFor("connection-a"))
+        assertNull(store.state.value.activeRepository?.threadIdFor("connection-b"))
         store.updateDirectThread(repository.id, "connection-b", "thread-b")
 
         val restored = FileWorkUiStore(file, json).state.value.activeRepository
         assertEquals(3, FileWorkUiStore(file, json).state.value.schema)
-        assertEquals("thread-a", restored?.threadIdFor("connection-a"))
+        assertEquals("thread-a-late", restored?.threadIdFor("connection-a"))
         assertEquals("thread-b", restored?.threadIdFor("connection-b"))
         assertEquals("connection-b", restored?.connectionId)
     }

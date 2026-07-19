@@ -65,6 +65,7 @@ WorkRepository
   cwd                开发机绝对路径
   connectionId       所属开发机连接
   currentThreadId    当前 Thread，可空
+  threadIdsByConnection  连接切换/延迟响应安全槽；当前指针仍由 connectionId 决定
   model              该仓库上次模型
   effortByModel      每模型上次思考深度
   permissionProfile  上次权限

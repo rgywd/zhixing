@@ -11,6 +11,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.random.Random
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -36,6 +38,7 @@ import me.rerere.rikkahub.data.work.AppServerRequest
 import me.rerere.rikkahub.data.work.AppServerRuntimeMapper
 import me.rerere.rikkahub.data.work.AppServerSnapshotBuffer
 import me.rerere.rikkahub.data.work.AppServerThreadReducer
+import me.rerere.rikkahub.data.work.AppServerTransportException
 import me.rerere.rikkahub.data.work.BundledCodexCatalog
 import me.rerere.rikkahub.data.work.SupervisorAttachmentClient
 import me.rerere.rikkahub.data.work.WorkConnectionCredentials
@@ -104,6 +107,7 @@ class DirectWorkVM(
     private val reconnectPolicy = AppServerBackoffPolicy()
     private val pendingRequests = mutableMapOf<String, PendingServerRequest>()
     private val snapshotBuffer = AppServerSnapshotBuffer()
+    private val snapshotReadMutex = Mutex()
     private var writeGeneration = 0L
 
     val selectedModel get() = runtimeCatalog.models.firstOrNull { it.id == selectedModelId }
@@ -226,8 +230,10 @@ class DirectWorkVM(
                 statusMessage = "请先在设置的 Work 卡片中配置开发机连接"
                 return@launch
             }
+            val connectionChanged = connection?.connectionId != credentials.connectionId
             repository?.let { workUiStore.bindRepositoryConnection(it.id, credentials.connectionId) }
             connection = credentials
+            if (connectionChanged) restoreConnectionThread(credentials)
             if (client.state.value.phase == AppServerConnectionPhase.READY &&
                 connectedConnectionId == credentials.connectionId
             ) {
@@ -274,26 +280,58 @@ class DirectWorkVM(
         stored.connections.firstOrNull { it.connectionId == stored.activeConnectionId }
     }
 
+    private suspend fun restoreConnectionThread(credentials: WorkConnectionCredentials) {
+        val repo = workUiStore.state.value.repositories.firstOrNull { it.id == repositoryId }
+            ?: return
+        val threadId = repo.threadIdFor(credentials.connectionId)
+        val cached = threadId?.let {
+            catalogRepository.loadDirectThread(directCacheMachineId(credentials.connectionId), it)
+        }
+        detail = cached?.copy(cwd = cached.cwd ?: repo.path, approvals = emptyList())
+            ?: CodexThreadDetail(null, emptyList())
+        currentTurnId = AppServerThreadReducer.activeTurnId(detail)
+        pendingRequests.clear()
+        runtimeSettings = runtimeSettings.copy(
+            usedTokens = null,
+            contextWindow = null,
+            updatedAt = System.currentTimeMillis(),
+        )
+        statusMessage = if (cached != null) {
+            "已切换开发机并载入本机历史，正在连接 Codex…"
+        } else {
+            "已切换开发机，正在连接 Codex…"
+        }
+    }
+
     private suspend fun finishCompatibilityGate(credentials: WorkConnectionCredentials) {
         lockCompatibility("正在核对 Codex 兼容性")
+        val gate = DirectWorkWriteLease(writeGeneration, client.connectionGeneration)
         workUiStore.bindRepositoryConnection(repositoryId, credentials.connectionId)
+        if (!isCurrentGate(gate, credentials.connectionId)) return
         val threadId = workUiStore.state.value.repositories
             .firstOrNull { it.id == repositoryId }
             ?.threadIdFor(credentials.connectionId)
         val fixturePassed = threadId?.let { readThreadSnapshot(it) } ?: true
+        if (!isCurrentGate(gate, credentials.connectionId)) return
         if (!fixturePassed) {
             compatibility = AppServerCompatibility(
                 AppServerCompatibilityLevel.READ_ONLY,
                 "当前 Thread 无法通过 thread/read 兼容性检查",
             )
             statusMessage = compatibility.reason
-            refreshCatalog()
+            refreshCatalog(gate)
             return
         }
-        refreshCompatibility(credentials)
+        val evaluatedCompatibility = evaluateCompatibility(credentials)
+        if (!isCurrentGate(gate, credentials.connectionId)) return
+        compatibility = evaluatedCompatibility
+        compatibility.reason?.let { reason ->
+            if (compatibility.level != AppServerCompatibilityLevel.FULL) statusMessage = reason
+        }
         if (writable && threadId != null) {
             runCatching {
-                val lease = requireNotNull(acquireWriteLease())
+                check(isCurrentGate(gate, credentials.connectionId)) { "连接状态已变化，请重新操作" }
+                val lease = requireNotNull(acquireWriteLease()).also { check(it == gate) }
                 requireWriteLease(lease)
                 client.request(
                     "thread/resume",
@@ -301,6 +339,7 @@ class DirectWorkVM(
                     expectedConnectionGeneration = lease.connectionGeneration,
                 ) { requireWriteLease(lease) }
             }.onFailure { error ->
+                if (!isCurrentGate(gate, credentials.connectionId)) return@onFailure
                 compatibility = AppServerCompatibility(
                     AppServerCompatibilityLevel.READ_ONLY,
                     "当前 Thread 恢复失败：${error.message ?: "未知错误"}",
@@ -308,14 +347,12 @@ class DirectWorkVM(
                 statusMessage = compatibility.reason
             }
         }
-        refreshCatalog()
+        refreshCatalog(gate)
     }
 
     private fun lockCompatibility(reason: String) {
         writeGeneration += 1
         compatibility = AppServerCompatibility(AppServerCompatibilityLevel.READ_ONLY, reason)
-        pendingRequests.clear()
-        if (detail.approvals.isNotEmpty()) detail = detail.copy(approvals = emptyList())
     }
 
     private fun acquireWriteLease(): DirectWorkWriteLease? = writeGeneration
@@ -332,31 +369,35 @@ class DirectWorkVM(
         lease.compatibilityGeneration == writeGeneration &&
             lease.connectionGeneration == client.connectionGeneration
 
+    private fun isCurrentGate(lease: DirectWorkWriteLease, connectionId: String): Boolean =
+        isCurrentGeneration(lease) && connection?.connectionId == connectionId
+
     private fun activeRepositoryThreadId(): String? {
         val connectionId = connection?.connectionId ?: return repository?.currentThreadId
         return repository?.threadIdFor(connectionId)
     }
 
-    private fun applyServerRequest(request: AppServerRequest, cache: Boolean = true) {
+    private fun projectServerRequest(
+        source: CodexThreadDetail,
+        request: AppServerRequest,
+    ): ProjectedServerRequest? {
         val params = request.params as? JsonObject ?: JsonObject(emptyMap())
-        if (params.string("threadId") != detail.thread?.threadId) return
+        if (params.string("threadId") != source.thread?.threadId) return null
         val id = request.id.toString().trim('"')
         val requestedItemId = params.string("itemId")
         val displayParams = if (
             request.method == "item/tool/requestUserInput" &&
-            !AppServerThreadReducer.containsItem(detail, requestedItemId)
+            !AppServerThreadReducer.containsItem(source, requestedItemId)
         ) buildJsonObject {
             params.forEach { (key, value) -> put(key, value) }
             put("itemId", "request-$id")
         } else params
         val displayRequest = request.copy(params = displayParams)
-        pendingRequests[id] = PendingServerRequest(
-            request,
-            DirectWorkWriteLease(writeGeneration, client.connectionGeneration),
-        )
-        detail = AppServerThreadReducer.applyServerRequest(detail, displayRequest)
-        detail = detail.copy(
-            approvals = detail.approvals + CodexApproval(
+        val reduced = AppServerThreadReducer.applyServerRequest(source, displayRequest)
+        return ProjectedServerRequest(
+            id = id,
+            detail = reduced.copy(
+                approvals = reduced.approvals.filterNot { it.approvalId == id } + CodexApproval(
                 approvalId = id,
                 kind = if (request.method == "item/tool/requestUserInput") "user_input" else "approval",
                 summary = params.string("reason")
@@ -365,8 +406,19 @@ class DirectWorkVM(
                     ?: "Codex 请求你的确认",
                 createdAt = System.currentTimeMillis(),
                 payload = displayParams,
-            )
+                )
+            ),
         )
+    }
+
+    private fun applyServerRequest(
+        request: AppServerRequest,
+        cache: Boolean = true,
+        requestLease: DirectWorkWriteLease = DirectWorkWriteLease(writeGeneration, client.connectionGeneration),
+    ) {
+        val projected = projectServerRequest(detail, request) ?: return
+        pendingRequests[projected.id] = PendingServerRequest(request, requestLease)
+        detail = projected.detail
         if (cache) scheduleCache()
     }
 
@@ -444,7 +496,7 @@ class DirectWorkVM(
     }
 
     fun newThread() {
-        val repo = repository ?: return
+        if (repository == null) return
         if (isRunning) {
             statusMessage = "请先停止当前任务，再新建 Work 对话"
             return
@@ -454,24 +506,22 @@ class DirectWorkVM(
             return
         }
         val lease = acquireWriteLease() ?: return
-        detail = CodexThreadDetail(null, emptyList())
-        currentTurnId = null
-        runtimeSettings = runtimeSettings.copy(
-            usedTokens = null,
-            contextWindow = null,
-            updatedAt = System.currentTimeMillis(),
-        )
-        inputState.clearInput()
-        persistDraft("")
         sending = true
         statusMessage = "正在新建 Work 对话…"
         viewModelScope.launch {
             runCatching {
                 requireWriteLease(lease)
-                connection?.let { workUiStore.updateDirectThread(repo.id, it.connectionId, null) }
                 startThread(lease)
             }
                 .onSuccess {
+                    currentTurnId = null
+                    runtimeSettings = runtimeSettings.copy(
+                        usedTokens = null,
+                        contextWindow = null,
+                        updatedAt = System.currentTimeMillis(),
+                    )
+                    inputState.clearInput()
+                    persistDraft("")
                     acceptedPreferences = currentPreferences()
                     statusMessage = null
                 }
@@ -557,65 +607,84 @@ class DirectWorkVM(
     fun resolveApproval(approvalId: String, decision: String) {
         val lease = acquireWriteLease() ?: return
         val pending = pendingRequests[approvalId] ?: return
-        if (pending.lease != lease) return
-        requireWriteLease(lease)
-        pendingRequests.remove(approvalId)
-        client.respond(
-            pending.request,
-            buildJsonObject { put("decision", decision) },
-            expectedConnectionGeneration = lease.connectionGeneration,
-        )
-        detail = detail.copy(approvals = detail.approvals.filterNot { it.approvalId == approvalId })
-        scheduleCache()
+        if (pending.lease != lease) {
+            statusMessage = "连接已变化，等待 Codex 重新发出确认请求"
+            return
+        }
+        runCatching {
+            requireWriteLease(lease)
+            client.respond(
+                pending.request,
+                buildJsonObject { put("decision", decision) },
+                expectedConnectionGeneration = lease.connectionGeneration,
+            )
+        }.onSuccess {
+            pendingRequests.remove(approvalId)
+            detail = detail.copy(approvals = detail.approvals.filterNot { it.approvalId == approvalId })
+            scheduleCache()
+        }.onFailure { statusMessage = it.message ?: "无法提交确认结果" }
     }
 
     fun resolveInteraction(approvalId: String, answer: String) {
         val lease = acquireWriteLease() ?: return
         val pending = pendingRequests[approvalId] ?: return
-        if (pending.lease != lease) return
+        if (pending.lease != lease) {
+            statusMessage = "连接已变化，等待 Codex 重新发出问题"
+            return
+        }
         val incoming = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(answer).jsonObject }
             .getOrNull()
         val incomingAnswers = incoming?.get("answers") as? JsonObject ?: JsonObject(emptyMap())
-        requireWriteLease(lease)
-        pendingRequests.remove(approvalId)
-        client.respond(pending.request, buildJsonObject {
-            put("answers", buildJsonObject {
-                incomingAnswers.forEach { (questionId, value) ->
-                    val values = when (value) {
-                        is JsonArray -> value.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-                        is JsonPrimitive -> value.contentOrNull?.let(::listOf).orEmpty()
-                        is JsonObject -> (value["answers"] as? JsonArray)
-                            ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-                            .orEmpty()
+        runCatching {
+            requireWriteLease(lease)
+            client.respond(pending.request, buildJsonObject {
+                put("answers", buildJsonObject {
+                    incomingAnswers.forEach { (questionId, value) ->
+                        val values = when (value) {
+                            is JsonArray -> value.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                            is JsonPrimitive -> value.contentOrNull?.let(::listOf).orEmpty()
+                            is JsonObject -> (value["answers"] as? JsonArray)
+                                ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                                .orEmpty()
+                        }
+                        put(questionId, buildJsonObject {
+                            put("answers", buildJsonArray { values.forEach { add(JsonPrimitive(it)) } })
+                        })
                     }
-                    put(questionId, buildJsonObject {
-                        put("answers", buildJsonArray { values.forEach { add(JsonPrimitive(it)) } })
-                    })
-                }
-            })
-        }, expectedConnectionGeneration = lease.connectionGeneration)
-        detail = detail.copy(approvals = detail.approvals.filterNot { it.approvalId == approvalId })
-        scheduleCache()
+                })
+            }, expectedConnectionGeneration = lease.connectionGeneration)
+        }.onSuccess {
+            pendingRequests.remove(approvalId)
+            detail = detail.copy(approvals = detail.approvals.filterNot { it.approvalId == approvalId })
+            scheduleCache()
+        }.onFailure { statusMessage = it.message ?: "无法提交回答" }
     }
 
     fun cancelInteraction(approvalId: String) {
         val lease = acquireWriteLease() ?: return
         val pending = pendingRequests[approvalId] ?: return
-        if (pending.lease != lease) return
-        requireWriteLease(lease)
-        pendingRequests.remove(approvalId)
-        client.respondError(
-            pending.request,
-            -32800,
-            "User cancelled",
-            expectedConnectionGeneration = lease.connectionGeneration,
-        )
-        detail = detail.copy(approvals = detail.approvals.filterNot { it.approvalId == approvalId })
-        scheduleCache()
+        if (pending.lease != lease) {
+            statusMessage = "连接已变化，等待 Codex 重新发出问题"
+            return
+        }
+        runCatching {
+            requireWriteLease(lease)
+            client.respondError(
+                pending.request,
+                -32800,
+                "User cancelled",
+                expectedConnectionGeneration = lease.connectionGeneration,
+            )
+        }.onSuccess {
+            pendingRequests.remove(approvalId)
+            detail = detail.copy(approvals = detail.approvals.filterNot { it.approvalId == approvalId })
+            scheduleCache()
+        }.onFailure { statusMessage = it.message ?: "无法取消问题" }
     }
 
     private suspend fun startThread(lease: DirectWorkWriteLease): String {
         val repo = requireNotNull(repository)
+        val connectionAtStart = requireNotNull(connection)
         requireWriteLease(lease)
         val result = client.request(
             "thread/start",
@@ -628,46 +697,98 @@ class DirectWorkVM(
             },
             expectedConnectionGeneration = lease.connectionGeneration,
         ) { requireWriteLease(lease) }
-        detail = AppServerThreadReducer.snapshot(result, repo.id, cacheMachineId())
-        val threadId = requireNotNull(detail.thread?.threadId)
-        requireWriteLease(lease)
-        workUiStore.updateDirectThread(repo.id, requireNotNull(connection).connectionId, threadId)
-        persistCacheNow()
+        val createdDetail = AppServerThreadReducer.snapshot(
+            result,
+            repo.id,
+            directCacheMachineId(connectionAtStart.connectionId),
+        )
+        val threadId = requireNotNull(createdDetail.thread?.threadId)
+        workUiStore.updateDirectThread(repo.id, connectionAtStart.connectionId, threadId)
+        catalogRepository.cacheDirectThread(createdDetail)
+        if (!directWorkLeaseValid(writable, writeGeneration, client.connectionGeneration, lease)) {
+            throw AppServerTransportException("连接已变化；新对话已记录，请切回原连接继续")
+        }
+        detail = createdDetail
         check(readThreadSnapshot(threadId)) { "新 Thread 无法通过 thread/read 校验" }
         return threadId
     }
 
-    private suspend fun readThreadSnapshot(threadId: String): Boolean {
+    private suspend fun readThreadSnapshot(threadId: String): Boolean = snapshotReadMutex.withLock {
         val repo = repository ?: return false
         val snapshotGeneration = DirectWorkWriteLease(writeGeneration, client.connectionGeneration)
+        val snapshotConnectionId = connection?.connectionId ?: return false
+        val baseDetail = detail
         snapshotBuffer.begin(threadId)
-        return try {
+        try {
             val snapshot = client.request("thread/read", buildJsonObject {
                 put("threadId", threadId)
                 put("includeTurns", true)
             })
-            val mapped = AppServerThreadReducer.snapshot(snapshot, repo.id, cacheMachineId())
+            val mapped = AppServerThreadReducer.snapshot(
+                snapshot,
+                repo.id,
+                directCacheMachineId(snapshotConnectionId),
+            )
             val replay = snapshotBuffer.complete(mapped)
-            if (!isCurrentGeneration(snapshotGeneration)) return false
-            detail = replay.detail
-            replay.serverRequests.forEach { applyServerRequest(it, cache = false) }
-            currentTurnId = AppServerThreadReducer.activeTurnId(detail)
-            persistCacheNow()
-            true
+            commitSnapshotReplay(
+                replay.detail,
+                replay.serverRequests,
+                snapshotGeneration,
+                snapshotConnectionId,
+                threadId,
+                fullSnapshot = true,
+            )
         } catch (error: Throwable) {
-            val replay = snapshotBuffer.abort(detail)
-            if (isCurrentGeneration(snapshotGeneration)) {
-                detail = replay.detail
-                replay.serverRequests.forEach { applyServerRequest(it, cache = false) }
-                currentTurnId = AppServerThreadReducer.activeTurnId(detail)
-                persistCacheNow()
+            val replay = snapshotBuffer.abort(baseDetail)
+            val visible = commitSnapshotReplay(
+                replay.detail,
+                replay.serverRequests,
+                snapshotGeneration,
+                snapshotConnectionId,
+                threadId,
+                fullSnapshot = false,
+            )
+            if (visible || connection?.connectionId == snapshotConnectionId) {
                 statusMessage = "历史同步失败：${error.message ?: "未知错误"}"
             }
             false
         }
     }
 
-    private suspend fun refreshCatalog() {
+    private suspend fun commitSnapshotReplay(
+        source: CodexThreadDetail,
+        serverRequests: List<AppServerRequest>,
+        snapshotGeneration: DirectWorkWriteLease,
+        snapshotConnectionId: String,
+        threadId: String,
+        fullSnapshot: Boolean,
+    ): Boolean {
+        var replayedDetail = source
+        val replayedRequests = buildList {
+            serverRequests.forEach { request ->
+                val projected = projectServerRequest(replayedDetail, request) ?: return@forEach
+                replayedDetail = projected.detail
+                add(projected.id to request)
+            }
+        }
+        val visible = connection?.connectionId == snapshotConnectionId &&
+            (detail.thread?.threadId == threadId || detail.thread == null)
+        if (visible) {
+            detail = replayedDetail
+            if (fullSnapshot) pendingRequests.clear()
+            replayedRequests.forEach { (id, request) ->
+                pendingRequests[id] = PendingServerRequest(request, snapshotGeneration)
+            }
+            currentTurnId = AppServerThreadReducer.activeTurnId(detail)
+            cacheJob?.cancel()
+            cacheJob = null
+        }
+        if (replayedDetail.thread != null) catalogRepository.cacheDirectThread(replayedDetail)
+        return visible && isCurrentGeneration(snapshotGeneration)
+    }
+
+    private suspend fun refreshCatalog(gate: DirectWorkWriteLease) {
+        if (!isCurrentGeneration(gate)) return
         val repo = repository ?: return
         val modelCall = viewModelScope.async {
             runCatching { client.request("model/list", buildJsonObject { put("includeHidden", false) }) }.getOrNull()
@@ -716,6 +837,7 @@ class DirectWorkVM(
             }
         val plugins = AppServerRuntimeMapper.plugins(pluginsCall.await())
         val apps = AppServerRuntimeMapper.apps(appsCall.await())
+        if (!isCurrentGeneration(gate)) return
         val mergedModels = BundledCodexCatalog.merge(models).withSelectedModelFallback()
         runtimeCatalog = defaultCatalog(repo.path).copy(
             models = mergedModels,
@@ -726,19 +848,15 @@ class DirectWorkVM(
         )
     }
 
-    private suspend fun refreshCompatibility(credentials: WorkConnectionCredentials) {
+    private suspend fun evaluateCompatibility(credentials: WorkConnectionCredentials): AppServerCompatibility {
         val direct = AppServerCompatibilityGate.evaluateInitialize(client.state.value.serverInfo)
         if (credentials.supervisorUrl.isNullOrBlank() || credentials.supervisorToken.isNullOrBlank()) {
-            compatibility = direct
-            statusMessage = compatibility.reason
-            return
+            return direct
         }
         if (direct.level != AppServerCompatibilityLevel.TEXT_ONLY) {
-            compatibility = direct
-            statusMessage = compatibility.reason
-            return
+            return direct
         }
-        compatibility = runCatching {
+        return runCatching {
             AppServerCompatibilityGate.evaluateWithSupervisor(
                 direct,
                 attachmentClient.runtimeFacts(credentials),
@@ -747,9 +865,6 @@ class DirectWorkVM(
             if (direct.level == AppServerCompatibilityLevel.TEXT_ONLY) direct.copy(
                 reason = "${direct.reason}；Supervisor 探针失败：${error.message ?: "未知错误"}",
             ) else direct
-        }
-        compatibility.reason?.let { reason ->
-            if (compatibility.level != AppServerCompatibilityLevel.FULL) statusMessage = reason
         }
     }
 
@@ -920,6 +1035,11 @@ class DirectWorkVM(
 private data class PendingServerRequest(
     val request: AppServerRequest,
     val lease: DirectWorkWriteLease,
+)
+
+private data class ProjectedServerRequest(
+    val id: String,
+    val detail: CodexThreadDetail,
 )
 
 internal data class DirectWorkWriteLease(

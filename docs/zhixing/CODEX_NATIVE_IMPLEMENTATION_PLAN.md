@@ -481,3 +481,8 @@ Set-Location ..
 - 2026-07-20：独立审查后的竞态收口：每次断线/重连递增 connection generation，所有写 RPC、附件上传和
   审批响应必须持有同代写租约；thread/read 同时缓冲 notification 与 server request，成功或失败回放后重算
   active turn 并立即落盘；仓库当前 Thread 按 connectionId 分槽保存，切换开发机不复用另一连接的 Thread ID。
+- 2026-07-20：补齐连接切换内存隔离：切换到另一开发机时只恢复该 connectionId 的 Direct cache；无缓存则
+  清空当前 detail，确保后续发送只能在新连接上 `thread/start` 或恢复该连接自己的 Thread。
+- 2026-07-20：第二次竞态审查收口：兼容门入口固定 gate identity，所有挂起点返回后拒绝旧结果；
+  `thread/start` 成功响应先按原 connectionId 记录 Thread/cache 再检查租约；断线导致 read 失败时仍把断线前
+  已接收事件和审批回放到原连接缓存。审批响应成功后才移除 pending，新建失败保留原详情与未发送草稿。
