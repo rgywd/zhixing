@@ -121,6 +121,7 @@ object CodexMessageProjector {
         "imageGeneration" -> listOf(toolPart("image_generation", toolInput()))
         "contextCompaction" -> listOf(UIMessagePart.Reasoning(text ?: "上下文已压缩"))
         "enteredReviewMode", "exitedReviewMode" -> textPart()
+        "opaqueNotification" -> emptyList()
         else -> textPart().ifEmpty {
             listOf(UIMessagePart.Tool(itemId, rawType.ifBlank { "codex" }, raw.toString()))
         }

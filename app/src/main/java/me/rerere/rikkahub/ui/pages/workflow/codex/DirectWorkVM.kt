@@ -101,11 +101,15 @@ class DirectWorkVM(
 
     val selectedModel get() = runtimeCatalog.models.firstOrNull { it.id == selectedModelId }
     val isRunning get() = detail.thread?.runtimeState?.name == "RUNNING"
+    val inputRestriction: String?
+        get() = directWorkInputRestriction(
+            contents = inputState.getContents(),
+            modelInputModalities = selectedModel?.inputModalities.orEmpty(),
+            compatibilityLevel = compatibility.level,
+        )
     val canSend get() = !sending && connected && repository != null && selectedModelId != null &&
         compatibility.level in setOf(AppServerCompatibilityLevel.FULL, AppServerCompatibilityLevel.TEXT_ONLY) &&
-        (compatibility.level == AppServerCompatibilityLevel.FULL || inputState.getContents().none {
-            it is UIMessagePart.Image || it is UIMessagePart.Document
-        }) && (!isRunning || currentTurnId != null) && !inputState.isEmpty()
+        inputRestriction == null && (!isRunning || currentTurnId != null) && !inputState.isEmpty()
 
     init {
         repository = workUiStore.state.value.repositories.firstOrNull { it.id == repositoryId }
@@ -210,9 +214,14 @@ class DirectWorkVM(
             if (client.state.value.phase == AppServerConnectionPhase.READY) {
                 connected = true
                 statusMessage = null
-                refreshCompatibility(credentials)
+                val fixturePassed = repository?.currentThreadId?.let { resume(it) } ?: true
+                if (fixturePassed) refreshCompatibility(credentials) else {
+                    compatibility = AppServerCompatibility(
+                        AppServerCompatibilityLevel.READ_ONLY,
+                        "当前 Thread 无法通过 thread/read 兼容性检查",
+                    )
+                }
                 refreshCatalog()
-                repository?.currentThreadId?.let { resume(it) }
                 return@launch
             }
             statusMessage = "正在连接 Codex…"
@@ -227,9 +236,14 @@ class DirectWorkVM(
                 )
                 connected = true
                 statusMessage = null
-                refreshCompatibility(credentials)
+                val fixturePassed = repository?.currentThreadId?.let { resume(it) } ?: true
+                if (fixturePassed) refreshCompatibility(credentials) else {
+                    compatibility = AppServerCompatibility(
+                        AppServerCompatibilityLevel.READ_ONLY,
+                        "当前 Thread 无法通过 thread/read 兼容性检查",
+                    )
+                }
                 refreshCatalog()
-                repository?.currentThreadId?.let { resume(it) }
             }.onFailure {
                 connected = false
                 statusMessage = it.message ?: "无法连接 Codex"
@@ -455,13 +469,18 @@ class DirectWorkVM(
         })
         detail = AppServerThreadReducer.snapshot(result, repo.id, repo.machineId ?: "direct")
         val threadId = requireNotNull(detail.thread?.threadId)
+        val fixture = client.request("thread/read", buildJsonObject {
+            put("threadId", threadId)
+            put("includeTurns", true)
+        })
+        detail = AppServerThreadReducer.snapshot(fixture, repo.id, repo.machineId ?: "direct")
         workUiStore.updateRepositorySession(repo.id, currentThreadId = threadId)
         return threadId
     }
 
-    private suspend fun resume(threadId: String) {
-        val repo = repository ?: return
-        runCatching {
+    private suspend fun resume(threadId: String): Boolean {
+        val repo = repository ?: return false
+        return runCatching {
             client.request("thread/resume", buildJsonObject { put("threadId", threadId) })
             val snapshot = client.request("thread/read", buildJsonObject {
                 put("threadId", threadId)
@@ -469,7 +488,7 @@ class DirectWorkVM(
             })
             detail = AppServerThreadReducer.snapshot(snapshot, repo.id, repo.machineId ?: "direct")
             currentTurnId = AppServerThreadReducer.activeTurnId(detail)
-        }.onFailure { statusMessage = "历史同步失败：${it.message ?: "未知错误"}" }
+        }.onFailure { statusMessage = "历史同步失败：${it.message ?: "未知错误"}" }.isSuccess
     }
 
     private suspend fun refreshCatalog() {
@@ -532,18 +551,18 @@ class DirectWorkVM(
     }
 
     private suspend fun refreshCompatibility(credentials: WorkConnectionCredentials) {
+        val direct = AppServerCompatibilityGate.evaluateInitialize(client.state.value.serverInfo)
         if (credentials.supervisorUrl.isNullOrBlank() || credentials.supervisorToken.isNullOrBlank()) {
-            compatibility = AppServerCompatibilityGate.withoutSupervisor()
+            compatibility = direct
             statusMessage = compatibility.reason
             return
         }
         compatibility = runCatching {
             AppServerCompatibilityGate.evaluate(attachmentClient.runtimeFacts(credentials))
         }.getOrElse { error ->
-            AppServerCompatibility(
-                AppServerCompatibilityLevel.READ_ONLY,
-                error.message ?: "无法核对 Codex 兼容性",
-            )
+            if (direct.level == AppServerCompatibilityLevel.TEXT_ONLY) direct.copy(
+                reason = "${direct.reason}；Supervisor 探针失败：${error.message ?: "未知错误"}",
+            ) else direct
         }
         compatibility.reason?.let { reason ->
             if (compatibility.level != AppServerCompatibilityLevel.FULL) statusMessage = reason
@@ -694,6 +713,23 @@ internal fun appServerDocumentMention(name: String, path: String): JsonObject = 
     put("type", "mention")
     put("name", name)
     put("path", path)
+}
+
+internal fun directWorkInputRestriction(
+    contents: List<UIMessagePart>,
+    modelInputModalities: List<String>,
+    compatibilityLevel: AppServerCompatibilityLevel,
+): String? {
+    if (contents.any { it is UIMessagePart.Image } && "image" !in modelInputModalities) {
+        return "当前模型不支持图片，请切换支持视觉输入的模型"
+    }
+    if (compatibilityLevel != AppServerCompatibilityLevel.FULL && contents.any {
+            it is UIMessagePart.Image || it is UIMessagePart.Document
+        }
+    ) {
+        return "当前连接未启用受控附件上传，请配置 Supervisor 或移除附件"
+    }
+    return null
 }
 
 private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull

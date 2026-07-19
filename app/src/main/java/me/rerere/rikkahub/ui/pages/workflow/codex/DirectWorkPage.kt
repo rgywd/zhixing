@@ -170,7 +170,7 @@ private fun DirectWorkContent(
             },
             bottomBar = {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    vm.statusMessage?.let { message ->
+                    (vm.inputRestriction ?: vm.statusMessage)?.let { message ->
                         androidx.compose.foundation.layout.Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,

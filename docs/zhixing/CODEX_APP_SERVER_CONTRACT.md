@@ -330,14 +330,15 @@ Android 只接受与上传请求 ID、大小和 SHA-256 全部匹配的回执。
 
 ## 13. 兼容门
 
-连接进入 READY 前必须通过：
+连接进入可写状态前必须通过：
 
 1. TLS 与 bearer 认证；
 2. initialize 成功；
-3. CLI/App Server 版本在支持范围；
-4. schema hash 或 capability 满足 P0 required set；
-5. `thread/read` fixture 能解析核心 Item；
-6. experimental method 只在 capability 开启时使用。
+3. initialize 的 `userAgent` 精确命中受审 Codex 版本，且 `codexHome/platformFamily/platformOs` 完整；
+4. 未配置 Supervisor 时只允许 `TEXT_ONLY`，任意未知/缺失版本一律 `READ_ONLY/INCOMPATIBLE`；
+5. 配置 Supervisor 后还须验证 schema hash、P0 required method set 与附件健康，才可进入 `FULL`；
+6. 已有 Thread 的 `thread/read` 能解析核心 Item；新 Thread 首次成功后补做同一 fixture；
+7. experimental method 只在 capability 开启时使用。
 
 结果：
 
@@ -357,4 +358,5 @@ Android 只接受与上传请求 ID、大小和 SHA-256 全部匹配的回执。
 - 图片/文件上传 hash、超限、路径逃逸、TTL 和回执匹配；
 - 前后台切换、Wi-Fi/5G、开发机休眠与重启；
 - schema 升级导致 READ_ONLY 而不是空白/崩溃；
+- text-only 模型携带图片时保留草稿和附件、禁用发送并提示切换模型；
 - 普通 Chat 不创建 WSS、不读取 Work 凭据且行为无回归。

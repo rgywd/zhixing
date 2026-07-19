@@ -465,3 +465,6 @@ Set-Location ..
 - 2026-07-20：独立复审补齐官方 plan/command/file/MCP/error/model-reroute 与未知 opaque 事件累计；
   `request_user_input` 在 Item 迟到时创建可回答的原生投影；参数拒绝只回退命中字段；未配置可选
   Supervisor 时保持文本可写，仅禁用需要受控上传的附件。
+- 2026-07-20：修正无 Supervisor 兼容门：直接校验 initialize 的精确受审 `userAgent` 与平台字段，未知版本
+  保持只读；Supervisor schema/method facts 只用于升级到 `FULL`。同时对 text-only 模型携带图片实施发送前
+  拦截，保留草稿与附件并提示切换模型；未知 opaque notification 默认不进入聊天 UI。

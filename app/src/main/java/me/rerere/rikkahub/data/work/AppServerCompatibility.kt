@@ -1,5 +1,9 @@
 package me.rerere.rikkahub.data.work
 
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+
 enum class AppServerCompatibilityLevel {
     FULL,
     TEXT_ONLY,
@@ -32,10 +36,30 @@ object AppServerCompatibilityGate {
         "turn/interrupt",
     )
 
-    fun withoutSupervisor(): AppServerCompatibility = AppServerCompatibility(
-        AppServerCompatibilityLevel.TEXT_ONLY,
-        "未配置 Supervisor；文本聊天可用，附件暂不可用",
-    )
+    fun evaluateInitialize(serverInfo: JsonObject?): AppServerCompatibility {
+        val userAgent = (serverInfo?.get("userAgent") as? JsonPrimitive)?.contentOrNull.orEmpty()
+        val version = VERSION_PATTERN.find(userAgent)?.groupValues?.getOrNull(1)
+        if (version != REVIEWED_CODEX_VERSION) {
+            return AppServerCompatibility(
+                if (version == null) AppServerCompatibilityLevel.READ_ONLY else AppServerCompatibilityLevel.INCOMPATIBLE,
+                if (version == null) "App Server 未提供可验证版本" else "Codex $version 尚未通过兼容性审核",
+            )
+        }
+        val requiredFields = setOf("codexHome", "platformFamily", "platformOs")
+        val missing = requiredFields.filter { key ->
+            (serverInfo?.get(key) as? JsonPrimitive)?.contentOrNull.isNullOrBlank()
+        }
+        if (missing.isNotEmpty()) {
+            return AppServerCompatibility(
+                AppServerCompatibilityLevel.READ_ONLY,
+                "App Server initialize 缺少字段：${missing.sorted().joinToString()}",
+            )
+        }
+        return AppServerCompatibility(
+            AppServerCompatibilityLevel.TEXT_ONLY,
+            "Codex $version 已核对；未配置 Supervisor，附件暂不可用",
+        )
+    }
 
     fun evaluate(facts: AppServerRuntimeFacts): AppServerCompatibility {
         if (facts.codexVersion != null && facts.codexVersion != REVIEWED_CODEX_VERSION) {
@@ -72,4 +96,9 @@ object AppServerCompatibilityGate {
             )
         }
     }
+
+    private val VERSION_PATTERN = Regex(
+        "(?:Codex Desktop|codex[^/ ]*)/(\\d+\\.\\d+\\.\\d+)",
+        RegexOption.IGNORE_CASE,
+    )
 }

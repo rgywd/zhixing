@@ -49,7 +49,7 @@ class BundledCodexCatalogTest {
     }
 
     @Test
-    fun `compatibility gate stays read only until supervisor facts are proven`() {
+    fun `compatibility gate accepts reviewed initialize for text only without supervisor`() {
         val unknown = AppServerCompatibilityGate.evaluate(AppServerRuntimeFacts(null, null))
         val textOnly = AppServerCompatibilityGate.evaluate(
             AppServerRuntimeFacts(
@@ -70,10 +70,21 @@ class BundledCodexCatalogTest {
         assertEquals(AppServerCompatibilityLevel.READ_ONLY, unknown.level)
         assertEquals(AppServerCompatibilityLevel.TEXT_ONLY, textOnly.level)
         assertEquals(AppServerCompatibilityLevel.FULL, full.level)
-        assertEquals(
-            AppServerCompatibilityLevel.TEXT_ONLY,
-            AppServerCompatibilityGate.withoutSupervisor().level,
-        )
+        val direct = AppServerCompatibilityGate.evaluateInitialize(buildJsonObject {
+            put("userAgent", "Codex Desktop/0.144.0 (Windows; x86_64)")
+            put("codexHome", "C:/Users/test/.codex")
+            put("platformFamily", "windows")
+            put("platformOs", "windows")
+        })
+        val unreviewed = AppServerCompatibilityGate.evaluateInitialize(buildJsonObject {
+            put("userAgent", "Codex Desktop/0.145.0 (Windows; x86_64)")
+            put("codexHome", "C:/Users/test/.codex")
+            put("platformFamily", "windows")
+            put("platformOs", "windows")
+        })
+
+        assertEquals(AppServerCompatibilityLevel.TEXT_ONLY, direct.level)
+        assertEquals(AppServerCompatibilityLevel.INCOMPATIBLE, unreviewed.level)
     }
 
     @Test

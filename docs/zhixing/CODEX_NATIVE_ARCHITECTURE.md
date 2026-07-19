@@ -238,7 +238,8 @@ OpenAI 官方将 App Server 用于富客户端集成，但 WebSocket transport �
 ## 10. 版本与降级
 
 - 首个目标固定为本机已验证的 `codex-cli 0.144.0`，并提交该版本生成的协议 schema hash。
-- 连接时比较 CLI 版本、initialize capability 和 schema compatibility，不能只比较版本字符串。
+- 无 Supervisor 时由 initialize `userAgent` 精确锁定受审版本并校验响应字段，只开放 `TEXT_ONLY`；
+  配置 Supervisor 后再比较 schema hash 与 required method set，只有二者均通过才开放附件与 `FULL`。
 - 未知 notification 保存为 opaque 诊断对象，不能使整个 Thread 崩溃。
 - 必需写能力不兼容时进入“缓存只读”；Chat 模式继续正常工作。
 - WebSocket 队列返回 `-32001 Server overloaded` 时使用带 jitter 的指数退避，不立即循环重试。

@@ -363,6 +363,24 @@ class CodexMessageProjectorTest {
         assertEquals("**已完成并验证**", (secondAssistant[2] as UIMessagePart.Text).text)
     }
 
+    @Test
+    fun `opaque diagnostics are retained without leaking into chat`() {
+        val opaque = CodexItem(
+            itemId = "opaque-1",
+            type = "opaqueNotification",
+            rawType = "opaqueNotification",
+            role = "system",
+            text = null,
+            status = "completed",
+            raw = buildJsonObject {
+                put("method", "future/event")
+                put("payload", "internal")
+            },
+        )
+
+        assertTrue(CodexMessageProjector.project(detail(opaque)).isEmpty())
+    }
+
     private fun detail(vararg items: CodexItem, status: String = "completed") = CodexThreadDetail(
         thread = null,
         turns = listOf(CodexTurn("turn_1", status, null, null, null, items.toList())),
