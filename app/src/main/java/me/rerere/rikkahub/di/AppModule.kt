@@ -31,6 +31,9 @@ import me.rerere.rikkahub.ui.pages.workflow.happy.HappySocketClient
 import me.rerere.rikkahub.data.workflow.wire.WireRelayClient
 import me.rerere.rikkahub.data.workflow.wire.WireRelayCredentialsStore
 import me.rerere.rikkahub.data.workflow.wire.WireCredentialsStore
+import me.rerere.rikkahub.data.work.AppServerJsonRpcClient
+import me.rerere.rikkahub.data.work.EncryptedWorkConnectionStore
+import me.rerere.rikkahub.data.work.WorkConnectionStore
 import me.rerere.tts.provider.TTSManager
 import org.koin.dsl.module
 import org.koin.core.qualifier.named
@@ -95,6 +98,23 @@ val appModule = module {
             json = get(),
             credentialsStore = get(),
             catalogRepository = get(),
+        )
+    }
+
+    // 0.2.0 direct path is added beside Wire until the full cutover gate passes.
+    single { EncryptedWorkConnectionStore(get(), get()) }
+    single<WorkConnectionStore> { get<EncryptedWorkConnectionStore>() }
+    single(named("appServerWebSocket")) {
+        OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .pingInterval(30, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+    single {
+        AppServerJsonRpcClient(
+            client = get(named("appServerWebSocket")),
+            json = get(),
         )
     }
 

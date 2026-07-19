@@ -1,0 +1,66 @@
+package me.rerere.rikkahub.data.work
+
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+
+enum class AppServerConnectionPhase {
+    DISCONNECTED,
+    CONNECTING,
+    INITIALIZING,
+    READY,
+    FAILED,
+}
+
+data class AppServerConnectionState(
+    val phase: AppServerConnectionPhase = AppServerConnectionPhase.DISCONNECTED,
+    val serverInfo: JsonObject? = null,
+    val error: String? = null,
+)
+
+data class AppServerEndpoint(
+    val webSocketUrl: String,
+    val bearerToken: String,
+    /** Plain ws is only valid for a loopback listener or local unit test. */
+    val allowInsecureLoopback: Boolean = false,
+)
+
+data class AppServerNotification(
+    val method: String,
+    val params: JsonElement = JsonNull,
+)
+
+data class AppServerRequest(
+    val id: JsonElement,
+    val method: String,
+    val params: JsonElement = JsonNull,
+)
+
+class AppServerRpcException(
+    val code: Int?,
+    override val message: String,
+    val data: JsonElement? = null,
+) : IllegalStateException(message)
+
+class AppServerTransportException(
+    override val message: String,
+    cause: Throwable? = null,
+) : IllegalStateException(message, cause)
+
+data class AppServerBackoffPolicy(
+    val scheduleMs: List<Long> = listOf(1_000, 2_000, 4_000, 8_000, 15_000, 30_000),
+    val jitterRatio: Double = 0.2,
+) {
+    init {
+        require(scheduleMs.isNotEmpty() && scheduleMs.all { it > 0 })
+        require(jitterRatio in 0.0..1.0)
+    }
+
+    fun delayMs(attempt: Int, jitterUnit: Double = 0.5): Long {
+        require(attempt >= 0)
+        require(jitterUnit in 0.0..1.0)
+        val base = scheduleMs[attempt.coerceAtMost(scheduleMs.lastIndex)]
+        val multiplier = 1.0 + ((jitterUnit * 2.0) - 1.0) * jitterRatio
+        return (base * multiplier).toLong().coerceAtLeast(1)
+    }
+}
