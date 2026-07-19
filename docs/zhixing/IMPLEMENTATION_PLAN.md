@@ -79,6 +79,22 @@
 - [x] 大历史分块、首次同步重试、离线旧 revision 与 Desktop takeover 完成闭环。
 - [x] 经第三轮全新独立审查 BOT 按合同 P0 矩阵全项 PASS，阻断项为零。
 
+### Phase 2.5：Chat/Work 双模式与 App Server 直连
+
+跟踪：[GitHub Issue #66](https://github.com/rgywd/zhixing/issues/66)。完整产品与架构合同见
+[`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md)，直连协议见
+[`CODEX_APP_SERVER_CONTRACT.md`](./CODEX_APP_SERVER_CONTRACT.md)，执行状态见
+[`CODEX_NATIVE_IMPLEMENTATION_PLAN.md`](./CODEX_NATIVE_IMPLEMENTATION_PLAN.md)。
+
+- [ ] 在现有侧边栏分组栏同一行增加 Chat/Work 模式开关，删除重复 Work 菜单和项目首页。
+- [ ] Chat 分组保持普通对话文件夹；Work 分组改为用户管理的 Codex 仓库。
+- [ ] Work 直接复用普通 Chat 页面壳、时间线、输入、附件、语音、模型、思考和 Tool UI。
+- [ ] 权限与 Fast 收入现有 `+` 面板；Skill/插件/指令通过 `/` completion。
+- [ ] 在现有 SettingPage 增加 Work 卡片，不建立平行设置首页。
+- [ ] Android 经 Tailscale WSS 直连 Codex App Server；Agent 降级为不翻译消息的本机 supervisor。
+- [ ] Catalog、弱网、后台恢复和 schema 不兼容具备缓存、退避和只读降级。
+- [ ] 完成普通 Chat 回归、真机 UI、Wi-Fi/5G、开发机休眠和覆盖升级验收。
+
 ### Phase 2.3：记忆 MVP
 
 完整契约见 [`MEMORY_MVP.md`](./MEMORY_MVP.md)。

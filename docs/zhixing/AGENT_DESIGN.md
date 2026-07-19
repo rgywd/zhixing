@@ -2,10 +2,10 @@
 
 状态：Historical / rollback only（2026-07-19）
 
-> 本文记录 0.1.x 从 Happy CLI 迁移和 Claude P2 的历史决策，不能作为当前 Codex Wire 运行时合同。
+> 本文记录 0.1.x 从 Happy CLI 迁移和 Claude P2 的历史决策，不能作为当前 Work 运行时合同。
 > 当前唯一 active 基线见 [`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md)、
-> [`ZHIXING_WIRE_V1.md`](./ZHIXING_WIRE_V1.md) 和
-> [`CODEX_NATIVE_IMPLEMENTATION_PLAN.md`](./CODEX_NATIVE_IMPLEMENTATION_PLAN.md)。
+> [`CODEX_APP_SERVER_CONTRACT.md`](./CODEX_APP_SERVER_CONTRACT.md) 和
+> [`CODEX_NATIVE_IMPLEMENTATION_PLAN.md`](./CODEX_NATIVE_IMPLEMENTATION_PLAN.md)。Wire v1 已转为 0.2.0–0.2.2 回滚材料。
 
 原始状态：立项文档（2026-07-17），编码随后已完成并在 0.1.x 发布。
 决策记录：进本仓 `agent/` 目录；P1 仅做 Codex（编码优先级最高）；Claude Code 通道（P2）

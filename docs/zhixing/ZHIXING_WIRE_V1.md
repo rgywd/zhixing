@@ -1,12 +1,18 @@
 # Zhixing Wire Protocol v1
 
-状态：Implemented；会话保真扩展 v1.1 已落地
+状态：Historical / 0.2.0–0.2.2 rollback only
 日期：2026-07-19
 跟踪：GitHub Issue #49
 
+> Wire v1 是已经发布的 0.2.0–0.2.2 合同，只用于旧版本运行、数据核对和回滚。Issue #66 起的 active
+> Work 数据面改为 Android 经 Tailscale WSS 直连 Codex App Server，见
+> [`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md) 与
+> [`CODEX_APP_SERVER_CONTRACT.md`](./CODEX_APP_SERVER_CONTRACT.md)。不得继续为新功能扩展 Wire 消息协议。
+
 ## 1. 范围
 
-Wire v1 是 Android、zhixing-agent 和自托管 Zhixing Relay 之间的稳定协议。Codex App Server 协议只存在于 Agent 本机，不直接传到 Android。
+在 0.2.0–0.2.2 中，Wire v1 曾是 Android、zhixing-agent 和自托管 Zhixing Relay 之间的稳定协议；
+该历史版本的 Codex App Server 协议只存在于 Agent 本机，不直接传到 Android。
 
 Wire v1 提供：
 
