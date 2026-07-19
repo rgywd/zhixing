@@ -320,8 +320,9 @@ Android 只接受与上传请求 ID、大小和 SHA-256 全部匹配的回执。
 
 ## 12. 缓存写入规则
 
-- 当前 Thread snapshot 使用 revision/hash 原子替换；
-- 不完整 snapshot、解析失败或旧 revision 保留旧数据；
+- Wire 分块 snapshot 继续使用 revision/hash 原子替换；Direct `thread/read` 没有服务端 revision，必须用
+  本地 read generation：请求在途期间缓冲同 Thread notification，snapshot 解析后按到达顺序重放；
+- 不完整 snapshot、解析失败或未完成 generation 保留旧数据，不允许覆盖已经接收的新事件；
 - runtime Item 以稳定 itemId upsert；
 - Thread、Turn、Item raw 只保存在 App 私有 Room，不写普通日志；
 - 草稿按 `(connectionId, repositoryId, threadId?)` 保存；
@@ -338,7 +339,8 @@ Android 只接受与上传请求 ID、大小和 SHA-256 全部匹配的回执。
 4. 未配置 Supervisor 时只允许 `TEXT_ONLY`，任意未知/缺失版本一律 `READ_ONLY/INCOMPATIBLE`；
 5. 配置 Supervisor 后还须验证 schema hash、P0 required method set 与附件健康，才可进入 `FULL`；
 6. 已有 Thread 的 `thread/read` 能解析核心 Item；新 Thread 首次成功后补做同一 fixture；
-7. experimental method 只在 capability 开启时使用。
+7. 只有前述 gate 完成后才能调用 `thread/resume` 或开放任意写操作；
+8. experimental method 只在 capability 开启时使用。
 
 结果：
 

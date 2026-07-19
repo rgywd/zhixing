@@ -214,6 +214,8 @@ OpenAI 官方将 App Server 用于富客户端集成，但 WebSocket transport �
 
 - Codex App Server 是 Thread、Turn、Item、审批和运行设置的唯一事实来源。
 - Room 只保存离线渲染所需缓存、草稿、当前 Thread 指针、仓库配置和最后确认的能力。
+- Direct Room cache 以保留前缀的 `(direct:connectionId, threadId)` 为主键命名空间，不复用旧 Wire
+  `machineId`，不得触发旧 catalog 的 revision、stale cleanup 或双写路径。
 - 普通 Provider Conversation 与 Codex Thread 不能合并成同一持久化对象。
 - 历史 snapshot 和实时 notification 必须继续经过同一个 `CodexRuntimeItemReducer` 与
   `CodexMessageProjector`，得到相同 `UIMessagePart`。
@@ -222,8 +224,9 @@ OpenAI 官方将 App Server 用于富客户端集成，但 WebSocket transport �
 
 - 开发机休眠、关机或 Tailscale 不可达时，已缓存当前 Thread 可读，草稿可编辑。
 - 离线不排队发送、审批或危险操作；恢复后由用户重新发送或重试。
-- 断线期间保留旧 revision，不用空响应覆盖历史。
-- 重连后先 `initialize`，再读取当前 Thread 快照，然后订阅/处理新通知。
+- 断线期间保留最后完整快照，不用空响应覆盖历史。
+- 重连后先 `initialize`，再以只读方式读取当前 Thread；读取期间到达的 notification 进入本地 generation
+  buffer，并在 snapshot 映射后顺序重放，之后才允许 `thread/resume` 和写操作。
 
 ## 9. 安全合同
 

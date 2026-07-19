@@ -11,6 +11,7 @@ import me.rerere.rikkahub.data.db.AppDatabase
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -31,7 +32,7 @@ class DirectWorkThreadCacheTest {
         val json = Json { ignoreUnknownKeys = true }
         val original = CodexThreadDetail(
             thread = CodexThread(
-                machineId = "direct",
+                machineId = "direct:connection-1",
                 threadId = "thread-offline",
                 projectId = "repo-1",
                 name = "离线恢复",
@@ -86,14 +87,17 @@ class DirectWorkThreadCacheTest {
 
         val reopenedDatabase = openDatabase()
         val restored: CodexThreadDetail?
+        val legacyCollision: CodexThreadDetail?
         try {
-            restored = CodexCatalogRepository(reopenedDatabase.codexCatalogDao(), json)
-                .loadDirectThread("direct", "thread-offline")
+            val reopenedRepository = CodexCatalogRepository(reopenedDatabase.codexCatalogDao(), json)
+            restored = reopenedRepository.loadDirectThread("direct:connection-1", "thread-offline")
+            legacyCollision = reopenedRepository.loadDirectThread("legacy-machine", "thread-offline")
         } finally {
             reopenedDatabase.close()
         }
 
         assertNotNull(restored)
+        assertNull(legacyCollision)
         assertEquals("离线恢复", restored?.thread?.name)
         assertEquals(CodexRuntimeState.IDLE, restored?.thread?.runtimeState)
         assertEquals("重启后仍然可见", restored?.turns?.single()?.items?.single()?.text)

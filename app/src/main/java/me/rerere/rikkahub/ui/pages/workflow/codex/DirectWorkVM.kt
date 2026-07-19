@@ -34,6 +34,7 @@ import me.rerere.rikkahub.data.work.AppServerJsonRpcClient
 import me.rerere.rikkahub.data.work.AppServerOptionRollback
 import me.rerere.rikkahub.data.work.AppServerRequest
 import me.rerere.rikkahub.data.work.AppServerRuntimeMapper
+import me.rerere.rikkahub.data.work.AppServerSnapshotBuffer
 import me.rerere.rikkahub.data.work.AppServerThreadReducer
 import me.rerere.rikkahub.data.work.BundledCodexCatalog
 import me.rerere.rikkahub.data.work.SupervisorAttachmentClient
@@ -101,17 +102,18 @@ class DirectWorkVM(
     private var reconnectAttempt = 0
     private val reconnectPolicy = AppServerBackoffPolicy()
     private val pendingRequests = mutableMapOf<String, AppServerRequest>()
+    private val snapshotBuffer = AppServerSnapshotBuffer()
 
     val selectedModel get() = runtimeCatalog.models.firstOrNull { it.id == selectedModelId }
     val isRunning get() = detail.thread?.runtimeState?.name == "RUNNING"
+    private val writable get() = directWorkWritable(connected, compatibility.level)
     val inputRestriction: String?
         get() = directWorkInputRestriction(
             contents = inputState.getContents(),
             modelInputModalities = selectedModel?.inputModalities.orEmpty(),
             compatibilityLevel = compatibility.level,
         )
-    val canSend get() = !sending && connected && repository != null && selectedModelId != null &&
-        compatibility.level in setOf(AppServerCompatibilityLevel.FULL, AppServerCompatibilityLevel.TEXT_ONLY) &&
+    val canSend get() = !sending && writable && repository != null && selectedModelId != null &&
         inputRestriction == null && (!isRunning || currentTurnId != null) && !inputState.isEmpty()
 
     init {
@@ -131,10 +133,12 @@ class DirectWorkVM(
                     }
                     AppServerConnectionPhase.FAILED,
                     AppServerConnectionPhase.DISCONNECTED -> {
+                        lockCompatibility(state.error ?: "与 Codex 的连接已断开")
                         statusMessage = state.error ?: "与 Codex 的连接已断开"
                         scheduleReconnect()
                     }
-                    else -> Unit
+                    AppServerConnectionPhase.CONNECTING,
+                    AppServerConnectionPhase.INITIALIZING -> lockCompatibility("正在核对 Codex 兼容性")
                 }
             }
         }
@@ -148,9 +152,11 @@ class DirectWorkVM(
         }
         viewModelScope.launch {
             client.notifications.collect { notification ->
-                detail = AppServerThreadReducer.apply(detail, notification)
                 val notificationThreadId = (notification.params as? JsonObject)?.string("threadId")
-                if (notificationThreadId == null || notificationThreadId == detail.thread?.threadId) {
+                val activeThreadId = detail.thread?.threadId ?: repository?.currentThreadId
+                val buffered = snapshotBuffer.offer(notification)
+                if (!buffered) detail = AppServerThreadReducer.apply(detail, notification)
+                if (notificationThreadId == null || notificationThreadId == activeThreadId) {
                     runtimeSettings = AppServerRuntimeMapper.applyNotification(runtimeSettings, notification)
                     if (notification.method == "model/rerouted") {
                         runtimeSettings.model?.let { actualModel ->
@@ -165,13 +171,13 @@ class DirectWorkVM(
                         }
                     }
                 }
-                if (notificationThreadId == detail.thread?.threadId) {
+                if (!buffered && notificationThreadId == detail.thread?.threadId) {
                     if (notification.method == "turn/started") {
                         currentTurnId = (notification.params as? JsonObject)?.get("turn")?.jsonObject?.string("id")
                     }
                     if (notification.method == "turn/completed") currentTurnId = null
                 }
-                if (notificationThreadId == detail.thread?.threadId) scheduleCache()
+                if (!buffered && notificationThreadId == detail.thread?.threadId) scheduleCache()
             }
         }
         viewModelScope.launch {
@@ -207,9 +213,11 @@ class DirectWorkVM(
         }
         viewModelScope.launch {
             val repo = repository
+            val credentials = activeCredentials()
+            connection = credentials
             val threadId = repo?.currentThreadId
-            if (repo != null && threadId != null) {
-                catalogRepository.loadDirectThread(repo.machineId ?: "direct", threadId)?.let { cached ->
+            if (repo != null && threadId != null && credentials != null) {
+                catalogRepository.loadDirectThread(directCacheMachineId(credentials.connectionId), threadId)?.let { cached ->
                     detail = cached.copy(cwd = cached.cwd ?: repo.path, approvals = emptyList())
                     currentTurnId = AppServerThreadReducer.activeTurnId(detail)
                     statusMessage = "已载入本机历史，正在连接 Codex…"
@@ -223,6 +231,7 @@ class DirectWorkVM(
         reconnectJob?.cancel()
         reconnectJob = null
         reconnectAttempt = 0
+        lockCompatibility("正在核对 Codex 兼容性")
         launchConnect()
     }
 
@@ -231,9 +240,7 @@ class DirectWorkVM(
             client.state.value.phase == AppServerConnectionPhase.INITIALIZING
         ) return
         viewModelScope.launch {
-            val credentials = connectionStore.load().let { stored ->
-                stored.connections.firstOrNull { it.connectionId == stored.activeConnectionId }
-            }
+            val credentials = activeCredentials()
             if (credentials == null) {
                 statusMessage = "请先在设置的 Work 卡片中配置开发机连接"
                 return@launch
@@ -242,14 +249,7 @@ class DirectWorkVM(
             if (client.state.value.phase == AppServerConnectionPhase.READY) {
                 connected = true
                 statusMessage = null
-                val fixturePassed = repository?.currentThreadId?.let { resume(it) } ?: true
-                if (fixturePassed) refreshCompatibility(credentials) else {
-                    compatibility = AppServerCompatibility(
-                        AppServerCompatibilityLevel.READ_ONLY,
-                        "当前 Thread 无法通过 thread/read 兼容性检查",
-                    )
-                }
-                refreshCatalog()
+                finishCompatibilityGate(credentials)
                 return@launch
             }
             statusMessage = "正在连接 Codex…"
@@ -264,14 +264,7 @@ class DirectWorkVM(
                 )
                 connected = true
                 statusMessage = null
-                val fixturePassed = repository?.currentThreadId?.let { resume(it) } ?: true
-                if (fixturePassed) refreshCompatibility(credentials) else {
-                    compatibility = AppServerCompatibility(
-                        AppServerCompatibilityLevel.READ_ONLY,
-                        "当前 Thread 无法通过 thread/read 兼容性检查",
-                    )
-                }
-                refreshCatalog()
+                finishCompatibilityGate(credentials)
             }.onFailure {
                 connected = false
                 statusMessage = it.message ?: "无法连接 Codex"
@@ -289,6 +282,44 @@ class DirectWorkVM(
             reconnectJob = null
             launchConnect()
         }
+    }
+
+    private suspend fun activeCredentials(): WorkConnectionCredentials? = connectionStore.load().let { stored ->
+        stored.connections.firstOrNull { it.connectionId == stored.activeConnectionId }
+    }
+
+    private suspend fun finishCompatibilityGate(credentials: WorkConnectionCredentials) {
+        lockCompatibility("正在核对 Codex 兼容性")
+        val threadId = repository?.currentThreadId
+        val fixturePassed = threadId?.let { readThreadSnapshot(it) } ?: true
+        if (!fixturePassed) {
+            compatibility = AppServerCompatibility(
+                AppServerCompatibilityLevel.READ_ONLY,
+                "当前 Thread 无法通过 thread/read 兼容性检查",
+            )
+            statusMessage = compatibility.reason
+            refreshCatalog()
+            return
+        }
+        refreshCompatibility(credentials)
+        if (writable && threadId != null) {
+            runCatching {
+                client.request("thread/resume", buildJsonObject { put("threadId", threadId) })
+            }.onFailure { error ->
+                compatibility = AppServerCompatibility(
+                    AppServerCompatibilityLevel.READ_ONLY,
+                    "当前 Thread 恢复失败：${error.message ?: "未知错误"}",
+                )
+                statusMessage = compatibility.reason
+            }
+        }
+        refreshCatalog()
+    }
+
+    private fun lockCompatibility(reason: String) {
+        compatibility = AppServerCompatibility(AppServerCompatibilityLevel.READ_ONLY, reason)
+        pendingRequests.clear()
+        if (detail.approvals.isNotEmpty()) detail = detail.copy(approvals = emptyList())
     }
 
     fun send() {
@@ -344,6 +375,7 @@ class DirectWorkVM(
     }
 
     fun interrupt() {
+        if (!writable) return
         val threadId = detail.thread?.threadId ?: return
         val turnId = currentTurnId ?: return
         viewModelScope.launch {
@@ -359,6 +391,10 @@ class DirectWorkVM(
             statusMessage = "请先停止当前任务，再新建 Work 对话"
             return
         }
+        if (!writable) {
+            statusMessage = compatibility.reason ?: "连接并通过兼容性检查后才能新建对话"
+            return
+        }
         detail = CodexThreadDetail(null, emptyList())
         currentTurnId = null
         runtimeSettings = runtimeSettings.copy(
@@ -368,10 +404,6 @@ class DirectWorkVM(
         )
         inputState.clearInput()
         persistDraft("")
-        if (!connected) {
-            statusMessage = "连接 Codex 后才能新建对话"
-            return
-        }
         sending = true
         statusMessage = "正在新建 Work 对话…"
         viewModelScope.launch {
@@ -438,6 +470,10 @@ class DirectWorkVM(
             statusMessage = "请先停止当前任务，再压缩历史"
             return
         }
+        if (!writable) {
+            statusMessage = compatibility.reason ?: "当前连接不可写"
+            return
+        }
         viewModelScope.launch {
             statusMessage = "正在压缩上下文…"
             runCatching {
@@ -451,6 +487,7 @@ class DirectWorkVM(
     }
 
     fun resolveApproval(approvalId: String, decision: String) {
+        if (!writable) return
         val request = pendingRequests.remove(approvalId) ?: return
         client.respond(request, buildJsonObject { put("decision", decision) })
         detail = detail.copy(approvals = detail.approvals.filterNot { it.approvalId == approvalId })
@@ -458,6 +495,7 @@ class DirectWorkVM(
     }
 
     fun resolveInteraction(approvalId: String, answer: String) {
+        if (!writable) return
         val request = pendingRequests.remove(approvalId) ?: return
         val incoming = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(answer).jsonObject }
             .getOrNull()
@@ -471,7 +509,6 @@ class DirectWorkVM(
                         is JsonObject -> (value["answers"] as? JsonArray)
                             ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
                             .orEmpty()
-                        else -> emptyList()
                     }
                     put(questionId, buildJsonObject {
                         put("answers", buildJsonArray { values.forEach { add(JsonPrimitive(it)) } })
@@ -484,6 +521,7 @@ class DirectWorkVM(
     }
 
     fun cancelInteraction(approvalId: String) {
+        if (!writable) return
         val request = pendingRequests.remove(approvalId) ?: return
         client.respondError(request, -32800, "User cancelled")
         detail = detail.copy(approvals = detail.approvals.filterNot { it.approvalId == approvalId })
@@ -499,31 +537,30 @@ class DirectWorkVM(
             put("approvalPolicy", approvalPolicy())
             put("sandbox", sandboxMode())
         })
-        detail = AppServerThreadReducer.snapshot(result, repo.id, repo.machineId ?: "direct")
+        detail = AppServerThreadReducer.snapshot(result, repo.id, cacheMachineId())
         val threadId = requireNotNull(detail.thread?.threadId)
         workUiStore.updateRepositorySession(repo.id, currentThreadId = threadId)
         persistCacheNow()
-        val fixture = client.request("thread/read", buildJsonObject {
-            put("threadId", threadId)
-            put("includeTurns", true)
-        })
-        detail = AppServerThreadReducer.snapshot(fixture, repo.id, repo.machineId ?: "direct")
-        persistCacheNow()
+        check(readThreadSnapshot(threadId)) { "新 Thread 无法通过 thread/read 校验" }
         return threadId
     }
 
-    private suspend fun resume(threadId: String): Boolean {
+    private suspend fun readThreadSnapshot(threadId: String): Boolean {
         val repo = repository ?: return false
+        snapshotBuffer.begin(threadId)
         return runCatching {
-            client.request("thread/resume", buildJsonObject { put("threadId", threadId) })
             val snapshot = client.request("thread/read", buildJsonObject {
                 put("threadId", threadId)
                 put("includeTurns", true)
             })
-            detail = AppServerThreadReducer.snapshot(snapshot, repo.id, repo.machineId ?: "direct")
+            val mapped = AppServerThreadReducer.snapshot(snapshot, repo.id, cacheMachineId())
+            detail = snapshotBuffer.complete(mapped)
             currentTurnId = AppServerThreadReducer.activeTurnId(detail)
             persistCacheNow()
-        }.onFailure { statusMessage = "历史同步失败：${it.message ?: "未知错误"}" }.isSuccess
+        }.onFailure {
+            detail = snapshotBuffer.abort(detail)
+            statusMessage = "历史同步失败：${it.message ?: "未知错误"}"
+        }.isSuccess
     }
 
     private suspend fun refreshCatalog() {
@@ -721,6 +758,8 @@ class DirectWorkVM(
         catalogRepository.cacheDirectThread(detail)
     }
 
+    private fun cacheMachineId(): String = directCacheMachineId(requireNotNull(connection).connectionId)
+
     private fun List<CodexModelOption>.withSelectedModelFallback(): List<CodexModelOption> {
         val id = selectedModelId ?: return this
         if (any { it.id == id }) return this
@@ -767,6 +806,11 @@ class DirectWorkVM(
         generatedAt = System.currentTimeMillis(),
     )
 }
+
+internal fun directCacheMachineId(connectionId: String): String = "direct:$connectionId"
+
+internal fun directWorkWritable(connected: Boolean, level: AppServerCompatibilityLevel): Boolean =
+    connected && level in setOf(AppServerCompatibilityLevel.FULL, AppServerCompatibilityLevel.TEXT_ONLY)
 
 internal fun appServerDocumentMention(name: String, path: String): JsonObject = buildJsonObject {
     put("type", "mention")

@@ -325,6 +325,7 @@ GREEN：
 
 - 新版 Work 会话选择、草稿和仓库配置写入独立原子文件 `work-ui.json`，不改写已发布 Room schema 31；
 - 保留旧 Codex Item cache 并按 `(connectionId, threadId)` 映射；
+- Direct 实际 Room key 固定为 `(direct:connectionId, threadId)`，不读取仓库的 legacy `machineId`；
 - direct snapshot 成功前不覆盖旧缓存；
 - Wire/Relay/旧 Agent 保持可切回只读，不在本阶段删除；
 - 切换开关只用于发布前/故障回滚，不暴露成普通用户长期设置。
@@ -472,3 +473,8 @@ Set-Location ..
   落库，流式事件短防抖刷新，网络恢复后再以 `thread/read` 覆盖；离线不恢复可操作审批。新增仪器测试完成
   “写入 → 关闭数据库 → 重新打开 → 读取消息与附件”进程重启闭环。`thread/start` 成功后也会先保存 Thread
   指针与快照，避免后续读取失败留下不可恢复的孤儿会话；模型 reroute 后 UI 显示实际执行模型。
+- 2026-07-20：独立复审发现兼容门前 `thread/resume` 写窗口、Direct/legacy Room key 冲突和
+  `thread/read`/notification 竞态；随后把所有连接状态先降为 `READ_ONLY`，顺序改为 initialize →
+  thread/read fixture → Supervisor gate → thread/resume，并给 mutating action 统一加 writable gate。
+  Direct cache key 改为 `direct:connectionId` 命名空间；snapshot 在途事件进入 generation buffer，映射完成后
+  重放，避免旧 read 覆盖新流式消息。
