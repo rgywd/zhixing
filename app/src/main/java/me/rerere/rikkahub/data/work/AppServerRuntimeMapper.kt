@@ -114,6 +114,13 @@ object AppServerRuntimeMapper {
                 updatedAt = System.currentTimeMillis(),
             )
         }
+        "model/rerouted" -> {
+            val params = notification.params as? JsonObject ?: return current
+            current.copy(
+                model = params.string("toModel") ?: current.model,
+                updatedAt = System.currentTimeMillis(),
+            )
+        }
         else -> current
     }
 

@@ -168,6 +168,7 @@ App Server 支持的字段。仓库路径只能来自已保存的 `WorkRepositor
     "input": [
       {"type": "text", "text": "修复截图中的布局"},
       {"type": "localImage", "path": "C:\\...\\uploads\\opaque\\shot.png", "detail": "auto"},
+      {"type": "mention", "name": "requirements.md", "path": "C:\\...\\uploads\\opaque\\requirements.md"},
       {"type": "skill", "name": "ui-review", "path": "C:\\...\\SKILL.md"}
     ],
     "model": "<client selected model>",
@@ -181,8 +182,8 @@ App Server 支持的字段。仓库路径只能来自已保存的 `WorkRepositor
 规则：
 
 - 空闲发送为 `turn/start`；运行中有草稿发送为 `turn/steer`；
-- 文本、图片和 Skill 保持 App Server 官方结构化顺序；`mention` 只用于协议定义的 App/Plugin 引用；
-- App Server 当前没有通用文件 input item。通用文件由薄守护受控落盘后，以本机绝对路径清单和说明文本提交，Codex 在开发机按需读取；不得伪装成 `mention`；
+- 文本、图片、文件和 Skill 保持 App Server 官方结构化顺序；通用文件使用 `mention { name, path }`，App/Plugin 引用来自文本内的 `text_elements`；
+- 通用文件先由薄守护受控落盘，再将本机绝对路径作为结构化 `mention` 提交；旧版文本清单仅保留只读解析兼容，不再产生；
 - Android URI、content URI 和用户手填 Windows 路径不得直接发给 App Server；
 - 模型不支持图片时保留附件和草稿，提示用户切换，不丢内容；
 - 发送成功前不清空草稿；收到 Turn 接受响应后才转为消息投影。
@@ -341,7 +342,7 @@ Android 只接受与上传请求 ID、大小和 SHA-256 全部匹配的回执。
 结果：
 
 - `FULL`：读写、附件、审批全部可用；
-- `TEXT_ONLY`：文本可用，动态附件/Skill 等单项降级；
+- `TEXT_ONLY`：文本和 App Server 原生能力可用，薄守护附件上传单项降级；未配置可选 Supervisor 时直接进入此状态；
 - `READ_ONLY`：只展示 Room 缓存和可读取 Thread，不发送；
 - `INCOMPATIBLE`：显示升级 Codex/知行提示，普通 Chat 不受影响。
 

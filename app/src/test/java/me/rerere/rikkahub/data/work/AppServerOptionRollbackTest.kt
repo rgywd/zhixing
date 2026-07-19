@@ -32,14 +32,29 @@ class AppServerOptionRollbackTest {
     }
 
     @Test
-    fun `invalid params rolls back all optimistic options`() {
+    fun `invalid sandbox params roll back permission only`() {
         val restored = AppServerOptionRollback.rollback(
             current,
             accepted,
             AppServerRpcException(-32602, "Invalid params", JsonPrimitive("sandboxPolicy")),
         )
 
-        assertEquals(accepted, restored)
+        assertEquals(accepted.permission, restored.permission)
+        assertEquals(current.model, restored.model)
+        assertEquals(current.effortByModel, restored.effortByModel)
+        assertEquals(current.fastMode, restored.fastMode)
+    }
+
+    @Test
+    fun `unattributed invalid params preserve optimistic options`() {
+        assertEquals(
+            current,
+            AppServerOptionRollback.rollback(
+                current,
+                accepted,
+                AppServerRpcException(-32602, "Invalid params"),
+            ),
+        )
     }
 
     @Test

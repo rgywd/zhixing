@@ -28,8 +28,6 @@ import me.rerere.rikkahub.data.work.AppServerBackoffPolicy
 import me.rerere.rikkahub.data.work.AppServerCompatibility
 import me.rerere.rikkahub.data.work.AppServerCompatibilityGate
 import me.rerere.rikkahub.data.work.AppServerCompatibilityLevel
-import me.rerere.rikkahub.data.work.AppServerAttachedFile
-import me.rerere.rikkahub.data.work.AppServerAttachmentManifest
 import me.rerere.rikkahub.data.work.AppServerCommandInputs
 import me.rerere.rikkahub.data.work.AppServerEndpoint
 import me.rerere.rikkahub.data.work.AppServerJsonRpcClient
@@ -161,8 +159,10 @@ class DirectWorkVM(
                 val params = request.params as? JsonObject ?: JsonObject(emptyMap())
                 if (params.string("threadId") != detail.thread?.threadId) return@collect
                 val id = request.id.toString().trim('"')
+                val requestedItemId = params.string("itemId")
                 val displayParams = if (
-                    request.method == "item/tool/requestUserInput" && params.string("itemId") == null
+                    request.method == "item/tool/requestUserInput" &&
+                    !AppServerThreadReducer.containsItem(detail, requestedItemId)
                 ) buildJsonObject {
                     params.forEach { (key, value) -> put(key, value) }
                     put("itemId", "request-$id")
@@ -532,6 +532,11 @@ class DirectWorkVM(
     }
 
     private suspend fun refreshCompatibility(credentials: WorkConnectionCredentials) {
+        if (credentials.supervisorUrl.isNullOrBlank() || credentials.supervisorToken.isNullOrBlank()) {
+            compatibility = AppServerCompatibilityGate.withoutSupervisor()
+            statusMessage = compatibility.reason
+            return
+        }
         compatibility = runCatching {
             AppServerCompatibilityGate.evaluate(attachmentClient.runtimeFacts(credentials))
         }.getOrElse { error ->
@@ -579,22 +584,12 @@ class DirectWorkVM(
                         val receipt = requireNotNull(uploadedImages[part])
                         add(buildJsonObject { put("type", "localImage"); put("path", receipt.localPath); put("detail", "auto") })
                     }
-                    is UIMessagePart.Document -> Unit
+                    is UIMessagePart.Document -> {
+                        val receipt = requireNotNull(uploadedDocuments[part])
+                        add(appServerDocumentMention(receipt.fileName, receipt.localPath))
+                    }
                     else -> Unit
                 }
-            }
-            if (uploadedDocuments.isNotEmpty()) {
-                val manifest = AppServerAttachmentManifest.append(
-                    text = "",
-                    files = uploadedDocuments.map { (part, receipt) ->
-                        AppServerAttachedFile(part.fileName, receipt.localPath, part.mime)
-                    },
-                )
-                add(buildJsonObject {
-                    put("type", "text")
-                    put("text", manifest)
-                    put("text_elements", JsonArray(emptyList()))
-                })
             }
             val text = contents.filterIsInstance<UIMessagePart.Text>().joinToString("\n") { it.text }
             AppServerCommandInputs.resolve(text, runtimeCatalog).forEach(::add)
@@ -693,6 +688,12 @@ class DirectWorkVM(
         capabilities = CodexCatalogCapabilities(),
         generatedAt = System.currentTimeMillis(),
     )
+}
+
+internal fun appServerDocumentMention(name: String, path: String): JsonObject = buildJsonObject {
+    put("type", "mention")
+    put("name", name)
+    put("path", path)
 }
 
 private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull

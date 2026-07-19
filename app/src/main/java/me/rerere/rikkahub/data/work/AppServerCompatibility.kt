@@ -32,6 +32,11 @@ object AppServerCompatibilityGate {
         "turn/interrupt",
     )
 
+    fun withoutSupervisor(): AppServerCompatibility = AppServerCompatibility(
+        AppServerCompatibilityLevel.TEXT_ONLY,
+        "未配置 Supervisor；文本聊天可用，附件暂不可用",
+    )
+
     fun evaluate(facts: AppServerRuntimeFacts): AppServerCompatibility {
         if (facts.codexVersion != null && facts.codexVersion != REVIEWED_CODEX_VERSION) {
             return AppServerCompatibility(

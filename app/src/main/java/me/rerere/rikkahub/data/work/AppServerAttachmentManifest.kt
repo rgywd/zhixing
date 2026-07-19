@@ -21,9 +21,8 @@ data class ParsedAttachmentManifest(
 )
 
 /**
- * App Server's `mention` input is reserved for apps/plugins; it does not make an arbitrary local
- * file model-visible. Zhixing therefore sends a compact, machine-readable local-file manifest as
- * text and strips it again at the UI projection boundary.
+ * Read-only compatibility parser for attachment manifests emitted by early direct-mode builds.
+ * New turns use App Server's structured `mention { name, path }` input instead.
  */
 object AppServerAttachmentManifest {
     private const val OPEN = "<zhixing_file_attachments>"

@@ -41,6 +41,9 @@ import androidx.compose.runtime.snapshotFlow
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Menu03
 import me.rerere.hugeicons.stroke.MessageAdd01
+import me.rerere.ai.core.MessageRole
+import me.rerere.ai.ui.ToolApprovalState
+import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.work.WorkUiStore
 import me.rerere.rikkahub.data.work.WorkAppMode
 import me.rerere.rikkahub.data.workflow.codex.CodexApproval
@@ -113,7 +116,12 @@ private fun DirectWorkContent(
     val approvalsByItemId = remember(detail.approvals) {
         detail.approvals.mapNotNull { approval -> approval.itemId?.let { it to approval } }.toMap()
     }
-    val standaloneApprovals = remember(detail.approvals) { detail.approvals.filter { it.itemId == null } }
+    val projectedItemIds = remember(detail.turns) {
+        detail.turns.flatMap { turn -> turn.items.map { it.itemId } }.toSet()
+    }
+    val standaloneApprovals = remember(detail.approvals, projectedItemIds) {
+        detail.approvals.filter { approval -> approval.itemId !in projectedItemIds }
+    }
     val listState = rememberLazyListState()
     var showOptions by remember { mutableStateOf(false) }
     val workState by workUiStore.state.collectAsStateWithLifecycle()
@@ -167,7 +175,12 @@ private fun DirectWorkContent(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            Text(
+                                message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (vm.connected) MaterialTheme.colorScheme.onSurfaceVariant
+                                else MaterialTheme.colorScheme.error,
+                            )
                             if (!vm.connected) TextButton(onClick = vm::connect) { Text("重连") }
                         }
                     }
@@ -234,18 +247,32 @@ private fun DirectWorkContent(
                     )
                 }
                 items(standaloneApprovals, key = CodexApproval::approvalId) { approval ->
-                    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.tertiaryContainer) {
+                    if (approval.kind == "user_input") {
+                        MessagePartsBlock(
+                            assistant = null,
+                            role = MessageRole.ASSISTANT,
+                            model = null,
+                            parts = listOf(
+                                UIMessagePart.Tool(
+                                    toolCallId = "request-${approval.approvalId}",
+                                    toolName = "ask_user",
+                                    input = approval.payload.toString(),
+                                    approvalState = ToolApprovalState.Pending,
+                                )
+                            ),
+                            annotations = emptyList(),
+                            loading = true,
+                            onToolApproval = { _, _, _ -> },
+                            onToolAnswer = { _, answer -> vm.resolveInteraction(approval.approvalId, answer) },
+                            onToolCancel = { vm.cancelInteraction(approval.approvalId) },
+                        )
+                    } else Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.tertiaryContainer) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("需要你的确认", style = MaterialTheme.typography.titleSmall)
                             Text(approval.summary)
-                            if (approval.kind == "user_input") {
-                                Text("该交互请求缺少可定位的 Turn，已阻止错误答复。", style = MaterialTheme.typography.bodySmall)
-                                TextButton(onClick = { vm.cancelInteraction(approval.approvalId) }) { Text("取消请求") }
-                            } else {
-                                TextButton(onClick = { vm.resolveApproval(approval.approvalId, "accept") }) { Text("允许一次") }
-                                TextButton(onClick = { vm.resolveApproval(approval.approvalId, "decline") }) { Text("拒绝") }
-                                TextButton(onClick = { vm.resolveApproval(approval.approvalId, "cancel") }) { Text("取消") }
-                            }
+                            TextButton(onClick = { vm.resolveApproval(approval.approvalId, "accept") }) { Text("允许一次") }
+                            TextButton(onClick = { vm.resolveApproval(approval.approvalId, "decline") }) { Text("拒绝") }
+                            TextButton(onClick = { vm.resolveApproval(approval.approvalId, "cancel") }) { Text("取消") }
                         }
                     }
                 }

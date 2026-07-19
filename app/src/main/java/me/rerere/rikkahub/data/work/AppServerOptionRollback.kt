@@ -11,11 +11,10 @@ object AppServerOptionRollback {
             append(error.message.orEmpty())
             if (error is AppServerRpcException) append(' ').append(error.data?.toString().orEmpty())
         }.lowercase()
-        val invalidParams = error is AppServerRpcException && error.code == -32602
-        val rejectModel = invalidParams || "model" in message
-        val rejectEffort = invalidParams || "effort" in message || "reasoning" in message
-        val rejectFast = invalidParams || "servicetier" in message || "service_tier" in message || "priority" in message
-        val rejectPermission = invalidParams || "approval" in message || "sandbox" in message || "permission" in message
+        val rejectModel = "model" in message
+        val rejectEffort = "effort" in message || "reasoning" in message
+        val rejectFast = "servicetier" in message || "service_tier" in message || "service tier" in message || "priority" in message
+        val rejectPermission = "approval" in message || "sandbox" in message || "permission" in message
 
         if (!rejectModel && !rejectEffort && !rejectFast && !rejectPermission) return current
         var restored = current

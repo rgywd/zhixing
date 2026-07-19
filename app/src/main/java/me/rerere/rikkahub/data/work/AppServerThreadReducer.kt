@@ -19,6 +19,9 @@ import me.rerere.rikkahub.data.workflow.codex.CodexTurn
 
 /** Maps the official App Server v2 Thread/Turn/Item wire shape to the existing Zhixing projector model. */
 object AppServerThreadReducer {
+    fun containsItem(detail: CodexThreadDetail, itemId: String?): Boolean =
+        itemId != null && detail.turns.any { turn -> turn.items.any { it.itemId == itemId } }
+
     fun activeTurnId(detail: CodexThreadDetail): String? = detail.turns
         .lastOrNull { it.status == "inProgress" || it.status == "running" }
         ?.turnId
@@ -85,12 +88,20 @@ object AppServerThreadReducer {
             }
             "item/started", "item/completed" -> applyItem(detail, params)
             "item/agentMessage/delta" -> applyTextDelta(detail, params, "agentMessage")
+            "item/plan/delta" -> applyTextDelta(detail, params, "plan")
             "item/reasoning/summaryTextDelta", "item/reasoning/textDelta" -> applyTextDelta(detail, params, "reasoning")
+            "item/commandExecution/outputDelta" -> applyOutputDelta(detail, params, "commandExecution", "aggregatedOutput")
+            "item/fileChange/outputDelta" -> applyOutputDelta(detail, params, "fileChange", "output")
+            "item/fileChange/patchUpdated" -> applyRawField(detail, params, "fileChange", "changes", params["changes"])
+            "item/mcpToolCall/progress" -> applyOutputDelta(detail, params, "mcpToolCall", "output", "message")
+            "turn/plan/updated" -> applyPlanUpdate(detail, params)
+            "error" -> applyError(detail, params)
+            "model/rerouted" -> applyModelReroute(detail, params)
             "thread/status/changed" -> {
                 val status = params["status"].statusName()
                 detail.copy(thread = detail.thread?.copy(runtimeState = status.runtimeState(), rawStatus = status))
             }
-            else -> detail
+            else -> applyOpaque(detail, notification.method, params)
         }
     }
 
@@ -99,8 +110,8 @@ object AppServerThreadReducer {
         if (request.method != "item/tool/requestUserInput") return detail
         val params = request.params as? JsonObject ?: return detail
         if (params.string("threadId")?.let { it != detail.thread?.threadId } == true) return detail
-        val turnId = params.string("turnId") ?: return detail
-        val itemId = params.string("itemId") ?: return detail
+        val turnId = params.string("turnId") ?: "request-turn-${request.id}"
+        val itemId = params.string("itemId") ?: "request-${request.id}"
         val questions = params.array("questions")
         val item = CodexItem(
             itemId = itemId,
@@ -131,7 +142,8 @@ object AppServerThreadReducer {
                 })
             },
         )
-        return detail.copy(turns = detail.turns.map { turn ->
+        val turns = detail.turns.ensureTurn(turnId)
+        return detail.copy(turns = turns.map { turn ->
             if (turn.turnId != turnId) turn else turn.copy(items = turn.items.replaceBy(CodexItem::itemId, item))
         })
     }
@@ -162,6 +174,161 @@ object AppServerThreadReducer {
             turn.copy(items = turn.items.replaceBy(CodexItem::itemId, item))
         })
     }
+
+    private fun applyOutputDelta(
+        detail: CodexThreadDetail,
+        params: JsonObject,
+        rawType: String,
+        field: String,
+        sourceField: String = "delta",
+    ): CodexThreadDetail {
+        val delta = params.string(sourceField) ?: return detail
+        val turnId = params.string("turnId") ?: return detail
+        val itemId = params.string("itemId") ?: return detail
+        return updateRawItem(detail, turnId, itemId, rawType) { raw ->
+            val previous = raw.string(field).orEmpty()
+            val separator = if (sourceField == "message" && previous.isNotBlank()) "\n" else ""
+            copyRaw(raw) { put(field, previous + separator + delta) }
+        }
+    }
+
+    private fun applyRawField(
+        detail: CodexThreadDetail,
+        params: JsonObject,
+        rawType: String,
+        field: String,
+        value: JsonElement?,
+    ): CodexThreadDetail {
+        val turnId = params.string("turnId") ?: return detail
+        val itemId = params.string("itemId") ?: return detail
+        val incoming = value ?: return detail
+        return updateRawItem(detail, turnId, itemId, rawType) { raw ->
+            copyRaw(raw) { put(field, incoming) }
+        }
+    }
+
+    private fun applyPlanUpdate(detail: CodexThreadDetail, params: JsonObject): CodexThreadDetail {
+        val turnId = params.string("turnId") ?: return detail
+        val itemId = "turn-plan-$turnId"
+        return updateRawItem(detail, turnId, itemId, "plan") { raw ->
+            copyRaw(raw) {
+                put("plan", params["plan"] ?: JsonArray(emptyList()))
+                params["explanation"]?.let { put("explanation", it) }
+            }
+        }
+    }
+
+    private fun applyError(detail: CodexThreadDetail, params: JsonObject): CodexThreadDetail {
+        val turnId = params.string("turnId") ?: return detail
+        val error = params["error"] as? JsonObject
+        val message = error?.string("message") ?: "Codex 执行失败"
+        val willRetry = (params["willRetry"] as? JsonPrimitive)?.contentOrNull == "true"
+        val itemId = "turn-error-$turnId-${message.hashCode()}"
+        val updated = upsertSyntheticItem(
+            detail = detail,
+            turnId = turnId,
+            item = CodexItem(
+                itemId = itemId,
+                type = "error",
+                rawType = "error",
+                role = "system",
+                text = message,
+                status = "completed",
+                raw = buildJsonObject {
+                put("message", message)
+                put("willRetry", willRetry)
+                error?.let { put("error", it) }
+                },
+            ),
+        ).copy(
+            thread = detail.thread?.copy(
+                runtimeState = if (willRetry) CodexRuntimeState.RUNNING else CodexRuntimeState.SYSTEM_ERROR,
+                rawStatus = if (willRetry) "active" else "systemError",
+            )
+        )
+        return updated.copy(turns = updated.turns.map { turn ->
+            if (turn.turnId == turnId) turn.copy(error = message) else turn
+        })
+    }
+
+    private fun applyModelReroute(detail: CodexThreadDetail, params: JsonObject): CodexThreadDetail {
+        val turnId = params.string("turnId") ?: return detail
+        val from = params.string("fromModel").orEmpty()
+        val to = params.string("toModel").orEmpty()
+        val itemId = "model-rerouted-$turnId-${from.hashCode()}-${to.hashCode()}"
+        return upsertSyntheticItem(
+            detail = detail,
+            turnId = turnId,
+            item = CodexItem(
+                itemId = itemId,
+                type = "modelRerouted",
+                rawType = "modelRerouted",
+                role = "system",
+                text = "模型已从 $from 切换到 $to",
+                status = "completed",
+                raw = params,
+            ),
+        )
+    }
+
+    private fun applyOpaque(detail: CodexThreadDetail, method: String, params: JsonObject): CodexThreadDetail {
+        val turnId = params.string("turnId") ?: return detail
+        val payload = params.toString().take(MAX_OPAQUE_CHARS)
+        return upsertSyntheticItem(
+            detail = detail,
+            turnId = turnId,
+            item = CodexItem(
+                itemId = "opaque-${method.hashCode()}-${payload.hashCode()}",
+                type = "opaqueNotification",
+                rawType = "opaqueNotification",
+                role = "system",
+                text = null,
+                status = "completed",
+                raw = buildJsonObject {
+                    put("method", method)
+                    put("receivedAt", System.currentTimeMillis())
+                    put("payload", payload)
+                },
+            ),
+        )
+    }
+
+    private fun updateRawItem(
+        detail: CodexThreadDetail,
+        turnId: String,
+        itemId: String,
+        rawType: String,
+        update: (JsonObject) -> JsonObject,
+    ): CodexThreadDetail {
+        val existing = detail.turns.firstOrNull { it.turnId == turnId }?.items?.firstOrNull { it.itemId == itemId }
+        val base = existing ?: CodexItem(
+            itemId = itemId,
+            type = rawType,
+            rawType = rawType,
+            role = "agent",
+            text = null,
+            status = "inProgress",
+            raw = buildJsonObject {
+                put("id", itemId)
+                put("type", rawType)
+                put("status", "inProgress")
+            },
+        )
+        return upsertSyntheticItem(detail, turnId, base.copy(raw = update(base.raw), status = "inProgress"))
+    }
+
+    private fun upsertSyntheticItem(detail: CodexThreadDetail, turnId: String, item: CodexItem): CodexThreadDetail {
+        val turns = detail.turns.ensureTurn(turnId)
+        return detail.copy(turns = turns.map { turn ->
+            if (turn.turnId != turnId) turn else turn.copy(items = turn.items.replaceBy(CodexItem::itemId, item))
+        })
+    }
+
+    private fun copyRaw(raw: JsonObject, update: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit): JsonObject =
+        buildJsonObject {
+            raw.forEach { (key, value) -> put(key, value) }
+            update()
+        }
 
     private fun mapTurn(raw: JsonObject): CodexTurn = CodexTurn(
         turnId = raw.string("id") ?: error("App Server turn is missing id"),
@@ -241,4 +408,16 @@ object AppServerThreadReducer {
         )
         return replaceBy(CodexTurn::turnId, merged)
     }
+
+    private fun List<CodexTurn>.ensureTurn(turnId: String): List<CodexTurn> =
+        if (any { it.turnId == turnId }) this else this + CodexTurn(
+            turnId = turnId,
+            status = "inProgress",
+            startedAt = System.currentTimeMillis(),
+            completedAt = null,
+            error = null,
+            items = emptyList(),
+        )
+
+    private const val MAX_OPAQUE_CHARS = 8_192
 }

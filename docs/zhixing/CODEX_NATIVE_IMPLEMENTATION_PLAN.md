@@ -460,3 +460,8 @@ Set-Location ..
   request_user_input、`-32001` 退避、断线自动重连、Supervisor schema 兼容门禁和运行参数拒绝回滚均进入
   生产路径并补测试。Android 260 项单测、Debug APK、Compose 仪器测试编译与模式切换真机测试全绿；
   最新 APK 经 loopback compatibility gate 实测收到 `DIRECT_GATE_OK`，普通 Chat 未建立 Work WebSocket。
+- 2026-07-20：按 Codex 0.144.0 `generate-ts --experimental` 的 `v2/UserInput` 修正通用文件：新消息发送
+  结构化 `mention { name, path }`，旧文本清单仅做历史兼容读取。
+- 2026-07-20：独立复审补齐官方 plan/command/file/MCP/error/model-reroute 与未知 opaque 事件累计；
+  `request_user_input` 在 Item 迟到时创建可回答的原生投影；参数拒绝只回退命中字段；未配置可选
+  Supervisor 时保持文本可写，仅禁用需要受控上传的附件。

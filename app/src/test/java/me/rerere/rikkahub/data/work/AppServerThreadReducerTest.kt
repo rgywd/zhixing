@@ -112,4 +112,84 @@ class AppServerThreadReducerTest {
         assertTrue(item.raw.toString().contains("ask_user"))
         assertTrue(item.raw.toString().contains("当前页"))
     }
+
+    @Test
+    fun `request user input creates a missing turn and item projection`() {
+        val detail = AppServerThreadReducer.snapshot(
+            json.parseToJsonElement(
+                """{"thread":{"id":"thread-1","preview":"Ask","createdAt":1,"updatedAt":2,"status":{"type":"active"},"turns":[]}}"""
+            ),
+            repositoryId = "repo-1",
+        )
+
+        val updated = AppServerThreadReducer.applyServerRequest(
+            detail,
+            AppServerRequest(
+                JsonPrimitive(8),
+                "item/tool/requestUserInput",
+                json.parseToJsonElement(
+                    """{"threadId":"thread-1","turnId":"turn-late","itemId":"ask-late","questions":[{"id":"scope","question":"范围？","options":[]}]}"""
+                ),
+            ),
+        )
+
+        assertTrue(AppServerThreadReducer.containsItem(updated, "ask-late"))
+        assertEquals("turn-late", updated.turns.single().turnId)
+    }
+
+    @Test
+    fun `official streaming notifications update the canonical item model`() {
+        var detail = AppServerThreadReducer.snapshot(
+            json.parseToJsonElement(
+                """{"thread":{"id":"thread-1","preview":"Run","createdAt":1,"updatedAt":2,"status":{"type":"active"},"turns":[{"id":"turn-1","status":"inProgress","items":[]}]}}"""
+            ),
+            repositoryId = "repo-1",
+        )
+        fun apply(method: String, params: String) {
+            detail = AppServerThreadReducer.apply(
+                detail,
+                AppServerNotification(method, json.parseToJsonElement(params)),
+            )
+        }
+
+        apply("item/plan/delta", """{"threadId":"thread-1","turnId":"turn-1","itemId":"plan-1","delta":"Step one"}""")
+        apply("item/commandExecution/outputDelta", """{"threadId":"thread-1","turnId":"turn-1","itemId":"cmd-1","delta":"stdout"}""")
+        apply("item/fileChange/patchUpdated", """{"threadId":"thread-1","turnId":"turn-1","itemId":"patch-1","changes":[{"path":"a.kt","kind":{"type":"add"},"diff":"+x"}]}""")
+        apply("item/mcpToolCall/progress", """{"threadId":"thread-1","turnId":"turn-1","itemId":"mcp-1","message":"working"}""")
+        apply("turn/plan/updated", """{"threadId":"thread-1","turnId":"turn-1","explanation":"why","plan":[{"step":"test","status":"inProgress"}]}""")
+        apply("model/rerouted", """{"threadId":"thread-1","turnId":"turn-1","fromModel":"a","toModel":"b","reason":"fallback"}""")
+        apply("future/threadEvent", """{"threadId":"thread-1","turnId":"turn-1","value":"opaque"}""")
+
+        val items = detail.turns.single().items.associateBy { it.itemId }
+        assertEquals("Step one", items.getValue("plan-1").text)
+        assertTrue(items.getValue("cmd-1").raw.toString().contains("stdout"))
+        assertTrue(items.getValue("patch-1").raw.toString().contains("a.kt"))
+        assertTrue(items.getValue("mcp-1").raw.toString().contains("working"))
+        assertTrue(items.containsKey("turn-plan-turn-1"))
+        assertTrue(items.values.any { it.rawType == "modelRerouted" && it.text?.contains("b") == true })
+        assertTrue(items.values.any { it.rawType == "opaqueNotification" })
+    }
+
+    @Test
+    fun `error notification is visible and moves thread to system error`() {
+        val detail = AppServerThreadReducer.snapshot(
+            json.parseToJsonElement(
+                """{"thread":{"id":"thread-1","preview":"Run","createdAt":1,"updatedAt":2,"status":{"type":"active"},"turns":[{"id":"turn-1","status":"inProgress","items":[]}]}}"""
+            ),
+            repositoryId = "repo-1",
+        )
+        val failed = AppServerThreadReducer.apply(
+            detail,
+            AppServerNotification(
+                "error",
+                json.parseToJsonElement(
+                    """{"threadId":"thread-1","turnId":"turn-1","willRetry":false,"error":{"message":"boom","codexErrorInfo":null,"additionalDetails":null}}"""
+                ),
+            ),
+        )
+
+        assertEquals("SYSTEM_ERROR", failed.thread?.runtimeState?.name)
+        assertEquals("boom", failed.turns.single().error)
+        assertTrue(failed.turns.single().items.any { it.text == "boom" })
+    }
 }

@@ -70,6 +70,10 @@ class BundledCodexCatalogTest {
         assertEquals(AppServerCompatibilityLevel.READ_ONLY, unknown.level)
         assertEquals(AppServerCompatibilityLevel.TEXT_ONLY, textOnly.level)
         assertEquals(AppServerCompatibilityLevel.FULL, full.level)
+        assertEquals(
+            AppServerCompatibilityLevel.TEXT_ONLY,
+            AppServerCompatibilityGate.withoutSupervisor().level,
+        )
     }
 
     @Test
@@ -102,6 +106,25 @@ class BundledCodexCatalogTest {
         assertEquals(AppServerCompatibilityGate.requiredWriteMethods, facts.methods)
         assertTrue(facts.attachmentSupervisorReady)
         assertEquals(AppServerCompatibilityLevel.FULL, AppServerCompatibilityGate.evaluate(facts).level)
+    }
+
+    @Test
+    fun `model reroute notification updates runtime selection`() {
+        val current = me.rerere.rikkahub.data.workflow.codex.CodexRuntimeSettingsState(model = "old")
+        val updated = AppServerRuntimeMapper.applyNotification(
+            current,
+            AppServerNotification(
+                "model/rerouted",
+                buildJsonObject {
+                    put("threadId", "thread-1")
+                    put("turnId", "turn-1")
+                    put("fromModel", "old")
+                    put("toModel", "new")
+                },
+            ),
+        )
+
+        assertEquals("new", updated.model)
     }
 }
 
