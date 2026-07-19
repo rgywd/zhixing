@@ -304,6 +304,7 @@ App Server 最后确认的 model、reasoningEffort、serviceTier、permission pr
   "detailId": "uuidv7",
   "machineId": "machine",
   "threadId": "codex-thread-uuid",
+  "revision": 1740000000000,
   "chunkIndex": 0,
   "chunkCount": 4,
   "contentHash": "sha256-of-complete-plaintext",
@@ -327,7 +328,8 @@ Android 使用 `runtime.catalog` 命令按 Thread CWD 请求一次版本化目�
 - `skills/list`：name、path、description、enabled；
 - `plugin/list` / `app/list`：安装、启用、授权和不可用原因。
 
-这些目录只存在于 E2E 密文。Android 不把本地 Provider `Model` 列表当成 Codex 模型事实。
+这些目录只存在于 E2E 密文。Android 不把本地 Provider `Model` 列表当成 Codex 模型事实。插件或 App
+端点失败时 catalog 必须返回 `capabilities.<name>.available=false` 和脱敏错误，不能把失败伪装成“列表为空”。
 
 ### 8.2 附件
 
@@ -384,6 +386,9 @@ Android 只发送：
 
 Skill path 必须来自 Agent 发布的目录；localImage/mention path 必须来自本次 E2E 上传回执。Agent 将结构化 input
 原样交给当前 App Server；未知输入类型拒绝对应 Turn，不得静默丢弃后只发送文本。
+
+`approval.resolve` 的 decision 支持 `accept/decline/cancel`；`interaction.resolve` 支持答案或 `decision=cancel`。
+Android 必须在对应 Tool/ask_user 内提供取消入口，Agent 将 cancel 原样完成 App Server 的挂起请求。
 
 恢复优先使用 threadId。同一 Thread 已有 RuntimeBinding 时重连现有 binding。Desktop 状态未知时，resume 必须带用户确认标记；Agent 不做静默危险重试。
 
@@ -467,6 +472,7 @@ Android 按 envelope sequence 去重并按 itemId upsert；发现 gap 时请求 
 - snapshot 与等价 runtime event replay 得到相同结构化 `UIMessagePart`。
 - model/effort/tier/profile 只接受 catalog 中当前模型支持值，并以 App Server 确认响应为准。
 - 图片/文件 attachment 的 hash、缺块、重复、路径逃逸、大小限制和 TTL 清理。
+- Android 与 Agent 共同读取的 `runtime-command-turn-start` fixture，防止跨语言字段漂移。
 - v1.0 客户端面对 v1.1 可选 payload 明确只读降级，不执行缺少 capability 的写操作。
 
 ## 15. 明确不承诺

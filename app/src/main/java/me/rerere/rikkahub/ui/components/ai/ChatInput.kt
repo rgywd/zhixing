@@ -133,6 +133,7 @@ fun ChatInput(
     onSendClick: () -> Unit,
     onLongSendClick: () -> Unit,
     canSend: Boolean = !state.isEmpty(),
+    allowSendWhileLoading: Boolean = false,
     controlContent: (@Composable RowScope.() -> Unit)? = null,
     statusContent: (@Composable () -> Unit)? = null,
 ) {
@@ -158,13 +159,13 @@ fun ChatInput(
     fun sendMessage() {
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
-        if (loading) onCancelClick() else onSendClick()
+        if (shouldStopOnSend(loading, canSend, allowSendWhileLoading)) onCancelClick() else onSendClick()
     }
 
     fun sendMessageWithoutAnswer() {
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
-        if (loading) onCancelClick() else onLongSendClick()
+        if (shouldStopOnSend(loading, canSend, allowSendWhileLoading)) onCancelClick() else onLongSendClick()
     }
 
     val asr = LocalASRState.current
@@ -355,13 +356,14 @@ fun ChatInput(
                                         }
                                     )
                             ) {
+                                val showStop = shouldStopOnSend(loading, canSend, allowSendWhileLoading)
                                 val containerColor = when {
-                                    loading -> MaterialTheme.colorScheme.errorContainer
+                                    showStop -> MaterialTheme.colorScheme.errorContainer
                                     !canSend -> MaterialTheme.colorScheme.surfaceContainerHigh
                                     else -> MaterialTheme.colorScheme.primary
                                 }
                                 val contentColor = when {
-                                    loading -> MaterialTheme.colorScheme.onErrorContainer
+                                    showStop -> MaterialTheme.colorScheme.onErrorContainer
                                     !canSend -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                                     else -> MaterialTheme.colorScheme.onPrimary
                                 }
@@ -370,7 +372,7 @@ fun ChatInput(
                                     shape = CircleShape,
                                     color = containerColor,
                                     content = {})
-                                if (loading) {
+                                if (showStop) {
                                     KeepScreenOn()
                                     Icon(
                                         imageVector = HugeIcons.Cancel01,
@@ -395,6 +397,9 @@ fun ChatInput(
         }
     }
 }
+
+internal fun shouldStopOnSend(loading: Boolean, canSend: Boolean, allowSendWhileLoading: Boolean): Boolean =
+    loading && !(allowSendWhileLoading && canSend)
 
 @Composable
 private fun ActionIconButton(

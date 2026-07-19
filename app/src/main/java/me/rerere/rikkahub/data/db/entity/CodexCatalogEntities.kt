@@ -125,6 +125,17 @@ data class CodexRuntimeBindingEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
 )
 
+@Entity(
+    tableName = "codex_thread_detail_revisions",
+    primaryKeys = ["machine_id", "thread_id"],
+)
+data class CodexThreadDetailRevisionEntity(
+    @ColumnInfo(name = "machine_id") val machineId: String,
+    @ColumnInfo(name = "thread_id") val threadId: String,
+    @ColumnInfo(name = "revision") val revision: Long,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
 @Entity(tableName = "codex_runtime_catalogs", primaryKeys = ["machine_id", "cwd"])
 data class CodexRuntimeCatalogEntity(
     @ColumnInfo(name = "machine_id") val machineId: String,

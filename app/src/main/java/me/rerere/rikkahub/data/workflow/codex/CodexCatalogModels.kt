@@ -134,7 +134,20 @@ data class RuntimeCatalogPayload(
     val skills: List<CodexSkillOption> = emptyList(),
     val plugins: List<CodexPluginOption> = emptyList(),
     val apps: List<CodexAppOption> = emptyList(),
+    val capabilities: CodexCatalogCapabilities = CodexCatalogCapabilities(),
     val generatedAt: Long,
+)
+
+@Serializable
+data class CodexCatalogCapabilities(
+    val plugins: CodexCapabilityState = CodexCapabilityState(),
+    val apps: CodexCapabilityState = CodexCapabilityState(),
+)
+
+@Serializable
+data class CodexCapabilityState(
+    val available: Boolean = true,
+    val error: String? = null,
 )
 
 @Serializable
@@ -329,6 +342,7 @@ data class CatalogThreadPayload(
 data class ThreadDetailPayload(
     val machineId: String,
     val threadId: String,
+    val revision: Long,
     val turns: List<CatalogTurnPayload>,
 )
 
@@ -387,6 +401,7 @@ data class ThreadDetailChunkPayload(
     val detailId: String,
     val machineId: String,
     val threadId: String,
+    val revision: Long,
     val chunkIndex: Int,
     val chunkCount: Int,
     val contentHash: String,

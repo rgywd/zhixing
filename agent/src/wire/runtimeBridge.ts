@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, extname, join, resolve } from 'node:path'
+import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { normalizeThreadDetail } from '../catalog/threadDetail.js'
 import {
   CodexAppServerClient,
@@ -73,6 +73,13 @@ interface PendingApproval {
   threadId: string
 }
 
+interface RuntimeCatalogState {
+  cwd: string
+  models: unknown[]
+  permissionProfiles: unknown[]
+  skills: unknown[]
+}
+
 interface PendingInteraction {
   resolve: (response: unknown) => void
   threadId: string
@@ -123,6 +130,9 @@ export class WireCodexRuntimeBridge {
   private readonly runtimes = new Map<string, RuntimeBinding>()
   private readonly approvals = new Map<string, PendingApproval>()
   private readonly interactions = new Map<string, PendingInteraction>()
+  private readonly catalogs = new Map<string, RuntimeCatalogState>()
+  private readonly authorizedUploads = new Map<string, number>()
+  private readonly detailRevisions = new Map<string, number>()
   private readonly uploads = new Map<string, {
     chunks: Buffer[]
     chunkCount: number
@@ -203,12 +213,14 @@ export class WireCodexRuntimeBridge {
         const client = this.clientFactory()
         await this.startClient(client)
         try {
-          const [models, permissionProfiles, skills, plugins, apps] = await Promise.all([
+          const [models, permissionProfiles, skills] = await Promise.all([
             client.listModels(),
             client.listPermissionProfiles(cwd),
             client.listSkills(cwd),
-            client.listPlugins(cwd).catch(() => ({ marketplaces: [] })),
-            client.listApps().catch(() => ({ data: [] })),
+          ])
+          const [pluginsResult, appsResult] = await Promise.allSettled([
+            client.listPlugins(cwd),
+            client.listApps(),
           ])
           const catalog = {
             machineId: this.options.machineId,
@@ -216,10 +228,20 @@ export class WireCodexRuntimeBridge {
             models: responseData(models),
             permissionProfiles: responseData(permissionProfiles),
             skills: responseSkills(skills),
-            plugins: responsePlugins(plugins),
-            apps: responseData(apps),
+            plugins: pluginsResult.status === 'fulfilled' ? responsePlugins(pluginsResult.value) : [],
+            apps: appsResult.status === 'fulfilled' ? responseData(appsResult.value) : [],
+            capabilities: {
+              plugins: capabilityResult(pluginsResult),
+              apps: capabilityResult(appsResult),
+            },
             generatedAt: Date.now(),
           }
+          this.catalogs.set(cwd, {
+            cwd,
+            models: catalog.models,
+            permissionProfiles: catalog.permissionProfiles,
+            skills: catalog.skills,
+          })
           await this.relay.publish('runtime.catalog', catalog, `runtime_catalog_${this.options.machineId}`, requestId)
           return { cwd, modelCount: catalog.models.length, skillCount: catalog.skills.length }
         } finally {
@@ -233,13 +255,14 @@ export class WireCodexRuntimeBridge {
         if (!runtime) await this.startClient(client)
         try {
           const detail = normalizeThreadDetail(this.options.machineId, await client.readThread(threadId, true))
-          await this.publishThreadDetailPayload(detail, threadId, requestId)
-          return { threadId }
+          const revision = await this.publishThreadDetailPayload(detail, threadId, requestId)
+          return { threadId, revision }
         } finally {
           if (!runtime) client.stop()
         }
       }
       case 'thread.start': {
+        this.validateRuntimeOptions(command)
         const client = this.clientFactory()
         await this.startClient(client)
         const started = await client.startThread({
@@ -267,6 +290,7 @@ export class WireCodexRuntimeBridge {
         let runtime = this.runtimes.get(threadId)
         if (!runtime) {
           if (!command.confirmedUnknown) throw new Error('该任务由桌面端创建，继续前需要用户确认接管')
+          this.validateRuntimeOptions(command)
           const client = this.clientFactory()
           await this.startClient(client)
           const resumed = await client.resumeThread(threadId, {
@@ -279,6 +303,8 @@ export class WireCodexRuntimeBridge {
           })
           runtime = this.bind(client, threadId)
           await this.publishConfirmedSettings(threadId, resumed)
+        } else {
+          this.validateRuntimeOptions(command)
         }
         if (hasInput(command)) await this.startTurn(runtime, command)
         return { threadId, bindingId: runtime.bindingId }
@@ -301,7 +327,7 @@ export class WireCodexRuntimeBridge {
         await runtime.client.steerTurn(
           runtime.threadId,
           requireString(runtime.activeTurnId, 'activeTurnId'),
-          runtimeInput(command),
+          await this.validatedRuntimeInput(command),
         )
         return { threadId: runtime.threadId }
       }
@@ -323,10 +349,16 @@ export class WireCodexRuntimeBridge {
         const approvalId = requireString(command.approvalId, 'approvalId')
         const interaction = this.interactions.get(approvalId)
         if (!interaction) throw new Error('交互请求已失效')
-        const response = normalizeUserInputAnswer(requireString(command.answer, 'answer'))
+        const cancelled = command.decision === 'cancel'
+        const response = cancelled
+          ? { answers: {} }
+          : normalizeUserInputAnswer(requireString(command.answer, 'answer'))
         interaction.resolve(response)
         this.interactions.delete(approvalId)
-        await this.publishEvent(interaction.threadId, 'approval.resolved', { approvalId, decision: 'answered' })
+        await this.publishEvent(interaction.threadId, 'approval.resolved', {
+          approvalId,
+          decision: cancelled ? 'cancel' : 'answered',
+        })
         return { threadId: interaction.threadId, approvalId }
       }
       case 'thread.archive':
@@ -412,15 +444,22 @@ export class WireCodexRuntimeBridge {
     const localPath = join(directory, fileName)
     await writeFile(localPath, content, { flag: 'wx' }).catch(async (error: NodeJS.ErrnoException) => {
       if (error.code !== 'EEXIST') throw error
-      await writeFile(localPath, content)
+      const existing = await readFile(localPath)
+      if (createHash('sha256').update(existing).digest('hex') !== sha256) {
+        throw new Error('重复附件回执与已有内容冲突')
+      }
     })
     this.uploads.delete(attachmentId)
+    this.authorizedUploads.set(resolve(localPath), this.now() + UPLOAD_TTL_MS)
     return { attachmentId, received, chunkCount, complete: true, localPath, mime }
   }
 
   private async pruneExpiredUploads(now = this.now()): Promise<void> {
     for (const [id, upload] of this.uploads) {
       if (now - upload.updatedAt > UPLOAD_TTL_MS) this.uploads.delete(id)
+    }
+    for (const [path, expiresAt] of this.authorizedUploads) {
+      if (expiresAt < now) this.authorizedUploads.delete(path)
     }
     const root = this.uploadDirectory
     const entries = await readdir(root, { withFileTypes: true }).catch(() => [])
@@ -486,7 +525,7 @@ export class WireCodexRuntimeBridge {
     if (runtime.activeTurnId) throw new Error('任务正在运行，请使用“补充要求”或先停止')
     const turn = await runtime.client.startTurn({
       threadId: runtime.threadId,
-      input: runtimeInput(command),
+      input: await this.validatedRuntimeInput(command),
       model: command.model,
       effort: command.effort,
       serviceTier: command.serviceTier,
@@ -522,6 +561,44 @@ export class WireCodexRuntimeBridge {
       })
       return
     }
+    if (method === 'item/plan/delta') {
+      const itemId = String(params.itemId ?? '')
+      const text = (runtime.deltas.get(itemId) ?? '') + String(params.delta ?? '')
+      runtime.deltas.set(itemId, text)
+      const item = { ...(runtime.items.get(itemId) ?? {}), id: itemId, type: 'plan', text }
+      runtime.items.set(itemId, item)
+      await this.publishEvent(runtime.threadId, 'item.delta', {
+        turnId: params.turnId ?? runtime.activeTurnId,
+        itemId,
+        itemType: 'plan',
+        role: 'agent',
+        text,
+        status: 'inProgress',
+        payload: item,
+      })
+      return
+    }
+    if (method === 'turn/plan/updated') {
+      const turnId = String(params.turnId ?? runtime.activeTurnId ?? '')
+      const itemId = `turn_plan_${turnId}`
+      const item = {
+        id: itemId,
+        type: 'plan',
+        explanation: params.explanation ?? null,
+        plan: Array.isArray(params.plan) ? params.plan : [],
+      }
+      runtime.items.set(itemId, item)
+      await this.publishEvent(runtime.threadId, 'item.delta', {
+        turnId,
+        itemId,
+        itemType: 'plan',
+        role: 'agent',
+        text: planText(item),
+        status: 'inProgress',
+        payload: item,
+      })
+      return
+    }
     if (method === 'thread/settings/updated') {
       const settings = (params.threadSettings ?? {}) as Record<string, unknown>
       const activeProfile = (settings.activePermissionProfile ?? {}) as Record<string, unknown>
@@ -542,6 +619,18 @@ export class WireCodexRuntimeBridge {
         usedTokens: total.totalTokens ?? null,
         contextWindow: usage.modelContextWindow ?? null,
         payload: usage,
+      })
+      return
+    }
+    if (method === 'model/rerouted') {
+      await this.publishEvent(runtime.threadId, 'thread.settings', {
+        turnId: params.turnId ?? runtime.activeTurnId,
+        model: params.toModel ?? null,
+        payload: {
+          reroutedFrom: params.fromModel ?? null,
+          model: params.toModel ?? null,
+          reason: params.reason ?? null,
+        },
       })
       return
     }
@@ -579,6 +668,62 @@ export class WireCodexRuntimeBridge {
         itemType: 'commandExecution',
         role: 'tool',
         text: summarizeItem(item),
+        status: 'inProgress',
+        payload: item,
+      })
+      return
+    }
+    if (method === 'item/fileChange/outputDelta') {
+      const itemId = String(params.itemId ?? '')
+      const output = (runtime.deltas.get(itemId) ?? '') + String(params.delta ?? '')
+      runtime.deltas.set(itemId, output)
+      const item = { ...(runtime.items.get(itemId) ?? {}), id: itemId, type: 'fileChange', output }
+      runtime.items.set(itemId, item)
+      await this.publishEvent(runtime.threadId, 'item.delta', {
+        turnId: params.turnId ?? runtime.activeTurnId,
+        itemId,
+        itemType: 'fileChange',
+        role: 'tool',
+        text: '修改文件',
+        status: 'inProgress',
+        payload: item,
+      })
+      return
+    }
+    if (method === 'item/fileChange/patchUpdated') {
+      const itemId = String(params.itemId ?? '')
+      const item = {
+        ...(runtime.items.get(itemId) ?? {}),
+        id: itemId,
+        type: 'fileChange',
+        changes: Array.isArray(params.changes) ? params.changes : [],
+      }
+      runtime.items.set(itemId, item)
+      await this.publishEvent(runtime.threadId, 'item.delta', {
+        turnId: params.turnId ?? runtime.activeTurnId,
+        itemId,
+        itemType: 'fileChange',
+        role: 'tool',
+        text: '修改文件',
+        status: 'inProgress',
+        payload: item,
+      })
+      return
+    }
+    if (method === 'item/mcpToolCall/progress') {
+      const itemId = String(params.itemId ?? '')
+      const messages = [
+        ...arrayStrings((runtime.items.get(itemId) ?? {}).progress),
+        String(params.message ?? ''),
+      ].filter(Boolean)
+      const item = { ...(runtime.items.get(itemId) ?? {}), id: itemId, type: 'mcpToolCall', progress: messages }
+      runtime.items.set(itemId, item)
+      await this.publishEvent(runtime.threadId, 'item.delta', {
+        turnId: params.turnId ?? runtime.activeTurnId,
+        itemId,
+        itemType: 'mcpToolCall',
+        role: 'tool',
+        text: messages.join('\n'),
         status: 'inProgress',
         payload: item,
       })
@@ -711,11 +856,82 @@ export class WireCodexRuntimeBridge {
     await this.publishThreadDetailPayload(detail, runtime.threadId)
   }
 
-  private async publishThreadDetailPayload(detail: unknown, threadId: string, requestId?: string): Promise<void> {
-    const content = Buffer.from(JSON.stringify(detail), 'utf8')
+  private validateRuntimeOptions(command: RuntimeCommand): void {
+    const cwd = requireString(command.cwd, 'cwd')
+    const catalog = this.catalogs.get(cwd)
+    if (!catalog) throw new Error('运行参数目录尚未加载，请先刷新 Codex 选项')
+    const model = command.model == null ? null : catalog.models
+      .map(asRecord)
+      .find((entry) => entry.id === command.model || entry.model === command.model)
+    if (command.model != null && !model) throw new Error('所选模型不在当前 Codex catalog 中')
+    if (command.effort != null && model) {
+      const efforts = arrayRecords(model.supportedReasoningEfforts).map((entry) => entry.reasoningEffort)
+      if (!efforts.includes(command.effort)) throw new Error('所选思考深度不受当前模型支持')
+    }
+    if (command.serviceTier != null && model) {
+      const tiers = arrayRecords(model.serviceTiers).map((entry) => entry.id)
+      if (!tiers.includes(command.serviceTier)) throw new Error('所选服务档位不受当前模型支持')
+    }
+    if (command.permissions != null) {
+      const profile = catalog.permissionProfiles.map(asRecord).find((entry) => entry.id === command.permissions)
+      if (!profile || profile.allowed === false) throw new Error('所选权限档位当前不可用')
+    }
+  }
+
+  private async validatedRuntimeInput(command: RuntimeCommand): Promise<Array<Record<string, unknown>>> {
+    this.validateRuntimeOptions(command)
+    await this.pruneExpiredUploads()
+    const cwd = requireString(command.cwd, 'cwd')
+    const catalog = requireDefined(this.catalogs.get(cwd), '运行参数目录尚未加载')
+    const model = command.model == null ? null : catalog.models.map(asRecord)
+      .find((entry) => entry.id === command.model || entry.model === command.model)
+    const modalities = model && Array.isArray(model.inputModalities)
+      ? model.inputModalities.map(String)
+      : ['text', 'image']
+    const inputs = rawRuntimeInput(command)
+    for (const input of inputs) {
+      const type = requireString(input.type, 'input.type')
+      if (type === 'text') {
+        requireString(input.text, 'input.text')
+      } else if (type === 'image') {
+        if (!modalities.includes('image')) throw new Error('所选模型不支持图片输入')
+        const url = requireString(input.url, 'input.url')
+        if (!/^(https?:\/\/|data:)/u.test(url)) throw new Error('远程图片地址无效')
+      } else if (type === 'localImage' || type === 'mention') {
+        if (type === 'localImage' && !modalities.includes('image')) throw new Error('所选模型不支持图片输入')
+        const path = resolve(requireString(input.path, 'input.path'))
+        if (!await this.isAuthorizedUpload(path)) throw new Error('附件路径不是有效的上传回执')
+        input.path = path
+      } else if (type === 'skill') {
+        const name = requireString(input.name, 'input.name')
+        const path = resolve(requireString(input.path, 'input.path'))
+        const allowed = catalog.skills.map(asRecord).some((skill) =>
+          skill.name === name && typeof skill.path === 'string' && resolve(skill.path) === path && skill.enabled !== false)
+        if (!allowed) throw new Error('Skill 不属于当前工作目录的可用 catalog')
+        input.path = path
+      } else {
+        throw new Error(`不支持的 Codex 输入类型：${type}`)
+      }
+    }
+    return inputs
+  }
+
+  private async isAuthorizedUpload(path: string): Promise<boolean> {
+    const root = resolve(this.uploadDirectory)
+    if (!isInside(root, path)) return false
+    const expiresAt = this.authorizedUploads.get(path)
+    return expiresAt != null && expiresAt >= this.now()
+  }
+
+  private async publishThreadDetailPayload(detail: unknown, threadId: string, requestId?: string): Promise<number> {
+    const previous = this.detailRevisions.get(threadId) ?? 0
+    const revision = Math.max(this.now(), previous + 1)
+    this.detailRevisions.set(threadId, revision)
+    const versionedDetail = { ...asRecord(detail), revision }
+    const content = Buffer.from(JSON.stringify(versionedDetail), 'utf8')
     if (content.length <= 384 * 1024) {
-      await this.relay.publish('thread.detail', detail, `detail_${this.options.machineId}_${threadId}`, requestId)
-      return
+      await this.relay.publish('thread.detail', versionedDetail, `detail_${this.options.machineId}_${threadId}`, requestId)
+      return revision
     }
     const detailId = randomUUID()
     const contentHash = createHash('sha256').update(content).digest('hex')
@@ -726,6 +942,7 @@ export class WireCodexRuntimeBridge {
         detailId,
         machineId: this.options.machineId,
         threadId,
+        revision,
         chunkIndex,
         chunkCount: chunks.length,
         contentHash,
@@ -733,6 +950,7 @@ export class WireCodexRuntimeBridge {
         contentBase64: chunk.toString('base64url'),
       }, `detail_${this.options.machineId}_${threadId}`, requestId)
     }
+    return revision
   }
 
   private async publishConfirmedSettings(threadId: string, value: unknown): Promise<void> {
@@ -842,6 +1060,20 @@ function sanitizeApproval(params: Record<string, unknown>): Record<string, unkno
   )
 }
 
+function planText(item: Record<string, unknown>): string {
+  const explanation = typeof item.explanation === 'string' ? item.explanation : ''
+  const steps = arrayRecords(item.plan).map((step) => {
+    const label = String(step.step ?? step.text ?? '')
+    const status = typeof step.status === 'string' ? ` [${step.status}]` : ''
+    return label ? `- ${label}${status}` : ''
+  }).filter(Boolean)
+  return [explanation, ...steps].filter(Boolean).join('\n') || '计划已更新'
+}
+
+function arrayStrings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
+}
+
 function normalizeUserInputQuestions(value: unknown): Array<{
   id: string
   question: string
@@ -939,10 +1171,36 @@ function imageMime(path: string): string {
   }
 }
 
-function runtimeInput(command: RuntimeCommand): Array<Record<string, unknown>> {
+function rawRuntimeInput(command: RuntimeCommand): Array<Record<string, unknown>> {
   if (command.input?.length) return command.input
   if (command.text?.trim()) return [{ type: 'text', text: command.text }]
   throw new Error('input 不能为空')
+}
+
+function capabilityResult(result: PromiseSettledResult<unknown>): { available: boolean; error?: string } {
+  if (result.status === 'fulfilled') return { available: true }
+  return {
+    available: false,
+    error: result.reason instanceof Error ? result.reason.message.slice(0, 500) : String(result.reason).slice(0, 500),
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function arrayRecords(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.map(asRecord) : []
+}
+
+function requireDefined<T>(value: T | undefined, message: string): T {
+  if (value === undefined) throw new Error(message)
+  return value
+}
+
+function isInside(root: string, candidate: string): boolean {
+  const path = relative(root, candidate)
+  return path !== '' && !path.startsWith('..') && !isAbsolute(path)
 }
 
 function hasInput(command: RuntimeCommand): boolean {

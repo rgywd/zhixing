@@ -1,6 +1,6 @@
 # 知行 Codex 原生会话打磨实施计划
 
-状态：Implementation complete, awaiting independent audit
+状态：Implementation verified；首轮独立审查未通过后的缺口已修复，等待全新审查轮
 日期：2026-07-19
 分支：`feat/49-codex-chat-parity`
 验收合同：[`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md)
@@ -8,7 +8,7 @@
 ## 1. 当前基线
 
 `v0.2.0` 已完成 Wire v1、Codex Catalog、项目/历史入口和基本 Runtime Bridge；`v0.2.1` 修复 Agent
-常驻与项目目录整理。当前缺口集中在 Thread 会话本身：协议被压成纯文本、历史一次性同步、输入区重新实现，
+常驻与项目目录整理。立项时的缺口集中在 Thread 会话本身：协议被压成纯文本、历史一次性同步、输入区重新实现，
 模型/思考/附件/Skill/上下文/权限和既有 Markdown/思考/工具渲染均未形成完整闭环。
 
 本计划不重新建设 Catalog、Relay 或项目管理，而是在现有架构上补齐“Codex 是知行聊天运行时”这一层。
@@ -97,7 +97,7 @@ GREEN：
 - Thread snapshot chunk 具备 revision、hash、原子提交和缺块重试。
 - Runtime event 带 sequence，Android reducer 幂等应用并检测 gap。
 - 结构化 Item、runtime settings、catalog 和 token usage 增量持久化。
-- v0.2.1 旧表增量迁移，旧 text 只作为 fallback。
+- v0.2.1 Room 30 通过 `30 -> 31` 增量迁移保留数据，详情 revision 使用新表，旧 text 只作为 fallback。
 
 ## 6. Phase D：Codex 消息投影器
 
@@ -144,8 +144,8 @@ GREEN：
 
 实施原则：
 
-- 抽取 `ChatComposer`，保留现有 `ChatInput` 作为 Provider Chat adapter。
-- 抽取可被 Codex 使用的 Timeline/Message row，不复制 `ChatMessage` 逻辑。
+- Codex 通过 `CodexChatComposer` 适配现有 `ChatInput`；普通 Provider Chat 的默认发送/停止语义保持不变。
+- Codex Thread 直接复用 `MessagePartsBlock`，不复制 `ChatMessage` 的 Markdown、思考和工具渲染逻辑。
 - Model/Reasoning UI 数据驱动；Provider Model 和 Codex model catalog 分别适配。
 - Codex reasoning 支持运行时广播的 `max/ultra`，不修改 Provider 语义。
 
@@ -232,11 +232,22 @@ npm run build
   snapshot 与 runtime event 统一通过 `CodexRuntimeItemReducer` 和 `CodexMessageProjector`。
 - 2026-07-19：Codex Thread 切换到共享 `ChatInput` 容器和 `MessagePartsBlock`，接入图片/文件、
   model、effort、Fast、权限、Skill、插件/App 可用性、上下文用量、steer/interrupt 与内联审批。
-- 2026-07-19：自动化验证通过：Agent 17 个测试文件/63 项，Relay 3 个测试文件/7 项，
-  Android 213 项单测；三端 typecheck/build 与 debug APK 构建通过。
+- 2026-07-19：首轮独立审查结论为 FAIL：运行中补充要求不可达，plan/file/MCP/reroute 事件、取消审批、
+  动态目录与上传回执校验、详情 revision 防回退及跨层证据不足；未将该轮误记为通过。
+- 2026-07-19：按首轮审查逐项修复：共享 `ChatInput` 在 Codex 运行中有草稿时发送 steer、无草稿时停止；
+  Agent 补齐 plan/file/MCP/reroute，catalog 值与 Skill/附件回执双端校验，插件/App 失败显式进入 capability；
+  审批和 request_user_input 均支持 cancel；详情带 revision 回执，Android 仅在相同 revision 已原子落库后确认成功。
+- 2026-07-19：补齐 schema golden fixture、共享 Android→Wire→Agent 命令 fixture、全类型多 Turn 历史/实时等价、
+  设置/用量/reroute 合并、普通 ChatInput 无回归、缺块和旧 revision 等测试。
+- 2026-07-19：第二轮审查前自动化基线：Agent 17 个测试文件/69 项，Relay 3 个测试文件/7 项，
+  Android 48 个测试类/223 项（0 failure、0 skipped）；三端 typecheck/build 与 debug APK 构建通过。
 - 2026-07-19：Android 35 x86_64 模拟器完成浅色、深色、大字体、横屏与 IME 场景检查；
   证据保存在本地 `build/ui-audit/codex-final-*.png`。检查期间发现并修复运行中 reasoning
   在开发机/手机时钟偏差下出现负计时的问题。
+- 2026-07-19：覆盖安装验证发现已发布的 Room 30 不能被改写；新增正式 `30 -> 31` AutoMigration，
+  恢复 30 号 schema 并生成 31 号 schema。`Migration_30_31_Test` 通过 ADB/AndroidJUnitRunner
+  在 Android 35 模拟器执行（1/1）；保留旧 0.2.1 数据覆盖安装后正常恢复 `RouteActivity`，
+  logcat 无 Room identity/SafeMode/FATAL 错误，证据为本地 `build/ui-audit/codex-room31-upgrade.png`。
 
 ## 12. 延期项
 

@@ -15,6 +15,36 @@ import {
 } from './runtimeBridge.js'
 
 describe('WireCodexRuntimeBridge', () => {
+  it('executes the shared Android turn-start contract fixture end to end', async () => {
+    const body = JSON.parse(await readFile(
+      new URL('../../../docs/zhixing/fixtures/runtime-command-turn-start.json', import.meta.url),
+      'utf8',
+    )) as Record<string, unknown>
+    const relay = new FakeRelay([
+      command('request_catalog', 'runtime.catalog', { cwd: 'C:\\repo' }),
+      command('android_fixture', 'turn.start', body),
+    ])
+    const codex = new FakeCodexClient()
+    const bridge = new WireCodexRuntimeBridge(relay, { machineId: 'machine_1', clientFactory: () => codex })
+
+    await bridge.pollOnce()
+
+    expect(codex.resumed).toEqual(['thread_1'])
+    expect(codex.startedTurns).toEqual([expect.objectContaining({
+      threadId: 'thread_1',
+      model: 'gpt-5.4',
+      effort: 'max',
+      serviceTier: 'priority',
+      permissions: ':workspace',
+      input: [
+        { type: 'text', text: '实现 #49' },
+        { type: 'skill', name: 'review', path: 'C:\\skills\\review\\SKILL.md' },
+      ],
+    })])
+    expect(relay.published.find((item) => item.requestId === 'android_fixture'))
+      .toMatchObject({ body: { ok: true, command: 'turn.start', result: { threadId: 'thread_1' } } })
+  })
+
   it('does not execute a dangerous duplicate request twice', async () => {
     const relay = new FakeRelay([
       command('request_archive', 'thread.archive', { threadId: 'thread_1' }),
@@ -57,8 +87,10 @@ describe('WireCodexRuntimeBridge', () => {
 
   it('publishes agent deltas into the native runtime stream', async () => {
     const relay = new FakeRelay([
+      command('request_catalog', 'runtime.catalog', { cwd: 'C:\\repo' }),
       command('request_resume', 'turn.start', {
         threadId: 'thread_1',
+        cwd: 'C:\\repo',
         text: '继续',
         confirmedUnknown: true,
       }),
@@ -87,44 +119,105 @@ describe('WireCodexRuntimeBridge', () => {
       .toMatchObject({ body: { itemType: 'commandExecution', payload: { aggregatedOutput: 'passed' } } })
   })
 
-  it('discovers runtime options and preserves structured turn parameters', async () => {
+  it('streams plan, file, MCP progress, and model reroute notifications without flattening them away', async () => {
     const relay = new FakeRelay([
       command('request_catalog', 'runtime.catalog', { cwd: 'C:\\repo' }),
-      command('request_turn', 'turn.start', {
-        threadId: 'thread_1',
-        confirmedUnknown: true,
-        input: [
-          { type: 'text', text: '看图' },
-          { type: 'localImage', path: 'C:\\upload\\bug.png' },
-          { type: 'skill', name: 'review', path: 'C:\\skills\\review\\SKILL.md' },
-        ],
-        model: 'gpt-5.4',
-        effort: 'max',
-        serviceTier: 'priority',
-        permissions: ':workspace',
+      command('request_resume', 'turn.start', {
+        threadId: 'thread_1', cwd: 'C:\\repo', text: '继续', confirmedUnknown: true,
       }),
     ])
     const codex = new FakeCodexClient()
     const bridge = new WireCodexRuntimeBridge(relay, { machineId: 'machine_1', clientFactory: () => codex })
-
     await bridge.pollOnce()
 
-    expect(relay.published.find((item) => item.type === 'runtime.catalog')).toMatchObject({
-      body: {
-        models: [{ id: 'gpt-5.4' }],
-        permissionProfiles: [{ id: ':workspace' }],
-        skills: [{ name: 'review' }],
-        plugins: [{ name: 'github' }],
-        apps: [{ id: 'drive' }],
-      },
+    codex.emit('turn/started', { turn: { id: 'turn_1' } })
+    codex.emit('item/plan/delta', { turnId: 'turn_1', itemId: 'plan_1', delta: '先检查' })
+    codex.emit('turn/plan/updated', {
+      turnId: 'turn_1',
+      explanation: '执行计划',
+      plan: [{ step: '检查', status: 'in_progress' }, { step: '验证', status: 'pending' }],
     })
-    expect(codex.startedTurns).toEqual([expect.objectContaining({
-      model: 'gpt-5.4',
-      effort: 'max',
-      serviceTier: 'priority',
-      permissions: ':workspace',
-      input: expect.arrayContaining([{ type: 'localImage', path: 'C:\\upload\\bug.png' }]),
-    })])
+    codex.emit('item/fileChange/patchUpdated', {
+      turnId: 'turn_1', itemId: 'file_1', changes: [{ path: 'app.kt', kind: 'update' }],
+    })
+    codex.emit('item/fileChange/outputDelta', { turnId: 'turn_1', itemId: 'file_1', delta: 'patched' })
+    codex.emit('item/mcpToolCall/progress', {
+      turnId: 'turn_1', itemId: 'mcp_1', message: '正在读取 GitHub issue',
+    })
+    codex.emit('model/rerouted', {
+      turnId: 'turn_1', fromModel: 'gpt-5.4', toModel: 'gpt-5.4-mini', reason: '容量调度',
+    })
+    await tick()
+
+    expect(relay.published.find((item) => (item.body as { itemId?: string }).itemId === 'plan_1'))
+      .toMatchObject({ body: { itemType: 'plan', text: '先检查', status: 'inProgress' } })
+    expect(relay.published.find((item) => (item.body as { itemId?: string }).itemId === 'turn_plan_turn_1'))
+      .toMatchObject({ body: { itemType: 'plan', payload: { explanation: '执行计划' } } })
+    expect(relay.published.filter((item) => (item.body as { itemId?: string }).itemId === 'file_1').at(-1))
+      .toMatchObject({ body: { itemType: 'fileChange', payload: { output: 'patched' } } })
+    expect(relay.published.find((item) => (item.body as { itemId?: string }).itemId === 'mcp_1'))
+      .toMatchObject({ body: { itemType: 'mcpToolCall', text: '正在读取 GitHub issue' } })
+    expect(relay.published.find((item) => (item.body as { type?: string }).type === 'thread.settings'
+      && (item.body as { model?: string }).model === 'gpt-5.4-mini'))
+      .toMatchObject({ body: { payload: { reroutedFrom: 'gpt-5.4', reason: '容量调度' } } })
+  })
+
+  it('discovers runtime options and preserves structured turn parameters', async () => {
+    const uploadDirectory = await mkdtemp(join(tmpdir(), 'zhixing-options-'))
+    try {
+      const content = Buffer.from('image-bytes')
+      const hash = createHash('sha256').update(content).digest('hex')
+      const uploadedPath = join(uploadDirectory, 'upload_ok_1234', 'bug.png')
+      const relay = new FakeRelay([
+        command('request_catalog', 'runtime.catalog', { cwd: 'C:\\repo' }),
+        command('upload_ok', 'attachment.upload', {
+          attachmentId: 'upload_ok_1234', fileName: 'bug.png', mime: 'image/png', chunkIndex: 0, chunkCount: 1,
+          contentBase64: content.toString('base64'), sha256: hash,
+        }),
+        command('request_turn', 'turn.start', {
+          threadId: 'thread_1',
+          cwd: 'C:\\repo',
+          confirmedUnknown: true,
+          input: [
+            { type: 'text', text: '看图' },
+            { type: 'localImage', path: uploadedPath },
+            { type: 'skill', name: 'review', path: 'C:\\skills\\review\\SKILL.md' },
+          ],
+          model: 'gpt-5.4',
+          effort: 'max',
+          serviceTier: 'priority',
+          permissions: ':workspace',
+        }),
+      ])
+      const codex = new FakeCodexClient()
+      const bridge = new WireCodexRuntimeBridge(relay, {
+        machineId: 'machine_1',
+        clientFactory: () => codex,
+        uploadDirectory,
+      })
+
+      await bridge.pollOnce()
+
+      expect(relay.published.find((item) => item.type === 'runtime.catalog')).toMatchObject({
+        body: {
+          models: [{ id: 'gpt-5.4' }],
+          permissionProfiles: [{ id: ':workspace' }],
+          skills: [{ name: 'review' }],
+          plugins: [{ name: 'github' }],
+          apps: [{ id: 'drive' }],
+          capabilities: { plugins: { available: true }, apps: { available: true } },
+        },
+      })
+      expect(codex.startedTurns).toEqual([expect.objectContaining({
+        model: 'gpt-5.4',
+        effort: 'max',
+        serviceTier: 'priority',
+        permissions: ':workspace',
+        input: expect.arrayContaining([{ type: 'localImage', path: uploadedPath }]),
+      })])
+    } finally {
+      await rm(uploadDirectory, { recursive: true, force: true })
+    }
   })
 
   it('chunks large thread history instead of exceeding the relay envelope', async () => {
@@ -141,11 +234,18 @@ describe('WireCodexRuntimeBridge', () => {
     expect(chunks.map((item) => (item.body as { chunkIndex: number }).chunkIndex)).toEqual(
       Array.from({ length: chunks.length }, (_, index) => index),
     )
+    const revision = (chunks[0]!.body as { revision: number }).revision
+    expect(revision).toBeGreaterThan(0)
+    expect(relay.published.find((item) => item.type === 'command.result'))
+      .toMatchObject({ body: { ok: true, result: { threadId: 'thread_1', revision } } })
   })
 
   it('bridges Codex request_user_input through the existing inline ask-user tool', async () => {
     const relay = new FakeRelay([
-      command('request_turn', 'turn.start', { threadId: 'thread_1', text: '继续', confirmedUnknown: true }),
+      command('request_catalog', 'runtime.catalog', { cwd: 'C:\\repo' }),
+      command('request_turn', 'turn.start', {
+        threadId: 'thread_1', cwd: 'C:\\repo', text: '继续', confirmedUnknown: true,
+      }),
     ])
     const codex = new FakeCodexClient()
     const bridge = new WireCodexRuntimeBridge(relay, { machineId: 'machine_1', clientFactory: () => codex })
@@ -175,6 +275,100 @@ describe('WireCodexRuntimeBridge', () => {
     await bridge.pollOnce()
 
     await expect(pendingAnswer).resolves.toEqual({ answers: { choice: { answers: ['A'] } } })
+  })
+
+  it('maps accept decline and cancel decisions and can cancel request_user_input', async () => {
+    const relay = new FakeRelay([
+      command('request_catalog', 'runtime.catalog', { cwd: 'C:\\repo' }),
+      command('request_turn', 'turn.start', {
+        threadId: 'thread_1', cwd: 'C:\\repo', text: '继续', confirmedUnknown: true,
+      }),
+    ])
+    const codex = new FakeCodexClient()
+    const bridge = new WireCodexRuntimeBridge(relay, { machineId: 'machine_1', clientFactory: () => codex })
+    await bridge.pollOnce()
+
+    const pendingInput = codex.request('item/tool/requestUserInput', {
+      itemId: 'ask_cancel', turnId: 'turn_pending',
+      questions: [{ id: 'choice', question: '是否继续？', options: [] }],
+    })
+    const pendingApproval = codex.request('item/commandExecution/requestApproval', {
+      approvalId: 'approval_cancel', itemId: 'command_1', command: 'npm test',
+    })
+    await tick()
+    relay.enqueue(command('cancel_input', 'interaction.resolve', {
+      threadId: 'thread_1', approvalId: 'input_ask_cancel', decision: 'cancel',
+    }))
+    relay.enqueue(command('cancel_approval', 'approval.resolve', {
+      threadId: 'thread_1', approvalId: 'approval_cancel', decision: 'cancel',
+    }))
+    await bridge.pollOnce()
+
+    await expect(pendingInput).resolves.toEqual({ answers: {} })
+    await expect(pendingApproval).resolves.toEqual({ decision: 'cancel' })
+
+    for (const decision of ['accept', 'decline'] as const) {
+      const approvalId = `approval_${decision}`
+      const pending = codex.request('item/commandExecution/requestApproval', {
+        approvalId, itemId: `command_${decision}`, command: 'npm test',
+      })
+      await tick()
+      relay.enqueue(command(`resolve_${decision}`, 'approval.resolve', {
+        threadId: 'thread_1', approvalId, decision,
+      }))
+      await bridge.pollOnce()
+      await expect(pending).resolves.toEqual({ decision })
+    }
+
+    expect(relay.published.filter((item) => (item.body as { type?: string }).type === 'approval.resolved'))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ body: expect.objectContaining({ approvalId: 'input_ask_cancel', decision: 'cancel' }) }),
+        expect.objectContaining({ body: expect.objectContaining({ approvalId: 'approval_cancel', decision: 'cancel' }) }),
+        expect.objectContaining({ body: expect.objectContaining({ approvalId: 'approval_accept', decision: 'accept' }) }),
+        expect.objectContaining({ body: expect.objectContaining({ approvalId: 'approval_decline', decision: 'decline' }) }),
+      ]))
+  })
+
+  it('rejects stale catalog values and local paths without an upload receipt', async () => {
+    const relay = new FakeRelay([
+      command('request_catalog', 'runtime.catalog', { cwd: 'C:\\repo' }),
+      command('unsupported_model', 'turn.start', {
+        threadId: 'thread_bad_model', cwd: 'C:\\repo', text: '继续', confirmedUnknown: true, model: 'unknown-model',
+      }),
+      command('unreceipted_path', 'turn.start', {
+        threadId: 'thread_bad_path', cwd: 'C:\\repo', confirmedUnknown: true, model: 'gpt-5.4',
+        input: [{ type: 'localImage', path: 'C:\\temp\\not-uploaded.png' }],
+      }),
+    ])
+    const bridge = new WireCodexRuntimeBridge(relay, {
+      machineId: 'machine_1', clientFactory: () => new FakeCodexClient(),
+    })
+    await bridge.pollOnce()
+
+    expect(relay.published.find((item) => item.requestId === 'unsupported_model'))
+      .toMatchObject({ body: { ok: false, error: '所选模型不在当前 Codex catalog 中' } })
+    expect(relay.published.find((item) => item.requestId === 'unreceipted_path'))
+      .toMatchObject({ body: { ok: false, error: '附件路径不是有效的上传回执' } })
+  })
+
+  it('reports plugin and app catalog failures explicitly instead of pretending the lists are empty', async () => {
+    const relay = new FakeRelay([command('request_catalog', 'runtime.catalog', { cwd: 'C:\\repo' })])
+    const codex = new FakeCodexClient()
+    codex.pluginError = 'plugin endpoint unavailable'
+    codex.appError = 'app endpoint unavailable'
+    const bridge = new WireCodexRuntimeBridge(relay, { machineId: 'machine_1', clientFactory: () => codex })
+    await bridge.pollOnce()
+
+    expect(relay.published.find((item) => item.type === 'runtime.catalog')).toMatchObject({
+      body: {
+        plugins: [],
+        apps: [],
+        capabilities: {
+          plugins: { available: false, error: 'plugin endpoint unavailable' },
+          apps: { available: false, error: 'app endpoint unavailable' },
+        },
+      },
+    })
   })
 
   it('rejects attachment path traversal and malformed MIME metadata', () => {
@@ -264,6 +458,7 @@ describe('WireCodexRuntimeBridge', () => {
 
   it('publishes a new thread before its first turn and maps the user message as user content', async () => {
     const relay = new FakeRelay([
+      command('request_catalog', 'runtime.catalog', { cwd: 'C:\\repo' }),
       command('request_start', 'thread.start', { cwd: 'C:\\repo', text: '开始工作' }),
     ])
     const codex = new FakeCodexClient()
@@ -333,6 +528,8 @@ class FakeCodexClient implements RuntimeCodexClient {
   readonly startedTurns: Parameters<RuntimeCodexClient['startTurn']>[0][] = []
   detailText = ''
   localImagePath = ''
+  pluginError = ''
+  appError = ''
   confirmedSettings = {
     model: 'gpt-5.4',
     reasoningEffort: 'max',
@@ -363,11 +560,26 @@ class FakeCodexClient implements RuntimeCodexClient {
   async archiveThread(threadId: string) { this.archived.push(threadId) }
   async unarchiveThread() {}
   async deleteThread() {}
-  async listModels() { return { data: [{ id: 'gpt-5.4' }] } }
-  async listPermissionProfiles() { return { data: [{ id: ':workspace' }] } }
-  async listSkills() { return { data: [{ skills: [{ name: 'review' }] }] } }
-  async listPlugins() { return { marketplaces: [{ plugins: [{ name: 'github' }] }] } }
-  async listApps() { return { data: [{ id: 'drive' }] } }
+  async listModels() {
+    return { data: [{
+      id: 'gpt-5.4',
+      inputModalities: ['text', 'image'],
+      supportedReasoningEfforts: [{ reasoningEffort: 'max' }],
+      serviceTiers: [{ id: 'priority' }],
+    }] }
+  }
+  async listPermissionProfiles() { return { data: [{ id: ':workspace', allowed: true }] } }
+  async listSkills() {
+    return { data: [{ skills: [{ name: 'review', path: 'C:\\skills\\review\\SKILL.md', enabled: true }] }] }
+  }
+  async listPlugins() {
+    if (this.pluginError) throw new Error(this.pluginError)
+    return { marketplaces: [{ plugins: [{ name: 'github' }] }] }
+  }
+  async listApps() {
+    if (this.appError) throw new Error(this.appError)
+    return { data: [{ id: 'drive' }] }
+  }
   async readThread(threadId: string, includeTurns = true): Promise<CodexThread> {
     this.reads.push({ threadId, includeTurns })
     const thread = rawThread(threadId)

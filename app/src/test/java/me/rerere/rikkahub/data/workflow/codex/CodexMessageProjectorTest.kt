@@ -141,13 +141,124 @@ class CodexMessageProjectorTest {
                 machineId = "machine_1", threadId = "thread_1", eventId = "event_3",
                 type = "item.completed", at = 3, turnId = "turn_1", itemId = "tool_1",
                 itemType = "commandExecution", role = "tool", text = "npm test", status = "completed",
-                payload = finalRaw,
+                payload = buildJsonObject { put("aggregatedOutput", "12 tests passed") },
             ),
         ).forEach { runtime = CodexRuntimeItemReducer.apply(runtime, it) }
 
         val replay = detail(requireNotNull(runtime))
 
         assertEquals(CodexMessageProjector.project(history), CodexMessageProjector.project(replay))
+    }
+
+    @Test
+    fun `full structured history and cumulative runtime replay have the same rich rendering`() {
+        val expectedItems = listOf(
+            CodexItem(
+                "user_1", "userMessage", "userMessage", "user", "开始", "completed",
+                buildJsonObject { putJsonArray("content") { add(buildJsonObject { put("type", "text"); put("text", "开始") }) } },
+            ),
+            CodexItem("plan_1", "plan", "plan", "agent", "先检查再实现", "completed"),
+            CodexItem("reason_1", "reasoning", "reasoning", "agent", "分析依赖", "completed"),
+            CodexItem(
+                "file_1", "fileChange", "fileChange", "tool", "修改文件", "completed",
+                buildJsonObject { put("output", "patched") },
+            ),
+            CodexItem(
+                "mcp_1", "mcpToolCall", "mcpToolCall", "tool", "读取 issue", "completed",
+                buildJsonObject { put("namespace", "github"); put("tool", "get_issue"); put("result", "#49") },
+            ),
+            CodexItem(
+                "web_1", "webSearch", "webSearch", "tool", "搜索", "completed",
+                buildJsonObject { put("query", "official docs") },
+            ),
+            CodexItem(
+                "collab_1", "collabAgentToolCall", "collabAgentToolCall", "tool", "复核", "completed",
+                buildJsonObject { put("tool", "spawn_agent"); put("result", "PASS") },
+            ),
+            CodexItem("answer_1", "agentMessage", "agentMessage", "agent", "完成", "completed"),
+        )
+        val replayedItems = expectedItems.mapIndexed { index, item ->
+            CodexRuntimeItemReducer.apply(
+                current = null,
+                event = RuntimeEventPayload(
+                    machineId = "machine_1",
+                    threadId = "thread_1",
+                    eventId = "event_$index",
+                    type = "item.completed",
+                    at = index.toLong() + 1,
+                    turnId = "turn_1",
+                    itemId = item.itemId,
+                    itemType = item.rawType,
+                    role = item.role,
+                    text = item.text,
+                    status = item.status,
+                    payload = item.raw,
+                ),
+            )
+        }
+
+        val history = detail(*expectedItems.toTypedArray())
+        val replay = detail(*replayedItems.toTypedArray())
+        assertEquals(expectedItems, replayedItems)
+        assertEquals(CodexMessageProjector.project(history), CodexMessageProjector.project(replay))
+    }
+
+    @Test
+    fun `projects complete multi turn history including plan file MCP web and collaboration items`() {
+        val detail = CodexThreadDetail(
+            thread = null,
+            turns = listOf(
+                CodexTurn(
+                    turnId = "turn_1",
+                    status = "completed",
+                    startedAt = 1,
+                    completedAt = 2,
+                    error = null,
+                    items = listOf(
+                        CodexItem("user_1", "userMessage", "userMessage", "user", "调研并实现", "completed"),
+                        CodexItem("plan_1", "plan", "plan", "agent", "1. 调研\n2. 实现", "completed"),
+                        CodexItem(
+                            "web_1", "webSearch", "webSearch", "tool", "查询官方文档", "completed",
+                            buildJsonObject { put("query", "Codex app-server") },
+                        ),
+                        CodexItem(
+                            "mcp_1", "mcpToolCall", "mcpToolCall", "tool", "读取 issue", "completed",
+                            buildJsonObject { put("namespace", "github"); put("tool", "get_issue"); put("result", "issue #49") },
+                        ),
+                    ),
+                ),
+                CodexTurn(
+                    turnId = "turn_2",
+                    status = "completed",
+                    startedAt = 3,
+                    completedAt = 4,
+                    error = null,
+                    items = listOf(
+                        CodexItem("user_2", "userMessage", "userMessage", "user", "继续完成", "completed"),
+                        CodexItem(
+                            "collab_1", "collabAgentToolCall", "collabAgentToolCall", "tool", "审查实现", "completed",
+                            buildJsonObject { put("tool", "spawn_agent"); put("result", "PASS") },
+                        ),
+                        CodexItem(
+                            "file_1", "fileChange", "fileChange", "tool", "修改文件", "completed",
+                            buildJsonObject { putJsonArray("changes") { add(buildJsonObject { put("path", "app.kt") }) } },
+                        ),
+                        CodexItem("answer_2", "agentMessage", "agentMessage", "agent", "**已完成并验证**", "completed"),
+                    ),
+                ),
+            ),
+        )
+
+        val blocks = CodexMessageProjector.project(detail)
+        assertEquals(listOf(MessageRole.USER, MessageRole.ASSISTANT, MessageRole.USER, MessageRole.ASSISTANT), blocks.map { it.role })
+        val firstAssistant = blocks[1].parts
+        assertTrue(firstAssistant[0] is UIMessagePart.Text)
+        assertEquals("web_search", (firstAssistant[1] as UIMessagePart.Tool).toolName)
+        assertEquals("github.get_issue", (firstAssistant[2] as UIMessagePart.Tool).toolName)
+        val secondAssistant = blocks[3].parts
+        assertEquals("spawn_agent", (secondAssistant[0] as UIMessagePart.Tool).toolName)
+        assertEquals("file_change", (secondAssistant[1] as UIMessagePart.Tool).toolName)
+        assertEquals("**已完成并验证**", (secondAssistant[2] as UIMessagePart.Text).text)
     }
 
     private fun detail(vararg items: CodexItem, status: String = "completed") = CodexThreadDetail(

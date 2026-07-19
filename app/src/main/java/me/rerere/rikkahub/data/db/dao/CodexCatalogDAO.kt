@@ -19,6 +19,7 @@ import me.rerere.rikkahub.data.db.entity.CodexRuntimeSettingsEntity
 import me.rerere.rikkahub.data.db.entity.CodexAttachmentEntity
 import me.rerere.rikkahub.data.db.entity.CodexDraftEntity
 import me.rerere.rikkahub.data.db.entity.CodexThreadEntity
+import me.rerere.rikkahub.data.db.entity.CodexThreadDetailRevisionEntity
 import me.rerere.rikkahub.data.db.entity.CodexThreadPreferenceEntity
 import me.rerere.rikkahub.data.db.entity.CodexTombstoneEntity
 import me.rerere.rikkahub.data.db.entity.CodexTurnEntity
@@ -63,6 +64,18 @@ interface CodexCatalogDAO {
             "ORDER BY turn_id ASC, position ASC"
     )
     fun observeItems(machineId: String, threadId: String): Flow<List<CodexItemEntity>>
+
+    @Query(
+        "SELECT * FROM codex_turns WHERE machine_id = :machineId AND thread_id = :threadId " +
+            "AND turn_id = :turnId LIMIT 1"
+    )
+    suspend fun turn(machineId: String, threadId: String, turnId: String): CodexTurnEntity?
+
+    @Query(
+        "SELECT * FROM codex_items WHERE machine_id = :machineId AND thread_id = :threadId " +
+            "AND turn_id = :turnId AND item_id = :itemId LIMIT 1"
+    )
+    suspend fun item(machineId: String, threadId: String, turnId: String, itemId: String): CodexItemEntity?
 
     @Query(
         "SELECT * FROM codex_approvals WHERE machine_id = :machineId AND thread_id = :threadId " +
@@ -136,6 +149,15 @@ interface CodexCatalogDAO {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertTurns(turns: List<CodexTurnEntity>)
+
+    @Query(
+        "SELECT * FROM codex_thread_detail_revisions WHERE machine_id = :machineId " +
+            "AND thread_id = :threadId LIMIT 1"
+    )
+    suspend fun threadDetailRevision(machineId: String, threadId: String): CodexThreadDetailRevisionEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertThreadDetailRevision(revision: CodexThreadDetailRevisionEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertItems(items: List<CodexItemEntity>)
@@ -222,6 +244,18 @@ interface CodexCatalogDAO {
     @Query("DELETE FROM codex_runtime_bindings WHERE machine_id = :machineId AND thread_id = :threadId")
     suspend fun deleteRuntimeBinding(machineId: String, threadId: String)
 
+    @Query("DELETE FROM codex_runtime_settings WHERE machine_id = :machineId AND thread_id = :threadId")
+    suspend fun deleteRuntimeSettings(machineId: String, threadId: String)
+
+    @Query("DELETE FROM codex_attachments WHERE machine_id = :machineId AND thread_id = :threadId")
+    suspend fun deleteAttachments(machineId: String, threadId: String)
+
+    @Query("DELETE FROM codex_drafts WHERE machine_id = :machineId AND thread_id = :threadId")
+    suspend fun deleteDrafts(machineId: String, threadId: String)
+
+    @Query("DELETE FROM codex_thread_detail_revisions WHERE machine_id = :machineId AND thread_id = :threadId")
+    suspend fun deleteThreadDetailRevision(machineId: String, threadId: String)
+
     @Query("DELETE FROM codex_threads WHERE machine_id = :machineId AND thread_id = :threadId")
     suspend fun deleteThread(machineId: String, threadId: String)
 
@@ -260,11 +294,16 @@ interface CodexCatalogDAO {
         threadId: String,
         turns: List<CodexTurnEntity>,
         items: List<CodexItemEntity>,
-    ) {
+        revision: CodexThreadDetailRevisionEntity,
+    ): Boolean {
+        val currentRevision = threadDetailRevision(machineId, threadId)?.revision ?: -1L
+        if (revision.revision < currentRevision) return false
         deleteItems(machineId, threadId)
         deleteTurns(machineId, threadId)
         if (turns.isNotEmpty()) upsertTurns(turns)
         if (items.isNotEmpty()) upsertItems(items)
+        upsertThreadDetailRevision(revision)
+        return true
     }
 
     @Transaction
@@ -273,6 +312,10 @@ interface CodexCatalogDAO {
         deleteTurns(machineId, threadId)
         deleteApprovals(machineId, threadId)
         deleteRuntimeBinding(machineId, threadId)
+        deleteRuntimeSettings(machineId, threadId)
+        deleteAttachments(machineId, threadId)
+        deleteDrafts(machineId, threadId)
+        deleteThreadDetailRevision(machineId, threadId)
         deleteThread(machineId, threadId)
     }
 }

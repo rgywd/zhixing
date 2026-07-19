@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.data.workflow.wire
 
+import java.io.File
 import java.util.Base64
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
@@ -167,6 +168,25 @@ class WireRelayClientTest {
         assertTrue(plaintext.contains("\"text\":\"继续\""))
         assertEquals(1L, store.load()?.outgoingSequences?.get("keys_machine_1"))
         assertEquals(emptyMap<String, WireStoredEnvelope>(), store.load()?.pendingEnvelopes)
+    }
+
+    @Test
+    fun sharedAndroidTurnStartFixtureDecodesToTheExactAgentContract() {
+        val fixture = sequenceOf(
+            File("docs/zhixing/fixtures/runtime-command-turn-start.json"),
+            File("../docs/zhixing/fixtures/runtime-command-turn-start.json"),
+        ).first(File::isFile)
+        val command = json.decodeFromString<RuntimeCommandPayload>(fixture.readText())
+
+        assertEquals("turn.start", command.command)
+        assertEquals("C:\\repo", command.cwd)
+        assertEquals("gpt-5.4", command.model)
+        assertEquals("max", command.effort)
+        assertEquals("priority", command.serviceTier)
+        assertEquals(":workspace", command.permissions)
+        assertEquals(listOf("text", "skill"), command.input.map { it.type })
+        assertEquals("review", command.input[1].name)
+        assertEquals("C:\\skills\\review\\SKILL.md", command.input[1].path)
     }
 
     private fun client(store: WireCredentialsStore, sink: WireCatalogSink) = WireRelayClient(

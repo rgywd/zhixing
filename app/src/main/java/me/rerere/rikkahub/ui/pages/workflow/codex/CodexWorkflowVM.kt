@@ -317,9 +317,18 @@ class CodexThreadVM(
                                 if (command == "thread.detail") scheduleDetailRetry()
                             } else {
                                 if (command == "thread.detail") {
-                                    detailLoaded = true
-                                    detailRetryCount = 0
-                                    if (statusMessage?.startsWith("历史同步失败") == true) statusMessage = null
+                                    val expectedRevision = result.result?.get("revision")?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+                                    val appliedRevision = repository.currentThreadDetailRevision(machineId, threadId)
+                                    detailLoaded = isThreadDetailRevisionApplied(expectedRevision, appliedRevision)
+                                    if (detailLoaded) {
+                                        detailRetryCount = 0
+                                        if (statusMessage?.startsWith("历史同步失败") == true ||
+                                            statusMessage?.startsWith("历史分片缺失") == true
+                                        ) statusMessage = null
+                                    } else {
+                                        statusMessage = "历史分片缺失，正在自动重新同步"
+                                        scheduleDetailRetry()
+                                    }
                                 }
                                 if (submittedDraft != null && inputState.getContents() == submittedDraft) {
                                     inputState.clearInput()
@@ -370,6 +379,7 @@ class CodexThreadVM(
                         command = command,
                         machineId = machineId,
                         threadId = threadId,
+                        cwd = detail.cwd,
                         text = text,
                         input = inputs,
                         confirmedUnknown = confirmedUnknown,
@@ -483,6 +493,9 @@ class CodexThreadVM(
     }
 
     private suspend fun buildInputs(parts: List<UIMessagePart>): List<CodexInputPayload> {
+        val model = selectedModel ?: error("请先选择当前 Codex 可用的模型")
+        val includesImage = parts.any { it is UIMessagePart.Image }
+        validateCodexInputModalities(model, includesImage)
         val inputs = mutableListOf<CodexInputPayload>()
         parts.forEach { part ->
             when (part) {
@@ -635,6 +648,12 @@ class CodexThreadVM(
         answer = answer,
     )
 
+    fun cancelInteraction(approvalId: String) = command(
+        command = "interaction.resolve",
+        approvalId = approvalId,
+        decision = "cancel",
+    )
+
     private fun command(
         command: String,
         approvalId: String? = null,
@@ -669,3 +688,12 @@ class CodexThreadVM(
         private const val MAX_ATTACHMENT_BYTES = 20L * 1024 * 1024
     }
 }
+
+internal fun validateCodexInputModalities(model: CodexModelOption, includesImage: Boolean) {
+    require(!includesImage || "image" in model.inputModalities) {
+        "${model.displayName} 不支持图片输入，请更换模型或移除图片"
+    }
+}
+
+internal fun isThreadDetailRevisionApplied(expectedRevision: Long?, appliedRevision: Long): Boolean =
+    expectedRevision != null && appliedRevision >= expectedRevision

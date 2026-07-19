@@ -166,6 +166,8 @@ fun CodexThreadPage(
                     skills = vm.runtimeCatalog?.skills.orEmpty(),
                     plugins = vm.runtimeCatalog?.plugins.orEmpty(),
                     apps = vm.runtimeCatalog?.apps.orEmpty(),
+                    capabilities = vm.runtimeCatalog?.capabilities
+                        ?: me.rerere.rikkahub.data.workflow.codex.CodexCatalogCapabilities(),
                     selectedSkills = vm.selectedSkills,
                     runtimeSettings = vm.runtimeSettings,
                     hazeState = hazeState,
@@ -230,6 +232,12 @@ fun CodexThreadPage(
                             vm.resolveInteraction(approval.approvalId, answer)
                         }
                     },
+                    onToolCancel = { toolCallId ->
+                        approvalsByItemId[toolCallId]?.let { approval ->
+                            if (approval.kind == "user_input") vm.cancelInteraction(approval.approvalId)
+                            else vm.resolveApproval(approval.approvalId, "cancel")
+                        }
+                    },
                 )
             }
             items(standaloneApprovals, key = CodexApproval::approvalId) { approval ->
@@ -237,6 +245,10 @@ fun CodexThreadPage(
                     approval = approval,
                     onAccept = { vm.resolveApproval(approval.approvalId, "accept") },
                     onDecline = { vm.resolveApproval(approval.approvalId, "decline") },
+                    onCancel = {
+                        if (approval.kind == "user_input") vm.cancelInteraction(approval.approvalId)
+                        else vm.resolveApproval(approval.approvalId, "cancel")
+                    },
                 )
             }
         }
@@ -244,7 +256,12 @@ fun CodexThreadPage(
 }
 
 @Composable
-private fun ApprovalCard(approval: CodexApproval, onAccept: () -> Unit, onDecline: () -> Unit) {
+private fun ApprovalCard(
+    approval: CodexApproval,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+    onCancel: () -> Unit,
+) {
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.tertiaryContainer,
@@ -255,6 +272,7 @@ private fun ApprovalCard(approval: CodexApproval, onAccept: () -> Unit, onDeclin
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onAccept) { Text("允许一次") }
                 TextButton(onClick = onDecline) { Text("拒绝") }
+                TextButton(onClick = onCancel) { Text("取消") }
             }
         }
     }

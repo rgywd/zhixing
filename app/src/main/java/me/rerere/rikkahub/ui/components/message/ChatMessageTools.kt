@@ -66,10 +66,16 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
     loading: Boolean = false,
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
+    onToolCancel: ((toolCallId: String) -> Unit)? = null,
 ) {
     // ask_user 是交互式问答流程, 不走注册式渲染框架
     if (tool.toolName == ASK_USER_TOOL_NAME) {
-        AskUserToolStep(tool = tool, loading = loading, onToolAnswer = onToolAnswer)
+        AskUserToolStep(
+            tool = tool,
+            loading = loading,
+            onToolAnswer = onToolAnswer,
+            onToolCancel = onToolCancel,
+        )
         return
     }
 
@@ -132,7 +138,13 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
             {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (onToolCancel != null) {
+                        TextButton(onClick = { onToolCancel(tool.toolCallId) }) {
+                            Text("取消", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
                     FilledTonalIconButton(
                         onClick = { showDenyDialog = true },
                         modifier = Modifier.size(28.dp),
@@ -232,6 +244,7 @@ private fun ChainOfThoughtScope.AskUserToolStep(
     tool: UIMessagePart.Tool,
     loading: Boolean,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)?,
+    onToolCancel: ((toolCallId: String) -> Unit)?,
 ) {
     val isPending = tool.approvalState is ToolApprovalState.Pending
     val isAnswered = tool.approvalState is ToolApprovalState.Answered
@@ -407,38 +420,50 @@ private fun ChainOfThoughtScope.AskUserToolStep(
                 }
 
                 // Submit button
-                if (isPending && onToolAnswer != null) {
-                    FilledTonalButton(
-                        onClick = {
-                            val answerPayload = buildJsonObject {
-                                put("answers", buildJsonObject {
-                                    questions.forEach { q ->
-                                        when (q.selectionType) {
-                                            "multi" -> put(q.id, JsonPrimitive(multiAnswers[q.id]?.joinToString(", ") ?: ""))
-                                            else -> put(q.id, JsonPrimitive(answers[q.id] ?: ""))
-                                        }
-                                    }
-                                })
-                            }
-                            onToolAnswer(tool.toolCallId, answerPayload.toString())
-                        },
-                        enabled = questions.all { q ->
-                            when (q.selectionType) {
-                                "multi" -> !multiAnswers[q.id].isNullOrEmpty()
-                                else -> !answers[q.id].isNullOrBlank()
-                            }
-                        },
+                if (isPending && (onToolAnswer != null || onToolCancel != null)) {
+                    Row(
                         modifier = Modifier.align(Alignment.End),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(
-                            imageVector = HugeIcons.Tick01,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = stringResource(R.string.chat_message_tool_submit),
-                            modifier = Modifier.padding(start = 4.dp),
-                        )
+                        if (onToolCancel != null) {
+                            TextButton(onClick = { onToolCancel(tool.toolCallId) }) {
+                                Text("取消")
+                            }
+                        }
+                        if (onToolAnswer != null) {
+                            FilledTonalButton(
+                                onClick = {
+                                    val answerPayload = buildJsonObject {
+                                        put("answers", buildJsonObject {
+                                            questions.forEach { q ->
+                                                when (q.selectionType) {
+                                                    "multi" -> put(q.id, JsonPrimitive(multiAnswers[q.id]?.joinToString(", ") ?: ""))
+                                                    else -> put(q.id, JsonPrimitive(answers[q.id] ?: ""))
+                                                }
+                                            }
+                                        })
+                                    }
+                                    onToolAnswer(tool.toolCallId, answerPayload.toString())
+                                },
+                                enabled = questions.all { q ->
+                                    when (q.selectionType) {
+                                        "multi" -> !multiAnswers[q.id].isNullOrEmpty()
+                                        else -> !answers[q.id].isNullOrBlank()
+                                    }
+                                },
+                            ) {
+                                Icon(
+                                    imageVector = HugeIcons.Tick01,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = stringResource(R.string.chat_message_tool_submit),
+                                    modifier = Modifier.padding(start = 4.dp),
+                                )
+                            }
+                        }
                     }
                 }
             }

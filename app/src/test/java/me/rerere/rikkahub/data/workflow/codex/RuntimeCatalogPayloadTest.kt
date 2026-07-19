@@ -2,8 +2,11 @@ package me.rerere.rikkahub.data.workflow.codex
 
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import me.rerere.rikkahub.ui.pages.workflow.codex.validateCodexInputModalities
 
 class RuntimeCatalogPayloadTest {
     private val json = Json { ignoreUnknownKeys = true }
@@ -14,11 +17,12 @@ class RuntimeCatalogPayloadTest {
             """
             {
               "machineId":"machine_1","cwd":"C:/repo","generatedAt":1,
-              "models":[{"id":"gpt-5.4","model":"gpt-5.4","displayName":"GPT-5.4","description":"","isDefault":true,"hidden":false,"defaultReasoningEffort":"high","supportedReasoningEfforts":[{"reasoningEffort":"max","description":"Maximum"}],"serviceTiers":[{"id":"priority","name":"Fast","description":""}]}],
+              "models":[{"id":"gpt-5.4","model":"gpt-5.4","displayName":"GPT-5.4","description":"","isDefault":true,"hidden":false,"defaultReasoningEffort":"high","supportedReasoningEfforts":[{"reasoningEffort":"max","description":"Maximum"}],"inputModalities":["text"],"serviceTiers":[{"id":"priority","name":"Fast","description":""}]}],
               "permissionProfiles":[{"id":":workspace","allowed":true}],
               "skills":[{"name":"review","path":"C:/skills/review/SKILL.md","description":"Review","enabled":true,"scope":"repo"}],
               "plugins":[{"id":"github","name":"github","installed":true,"enabled":true,"availability":"AVAILABLE"}],
-              "apps":[{"id":"drive","name":"Google Drive","isAccessible":true,"isEnabled":true}]
+              "apps":[{"id":"drive","name":"Google Drive","isAccessible":true,"isEnabled":true}],
+              "capabilities":{"plugins":{"available":false,"error":"endpoint unavailable"},"apps":{"available":true}}
             }
             """.trimIndent()
         )
@@ -29,6 +33,14 @@ class RuntimeCatalogPayloadTest {
         assertEquals("review", payload.skills.single().name)
         assertTrue(payload.plugins.single().installed)
         assertTrue(payload.apps.single().isAccessible)
+        assertFalse(payload.capabilities.plugins.available)
+        assertEquals("endpoint unavailable", payload.capabilities.plugins.error)
+
+        val model = payload.models.single()
+        validateCodexInputModalities(model, includesImage = false)
+        assertThrows(IllegalArgumentException::class.java) {
+            validateCodexInputModalities(model, includesImage = true)
+        }
     }
 
     @Test

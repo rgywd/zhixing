@@ -64,8 +64,8 @@ Android 的安全机制仍会要求用户在安装新版本时进行系统确认
 ./gradlew.bat :app:assembleDebug
 ```
 
-截至 2026-07-19，完整 `:app:testDebugUnitTest` 为 213 条并全部通过；Agent 与 Relay 也必须分别通过
-测试、TypeScript 类型检查和构建后才能合并。
+截至 2026-07-19，完整 `:app:testDebugUnitTest` 为 223 条并全部通过；Agent 为 69 条、Relay 为 7 条，均全部通过。
+三端仍必须分别通过测试、TypeScript 类型检查和构建后才能合并。
 
 ## 许可
 

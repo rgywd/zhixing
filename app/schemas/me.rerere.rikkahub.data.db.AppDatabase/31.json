@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 30,
-    "identityHash": "68c4496274ec2f3807bd8d752ba3c5ba",
+    "version": 31,
+    "identityHash": "d85f8301fe88200f628a4033ef66876a",
     "entities": [
       {
         "tableName": "ConversationEntity",
@@ -1257,6 +1257,43 @@
         ]
       },
       {
+        "tableName": "codex_thread_detail_revisions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`machine_id` TEXT NOT NULL, `thread_id` TEXT NOT NULL, `revision` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`machine_id`, `thread_id`))",
+        "fields": [
+          {
+            "fieldPath": "machineId",
+            "columnName": "machine_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "threadId",
+            "columnName": "thread_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "machine_id",
+            "thread_id"
+          ]
+        }
+      },
+      {
         "tableName": "codex_thread_preferences",
         "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`machine_id` TEXT NOT NULL, `thread_id` TEXT NOT NULL, `is_pinned` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`machine_id`, `thread_id`))",
         "fields": [
@@ -1945,7 +1982,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '68c4496274ec2f3807bd8d752ba3c5ba')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd85f8301fe88200f628a4033ef66876a')"
     ]
   }
 }

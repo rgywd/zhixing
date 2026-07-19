@@ -46,6 +46,7 @@ import me.rerere.rikkahub.data.workflow.codex.CodexRuntimeSettingsState
 import me.rerere.rikkahub.data.workflow.codex.CodexSkillOption
 import me.rerere.rikkahub.data.workflow.codex.CodexPluginOption
 import me.rerere.rikkahub.data.workflow.codex.CodexAppOption
+import me.rerere.rikkahub.data.workflow.codex.CodexCatalogCapabilities
 import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.ui.context.LocalSettings
 
@@ -68,6 +69,7 @@ fun CodexChatComposer(
     skills: List<CodexSkillOption>,
     plugins: List<CodexPluginOption>,
     apps: List<CodexAppOption>,
+    capabilities: CodexCatalogCapabilities,
     selectedSkills: Set<String>,
     runtimeSettings: CodexRuntimeSettingsState,
     hazeState: HazeState,
@@ -98,6 +100,7 @@ fun CodexChatComposer(
         onSendClick = onSend,
         onLongSendClick = onSend,
         canSend = canSend,
+        allowSendWhileLoading = true,
         statusContent = {
             runtimeLabel(runtimeSettings)?.let { label ->
                 Text(
@@ -136,6 +139,8 @@ fun CodexChatComposer(
             )
             ResourceMenu(
                 label = "插件 ${plugins.count { it.installed && it.enabled }}",
+                available = capabilities.plugins.available,
+                error = capabilities.plugins.error,
                 options = plugins.map { plugin ->
                     (plugin.interfaceInfo?.displayName ?: plugin.name) to
                         (plugin.interfaceInfo?.shortDescription ?: if (plugin.installed && plugin.enabled) "已启用" else "未启用")
@@ -143,6 +148,8 @@ fun CodexChatComposer(
             )
             ResourceMenu(
                 label = "App ${apps.count { it.isAccessible && it.isEnabled }}",
+                available = capabilities.apps.available,
+                error = capabilities.apps.error,
                 options = apps.map { it.name to (it.description ?: if (it.isAccessible) "可用" else "未连接") },
             )
         },
@@ -198,12 +205,27 @@ private fun MultiOptionMenu(
 }
 
 @Composable
-private fun ResourceMenu(label: String, options: List<Pair<String, String>>) {
+private fun ResourceMenu(
+    label: String,
+    options: List<Pair<String, String>>,
+    available: Boolean = true,
+    error: String? = null,
+) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         FilterChip(selected = false, onClick = { expanded = true }, label = { Text(label) })
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            if (options.isEmpty()) {
+            if (!available) {
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text("当前运行时不可用")
+                            error?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
+                        }
+                    },
+                    onClick = { expanded = false },
+                )
+            } else if (options.isEmpty()) {
                 DropdownMenuItem(text = { Text("当前运行时没有可用项") }, onClick = { expanded = false })
             } else options.forEach { (name, description) ->
                 DropdownMenuItem(

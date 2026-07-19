@@ -55,8 +55,9 @@ Codex 只替换知行既有聊天体系的**运行后端**，不得替换它的�
   `codex.exe -c features.code_mode_host=true app-server --analytics-default-enabled`。
 - Desktop 随附 `codex.exe` 与 `%LOCALAPPDATA%/OpenAI/Codex/bin/.../codex.exe` 哈希一致，版本为
   `0.144.0-alpha.4`；npm `@openai/codex` 运行时为 `0.144.0`。
-- Desktop 与 npm CLI 生成的 337 个 app-server schema 单文件一致，属于同一 v2
-  Thread/Turn/Item 协议家族。
+- npm CLI `0.144.0` 现场生成 598 个 app-server TypeScript schema 文件，目录 hash 为
+  `e75404842a291fc0473a34abc0d3cd9b036182210f3c0e37709515dbab247ba0`；Desktop 与 CLI
+  暴露同一 v2 Thread/Turn/Item 方法和类型家族。Agent 以该生成物 golden fixture 作为写入能力门，不能只看版本号猜兼容。
 - Desktop 内置 App Server 是私有 stdio 子进程，没有可附着的 TCP/Unix 端点。独立 App Server 当前也提供
   WebSocket listen 模式，但知行 Agent 为避免额外暴露本机端口，仍启动自己的本地 stdio App Server；手机不能
   直接接到 Desktop 进程。
@@ -403,7 +404,8 @@ data class ChatComposerOptions(
 
 ## 13. 迁移与回滚
 
-- 保留 `v0.2.1` Room 和 Wire 数据，新增字段采用可空/默认值和增量 migration。
+- 保留 `v0.2.1` Room 30 和 Wire 数据；新增详情 revision 表必须通过 `30 -> 31`
+  增量 migration 引入，禁止改写已经发布的 30 号 schema。
 - 当前 `CodexItem.text` 可作为旧缓存 fallback，但新 snapshot 必须保存结构化内容；升级后按需刷新历史。
 - 旧 Happy 凭据、缓存、服务器和 `v0.1.13` Release 继续只读保留，不迁移成 Codex Thread。
 - 改造期间保持页面路由和 `(machineId, threadId)` 不变，避免历史深链失效。

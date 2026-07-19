@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { hashGeneratedSchemaDirectory } from './schemaHash.js'
+import { CODEX_SCHEMA_BASELINE } from './compatibility.js'
 
 describe('Codex schema hash', () => {
   it('is deterministic across creation order and includes relative paths', async () => {
@@ -15,6 +16,18 @@ describe('Codex schema hash', () => {
     } finally {
       await Promise.all([rm(first, { recursive: true, force: true }), rm(second, { recursive: true, force: true })])
     }
+  })
+
+  it('keeps the write gate pinned to the reviewed 0_144 generated-schema fixture', async () => {
+    const fixture = JSON.parse(await readFile(
+      new URL('./fixtures/codex-app-server-0.144.json', import.meta.url),
+      'utf8',
+    )) as { codexVersion: string; fileCount: number; schemaHash: string; representativeFiles: string[] }
+
+    expect(fixture.codexVersion).toBe('0.144.0')
+    expect(fixture.fileCount).toBe(598)
+    expect(fixture.representativeFiles).toContain('v2/TurnSteerParams.ts')
+    expect(CODEX_SCHEMA_BASELINE.schemaHash).toBe(fixture.schemaHash)
   })
 })
 

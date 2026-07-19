@@ -8,6 +8,7 @@ import me.rerere.rikkahub.data.db.entity.CodexCatalogChunkEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import me.rerere.rikkahub.ui.pages.workflow.codex.isThreadDetailRevisionApplied
 
 class ThreadDetailChunkAssemblerTest {
     private val json = Json { encodeDefaults = true; explicitNulls = true }
@@ -39,6 +40,21 @@ class ThreadDetailChunkAssemblerTest {
         }
     }
 
+    @Test
+    fun `rejects an older complete detail revision`() {
+        assertEquals(false, shouldApplyThreadDetail(currentRevision = 9, incomingRevision = 8))
+        assertEquals(true, shouldApplyThreadDetail(currentRevision = 9, incomingRevision = 9))
+        assertEquals(true, shouldApplyThreadDetail(currentRevision = 9, incomingRevision = 10))
+    }
+
+    @Test
+    fun `does not acknowledge detail command until its advertised revision is actually stored`() {
+        assertEquals(false, isThreadDetailRevisionApplied(expectedRevision = null, appliedRevision = 12))
+        assertEquals(false, isThreadDetailRevisionApplied(expectedRevision = 12, appliedRevision = 11))
+        assertEquals(true, isThreadDetailRevisionApplied(expectedRevision = 12, appliedRevision = 12))
+        assertEquals(true, isThreadDetailRevisionApplied(expectedRevision = 12, appliedRevision = 13))
+    }
+
     private fun storedChunks(parts: List<ByteArray>): List<CodexCatalogChunkEntity> {
         val digest = MessageDigest.getInstance("SHA-256")
         parts.forEach(digest::update)
@@ -48,7 +64,7 @@ class ThreadDetailChunkAssemblerTest {
                 snapshotId = "detail:1",
                 chunkIndex = index,
                 chunkCount = parts.size,
-                revision = 0,
+                revision = 7,
                 generatedAt = 1,
                 machineJson = "machine_1\nthread_1",
                 contentHash = fullHash,
@@ -62,6 +78,7 @@ class ThreadDetailChunkAssemblerTest {
     private fun detail() = ThreadDetailPayload(
         machineId = "machine_1",
         threadId = "thread_1",
+        revision = 7,
         turns = listOf(
             CatalogTurnPayload(
                 turnId = "turn_1",

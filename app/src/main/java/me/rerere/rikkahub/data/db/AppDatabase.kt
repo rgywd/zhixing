@@ -33,6 +33,7 @@ import me.rerere.rikkahub.data.db.entity.CodexRuntimeSettingsEntity
 import me.rerere.rikkahub.data.db.entity.CodexAttachmentEntity
 import me.rerere.rikkahub.data.db.entity.CodexDraftEntity
 import me.rerere.rikkahub.data.db.entity.CodexThreadEntity
+import me.rerere.rikkahub.data.db.entity.CodexThreadDetailRevisionEntity
 import me.rerere.rikkahub.data.db.entity.CodexThreadPreferenceEntity
 import me.rerere.rikkahub.data.db.entity.CodexTombstoneEntity
 import me.rerere.rikkahub.data.db.entity.CodexTurnEntity
@@ -70,6 +71,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         CodexProjectEntity::class,
         CodexProjectPreferenceEntity::class,
         CodexThreadEntity::class,
+        CodexThreadDetailRevisionEntity::class,
         CodexThreadPreferenceEntity::class,
         CodexTurnEntity::class,
         CodexItemEntity::class,
@@ -83,7 +85,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         CodexCatalogChunkEntity::class,
         CodexTombstoneEntity::class,
     ],
-    version = 30,
+    version = 31,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -109,6 +111,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         AutoMigration(from = 27, to = 28),
         AutoMigration(from = 28, to = 29),
         AutoMigration(from = 29, to = 30),
+        AutoMigration(from = 30, to = 31),
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
