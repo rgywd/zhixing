@@ -138,7 +138,7 @@ DISCONNECTED
 |---|---|---|
 | `initialize` / `initialized` | 建立客户端能力 | 失败则不能写入 |
 | `thread/start` | 当前仓库新建空白 Thread | 保留本地草稿，不生成假 Thread |
-| `thread/read(includeTurns=true)` | 当前 Thread 全量历史 | 保留旧 revision，退避重试 |
+| `thread/read(includeTurns=true)` | 当前 Thread 全量历史 | 保留最后完整 snapshot，按本地 read generation 退避重试 |
 | `thread/resume` | 加载已有当前 Thread | 未加载/占用时明确提示接管 |
 | `turn/start` | 空闲发送 | 以响应中的实际 Turn/settings 为准 |
 | `turn/steer` | 运行中补充要求 | expectedTurnId 不匹配时刷新状态 |
@@ -321,12 +321,15 @@ Android 只接受与上传请求 ID、大小和 SHA-256 全部匹配的回执。
 ## 12. 缓存写入规则
 
 - Wire 分块 snapshot 继续使用 revision/hash 原子替换；Direct `thread/read` 没有服务端 revision，必须用
-  本地 read generation：请求在途期间缓冲同 Thread notification，snapshot 解析后按到达顺序重放；
+  本地 read generation：请求在途期间缓冲同 Thread notification 和 server request，snapshot 解析后按到达顺序
+  重放；失败回放也必须重算 active turn、恢复可见审批并立即持久化；
 - 不完整 snapshot、解析失败或未完成 generation 保留旧数据，不允许覆盖已经接收的新事件；
 - runtime Item 以稳定 itemId upsert；
 - Thread、Turn、Item raw 只保存在 App 私有 Room，不写普通日志；
 - 草稿按 `(connectionId, repositoryId, threadId?)` 保存；
-- 当前 Thread 指针在 `thread/start` 成功后更新；
+- 当前 Thread 指针按 `(repositoryId, connectionId)` 隔离，并在 `thread/start` 成功后更新；
+- 所有写 RPC、附件上传和审批响应都携带本地 connection generation 租约；断线或重连会使旧租约失效，
+  旧协程不得向新 WebSocket 继续写入；
 - Chat Provider Conversation 不写入 Codex 表，Codex Thread 不写入 Provider Conversation 表。
 
 ## 13. 兼容门

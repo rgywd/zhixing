@@ -190,6 +190,34 @@ class AppServerJsonRpcClientTest {
     }
 
     @Test
+    fun `an old write generation cannot send on a replacement websocket`() = runBlocking {
+        server.enqueue(webSocketResponse { socket, message ->
+            if (message.string("method") == "initialize") socket.send("""{"id":${message["id"]},"result":{}}""")
+        })
+        val replacementFrames = Collections.synchronizedList(mutableListOf<JsonObject>())
+        server.enqueue(webSocketResponse { socket, message ->
+            replacementFrames += message
+            if (message.string("method") == "initialize") socket.send("""{"id":${message["id"]},"result":{}}""")
+        })
+        val client = client()
+        client.connect(endpoint())
+        val oldGeneration = client.connectionGeneration
+        client.connect(endpoint())
+
+        val error = runCatching {
+            client.request(
+                "turn/start",
+                expectedConnectionGeneration = oldGeneration,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is AppServerTransportException)
+        assertFalse(replacementFrames.any { it.string("method") == "turn/start" })
+        assertTrue(client.connectionGeneration != oldGeneration)
+        client.disconnect()
+    }
+
+    @Test
     fun `rejects plain websocket outside explicit loopback`() = runBlocking {
         val client = client()
 

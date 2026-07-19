@@ -49,14 +49,21 @@ data class WorkRepositoryConfig(
     val path: String,
     val machineId: String? = null,
     val legacyProjectId: String? = null,
+    /** Active Codex connection for this local repository mapping. */
+    val connectionId: String? = null,
+    /** Keeps each connection's current thread separate when the active connection changes. */
+    val threadIdsByConnection: Map<String, String> = emptyMap(),
     val currentThreadId: String? = null,
     val draft: String = "",
     val preferences: WorkRepositoryPreferences = WorkRepositoryPreferences(),
-)
+) {
+    fun threadIdFor(connectionId: String): String? = threadIdsByConnection[connectionId]
+        ?: currentThreadId.takeIf { this.connectionId == null || this.connectionId == connectionId }
+}
 
 @Serializable
 data class WorkUiState(
-    val schema: Int = 2,
+    val schema: Int = 3,
     val mode: WorkAppMode = WorkAppMode.CHAT,
     val activeRepositoryId: String? = null,
     val repositories: List<WorkRepositoryConfig> = emptyList(),
@@ -70,7 +77,7 @@ data class WorkUiState(
             .distinctBy { it.id }
         val selectedId = activeRepositoryId?.takeIf { id -> uniqueRepositories.any { it.id == id } }
             ?: uniqueRepositories.firstOrNull()?.id
-        return copy(activeRepositoryId = selectedId, repositories = uniqueRepositories)
+        return copy(schema = 3, activeRepositoryId = selectedId, repositories = uniqueRepositories)
     }
 }
 
@@ -82,6 +89,8 @@ interface WorkUiStore {
     suspend fun upsertRepository(repository: WorkRepositoryConfig)
     suspend fun removeRepository(repositoryId: String)
     suspend fun clearCurrentThread(repositoryId: String)
+    suspend fun bindRepositoryConnection(repositoryId: String, connectionId: String)
+    suspend fun updateDirectThread(repositoryId: String, connectionId: String, threadId: String?)
     suspend fun updateRepositorySession(
         repositoryId: String,
         currentThreadId: String? = null,
@@ -145,6 +154,45 @@ class FileWorkUiStore private constructor(
         current.copy(
             repositories = current.repositories.map { repository ->
                 if (repository.id == repositoryId) repository.copy(currentThreadId = null, draft = "") else repository
+            },
+        )
+    }
+
+    override suspend fun bindRepositoryConnection(repositoryId: String, connectionId: String) = update { current ->
+        current.copy(
+            repositories = current.repositories.map { repository ->
+                if (repository.id != repositoryId) return@map repository
+                val migratedThreads = if (
+                    repository.connectionId == null && repository.currentThreadId != null
+                ) repository.threadIdsByConnection + (connectionId to repository.currentThreadId)
+                else repository.threadIdsByConnection
+                repository.copy(
+                    connectionId = connectionId,
+                    threadIdsByConnection = migratedThreads,
+                    currentThreadId = migratedThreads[connectionId],
+                )
+            },
+        )
+    }
+
+    override suspend fun updateDirectThread(
+        repositoryId: String,
+        connectionId: String,
+        threadId: String?,
+    ) = update { current ->
+        current.copy(
+            repositories = current.repositories.map { repository ->
+                if (repository.id != repositoryId) return@map repository
+                repository.copy(
+                    connectionId = connectionId,
+                    threadIdsByConnection = if (threadId == null) {
+                        repository.threadIdsByConnection - connectionId
+                    } else {
+                        repository.threadIdsByConnection + (connectionId to threadId)
+                    },
+                    currentThreadId = threadId,
+                    draft = if (threadId == null) "" else repository.draft,
+                )
             },
         )
     }

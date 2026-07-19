@@ -21,4 +21,14 @@ class DirectWorkCacheKeyTest {
         assertEquals(true, directWorkWritable(true, AppServerCompatibilityLevel.TEXT_ONLY))
         assertEquals(true, directWorkWritable(true, AppServerCompatibilityLevel.FULL))
     }
+
+    @Test
+    fun `write lease is invalidated by disconnect or a newer connection generation`() {
+        val lease = DirectWorkWriteLease(4, 9)
+
+        assertEquals(true, directWorkLeaseValid(true, 4, 9, lease))
+        assertEquals(false, directWorkLeaseValid(false, 4, 9, lease))
+        assertEquals(false, directWorkLeaseValid(true, 5, 9, lease))
+        assertEquals(false, directWorkLeaseValid(true, 4, 10, lease))
+    }
 }

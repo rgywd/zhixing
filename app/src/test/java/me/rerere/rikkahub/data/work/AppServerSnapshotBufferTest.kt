@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.work
 
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.rikkahub.data.workflow.codex.CodexItem
 import me.rerere.rikkahub.data.workflow.codex.CodexRuntimeState
@@ -28,9 +29,53 @@ class AppServerSnapshotBufferTest {
             },
         )))
 
-        val restored = buffer.complete(snapshot("old"))
+        val restored = buffer.complete(snapshot("old")).detail
 
         assertEquals("oldnew", restored.turns.single().items.single().text)
+    }
+
+    @Test
+    fun `server request newer than snapshot is replayed after snapshot`() {
+        val buffer = AppServerSnapshotBuffer()
+        buffer.begin("thread-1")
+        val request = AppServerRequest(
+            id = JsonPrimitive(7),
+            method = "item/commandExecution/requestApproval",
+            params = buildJsonObject {
+                put("threadId", "thread-1")
+                put("itemId", "item-approval")
+            },
+        )
+
+        assertTrue(buffer.offer(request))
+
+        assertEquals(listOf(request), buffer.complete(snapshot("old")).serverRequests)
+    }
+
+    @Test
+    fun `abort preserves both newer notifications and server requests`() {
+        val buffer = AppServerSnapshotBuffer()
+        buffer.begin("thread-1")
+        buffer.offer(AppServerNotification(
+            method = "item/agentMessage/delta",
+            params = buildJsonObject {
+                put("threadId", "thread-1")
+                put("turnId", "turn-1")
+                put("itemId", "item-1")
+                put("delta", "new")
+            },
+        ))
+        val request = AppServerRequest(
+            id = JsonPrimitive(8),
+            method = "item/tool/requestUserInput",
+            params = buildJsonObject { put("threadId", "thread-1") },
+        )
+        buffer.offer(request)
+
+        val replay = buffer.abort(snapshot("old"))
+
+        assertEquals("oldnew", replay.detail.turns.single().items.single().text)
+        assertEquals(listOf(request), replay.serverRequests)
     }
 
     @Test

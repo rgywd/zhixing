@@ -253,7 +253,8 @@ OpenAI 官方将 App Server 用于富客户端集成，但 WebSocket transport �
 - 现有 Room 31、Wire 密文、Relay 数据、Agent home 和 Happy 数据不在本需求中删除。
 - 先增加 direct transport 和双模式 UI，在内部开关下完成真实链路验收，再把 Work 默认切到 direct。
 - 切换后 Wire/Relay 进入只读回滚状态；稳定一个发布周期后另开清理需求删除死代码和服务器资源。
-- 已缓存 Codex Item 可继续投影；直连首次读取成功后按 Thread revision 原子更新。
+- 已缓存 Codex Item 可继续投影；Direct 没有服务端 Thread revision，首次读取按本地 read generation
+  应用完整 snapshot，并在提交前顺序重放在途 notification 与 server request。
 - 回滚只切换 transport/controller，不迁移或删除 Codex 原始历史。
 
 ## 12. P0 验收矩阵

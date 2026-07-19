@@ -73,6 +73,34 @@ class WorkUiStateTest {
     }
 
     @Test
+    fun `repository thread pointers are isolated by Codex connection`() = runBlocking {
+        val file = temporaryFolder.newFile("work-connections.json")
+        file.delete()
+        val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+        val repository = WorkRepositoryConfig(
+            id = "one",
+            displayName = "Zhixing",
+            path = "C:/src/zhixing",
+            currentThreadId = "legacy-thread",
+        )
+        val store = FileWorkUiStore(file, json)
+        store.upsertRepository(repository)
+
+        store.bindRepositoryConnection(repository.id, "connection-a")
+        assertEquals("legacy-thread", store.state.value.activeRepository?.threadIdFor("connection-a"))
+        store.updateDirectThread(repository.id, "connection-a", "thread-a")
+        store.bindRepositoryConnection(repository.id, "connection-b")
+        assertNull(store.state.value.activeRepository?.currentThreadId)
+        store.updateDirectThread(repository.id, "connection-b", "thread-b")
+
+        val restored = FileWorkUiStore(file, json).state.value.activeRepository
+        assertEquals(3, FileWorkUiStore(file, json).state.value.schema)
+        assertEquals("thread-a", restored?.threadIdFor("connection-a"))
+        assertEquals("thread-b", restored?.threadIdFor("connection-b"))
+        assertEquals("connection-b", restored?.connectionId)
+    }
+
+    @Test
     fun `file store persists add edit selection mode and local-only delete`() = runBlocking {
         val file = temporaryFolder.newFile("work-ui.json")
         file.delete() // A fresh install has no state file yet.

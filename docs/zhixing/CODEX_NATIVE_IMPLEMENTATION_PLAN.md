@@ -478,3 +478,6 @@ Set-Location ..
   thread/read fixture → Supervisor gate → thread/resume，并给 mutating action 统一加 writable gate。
   Direct cache key 改为 `direct:connectionId` 命名空间；snapshot 在途事件进入 generation buffer，映射完成后
   重放，避免旧 read 覆盖新流式消息。
+- 2026-07-20：独立审查后的竞态收口：每次断线/重连递增 connection generation，所有写 RPC、附件上传和
+  审批响应必须持有同代写租约；thread/read 同时缓冲 notification 与 server request，成功或失败回放后重算
+  active turn 并立即落盘；仓库当前 Thread 按 connectionId 分槽保存，切换开发机不复用另一连接的 Thread ID。
