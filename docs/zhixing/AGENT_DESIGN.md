@@ -1,6 +1,13 @@
-# zhixing-agent 设计契约（P1：Codex 通道 / P2：Claude 通道）
+# zhixing-agent 历史设计记录（Happy P1 / Claude P2）
 
-状态：立项文档（2026-07-17），未开始编码
+状态：Historical / rollback only（2026-07-19）
+
+> 本文记录 0.1.x 从 Happy CLI 迁移和 Claude P2 的历史决策，不能作为当前 Codex Wire 运行时合同。
+> 当前唯一 active 基线见 [`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md)、
+> [`ZHIXING_WIRE_V1.md`](./ZHIXING_WIRE_V1.md) 和
+> [`CODEX_NATIVE_IMPLEMENTATION_PLAN.md`](./CODEX_NATIVE_IMPLEMENTATION_PLAN.md)。
+
+原始状态：立项文档（2026-07-17），编码随后已完成并在 0.1.x 发布。
 决策记录：进本仓 `agent/` 目录；P1 仅做 Codex（编码优先级最高）；Claude Code 通道（P2）
 设计已于 2026-07-17 批准（见第 8 节，司南式"寻呼机"模型），编码在 P1 之后另行启动。
 

@@ -53,7 +53,7 @@
 - [x] 在 Workspace 详情页提供知识空间状态、初始化和知识导入入口。
 - [x] 为初始化、中文检索、来源引用、路径边界和工具注册补测试。
 
-### Phase 2.2：原生远程工作流
+### Phase 2.2：原生远程工作流（0.1.x Happy 历史）
 
 完整契约见 [`NATIVE_WORKFLOW.md`](./NATIVE_WORKFLOW.md)。
 
@@ -65,7 +65,19 @@
 - [x] 使用当前真实 Happy/Codex 账户完成读写闭环与断线恢复验证。
 - [x] 工作流默认入口不再加载 Happy WebView；App 支持安全切换中继 origin，token 与中继绑定。
 - [x] 自托管 Happy Relay 的固定上游版本、Docker Compose、可选 Caddy、备份/升级/回滚手册已落库。
-- [ ] 在目标 VPS 完成 HTTPS 部署，并做手机 + zhixing-agent + Codex 的真实全链路验收。
+- [x] Happy 历史链路已完成并冻结为 0.1.x 回滚面；后续不再扩展。
+
+### Phase 2.4：Codex 原生会话交互打磨
+
+完整合同见 [`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md)，执行状态见
+[`CODEX_NATIVE_IMPLEMENTATION_PLAN.md`](./CODEX_NATIVE_IMPLEMENTATION_PLAN.md)。
+
+- [ ] Agent/Wire 保留模型、权限、上下文、结构化 Item 和完整增量事件，不再压成纯文本。
+- [ ] 历史 snapshot 与实时 event 统一投影为 `UIMessage/UIMessagePart`。
+- [ ] Codex Thread 复用现有聊天输入、Markdown、思考、工具、审批和附件渲染。
+- [ ] 接入动态 model/effort、Fast、permission profile、Skill、图片和通用文件。
+- [ ] 大历史分块、首次同步重试、离线旧 revision 与 Desktop takeover 完成闭环。
+- [ ] 经独立审查 BOT 按合同 P0 矩阵验收通过。
 
 ### Phase 2.3：记忆 MVP
 

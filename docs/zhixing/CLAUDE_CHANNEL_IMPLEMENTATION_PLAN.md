@@ -1,6 +1,9 @@
-# Claude Code 通道 P2 实施计划
+# Claude Code 通道 P2 历史实施记录
 
-状态：已完成（2026-07-18）；P2-1 至 P2-4 已交付，进入 0.1.12 发布。
+状态：Historical / read-only（2026-07-19）；P2-1 至 P2-4 曾在 0.1.x 交付，0.2.x 不再维护写入通道。
+
+> 当前 Codex-only 方向不要求兼容 Claude Code。本文只用于理解旧 Happy 数据和回滚，不得把 Claude
+> “寻呼机”交互复制到当前 Codex Thread 页。active 合同见 `CODEX_NATIVE_ARCHITECTURE.md`。
 对应需求：[Issue #18](https://github.com/rgywd/zhixing/issues/18)  
 产品契约：[`AGENT_DESIGN.md`](./AGENT_DESIGN.md) 第 8 节
 

@@ -1,243 +1,234 @@
-# 知行 0.2.0 Codex 原生实施计划
+# 知行 Codex 原生会话打磨实施计划
 
 状态：In progress
 日期：2026-07-19
-跟踪：GitHub Issue #49
+分支：`feat/49-codex-chat-parity`
+验收合同：[`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md)
 
-## 1. 交付策略
+## 1. 当前基线
 
-0.2.0 是协议、服务端、Agent、数据层和 Android 信息架构的跨层更新。采用短分支顺序合并，`main` 始终可部署，0.1.x 可以并行发布。
+`v0.2.0` 已完成 Wire v1、Codex Catalog、项目/历史入口和基本 Runtime Bridge；`v0.2.1` 修复 Agent
+常驻与项目目录整理。当前缺口集中在 Thread 会话本身：协议被压成纯文本、历史一次性同步、输入区重新实现，
+模型/思考/附件/Skill/上下文/权限和既有 Markdown/思考/工具渲染均未形成完整闭环。
 
-规则：
+本计划不重新建设 Catalog、Relay 或项目管理，而是在现有架构上补齐“Codex 是知行聊天运行时”这一层。
 
-- 不使用 worktree。
-- 每个阶段从当时最新 `main` 创建 `feat/49-*`。
-- 共享工作区有其他未提交改动时，不切分支、不 stash、不代替提交。
-- 未闭环能力默认关闭或不挂正式 UI。
-- 合并前重新同步 `origin/main` 并执行移动检测。
-- 只在功能冻结和全链路验收后创建 `release/0.2.0`。
+## 2. 交付规则
 
-## 2. 阶段矩阵
+- 不使用 worktree；从最新 `main` 创建短分支。
+- 文档合同先于代码提交，后续代码与状态必须回填本计划。
+- 每阶段 RED → GREEN → focused verify → commit；不以 UI TODO 代替协议闭环。
+- 普通 Provider Chat 行为必须保持不变。
+- 未被当前 App Server 运行时验证的接口必须 capability-gate 或延期。
+- 准备收口时启动独立子 BOT，按架构文档第 15 节逐条审查；未通过则继续修复。
 
-### P0：文档与契约
+## 3. Phase A：文档与事实基线
 
-分支：`feat/49-codex-native-contract`
+状态：进行中
 
-产物：
+范围：
 
-- `docs/zhixing/CODEX_NATIVE_ARCHITECTURE.md`
-- `docs/zhixing/ZHIXING_WIRE_V1.md`
-- `docs/zhixing/CODEX_NATIVE_IMPLEMENTATION_PLAN.md`
+- 重写 `CODEX_NATIVE_ARCHITECTURE.md`，完整记录两次调研、目标交互和验收矩阵。
+- 更新 `ZHIXING_WIRE_V1.md` 的会话、catalog、附件和事件合同。
+- 将 `NATIVE_WORKFLOW.md` 与 `AGENT_DESIGN.md` 明确为 Happy/Claude 历史与回滚材料。
+- 更新 `README.md`、`AGENTS.md` 和本计划，消除“工作模块是监控器”的描述。
 
-验收：
+验证：
 
-- 当前链路、目标对象、Desktop 边界、UX、威胁模型和回滚均有明确结论。
-- 高风险项对应契约、测试门槛或明确延期。
-- 不修改运行时代码，不影响 #48 或 0.1.x。
+- 文档中每个 P0 风险均对应字段、测试或明确延期。
+- 全仓搜索不存在互相冲突的 active 0.2.x 产品定义。
 
-### P1：Wire v1 core
+## 4. Phase B：Agent/App Server 保真适配
 
-分支：`feat/49-wire-v1-core`
+状态：待实施
 
-文件：
+主要文件：
 
-- `agent/src/wire/`
-- Android `data/workflow/wire/`
-- `docs/zhixing/test-vectors/wire-v1/`
+- `agent/src/codex/appServerClient.ts`
+- `agent/src/wire/runtimeBridge.ts`
+- `agent/src/catalog/threadDetail.ts`
+- `agent/src/catalog/types.ts`
+- `agent/src/wire/types.ts`
 
 RED：
 
-- AAD 任一字段改变仍能解密。
-- duplicate/reordered/gap/expired 未被拒绝。
-- 缺块覆盖旧 snapshot。
-- tombstone 后旧设备可复活 Thread。
-- 不同 major 仍执行写操作。
+- Thread start/resume 的实际 model/effort/tier/profile/sandbox 被丢弃。
+- userMessage 图片被压成 `[图片]`，reasoning/tool 只剩摘要。
+- 只收到 agentMessage delta，其他 Runtime notification 无事件。
+- Turn 只能接收 text。
 
 GREEN：
 
-- Node/Kotlin 交叉向量全绿。
-- Happy v0 与 Wire v1 bundle 可明确区分且只读兼容。
-- Zod/Kotlin serializer 对未知可选字段前向兼容。
+- 提供 model/profile/skill/plugin/app catalog 请求和版本化 payload。
+- Turn input 支持 text/localImage/skill/mention，通用附件使用受控上传引用。
+- Thread snapshot 保存结构化 Item 和 sanitized raw。
+- Runtime event 覆盖正文、思考、计划、命令、文件、MCP、用量、设置、reroute、错误和审批。
+- start/resume/turn 响应回传 App Server 确认的 runtime settings。
 
 验证：
 
 ```powershell
-cd agent
+Set-Location agent
+npm test
+npm run typecheck
+npm run build
+```
+
+## 5. Phase C：Wire 与 Room 合同
+
+状态：待实施
+
+主要文件：
+
+- `app/.../data/workflow/wire/`
+- `app/.../data/workflow/codex/CodexCatalogModels.kt`
+- `app/.../data/workflow/codex/CodexCatalogRepository.kt`
+- Room entity/DAO/migration/schema
+
+RED：
+
+- 大历史超过 Relay 单包上限。
+- 快照缺块时覆盖旧历史。
+- Runtime delta 重复或乱序造成重复文本。
+- 旧 `CodexItem.text` 缓存无法兼容升级。
+
+GREEN：
+
+- Thread snapshot chunk 具备 revision、hash、原子提交和缺块重试。
+- Runtime event 带 sequence，Android reducer 幂等应用并检测 gap。
+- 结构化 Item、runtime settings、catalog 和 token usage 增量持久化。
+- v0.2.1 旧表增量迁移，旧 text 只作为 fallback。
+
+## 6. Phase D：CodexConversationProjector
+
+状态：待实施
+
+主要文件：
+
+- 新增 `data/workflow/codex/CodexConversationProjector.kt`
+- 新增 projector fixture/tests
+- `ai/ui/Message.kt` 仅在确有共享缺口时做行为兼容扩展
+
+RED：
+
+- 历史 snapshot 和实时 event replay 得到不同 UI。
+- reasoning/tool 顺序被重排。
+- tool delta 没有按 Item ID 合并。
+- turn 完成后思考或工具仍处于 loading。
+
+GREEN：
+
+- Codex Item 映射到 Text/Image/Reasoning/Tool/Note。
+- snapshot 与等价事件 replay 输出深度相等。
+- 复用 `MessagePartsBlock`、Markdown、Chain of Thought 和 Tool fallback。
+- opaque Item 只隔离自己，不破坏 Thread。
+
+验证：
+
+```powershell
+./gradlew.bat :app:testDebugUnitTest --tests "*CodexConversationProjectorTest*"
+```
+
+## 7. Phase E：共享 Timeline 与 Composer
+
+状态：待实施
+
+主要文件：
+
+- `ui/components/ai/ChatInput.kt`
+- `ui/hooks/ChatInputState.kt`
+- `ui/pages/chat/ChatPage.kt`
+- `ui/pages/chat/ChatList.kt`
+- 新增通用 Composer option/controller 类型
+
+实施原则：
+
+- 抽取 `ChatComposer`，保留现有 `ChatInput` 作为 Provider Chat adapter。
+- 抽取可被 Codex 使用的 Timeline/Message row，不复制 `ChatMessage` 逻辑。
+- Model/Reasoning UI 数据驱动；Provider Model 和 Codex model catalog 分别适配。
+- Codex reasoning 支持运行时广播的 `max/ultra`，不修改 Provider 语义。
+
+RED：
+
+- 普通聊天模型、思考、附件或发送行为回归。
+- Codex 页面仍出现 `OutlinedTextField` 或 `CodexItemRow`。
+- 最大字体、IME 或横屏遮挡输入。
+
+GREEN：
+
+- 普通 Chat 与 Codex Thread 使用同一输入容器和消息渲染。
+- Codex 输入支持图片、文件、Skill、model、effort、Fast、profile 和 context usage。
+- 运行中发送为 steer，空闲为 turn，停止为 interrupt。
+
+## 8. Phase F：附件、恢复与错误状态
+
+状态：待实施
+
+范围：
+
+- Wire E2E attachment upload/download。
+- Agent 临时文件目录、路径校验、大小/MIME/hash、TTL 清理。
+- Thread detail 自动重试、明确错误、旧 revision 保留。
+- 离线草稿、开发机离线和 Desktop takeover 确认。
+
+必须测试：
+
+- 路径逃逸、超限、hash 错误、重复 upload、过期清理。
+- detail 首次失败后自动恢复。
+- chunk 缺失/乱序/冲突不覆盖旧历史。
+- takeover 未确认时不启动第二个写入 Runtime。
+
+## 9. Phase G：跨层回归与真机验收
+
+状态：待实施
+
+自动化：
+
+```powershell
+Set-Location agent
 npm test
 npm run typecheck
 npm run build
 
-cd ..
+Set-Location ..
 ./gradlew.bat :app:testDebugUnitTest
+./gradlew.bat :app:assembleDebug
+
+Set-Location relay
+npm test
+npm run typecheck
+npm run build
 ```
 
-### P2：Codex Adapter 与 Catalog
+真机检查：
 
-分支：`feat/49-codex-catalog`
+1. 打开 Desktop 历史 Thread，看到完整用户/助手/思考/工具/图片。
+2. 选择当前模型支持的 effort、Fast 和权限，发送并确认服务端实际值。
+3. 发送截图和文件，Codex 能读取且历史重开后仍正确显示。
+4. 实时正文/思考/命令/文件修改进入同一聊天流。
+5. Relay/Agent 断开再恢复，不重复文本、不丢历史。
+6. 最大字体、深浅主题、横屏与输入法不遮挡。
 
-文件：
+## 10. 独立审查门
 
-- `agent/src/codex/appServerClient.ts`
-- `agent/src/codex/schema/`
-- `agent/src/catalog/`
-- Agent CLI 诊断命令和测试。
+每次主线准备结束时，启动独立子 BOT：
 
-RED：
+- 只读架构合同、diff、测试输出和运行证据；
+- 逐条标记 PASS / FAIL / NOT PROVEN；
+- 任一 P0 为 FAIL 或 NOT PROVEN 时不得交付；
+- 主线修复后重新启动新的审查轮，直到全 P0 PASS。
 
-- cursor 分页漏 Thread。
-- archived、subagent、fork、Automation 分类错误。
-- Windows/WSL/`\\?\`/Git root 生成重复 Project。
-- schema/capability 不兼容仍允许控制。
-- Desktop 状态未知被显示为 running/idle。
+## 11. 当前记录
 
-GREEN：
+- 2026-07-19：完成 Desktop/CLI/App Server 协议同族和能力审计。
+- 2026-07-19：完成知行 ChatInput/UIMessage/ChatMessage/Markdown/Reasoning/Tool 流程审计。
+- 2026-07-19：确认当前缺口是适配器和页面旁路，而不是 Codex 不保存历史。
+- 2026-07-19：创建 `feat/49-codex-chat-parity`；远端 fetch 因本机 Schannel TLS 握手失败，
+  创建分支前本地 `main...origin/main` 记录为 `0 0`，基线 `c7b041587`。
 
-- `codex app-server generate-ts` 产物生成 schema hash 和能力映射。
-- `thread/list/read` 完整目录与按需正文规范化。
-- Project ID 持久化且不泄漏路径。
-- 真机 catalog dump 与 Desktop 项目/历史抽样一致。
-- 旧 Codex 明确只读降级。
+## 12. 延期项
 
-### P3：Zhixing Relay v1
-
-分支：`feat/49-relay-v1-service`
-
-产物：
-
-- 独立 `relay/` 服务。
-- `deploy/zhixing-relay/` Docker Compose、反向代理、持久卷和 runbook。
-- 数据库 migration、健康检查、指标、备份和恢复脚本。
-
-RED：
-
-- 重复 envelope 重复应用。
-- 重启丢 ACK/presence/outbox/tombstone。
-- Relay 日志或数据库出现 plaintext payload。
-- 备份无法恢复或版本不匹配静默启动。
-- 2C2G 环境 WebSocket/持久化失效。
-
-GREEN：
-
-- 认证、配对、撤销、路由、ACK、outbox、RPC 和 tombstone 集成测试通过。
-- Docker 重启持久化、备份恢复和回滚演练通过。
-- 明文扫描无路径、标题、正文、工具参数和凭据。
-- 不依赖 `happy-server-self-host`。
-
-### P4：Android Catalog 与信息架构
-
-分支：`feat/49-android-codex-catalog`
-
-产物：
-
-- Wire v1 Client、Repository 和 Room schema。
-- Project/Thread/Turn/Item/RuntimeBinding/Approval 本地模型。
-- 工作首页、Project 页、全局搜索、设置与离线状态。
-
-RED：
-
-- 大量 Thread 卡顿或丢失。
-- 配置仍出现在工作首页。
-- 离线导致历史消失或草稿丢失。
-- subagent/Automation 平铺污染主列表。
-- 返回栈、最大字体、横屏或深浅主题失败。
-
-GREEN：
-
-- 项目优先首页和 Project → Thread 导航完成。
-- Room 是缓存单一来源，revision/tombstone 正确应用。
-- 搜索覆盖标题、正文和项目，未知/不可解对象隔离。
-- 48dp 触控、contentDescription、字体放大和主题验收。
-
-### P5：Codex Runtime Bridge
-
-分支：`feat/49-codex-runtime-bridge`
-
-产物：
-
-- 唯一 RuntimeBinding manager。
-- start/resume/fork/steer/interrupt/archive/delete/approval。
-- Android 原生 Thread 页和规范化 Item 渲染。
-
-RED：
-
-- 重复 resume 创建多个产品会话或并发 turn。
-- requestId 重试重复执行危险操作。
-- Desktop 状态未知被静默接管。
-- 工具/审批/错误被当成普通正文或只进日志不进聊天。
-
-GREEN：
-
-- Agent 启动的 Thread 真机完成消息、工具、审批、steer、interrupt 和完成闭环。
-- 同一 Thread 重连不重复。
-- Desktop 历史可继续；状态未知要求确认。
-- Socket/Relay 断线后从 ACK/revision 补齐。
-
-### P6：Happy 只读与切换
-
-分支：`feat/49-happy-readonly-cutover`
-
-状态（2026-07-19）：已实现并合入 main。默认 `Screen.Workflow` 与 Agent daemon 均切到
-Codex Wire；`-PcodexWorkflowEnabled=false` 和 `ZHIXING_ENABLE_LEGACY_HAPPY=1` 分别保留
-Android/Agent 回滚开关。旧 Happy 页面只读，旧凭据、缓存、VPS 容器与 v0.1.13 Release 均已核对保留。
-
-产物：
-
-- 0.2.0 feature flag 和新旧入口切换。
-- Happy 历史只读边界。
-- 0.1.13 客户端、Agent、Relay 回滚说明。
-
-验收：
-
-- 新旧凭据、密钥和缓存不串站。
-- 新链路失败不清理旧 Happy 数据或本机 Codex Thread。
-- 回滚后 0.1.13 可读取旧数据并启动旧工作流。
-- 新链路全绿后才下线 Happy 容器。
-
-### P7：发布 0.2.0
-
-分支：`release/0.2.0`
-
-门槛：
-
-- 所有阶段 PR 已进入最新 main。
-- Agent/Relay/Android 全量回归。
-- 目标 VPS 部署、备份恢复、断线、升级和回滚真机演练。
-- 小屏/大屏、深浅主题、最大字号、横屏截图集。
-- 0.1.13 → 0.2.0 应用内更新和数据迁移。
-- APK 签名、版本号、更新日志、GitHub Release 资产和 hash。
-
-## 3. 并行冲突管理
-
-- 并行 #48 涉及 AppDatabase、Memory 和 `IMPLEMENTATION_PLAN.md`；P0 只新增独立文档。
-- Room migration 阶段必须从 #48 合并后的数据库版本继续编号，禁止预占 v27。
-- `docs/zhixing/IMPLEMENTATION_PLAN.md` 只在阶段收口时小改；0.2.0 细节留在独立文档。
-- 每次开分支前记录 `origin/main` commit；PR 描述列出同步 commit 和测试结果。
-- 若 0.1.x 发布移动 main，先同步再继续，不把未完成 0.2.0 可见行为带入小版本。
-
-## 4. 验收证据矩阵
-
-| 要求 | 权威证据 |
-|---|---|
-| Desktop/CLI 项目和历史可见 | 真机 `thread/list/read` dump 与 Desktop 抽样截图 |
-| 同一 Thread 接续 | Desktop threadId、Agent resume 结果、手机/桌面历史对比 |
-| 实时 Agent 闭环 | Relay/Agent 脱敏日志、Android 录屏、turn/approval 事件 |
-| E2E 保密 | Node/Kotlin向量、Relay DB/日志明文扫描、篡改失败测试 |
-| 幂等与离线 | duplicate/gap/chunk/tombstone 集成测试和断网真机 |
-| Codex 升级降级 | schema hash/capability matrix 与旧版本 smoke |
-| Android 交互 | UI 测试、截图集、无障碍/字体/主题检查 |
-| 部署与回滚 | VPS health、备份恢复记录、0.1.13 回滚实测 |
-| 发布 | tag、Release、APK hash、应用内更新安装结果 |
-
-## 5. 当前已完成的发现
-
-- 创建 #49 并锁定 Codex-only、App Server、独立 Relay 和项目优先 UI。
-- 本机 `codex-cli 0.144.0` 生成 schema，确认 thread/list/read/resume/fork/archive/unarchive/delete、turn/start/steer/interrupt、审批和增量事件。
-- Desktop 运行时，独立 App Server 可读取完整目录与历史。
-- Desktop App Server 是 stdio 私有子进程，独立 App Server 无法订阅其实时状态；产品边界已如实收口。
-- 现有 Happy AES-GCM 没有 AAD；Wire v1 必须使用新 bundle 和域分离。
-
-## 6. 延期但不遗忘
-
-- OpenAI 若正式开放 Desktop remote-control endpoint，再通过 capability 增加实时 Desktop attach。
-- Push provider、多个手机设备的细粒度历史 rekey 和全量旧 Happy 数据迁移可在 v1 核心稳定后评估。
-- 多 Agent 编排、移动 Diff 编辑器和完整终端不属于 0.2.0。
+- 官方 Desktop attach endpoint：仅在公开、可自托管且运行探针通过后评估。
+- 通用二进制文件的模型原生理解：P0 只保证受控落盘 + mention/path。
+- 新的 Codex 专用 Tool renderer：先使用通用 Tool fallback，真实高频后再做专用卡片。
+- 多 Agent 编排、完整终端和移动 Diff 编辑器不属于本计划。

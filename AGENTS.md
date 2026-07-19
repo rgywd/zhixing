@@ -62,11 +62,14 @@
 
 ## Concepts
 
-- **Remote Development Workflow**: The native Compose `工作` entry groups persistent Codex sessions by machine and
-  working directory. The transport keeps complete active and archived history, while the home page is a curated view:
+- **Remote Development Workflow**: The native Compose `工作` entry is a Codex conversation client, not a task monitor.
+  It groups persistent Codex sessions by machine and working directory. The transport keeps complete active and archived history, while the home page is a curated view:
   pinned projects plus a bounded set of recent projects. Archive-only, missing-directory, and user-hidden projects stay
   available through project management and search. Local pin/hide preferences must survive catalog replacement. Account
-  credentials and machine diagnostics belong in settings. See `docs/zhixing/NATIVE_WORKFLOW.md`.
+  credentials and machine diagnostics belong in settings. A Codex Thread must reuse the existing chat composer,
+  `UIMessage/UIMessagePart`, Markdown, reasoning and tool rendering; do not add a second text-only message UI. Codex remains
+  the history/runtime source, while Room stores a cache/projection rather than a duplicate Provider Conversation. See
+  `docs/zhixing/CODEX_NATIVE_ARCHITECTURE.md`.
 
 - **Assistant**: An assistant configuration with system prompts, model parameters, and conversation isolation. Each
   assistant maintains its own settings including temperature, context size, custom headers, tools, memory options, regex

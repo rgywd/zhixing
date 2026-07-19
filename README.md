@@ -9,7 +9,8 @@ Android-first、本地优先的个人 AI 工作台。
 - DataStore 保存模型服务、助手与外观设置。
 - 在设备端直连用户配置的 OpenAI-compatible、Claude、Gemini 等服务。
 - 支持流式消息、多模态、消息分支、MCP、搜索、语音、本地工作区与 Web 客户端。
-- 支持通过自有 Wire v1 端到端加密中继原生管理 Codex 项目：查看完整任务历史、从手机新建任务并继续桌面任务。
+- 支持通过自有 Wire v1 端到端加密中继使用 Codex 项目与历史 Thread；Codex 复用知行既有聊天输入、
+  Markdown、思考、工具和流式渲染，不另建监控式会话产品。
 - 支持火山引擎方舟通用 API 与 Agent Plan 专属配置。
 - 所有助手内置需求与 Bug 提交工具，经用户确认后打开预填的 Zhixing GitHub Issue 页面。
 - 不接入第三方 Firebase、遥测、更新源或免费模型服务。
@@ -20,7 +21,8 @@ Android-first、本地优先的个人 AI 工作台。
 - [运行时与数据契约](docs/zhixing/RUNTIME_CONTRACT.md)
 - [知识空间 v0.1](docs/zhixing/KNOWLEDGE_SPACE.md)
 - [原生远程工作流契约](docs/zhixing/NATIVE_WORKFLOW.md)
-- [Codex 0.2.0 架构](docs/zhixing/CODEX_NATIVE_ARCHITECTURE.md)
+- [Codex 原生会话协议、交互与实现合同](docs/zhixing/CODEX_NATIVE_ARCHITECTURE.md)
+- [Codex 原生会话实施计划](docs/zhixing/CODEX_NATIVE_IMPLEMENTATION_PLAN.md)
 - [0.2.0 回滚手册](docs/zhixing/CODEX_020_ROLLBACK.md)
 - [数据安全与定时备份](docs/zhixing/DATA_SAFETY_AND_BACKUP.md)
 - [实施计划](docs/zhixing/IMPLEMENTATION_PLAN.md)
