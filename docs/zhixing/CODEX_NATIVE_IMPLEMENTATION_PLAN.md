@@ -1,6 +1,6 @@
 # 知行 Codex 原生会话打磨实施计划
 
-状态：Implementation verified；首轮独立审查未通过后的缺口已修复，等待全新审查轮
+状态：Accepted；第三轮独立审查全 P0 PASS
 日期：2026-07-19
 分支：`feat/49-codex-chat-parity`
 验收合同：[`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md)
@@ -252,6 +252,8 @@ npm run build
   `UIMessagePart.Tool(toolName=update_plan)` 相反；其余 P0 与 Room 30→31 兼容门全部 PASS。
 - 2026-07-19：将历史与实时 `plan` 统一投影为稳定 itemId 的 `update_plan` Tool，input/metadata
   保留原始结构化 plan、explanation、status 和文本；多 Turn 与历史/实时等价测试改为断言 Tool 投影。
+- 2026-07-19：第三轮全新独立审查基于 HEAD `6b01e4343` 逐项复核第 15 节，13 个验收面全部
+  PASS，阻断项为零；独立重跑 Agent 69、Relay 7、Android 223 项并复核设备迁移 1/1 证据。
 
 ## 12. 延期项
 

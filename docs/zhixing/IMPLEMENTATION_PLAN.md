@@ -77,7 +77,7 @@
 - [x] Codex Thread 复用现有聊天输入、Markdown、思考、工具、审批和附件渲染。
 - [x] 接入动态 model/effort、Fast、permission profile、Skill、图片和通用文件。
 - [x] 大历史分块、首次同步重试、离线旧 revision 与 Desktop takeover 完成闭环。
-- [ ] 经独立审查 BOT 按合同 P0 矩阵验收通过。
+- [x] 经第三轮全新独立审查 BOT 按合同 P0 矩阵全项 PASS，阻断项为零。
 
 ### Phase 2.3：记忆 MVP
 
@@ -135,4 +135,5 @@
   旧 0.2.1 数据覆盖安装后正常进入 `RouteActivity`，logcat 无 Room/SafeMode/FATAL 错误。
 - 共享 fixture 验证 Android `turn.start` 的 model/effort/Fast/profile/Skill 结构可由 Agent 原样执行；
   全类型多 Turn snapshot 与累计 runtime event 重放得到相同 `UIMessagePart` 投影。
-- Android 35 x86_64 模拟器已覆盖浅色、深色、大字体、横屏和 IME；最终交付仍以独立审查 BOT 的 P0 结论为门。
+- Android 35 x86_64 模拟器已覆盖浅色、深色、大字体、横屏和 IME。
+- 第三轮独立审查在 HEAD `6b01e4343` 对第 15 节全部 P0 给出 PASS，阻断项为零。
