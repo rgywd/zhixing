@@ -4,9 +4,13 @@ import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -244,6 +248,77 @@ class AppServerJsonRpcClientTest {
         assertEquals(generation, client.connectionGeneration)
         assertEquals(1, server.requestCount)
         client.disconnect()
+    }
+
+    @Test
+    fun `owner is revalidated after initialize before ready is published`() = runBlocking {
+        val owner = AtomicReference("connection-a")
+        val frames = Collections.synchronizedList(mutableListOf<JsonObject>())
+        server.enqueue(webSocketResponse { socket, message ->
+            frames += message
+            if (message.string("method") == "initialize") {
+                owner.set("connection-b")
+                socket.send("""{"id":${message["id"]},"result":{}}""")
+            }
+        })
+        val client = client()
+
+        val error = runCatching {
+            client.connect(endpoint("connection-a")) {
+                check(owner.get() == "connection-a") { "repository is inactive" }
+            }
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
+        assertFalse(frames.any { it.string("method") == "initialized" })
+        assertFalse(
+            client.state.value.phase == AppServerConnectionPhase.READY &&
+                client.state.value.connectionId == "connection-a",
+        )
+    }
+
+    @Test
+    fun `cancelling a slow owner releases a queued replacement connection`() = runBlocking {
+        val firstInitializeSeen = CountDownLatch(1)
+        server.enqueue(webSocketResponse { _, message ->
+            if (message.string("method") == "initialize") firstInitializeSeen.countDown()
+        })
+        server.enqueue(webSocketResponse { socket, message ->
+            if (message.string("method") == "initialize") {
+                socket.send("""{"id":${message["id"]},"result":{"userAgent":"connection-b"}}""")
+            }
+        })
+        val owner = AtomicReference("connection-a")
+        val client = client(requestTimeoutMs = 5_000)
+        val states = Collections.synchronizedList(mutableListOf<AppServerConnectionState>())
+        val stateCollector = launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+            client.state.collect { states += it }
+        }
+        val first = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+            client.connect(endpoint("connection-a")) {
+                check(owner.get() == "connection-a") { "repository is inactive" }
+            }
+        }
+        assertTrue(firstInitializeSeen.await(2, TimeUnit.SECONDS))
+        val replacement = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+            client.connect(endpoint("connection-b")) {
+                check(owner.get() == "connection-b") { "repository is inactive" }
+            }
+        }
+
+        owner.set("connection-b")
+        first.cancelAndJoin()
+        val info = withTimeout(2_000) { replacement.await() }
+
+        assertEquals("connection-b", info.string("userAgent"))
+        assertEquals(AppServerConnectionPhase.READY, client.state.value.phase)
+        assertEquals("connection-b", client.state.value.connectionId)
+        assertFalse(states.any {
+            it.phase == AppServerConnectionPhase.READY && it.connectionId == "connection-a"
+        })
+        assertEquals(2, server.requestCount)
+        client.disconnect()
+        stateCollector.cancelAndJoin()
     }
 
     @Test

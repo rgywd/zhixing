@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -167,6 +168,15 @@ class DirectWorkVM(
         }
         viewModelScope.launch {
             workUiStore.state.collectLatest { state ->
+                val active = state.activeRepositoryId == repositoryId
+                if (!active) {
+                    connectJob?.cancel(CancellationException("Work repository is no longer active"))
+                    reconnectJob?.cancel()
+                    reconnectJob = null
+                    connected = false
+                    lockCompatibility("当前仓库未激活")
+                    statusMessage = "切回此仓库时将重新连接对应开发机"
+                }
                 val next = state.repositories.firstOrNull { it.id == repositoryId }
                 repository = next
                 next?.preferences?.let(::applyPreferences)
@@ -294,7 +304,7 @@ class DirectWorkVM(
                     return@launch
                 }
                 statusMessage = "正在连接 Codex…"
-                runCatching {
+                try {
                     client.connect(
                         AppServerEndpoint(
                             webSocketUrl = credentials.appServerUrl,
@@ -303,21 +313,27 @@ class DirectWorkVM(
                             allowInsecureLoopback = credentials.appServerUrl.startsWith("ws://127.0.0.1") ||
                                 credentials.appServerUrl.startsWith("ws://localhost"),
                         ),
-                        beforeOpen = {
+                        validateOwner = {
                             check(workUiStore.state.value.activeRepositoryId == repositoryId) {
                                 "仓库已切换，取消旧连接请求"
                             }
                         },
                     )
+                    check(workUiStore.state.value.activeRepositoryId == repositoryId) {
+                        "仓库已切换，放弃旧连接结果"
+                    }
                     connected = true
                     statusMessage = null
                     finishCompatibilityGate(credentials)
-                }.onFailure {
+                } catch (cancelled: CancellationException) {
                     connected = false
-                    statusMessage = it.message ?: "无法连接 Codex"
+                    throw cancelled
+                } catch (error: Throwable) {
+                    connected = false
+                    statusMessage = error.message ?: "无法连接 Codex"
                 }
             } finally {
-                connectJob = null
+                if (connectJob == coroutineContext[Job]) connectJob = null
             }
         }
     }

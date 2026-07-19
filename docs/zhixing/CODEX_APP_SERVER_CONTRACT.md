@@ -344,7 +344,9 @@ Android 只接受与上传请求 ID、大小和 SHA-256 全部匹配的回执。
   吸收另一代连接的审批；
 - 单例 App Server client 是 logical connectionId 与 transport generation 的唯一身份源；repository ViewModel
   不得自行猜测 generation 所属连接，只有当前激活仓库能发起重连；排队的连接请求进入 client 互斥区后还要
-  再次核对仓库激活身份，失活请求不得替换当前 socket；同 connectionId 的新 snapshot 建立 generation
+  再次核对仓库激活身份，失活请求不得替换当前 socket；已经开始握手的仓库一旦失活，必须取消其 connect
+  job 并关闭半开 socket，`initialize` 返回后、发布 `READY` 前还要再次核对归属，连接调用返回后 repository
+  controller 也必须复核激活身份才可进入 compatibility gate；同 connectionId 的新 snapshot 建立 generation
   watermark，低于 watermark 的迟到事件不得再次追加到可见消息；
 - `thread/start` 一旦收到成功响应，先把服务端 Thread ID 和最小 snapshot 写入其原 connectionId 的本地槽位，
   再检查租约决定是否继续 `thread/read/turn/start`，避免断线制造不可恢复的孤儿 Thread；

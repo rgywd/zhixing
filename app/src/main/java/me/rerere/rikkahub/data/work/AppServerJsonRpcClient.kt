@@ -85,10 +85,10 @@ class AppServerJsonRpcClient(
 
     suspend fun connect(
         endpoint: AppServerEndpoint,
-        beforeOpen: () -> Unit = {},
+        validateOwner: () -> Unit = {},
     ): JsonObject = connectionMutex.withLock {
         val url = validateEndpoint(endpoint)
-        beforeOpen()
+        validateOwner()
         disconnectLocked(publishState = false)
         val connectionGeneration = generation.incrementAndGet()
         val opened = CompletableDeferred<Unit>()
@@ -124,6 +124,9 @@ class AppServerJsonRpcClient(
                 },
                 expectedConnectionGeneration = connectionGeneration,
             ).jsonObject
+            // Repository selection may change while the WebSocket handshake or initialize RPC is in flight.
+            // Revalidate before publishing READY so an obsolete controller cannot become transport owner.
+            validateOwner()
             notifyInternal("initialized", JsonObject(emptyMap()), connectionGeneration)
             mutableState.value = AppServerConnectionState(
                 phase = AppServerConnectionPhase.READY,

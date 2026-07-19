@@ -495,3 +495,8 @@ Set-Location ..
   snapshot 记录 generation watermark，同 connectionId 的旧代迟到事件不再重复追加。缓存审批只在当前进程
   断线窗口展示，切仓库、切连接和进程恢复继续清空，避免恢复失效 request ID。该轮 Android 283 项单测、
   Debug APK 构建与 AndroidTest Kotlin 编译全部通过。
+- 2026-07-20：第四次竞态审查发现“仓库切换发生在旧连接已通过首次归属检查、但仍在慢握手”窗口；失活
+  repository controller 现在立即取消 connect job，client 在 initialize 后、READY 前重验归属，VM 在返回后
+  再验一次才运行 compatibility gate。新增真实排队测试覆盖 A 慢初始化、B 等待 mutex、切换后取消 A 并由 B
+  接管，以及 initialize 期间失活不得发布旧连接 READY。Android 285 项单测、Debug APK 构建与 AndroidTest
+  Kotlin 编译全部通过。
