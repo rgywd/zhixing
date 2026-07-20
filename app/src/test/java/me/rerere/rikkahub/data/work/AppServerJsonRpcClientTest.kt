@@ -202,6 +202,30 @@ class AppServerJsonRpcClientTest {
     }
 
     @Test
+    fun `a timed out mutation names the method and invalidates the connection`() = runBlocking {
+        server.enqueue(webSocketResponse { socket, message ->
+            if (message.string("method") == "initialize") {
+                socket.send("""{"id":${message["id"]},"result":{}}""")
+            }
+        })
+        val client = client(requestTimeoutMs = 50)
+        client.connect(endpoint())
+
+        val error = runCatching {
+            client.request(
+                "thread/start",
+                expectedConnectionGeneration = client.connectionGeneration,
+                invalidateConnectionOnTimeout = true,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is AppServerRequestTimeoutException)
+        assertEquals("thread/start", (error as AppServerRequestTimeoutException).method)
+        assertTrue(error.message.orEmpty().contains("thread/start"))
+        assertEquals(AppServerConnectionPhase.FAILED, client.state.value.phase)
+    }
+
+    @Test
     fun `an old write generation cannot send on a replacement websocket`() = runBlocking {
         server.enqueue(webSocketResponse { socket, message ->
             if (message.string("method") == "initialize") socket.send("""{"id":${message["id"]},"result":{}}""")

@@ -587,6 +587,7 @@ class DirectWorkVM(
                         put("sandboxPolicy", sandboxPolicy())
                     },
                     expectedConnectionGeneration = lease.connectionGeneration,
+                    invalidateConnectionOnTimeout = true,
                     beforeAttempt = { requireWriteLease(lease) },
                 ).jsonObject
                 val turn = response["turn"] as? JsonObject
@@ -844,6 +845,7 @@ class DirectWorkVM(
                 put("sandbox", sandboxMode())
             },
             expectedConnectionGeneration = lease.connectionGeneration,
+            invalidateConnectionOnTimeout = true,
         ) { requireWriteLease(lease) }
         val createdDetail = AppServerThreadReducer.snapshot(
             result,

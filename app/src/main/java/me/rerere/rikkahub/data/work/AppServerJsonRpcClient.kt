@@ -4,6 +4,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -154,6 +155,7 @@ class AppServerJsonRpcClient(
         method: String,
         params: JsonElement = JsonObject(emptyMap()),
         expectedConnectionGeneration: Long? = null,
+        invalidateConnectionOnTimeout: Boolean = false,
         beforeAttempt: () -> Unit = {},
     ): JsonElement {
         check(state.value.phase == AppServerConnectionPhase.READY) { "Codex App Server is not ready" }
@@ -161,7 +163,12 @@ class AppServerJsonRpcClient(
         while (true) {
             try {
                 beforeAttempt()
-                return requestInternal(method, params, expectedConnectionGeneration)
+                return requestInternal(
+                    method,
+                    params,
+                    expectedConnectionGeneration,
+                    invalidateConnectionOnTimeout,
+                )
             } catch (error: AppServerRpcException) {
                 if (error.code != APP_SERVER_BUSY || attempt >= backoffPolicy.scheduleMs.lastIndex) throw error
                 delay(backoffPolicy.delayMs(attempt, Random.nextDouble()))
@@ -205,7 +212,10 @@ class AppServerJsonRpcClient(
         method: String,
         params: JsonElement,
         expectedConnectionGeneration: Long? = null,
+        invalidateConnectionOnTimeout: Boolean = false,
     ): JsonElement {
+        val connectionAtSend = activeSocket
+            ?: throw AppServerTransportException("Codex App Server socket is closed")
         val id = nextRequestId.getAndIncrement()
         val key = id.toString()
         val deferred = CompletableDeferred<JsonElement>()
@@ -216,7 +226,19 @@ class AppServerJsonRpcClient(
                 put("method", method)
                 put("params", params)
             }, expectedConnectionGeneration)
-            return withTimeout(requestTimeoutMs) { deferred.await() }
+            return try {
+                withTimeout(requestTimeoutMs) { deferred.await() }
+            } catch (timeout: TimeoutCancellationException) {
+                val error = AppServerRequestTimeoutException(method, requestTimeoutMs, timeout)
+                if (invalidateConnectionOnTimeout) {
+                    failConnection(
+                        connectionAtSend.generation,
+                        connectionAtSend.connectionId,
+                        error,
+                    )
+                }
+                throw error
+            }
         } finally {
             pending.remove(key)
         }
