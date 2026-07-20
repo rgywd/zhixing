@@ -49,10 +49,19 @@ class AppServerRpcException(
     val data: JsonElement? = null,
 ) : IllegalStateException(message)
 
-class AppServerTransportException(
+open class AppServerTransportException(
     override val message: String,
     cause: Throwable? = null,
 ) : IllegalStateException(message, cause)
+
+class AppServerRequestTimeoutException(
+    val method: String,
+    val timeoutMs: Long,
+    cause: Throwable,
+) : AppServerTransportException(
+    "Codex 请求 $method 在 ${timeoutMs / 1_000} 秒内没有响应",
+    cause,
+)
 
 data class AppServerBackoffPolicy(
     val scheduleMs: List<Long> = listOf(1_000, 2_000, 4_000, 8_000, 15_000, 30_000),
