@@ -73,6 +73,18 @@
 - [ ] 提供加密备份、导入导出和失败恢复。
 - [ ] 旧 Ktor 服务只作为需求/测试素材，不直接迁移数据库或 REST 接口。
 
+## Phase 4：Work Phone-line v1
+
+目标：让手机创建的 Codex 会话通过三条 MCP 电话线完成可靠的异步沟通，不复制 Codex Desktop，不恢复旧
+Happy/App Server/Relay 链路。完整架构、协议和阶段验收见
+[`CODEX_PHONE_LINE_IMPLEMENTATION_PLAN.md`](./CODEX_PHONE_LINE_IMPLEMENTATION_PLAN.md)。
+
+- [x] 下架旧 Work/Happy/Relay/App Server/Agent 运行时并通过回归构建。
+- [x] 冻结 Phone-line 产品、架构、协议和安全边界。
+- [ ] 实现耐久 Work Core、Windows Runner 和三个 MCP 工具。
+- [ ] 复用普通聊天视觉骨架实现 Android Work 会话闭环。
+- [ ] 完成真实 Codex、弱网、重启、覆盖升级和独立审查后再确定承载它的 App 版本。
+
 ## 每阶段验证门
 
 1. 先写失败测试或可复现验收脚本。
