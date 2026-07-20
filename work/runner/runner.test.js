@@ -174,6 +174,34 @@ test("runner durably replays a final transition after an extended Core outage", 
   assert.equal(recoveredState.transitions().length, 0);
 });
 
+test("stop kills the local Codex process before attempting Core acknowledgement", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-stop-"));
+  const state = new RunnerState(join(directory, "state.json"));
+  let killed = false;
+  const runner = new WorkRunner({
+    config: { id: "runner", stateFile: state.filename, repos: [] },
+    state,
+    client: { ack: async () => { throw new Error("Core unavailable"); } },
+  });
+  runner.active.set("work-stop", {
+    startCommandId: "cmd-start",
+    stoppedByUser: false,
+    child: { kill: () => { killed = true; } },
+  });
+
+  await assert.rejects(() => runner.stopCommand({
+    id: "cmd-stop",
+    sessionId: "work-stop",
+    kind: "STOP",
+  }), /Core unavailable/);
+
+  assert.equal(killed, true);
+  assert.equal(runner.active.get("work-stop").stoppedByUser, true);
+  assert.equal(runner.active.get("work-stop").startCommandAcknowledged, true);
+  assert.deepEqual(state.transitions().map((item) => item.commandId).sort(), ["cmd-start", "cmd-stop"]);
+  assert.equal(state.transitions().find((item) => item.commandId === "cmd-stop").sessionState.status, "IDLE");
+});
+
 test("session id parser accepts current Codex JSONL event", () => {
   assert.equal(parseCodexSessionId({ type: "thread.started", thread_id: "abc" }), "abc");
   assert.equal(parseCodexSessionId({ type: "item.completed" }), null);

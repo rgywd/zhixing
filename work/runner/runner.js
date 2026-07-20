@@ -167,16 +167,20 @@ export class WorkRunner {
     const running = this.active.get(command.sessionId);
     if (running) {
       running.stoppedByUser = true;
-      await this.commitTransition(running.startCommandId, "COMPLETED", null);
       running.startCommandAcknowledged = true;
       running.child.kill();
+      this.state.enqueueTransition(running.startCommandId, "COMPLETED", null);
     }
+    let finalState;
     if (command.kind === "COMPLETE") {
+      finalState = sessionState(command.sessionId, "COMPLETED", "Session completed by user");
+      this.state.enqueueTransition(command.id, "COMPLETED", finalState);
       this.state.delete(command.sessionId);
-      await this.commitTransition(command.id, "COMPLETED", sessionState(command.sessionId, "COMPLETED", "Session completed by user"));
     } else {
-      await this.commitTransition(command.id, "COMPLETED", sessionState(command.sessionId, "IDLE", "Codex turn stopped by user"));
+      finalState = sessionState(command.sessionId, "IDLE", "Codex turn stopped by user");
+      this.state.enqueueTransition(command.id, "COMPLETED", finalState);
     }
+    await this.flushOutbox();
   }
 
   async commitTransition(commandId, state, snapshot) {

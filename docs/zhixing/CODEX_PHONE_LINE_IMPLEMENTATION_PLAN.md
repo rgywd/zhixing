@@ -73,7 +73,7 @@
 
 ## 当前验证证据
 
-- `npm --prefix work test`：16/16 通过，覆盖 Core 契约与重启恢复、ask 故障回滚、短期 token 撤销、命令/会话原子提交、Runner 终态 outbox 重放、隔离鉴权、进程换代与命令租约回收、提问超时、Runner 参数、resume、状态持久化与 Windows 可执行文件解析。
+- `npm --prefix work test`：17/17 通过，覆盖 Core 契约与重启恢复、ask 故障回滚、短期 token 撤销、命令/会话原子提交、Runner 终态 outbox 重放、断网 STOP 本地优先、隔离鉴权、进程换代与命令租约回收、提问超时、Runner 参数、resume、状态持久化与 Windows 可执行文件解析。
 - `npm --prefix work run e2e:real`：真实 Codex 完成 `report → ask/answer → report_html → IDLE`，Codex session ID
   `019f7fa6-3280-73e0-8c9b-050e3ab5ccff`；测试只使用临时 Git 仓库。
 - `./gradlew :app:testDebugUnitTest` 与 `:app:compileDebugKotlin` 通过。
