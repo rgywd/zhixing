@@ -31,6 +31,7 @@ import me.rerere.rikkahub.data.work.AppServerAttachedFile
 import me.rerere.rikkahub.data.work.AppServerAttachmentManifest
 import me.rerere.rikkahub.data.work.AppServerConnectionPhase
 import me.rerere.rikkahub.data.work.AppServerBackoffPolicy
+import me.rerere.rikkahub.data.work.AppServerCatalogRequests
 import me.rerere.rikkahub.data.work.AppServerCompatibility
 import me.rerere.rikkahub.data.work.AppServerCompatibilityGate
 import me.rerere.rikkahub.data.work.AppServerCompatibilityLevel
@@ -559,7 +560,13 @@ class DirectWorkVM(
         val lease = acquireWriteLease() ?: return
         viewModelScope.launch {
             sending = true
-            statusMessage = null
+            statusMessage = if (detail.thread == null) {
+                "正在创建 Codex 对话…"
+            } else if (isRunning) {
+                "正在补充要求…"
+            } else {
+                "正在发送…"
+            }
             runCatching {
                 val threadId = detail.thread?.threadId ?: startThread(lease)
                 val activeConnection = requireNotNull(connection)
@@ -615,6 +622,7 @@ class DirectWorkVM(
                     persistCacheNow()
                 }
                 acceptedPreferences = currentPreferences()
+                statusMessage = null
             }.onFailure { error ->
                 statusMessage = if (rollbackRejectedPreferences(error)) {
                     "Codex 拒绝了当前运行参数，已恢复上次可用设置"
@@ -1016,9 +1024,7 @@ class DirectWorkVM(
             runCatching {
                 client.request(
                     "plugin/list",
-                    buildJsonObject {
-                        put("cwds", buildJsonArray { add(JsonPrimitive(repoPath)) })
-                    },
+                    AppServerCatalogRequests.installedPluginCatalog(repoPath),
                     expectedConnectionGeneration = gate.connectionGeneration,
                     beforeAttempt = ensureCurrent,
                 )
