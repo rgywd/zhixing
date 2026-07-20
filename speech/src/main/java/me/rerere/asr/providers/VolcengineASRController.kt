@@ -66,18 +66,6 @@ class VolcengineASRController private constructor(
         language = provider.language,
     )
 
-    constructor(
-        context: Context,
-        httpClient: OkHttpClient,
-        provider: ASRProviderSetting.VolcengineAgentPlan,
-    ) : this(
-        context = context,
-        httpClient = httpClient,
-        apiKey = provider.apiKey,
-        websocketUrl = AGENT_PLAN_WEBSOCKET_URL,
-        resourceId = AGENT_PLAN_RESOURCE_ID,
-        language = provider.language,
-    )
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val _state = MutableStateFlow(ASRState(isAvailable = true))
@@ -347,10 +335,6 @@ class VolcengineASRController private constructor(
         private const val COMP_NONE = 0x00
         private const val COMP_GZIP = 0x01
         private const val FLAG_LAST_PACKET = 0x02
-        private const val AGENT_PLAN_WEBSOCKET_URL =
-            "wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async"
-        private const val AGENT_PLAN_RESOURCE_ID = "volc.seedasr.sauc.duration"
-
         private fun buildFrame(
             messageType: Int,
             flags: Int,

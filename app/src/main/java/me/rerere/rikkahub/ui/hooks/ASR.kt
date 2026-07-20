@@ -121,11 +121,6 @@ private class CustomAsrStateImpl(
                 VolcengineASRController(context, httpClient, provider)
             }
 
-            is ASRProviderSetting.VolcengineAgentPlan -> {
-                if (provider.apiKey.isBlank()) return null
-                VolcengineASRController(context, httpClient, provider)
-            }
-
             is ASRProviderSetting.MiMo -> {
                 if (provider.apiKey.isBlank()) return null
                 MiMoASRController(context, httpClient, provider)

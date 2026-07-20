@@ -1276,6 +1276,4 @@
   <string name="chat_page_delete_folder_generating">此資料夾中的部分對話仍在生成中。請先停止它們再刪除。</string>
   <string name="setting_display_page_tts_read_outside_brackets_title">TTS 不朗讀括號內的內容</string>
   <string name="setting_display_page_tts_read_outside_brackets_desc">啟用後，TTS 將不朗讀括號內的內容</string>
-  <string name="setting_provider_page_agent_plan_api_key">Agent Plan 專屬 API Key</string>
-  <string name="setting_provider_page_agent_plan_models_hint">Agent Plan 固定使用 Responses API，且不提供 /models；請從內建目錄選擇模型，或手動填寫模型名稱。</string>
 </resources>

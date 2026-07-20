@@ -1322,6 +1322,4 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="chat_page_folder_add">新建</string>
   <string name="chat_page_delete_folder_confirm">删除文件夹 "%1$s"？其中的对话不会被删除，只会从文件夹中移除。</string>
   <string name="chat_page_delete_folder_generating">此文件夹中有对话仍在生成中，请停止后再删除。</string>
-  <string name="setting_provider_page_agent_plan_api_key">Agent Plan 专属 API Key</string>
-  <string name="setting_provider_page_agent_plan_models_hint">Agent Plan 固定使用 Responses API，且不提供 /models；请从内置目录选择模型，或手工填写模型名称。</string>
 </resources>

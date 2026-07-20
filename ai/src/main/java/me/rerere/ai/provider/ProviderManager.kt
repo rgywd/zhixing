@@ -4,7 +4,6 @@ import android.content.Context
 import me.rerere.ai.provider.providers.ClaudeProvider
 import me.rerere.ai.provider.providers.GoogleProvider
 import me.rerere.ai.provider.providers.OpenAIProvider
-import me.rerere.ai.provider.providers.VolcengineAgentPlanProvider
 import okhttp3.OkHttpClient
 
 /**
@@ -17,7 +16,6 @@ class ProviderManager(client: OkHttpClient, context: Context) {
     init {
         // 注册默认Provider
         registerProvider("openai", OpenAIProvider(client, context))
-        registerProvider("volcengine_agent_plan", VolcengineAgentPlanProvider(client, context))
         registerProvider("google", GoogleProvider(client, context))
         registerProvider("claude", ClaudeProvider(client, context))
     }
@@ -52,7 +50,6 @@ class ProviderManager(client: OkHttpClient, context: Context) {
         @Suppress("UNCHECKED_CAST")
         return when (setting) {
             is ProviderSetting.OpenAI -> getProvider("openai")
-            is ProviderSetting.VolcengineAgentPlan -> getProvider("volcengine_agent_plan")
             is ProviderSetting.Google -> getProvider("google")
             is ProviderSetting.Claude -> getProvider("claude")
         } as Provider<T>

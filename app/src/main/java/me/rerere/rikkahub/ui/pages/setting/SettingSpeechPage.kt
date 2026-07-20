@@ -558,14 +558,6 @@ private fun AddASRProviderButton(onAdd: (ASRProviderSetting) -> Unit) {
                 }
             )
             DropdownMenuItem(
-                text = { Text("火山引擎 Agent Plan") },
-                onClick = {
-                    currentProvider = ASRProviderSetting.VolcengineAgentPlan()
-                    showTypeMenu = false
-                    showBottomSheet = true
-                }
-            )
-            DropdownMenuItem(
                 text = { Text("MiMo") },
                 onClick = {
                     currentProvider = ASRProviderSetting.MiMo()
@@ -707,7 +699,6 @@ private fun TTSProviderItem(
                             is TTSProviderSetting.Step -> "Step"
                             is TTSProviderSetting.ElevenLabs -> "ElevenLabs"
                             is TTSProviderSetting.FishAudio -> "Fish Audio"
-                            is TTSProviderSetting.VolcengineAgentPlan -> "火山引擎 Agent Plan"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -847,7 +838,6 @@ private fun ASRProviderItem(
                             is ASRProviderSetting.OpenAIRealtime -> "OpenAI Realtime"
                             is ASRProviderSetting.DashScope -> "DashScope"
                             is ASRProviderSetting.Volcengine -> "Volcengine"
-                            is ASRProviderSetting.VolcengineAgentPlan -> "火山引擎 Agent Plan"
                             is ASRProviderSetting.MiMo -> "MiMo"
                             is ASRProviderSetting.Step -> "Step"
                         },

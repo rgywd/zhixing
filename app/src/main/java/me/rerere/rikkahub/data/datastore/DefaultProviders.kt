@@ -13,16 +13,11 @@ import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderSetting
-import me.rerere.ai.provider.VOLCENGINE_AGENT_PLAN_BASE_URL
-import me.rerere.ai.provider.providers.VolcengineAgentPlanProvider
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import kotlin.uuid.Uuid
 
 val DEFAULT_AUTO_MODEL_ID = Uuid.parse("b7055fb4-39f9-4042-a88a-0d80ed76cf08")
-val DEFAULT_VOLCENGINE_AGENT_PLAN_PROVIDER_ID =
-    Uuid.parse("bb617271-8624-4bcc-8e6c-0a21bcd8bb67")
-
 val DEFAULT_PROVIDERS = listOf(
     ProviderSetting.OpenAI(
         id = Uuid.parse("1eeea727-9ee5-4cae-93e6-6fb01a4d051e"),
@@ -160,32 +155,6 @@ val DEFAULT_PROVIDERS = listOf(
         apiKey = "",
         enabled = false,
         builtIn = true
-    ),
-    ProviderSetting.VolcengineAgentPlan(
-        id = DEFAULT_VOLCENGINE_AGENT_PLAN_PROVIDER_ID,
-        name = "火山引擎 Agent Plan",
-        models = VolcengineAgentPlanProvider.SUPPORTED_MODELS,
-        baseUrl = VOLCENGINE_AGENT_PLAN_BASE_URL,
-        apiKey = "",
-        enabled = false,
-        builtIn = true,
-        description = {
-            Text(
-                text = buildAnnotatedString {
-                    append("一把 Agent Plan 专属 API Key 接入聊天、向量、视觉与语音能力；")
-                    append("所有服务地址均已内置，模型列表来自本地目录，不请求 /models。\n")
-                    append("官方文档：")
-                    withLink(LinkAnnotation.Url("https://www.volcengine.com/docs/82379/2556054?lang=zh")) {
-                        withStyle(SpanStyle(MaterialTheme.colorScheme.primary)) {
-                            append("Agent Plan 快速开始")
-                        }
-                    }
-                }
-            )
-        },
-        shortDescription = {
-            Text("单 Key 接入 Agent Plan 多模态能力")
-        },
     ),
     ProviderSetting.OpenAI(
         id = Uuid.parse("d6c4d8c6-3f62-4ca9-a6f3-7ade6b15ecc3"),

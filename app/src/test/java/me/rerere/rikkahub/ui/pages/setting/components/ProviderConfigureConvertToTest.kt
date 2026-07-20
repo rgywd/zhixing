@@ -5,21 +5,12 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.uuid.Uuid
 
 class ProviderConfigureConvertToTest {
-    @Test
-    fun `manual provider creation should not offer the built-in Agent Plan type`() {
-        assertFalse(ProviderSetting.VolcengineAgentPlan::class in MANUALLY_ADDABLE_PROVIDER_TYPES)
-        assertTrue(ProviderSetting.OpenAI::class in MANUALLY_ADDABLE_PROVIDER_TYPES)
-        assertTrue(ProviderSetting.Google::class in MANUALLY_ADDABLE_PROVIDER_TYPES)
-        assertTrue(ProviderSetting.Claude::class in MANUALLY_ADDABLE_PROVIDER_TYPES)
-    }
-
     @Test
     fun `convertTo should keep common fields and switch official endpoint to target default`() {
         val model = Model(
@@ -118,19 +109,4 @@ class ProviderConfigureConvertToTest {
         assertEquals("not-a-url", converted.baseUrl)
     }
 
-    @Test
-    fun `convertTo Agent Plan should force its dedicated endpoint`() {
-        val original = ProviderSetting.OpenAI(
-            name = "Generic Volcengine",
-            apiKey = "plan-key",
-            baseUrl = "https://ark.cn-beijing.volces.com/api/v3",
-        )
-
-        val converted = original.convertTo(ProviderSetting.VolcengineAgentPlan::class)
-
-        assertTrue(converted is ProviderSetting.VolcengineAgentPlan)
-        converted as ProviderSetting.VolcengineAgentPlan
-        assertEquals("plan-key", converted.apiKey)
-        assertEquals("https://ark.cn-beijing.volces.com/api/plan/v3", converted.baseUrl)
-    }
 }

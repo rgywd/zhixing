@@ -59,7 +59,6 @@ fun TTSProviderConfigure(
                         is TTSProviderSetting.Step -> "Step"
                         is TTSProviderSetting.ElevenLabs -> "ElevenLabs"
                         is TTSProviderSetting.FishAudio -> "Fish Audio"
-                        is TTSProviderSetting.VolcengineAgentPlan -> "火山引擎 Agent Plan"
                     },
                     onValueChange = {},
                     readOnly = true,
@@ -90,7 +89,6 @@ fun TTSProviderConfigure(
                                         TTSProviderSetting.ElevenLabs::class -> "ElevenLabs"
                                         TTSProviderSetting.FishAudio::class -> "Fish Audio"
                                         TTSProviderSetting.Step::class -> "Step"
-                                        TTSProviderSetting.VolcengineAgentPlan::class -> "火山引擎 Agent Plan"
                                         else -> providerClass.simpleName ?: "Unknown"
                                     }
                                 )
@@ -152,12 +150,6 @@ fun TTSProviderConfigure(
                                         name = "Step TTS"
                                     )
 
-                                    TTSProviderSetting.VolcengineAgentPlan::class -> {
-                                        TTSProviderSetting.VolcengineAgentPlan(
-                                            id = setting.id,
-                                        )
-                                    }
-
                                     else -> setting
                                 }
                                 onValueChange(newSetting)
@@ -196,79 +188,7 @@ fun TTSProviderConfigure(
             is TTSProviderSetting.ElevenLabs -> ElevenLabsTTSConfiguration(setting, onValueChange)
             is TTSProviderSetting.FishAudio -> FishAudioTTSConfiguration(setting, onValueChange)
             is TTSProviderSetting.Step -> StepTTSConfiguration(setting, onValueChange)
-            is TTSProviderSetting.VolcengineAgentPlan -> {
-                VolcengineAgentPlanTTSConfiguration(setting, onValueChange)
-            }
         }
-    }
-}
-
-@Composable
-private fun VolcengineAgentPlanTTSConfiguration(
-    setting: TTSProviderSetting.VolcengineAgentPlan,
-    onValueChange: (TTSProviderSetting) -> Unit,
-) {
-    Text("API Key 与服务地址由火山引擎 Agent Plan 主提供商统一管理。")
-
-    FormItem(
-        label = { Text("音色") },
-        description = { Text("填写 Agent Plan TTS 支持的 speaker ID") },
-    ) {
-        OutlinedTextField(
-            value = setting.voice,
-            onValueChange = { onValueChange(setting.copy(voice = it.trim())) },
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-
-    FormItem(label = { Text("音频格式") }) {
-        OutlinedTextField(
-            value = setting.format,
-            onValueChange = { onValueChange(setting.copy(format = it.trim())) },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("mp3") },
-        )
-    }
-
-    FormItem(label = { Text("采样率") }) {
-        OutlinedTextField(
-            value = setting.sampleRate.toString(),
-            onValueChange = { value ->
-                value.toIntOrNull()?.let { onValueChange(setting.copy(sampleRate = it)) }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("24000") },
-        )
-    }
-
-    FormItem(
-        label = { Text("语速") },
-        description = { Text("整数范围 -50 到 100，0 为默认") },
-    ) {
-        OutlinedTextField(
-            value = setting.speechRate.toString(),
-            onValueChange = { value ->
-                value.toIntOrNull()?.takeIf { it in -50..100 }?.let {
-                    onValueChange(setting.copy(speechRate = it))
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-
-    FormItem(
-        label = { Text("音量") },
-        description = { Text("整数范围 -50 到 100，0 为默认") },
-    ) {
-        OutlinedTextField(
-            value = setting.loudnessRate.toString(),
-            onValueChange = { value ->
-                value.toIntOrNull()?.takeIf { it in -50..100 }?.let {
-                    onValueChange(setting.copy(loudnessRate = it))
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
 }
 

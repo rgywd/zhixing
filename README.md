@@ -11,7 +11,7 @@ Android-first、本地优先的个人 AI 工作台。
 - 支持流式消息、多模态、消息分支、MCP、搜索、语音、本地工作区与 Web 客户端。
 - 已发布 0.2.2 通过自有 Wire v1 中继使用 Codex；后续 Work 目标态是在同一聊天页通过 Tailscale WSS
   直连 Codex App Server，以仓库作为 Work 分组，不再维护独立项目看板或消息翻译网关。
-- 支持火山引擎方舟通用 API 与 Agent Plan 专属配置。
+- 支持火山引擎方舟通用 API。
 - 所有助手内置需求与 Bug 提交工具，经用户确认后打开预填的 Zhixing GitHub Issue 页面。
 - 不接入第三方 Firebase、遥测、更新源或免费模型服务。
 
@@ -61,7 +61,6 @@ Android 的安全机制仍会要求用户在安装新版本时进行系统确认
 
 ```powershell
 ./gradlew.bat :app:testDebugUnitTest --tests me.rerere.rikkahub.AppIdentityTest --tests me.rerere.rikkahub.utils.UpdateCheckerTest
-./gradlew.bat :ai:testDebugUnitTest --tests me.rerere.ai.provider.providers.VolcengineAgentPlanProviderTest
 ./gradlew.bat :app:assembleDebug
 ```
 
