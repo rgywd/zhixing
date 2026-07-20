@@ -1,8 +1,0 @@
-{
-  "name": "zhixing-happy-relay-image",
-  "version": "1.0.0",
-  "private": true,
-  "dependencies": {
-    "happy-server-self-host": "1.1.11"
-  }
-}

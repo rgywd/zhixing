@@ -42,7 +42,7 @@ import org.koin.compose.koinInject
 import kotlin.uuid.Uuid
 
 /**
- * The single attachment sheet used by both Provider Chat and Codex Work.
+ * The attachment sheet used by provider chat.
  * Platform launchers, crop behavior, validation and input previews must not
  * drift between runtimes; callers only append runtime-specific rows below the
  * shared attachment actions.

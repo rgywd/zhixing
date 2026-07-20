@@ -11,11 +11,7 @@ import me.rerere.rikkahub.data.repository.FilesRepository
 import me.rerere.rikkahub.data.repository.GenMediaRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
-import me.rerere.rikkahub.data.workflow.WorkRepository
-import me.rerere.rikkahub.data.workflow.codex.CodexCatalogRepository
-import me.rerere.rikkahub.data.workflow.codex.WireCatalogSink
 import me.rerere.rikkahub.data.knowledge.KnowledgeSpaceService
-import me.rerere.rikkahub.AppScope
 import me.rerere.workspace.ProotShellRunner
 import me.rerere.workspace.RootfsInstaller
 import me.rerere.workspace.WorkspaceBindMount
@@ -83,29 +79,6 @@ val repositoryModule = module {
     single {
         KnowledgeSpaceService(get(), get())
     }
-
-    single {
-        me.rerere.rikkahub.data.db.fts.WorkFtsManager(get())
-    }
-
-    single {
-        WorkRepository(
-            appScope = get<AppScope>(),
-            credentialsStore = get(),
-            relaySettingsStore = get(),
-            authApi = get(),
-            syncApi = get(),
-            socketClient = get(),
-            sessionDao = get(),
-            messageDao = get(),
-            machineDao = get(),
-            presetDao = get(),
-            ftsManager = get(),
-        )
-    }
-
-    single { CodexCatalogRepository(dao = get(), json = get()) }
-    single<WireCatalogSink> { get<CodexCatalogRepository>() }
 
     single {
         FilesManager(get(), get(), get())

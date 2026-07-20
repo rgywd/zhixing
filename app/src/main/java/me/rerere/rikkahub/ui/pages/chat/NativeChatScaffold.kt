@@ -14,7 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 
-/** Shared page shell for ordinary Chat and direct Work conversations. */
+/** Shared page shell for chat conversations. */
 @Composable
 fun NativeChatScaffold(
     topBar: @Composable () -> Unit,

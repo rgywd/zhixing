@@ -53,8 +53,8 @@ git push -u origin feat/123-short-description
 4. 冻结期间只接收面向该版本的 `fix/*`；修复 PR 先合入 `release/x.y.z`。
 5. 完成发布验证后，从 `release/x.y.z` 创建 PR 合并回 `main`。
 6. 在合并后的 `main` 提交上创建且只创建一次 `vX.Y.Z` 标签。
-7. 推送标签，由 `Release` workflow 回归 Android、Agent、Relay，构建签名 APK 和 Agent 安装包，校验哈希并创建 GitHub Release。
-8. 验证 Release 中的 APK、Agent `tgz`、`latest.json` 和应用内更新检查后，删除发布分支。
+7. 推送标签，由 `Release` workflow 回归 Android，构建签名 APK，校验哈希并创建 GitHub Release。
+8. 验证 Release 中的 APK、`latest.json` 和应用内更新检查后，删除发布分支。
 
 ```bash
 git switch main

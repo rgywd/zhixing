@@ -65,8 +65,6 @@ import me.rerere.rikkahub.data.db.DatabaseMigrationTracker
 import me.rerere.rikkahub.data.db.MigrationState
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
-import me.rerere.rikkahub.data.work.WorkAppMode
-import me.rerere.rikkahub.data.work.WorkUiStore
 import me.rerere.rikkahub.ui.activity.SafeModeActivity
 import me.rerere.rikkahub.ui.components.ui.TTSController
 import me.rerere.rikkahub.ui.context.LocalASRState
@@ -128,19 +126,6 @@ import me.rerere.rikkahub.ui.pages.share.handler.ShareHandlerPage
 import me.rerere.rikkahub.ui.pages.stats.StatsPage
 import me.rerere.rikkahub.ui.pages.translator.TranslatorPage
 import me.rerere.rikkahub.ui.pages.webview.WebViewPage
-import me.rerere.rikkahub.ui.pages.workflow.WorkNewTaskPage
-import me.rerere.rikkahub.ui.pages.workflow.WorkPresetEditPage
-import me.rerere.rikkahub.ui.pages.workflow.WorkSessionLogPage
-import me.rerere.rikkahub.ui.pages.workflow.WorkHtmlReportPage
-import me.rerere.rikkahub.ui.pages.workflow.WorkflowPage
-import me.rerere.rikkahub.ui.pages.workflow.WorkflowProjectPage
-import me.rerere.rikkahub.ui.pages.workflow.WorkflowSessionPage
-import me.rerere.rikkahub.ui.pages.workflow.WorkflowSettingsPage
-import me.rerere.rikkahub.ui.pages.workflow.codex.CodexConnectionSettingsPage
-import me.rerere.rikkahub.ui.pages.workflow.codex.CodexProjectPage
-import me.rerere.rikkahub.ui.pages.workflow.codex.CodexThreadPage
-import me.rerere.rikkahub.ui.pages.workflow.codex.CodexWorkflowPage
-import me.rerere.rikkahub.ui.pages.workflow.codex.DirectWorkRoute
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.ui.theme.RikkahubTheme
 import me.rerere.rikkahub.utils.CrashHandler
@@ -248,11 +233,6 @@ class RouteActivity : ComponentActivity() {
         intent.getStringExtra("conversationId")?.let { text ->
             navStack?.add(Screen.Chat(text))
         }
-        // 远程任务通知深链：补一层工作首页，返回时落在工作模块而不是直接退出
-        intent.getStringExtra("workSessionId")?.let { sessionId ->
-            navStack?.add(Screen.Workflow)
-            navStack?.add(Screen.WorkflowSession(sessionId))
-        }
     }
 
     @OptIn(ExperimentalComposeUiApi::class)
@@ -263,8 +243,6 @@ class RouteActivity : ComponentActivity() {
         val tts = rememberCustomTtsState()
         val asr = rememberCustomAsrState()
         val eventBus = koinInject<AppEventBus>()
-        val workUiStore = koinInject<WorkUiStore>()
-        val workUiState by workUiStore.state.collectAsStateWithLifecycle()
         LaunchedEffect(tts) {
             eventBus.events.collect { event ->
                 when (event) {
@@ -278,22 +256,16 @@ class RouteActivity : ComponentActivity() {
         }
         val migrationState by DatabaseMigrationTracker.state.collectAsStateWithLifecycle()
 
-        val startScreen: NavKey = if (
-            BuildConfig.CODEX_WORKFLOW_ENABLED && workUiState.mode == WorkAppMode.WORK
-        ) {
-            Screen.CodexWorkflow
-        } else {
-            Screen.Chat(
-                id = if (readBooleanPreference("create_new_conversation_on_start", true)) {
+        val startScreen: NavKey = Screen.Chat(
+            id = if (readBooleanPreference("create_new_conversation_on_start", true)) {
+                Uuid.random().toString()
+            } else {
+                readStringPreference(
+                    "lastConversationId",
                     Uuid.random().toString()
-                } else {
-                    readStringPreference(
-                        "lastConversationId",
-                        Uuid.random().toString()
-                    ) ?: Uuid.random().toString()
-                }
-            )
-        }
+                ) ?: Uuid.random().toString()
+            }
+        )
 
         val backStack = rememberNavBackStack(startScreen)
         SideEffect { this@RouteActivity.navStack = backStack }
@@ -373,50 +345,6 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.Favorite> {
                                 FavoritePage()
-                            }
-
-                            entry<Screen.Workflow> {
-                                if (BuildConfig.CODEX_WORKFLOW_ENABLED) DirectWorkRoute() else WorkflowPage()
-                            }
-
-                            entry<Screen.LegacyWorkflow> {
-                                WorkflowPage(readOnly = true)
-                            }
-
-                            entry<Screen.LegacyWorkflowSession> { key ->
-                                WorkflowSessionPage(key.id, readOnly = true)
-                            }
-
-                            entry<Screen.WorkflowProject> { key ->
-                                WorkflowProjectPage(key.machineId, key.path)
-                            }
-
-                            entry<Screen.WorkflowSession> { key ->
-                                WorkflowSessionPage(key.id)
-                            }
-
-                            entry<Screen.WorkSessionLog> { key ->
-                                WorkSessionLogPage(key.id)
-                            }
-
-                            entry<Screen.WorkHtmlReport> { key ->
-                                WorkHtmlReportPage(key.title, key.contentId)
-                            }
-
-                            entry<Screen.WorkNewTask> { key ->
-                                WorkNewTaskPage(key.presetId, key.machineId, key.path)
-                            }
-
-                            entry<Screen.WorkPresetEdit> { key ->
-                                WorkPresetEditPage(key.id, key.machineId, key.path)
-                            }
-
-                            entry<Screen.WorkflowSettings> {
-                                WorkflowSettingsPage()
-                            }
-
-                            entry<Screen.CodexWorkflow> {
-                                DirectWorkRoute()
                             }
 
                             entry<Screen.Assistant> {
@@ -663,56 +591,6 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object Favorite : Screen
-
-    @Serializable
-    data object Workflow : Screen
-
-    @Serializable
-    data object LegacyWorkflow : Screen
-
-    @Serializable
-    data class LegacyWorkflowSession(val id: String) : Screen
-
-    @Serializable
-    data class WorkflowProject(val machineId: String, val path: String) : Screen
-
-    @Serializable
-    data class WorkflowSession(val id: String) : Screen
-
-    @Serializable
-    data class WorkSessionLog(val id: String) : Screen
-
-    @Serializable
-    data class WorkHtmlReport(val title: String, val contentId: String) : Screen
-
-    @Serializable
-    data class WorkNewTask(
-        val presetId: String? = null,
-        val machineId: String? = null,
-        val path: String? = null,
-    ) : Screen
-
-    @Serializable
-    data class WorkPresetEdit(
-        val id: String? = null,
-        val machineId: String? = null,
-        val path: String? = null,
-    ) : Screen
-
-    @Serializable
-    data object WorkflowSettings : Screen
-
-    @Serializable
-    data object CodexWorkflow : Screen
-
-    @Serializable
-    data class CodexProject(val projectId: String) : Screen
-
-    @Serializable
-    data class CodexThread(val machineId: String, val threadId: String) : Screen
-
-    @Serializable
-    data object CodexWorkflowSettings : Screen
 
     @Serializable
     data object Assistant : Screen

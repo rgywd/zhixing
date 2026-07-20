@@ -46,7 +46,6 @@ private const val TAG = "RikkaHubApp"
 const val CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID = "chat_completed"
 const val CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID = "chat_live_update"
 const val WEB_SERVER_NOTIFICATION_CHANNEL_ID = "web_server"
-const val WORK_NOTIFICATION_CHANNEL_ID = "work_updates"
 
 class RikkaHubApp : Application() {
     override fun onCreate() {
@@ -223,12 +222,6 @@ class RikkaHubApp : Application() {
             .build()
         notificationManager.createNotificationChannel(webServerChannel)
 
-        val workChannel = NotificationChannelCompat
-            .Builder(WORK_NOTIFICATION_CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_HIGH)
-            .setName("远程任务")
-            .setVibrationEnabled(true)
-            .build()
-        notificationManager.createNotificationChannel(workChannel)
     }
 
     override fun onTerminate() {

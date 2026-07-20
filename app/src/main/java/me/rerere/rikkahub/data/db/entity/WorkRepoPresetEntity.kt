@@ -4,9 +4,6 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import me.rerere.rikkahub.data.workflow.RepoPreset
-import me.rerere.rikkahub.data.workflow.WorkAgent
-import me.rerere.rikkahub.utils.JsonInstant
 
 @Entity(
     tableName = "work_repo_presets",
@@ -39,38 +36,4 @@ data class WorkRepoPresetEntity(
     val createdAt: Long,
     @ColumnInfo("updated_at")
     val updatedAt: Long,
-) {
-    fun toModel(): RepoPreset = RepoPreset(
-        id = id,
-        name = name,
-        machineId = machineId,
-        path = path,
-        defaultBranch = defaultBranch,
-        agent = WorkAgent.fromName(agent),
-        model = model,
-        reasoningEffort = reasoningEffort,
-        fullAccess = fullAccess,
-        disallowedTools = runCatching {
-            JsonInstant.decodeFromString<List<String>>(disallowedTools)
-        }.getOrDefault(emptyList()),
-        createdAt = createdAt,
-        updatedAt = updatedAt,
-    )
-
-    companion object {
-        fun fromModel(preset: RepoPreset): WorkRepoPresetEntity = WorkRepoPresetEntity(
-            id = preset.id,
-            name = preset.name,
-            machineId = preset.machineId,
-            path = preset.path,
-            defaultBranch = preset.defaultBranch,
-            agent = preset.agent.name,
-            model = preset.model,
-            reasoningEffort = preset.reasoningEffort,
-            fullAccess = preset.fullAccess,
-            disallowedTools = JsonInstant.encodeToString(preset.disallowedTools),
-            createdAt = preset.createdAt,
-            updatedAt = preset.updatedAt,
-        )
-    }
-}
+)

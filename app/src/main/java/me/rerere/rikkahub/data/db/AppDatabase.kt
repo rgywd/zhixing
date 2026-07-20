@@ -7,17 +7,12 @@ import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import me.rerere.ai.core.TokenUsage
 import me.rerere.rikkahub.data.db.dao.ConversationDAO
-import me.rerere.rikkahub.data.db.dao.CodexCatalogDAO
 import me.rerere.rikkahub.data.db.dao.FavoriteDAO
 import me.rerere.rikkahub.data.db.dao.FolderDAO
 import me.rerere.rikkahub.data.db.dao.GenMediaDAO
 import me.rerere.rikkahub.data.db.dao.ManagedFileDAO
 import me.rerere.rikkahub.data.db.dao.MemoryDAO
 import me.rerere.rikkahub.data.db.dao.MessageNodeDAO
-import me.rerere.rikkahub.data.db.dao.WorkMachineDAO
-import me.rerere.rikkahub.data.db.dao.WorkMessageDAO
-import me.rerere.rikkahub.data.db.dao.WorkRepoPresetDAO
-import me.rerere.rikkahub.data.db.dao.WorkSessionDAO
 import me.rerere.rikkahub.data.db.dao.WorkspaceDAO
 import me.rerere.rikkahub.data.db.entity.ConversationEntity
 import me.rerere.rikkahub.data.db.entity.CodexApprovalEntity
@@ -63,6 +58,8 @@ import me.rerere.rikkahub.utils.JsonInstant
         FavoriteEntity::class,
         WorkspaceEntity::class,
         FolderEntity::class,
+        // Legacy remote Work entities are inert and remain only so v31 databases
+        // created by published builds can be opened without a destructive migration.
         WorkSessionEntity::class,
         WorkMessageEntity::class,
         WorkMachineEntity::class,
@@ -132,15 +129,6 @@ abstract class AppDatabase : RoomDatabase() {
 
     abstract fun folderDao(): FolderDAO
 
-    abstract fun workSessionDao(): WorkSessionDAO
-
-    abstract fun workMessageDao(): WorkMessageDAO
-
-    abstract fun workMachineDao(): WorkMachineDAO
-
-    abstract fun workRepoPresetDao(): WorkRepoPresetDAO
-
-    abstract fun codexCatalogDao(): CodexCatalogDAO
 }
 
 object TokenUsageConverter {

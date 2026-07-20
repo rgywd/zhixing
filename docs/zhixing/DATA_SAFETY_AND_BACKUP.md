@@ -18,8 +18,8 @@
 当前已经具备：
 
 - 正式包名为 `dev.sundby.zhixing`，`v0.1.0` 已使用知行长期发布签名。
-- Room 数据库当前版本为 31，已声明从 1 到 31 的连续自动或手工迁移链；其中 `30 -> 31`
-  为已发布的 Codex 结构化缓存升级基线，后续迁移只能从 31 继续递增。
+- Room 数据库当前版本为 31，已声明从 1 到 31 的连续自动或手工迁移链。旧远程 Work 表仅作为
+  已安装版本覆盖升级时的惰性兼容结构保留，不再注册为运行时能力；后续迁移只能从 31 继续递增。
 - Room 未启用 destructive migration；迁移缺失时应失败，而不是主动删库。
 - Workspace 用户文件位于应用内部 `files/workspaces/<root>/files`，与可替换的 RootFS `linux` 目录分离。
 - WorkManager 与 Koin WorkManager 工厂已接入。

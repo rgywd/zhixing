@@ -2,6 +2,6 @@
 
 Android-first、本地优先的个人 AI 工作台。
 
-知行支持多模型服务、流式与多模态会话、消息分支、助手、MCP、搜索、语音、本地工作区，以及在同一聊天产品内切换 Chat 与 Work。0.2.2 的 Codex 能力仍通过自有 Wire 中继交付；后续 Work 目标态以仓库为分组，经 Tailscale WSS 直连开发机 Codex App Server。模型请求默认由设备或开发机直接发送到用户配置或登录的服务，不接入第三方遥测、更新源或免费模型服务。
+知行支持多模型服务、流式与多模态会话、消息分支、助手、MCP、搜索、语音和本地工作区。模型请求默认由设备直接发送到用户配置的服务，不接入第三方遥测、更新源或免费模型服务。
 
 构建、发布与验证方式请阅读 [README.md](README.md)。许可条款见 [LICENSE](LICENSE)，第三方归属见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

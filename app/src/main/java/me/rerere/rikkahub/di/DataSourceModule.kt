@@ -78,16 +78,6 @@ val dataSourceModule = module {
                         )
                         """.trimIndent()
                     )
-                    db.execSQL(
-                        """
-                        CREATE VIRTUAL TABLE IF NOT EXISTS work_message_fts USING fts5(
-                            text,
-                            message_id UNINDEXED,
-                            session_id UNINDEXED,
-                            tokenize = 'simple'
-                        )
-                        """.trimIndent()
-                    )
                 }
             })
             .openHelperFactory(
@@ -150,26 +140,6 @@ val dataSourceModule = module {
 
     single {
         get<AppDatabase>().folderDao()
-    }
-
-    single {
-        get<AppDatabase>().workSessionDao()
-    }
-
-    single {
-        get<AppDatabase>().workMessageDao()
-    }
-
-    single {
-        get<AppDatabase>().workMachineDao()
-    }
-
-    single {
-        get<AppDatabase>().workRepoPresetDao()
-    }
-
-    single {
-        get<AppDatabase>().codexCatalogDao()
     }
 
     single {

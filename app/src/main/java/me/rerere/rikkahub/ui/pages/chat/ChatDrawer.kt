@@ -47,9 +47,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
 import kotlinx.coroutines.flow.collectLatest
@@ -77,8 +75,6 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.Folder
 import me.rerere.rikkahub.data.repository.ConversationRepository
-import me.rerere.rikkahub.data.work.WorkAppMode
-import me.rerere.rikkahub.data.work.WorkUiStore
 import me.rerere.rikkahub.ui.components.ai.AssistantPicker
 import me.rerere.rikkahub.ui.components.ui.BackupReminderCard
 import me.rerere.rikkahub.ui.components.ui.Greeting
@@ -106,7 +102,6 @@ fun ChatDrawerContent(
     vm: ChatVM,
     settings: Settings,
     current: Conversation,
-    mode: WorkAppMode = WorkAppMode.CHAT,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -114,7 +109,6 @@ fun ChatDrawerContent(
     val toaster = LocalToaster.current
     val isPlayStore = rememberIsPlayStoreVersion()
     val repo = koinInject<ConversationRepository>()
-    val workUiStore = koinInject<WorkUiStore>()
 
     val activity = context as ComponentActivity
     val drawerVm: ChatDrawerVM = koinViewModel(viewModelStoreOwner = activity)
@@ -251,13 +245,6 @@ fun ChatDrawerContent(
                 onCreate = { showCreateFolderDialog = true },
                 onRename = { folderToRename = it },
                 onDelete = { folderToDelete = it },
-                mode = mode,
-                onModeChange = { targetMode ->
-                    scope.launch { workUiStore.setMode(targetMode) }
-                    if (targetMode == WorkAppMode.WORK) {
-                        navController.navigate(Screen.CodexWorkflow)
-                    }
-                },
             )
 
             ConversationList(
@@ -756,85 +743,6 @@ private fun DrawerActions(navController: Navigator) {
 }
 
 @Composable
-fun WorkDrawerContent(
-    navController: Navigator,
-    onRepositorySelected: () -> Unit = {},
-) {
-    val scope = rememberCoroutineScope()
-    val store = koinInject<WorkUiStore>()
-    val state by store.state.collectAsStateWithLifecycle()
-
-    ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
-        Column(
-            modifier = Modifier.padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = "Work",
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 16.dp),
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                LazyRow(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    items(state.repositories, key = { it.id }) { repository ->
-                        FolderChip(
-                            label = repository.displayName,
-                            icon = HugeIcons.Folder01,
-                            selected = repository.id == state.activeRepositoryId,
-                            onClick = {
-                                scope.launch {
-                                    store.selectRepository(repository.id)
-                                    onRepositorySelected()
-                                }
-                            },
-                            onLongClick = { navController.navigate(Screen.Setting) },
-                        )
-                    }
-                    item {
-                        FolderChip(
-                            label = "添加",
-                            icon = HugeIcons.FolderAdd,
-                            selected = false,
-                            onClick = { navController.navigate(Screen.Setting) },
-                            onLongClick = {},
-                        )
-                    }
-                }
-                ChatWorkModeSwitch(mode = WorkAppMode.WORK) { mode ->
-                    scope.launch { store.setMode(mode) }
-                    if (mode == WorkAppMode.CHAT && !navController.popBackStack()) {
-                        navigateToChatPage(navController)
-                    }
-                }
-            }
-            if (state.repositories.isEmpty()) {
-                Text(
-                    text = "在设置的 Work 卡片中添加仓库",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(12.dp),
-                )
-            }
-            Spacer(Modifier.weight(1f))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                DrawerAction(
-                    icon = { Icon(HugeIcons.Settings03, null) },
-                    label = { Text(stringResource(R.string.settings)) },
-                    onClick = { navController.navigate(Screen.Setting) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun DrawerAction(
     modifier: Modifier = Modifier,
     icon: @Composable () -> Unit,
@@ -872,8 +780,6 @@ private fun FolderBar(
     onCreate: () -> Unit,
     onRename: (Folder) -> Unit,
     onDelete: (Folder) -> Unit,
-    mode: WorkAppMode,
-    onModeChange: (WorkAppMode) -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -937,41 +843,6 @@ private fun FolderBar(
                 )
             }
         }
-        ChatWorkModeSwitch(mode = mode, onModeChange = onModeChange)
-    }
-}
-
-@Composable
-internal fun ChatWorkModeSwitch(
-    mode: WorkAppMode,
-    onModeChange: (WorkAppMode) -> Unit,
-) {
-    Surface(
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.padding(start = 6.dp).testTag("chat-work-mode-switch"),
-    ) {
-        Row(modifier = Modifier.padding(2.dp)) {
-            WorkModeButton("Chat", mode == WorkAppMode.CHAT) { onModeChange(WorkAppMode.CHAT) }
-            WorkModeButton("Work", mode == WorkAppMode.WORK) { onModeChange(WorkAppMode.WORK) }
-        }
-    }
-}
-
-@Composable
-private fun WorkModeButton(label: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-    ) {
-        Text(
-            text = label,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-            fontSize = 11.sp,
-            maxLines = 1,
-        )
     }
 }
 

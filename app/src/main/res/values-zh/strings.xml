@@ -308,7 +308,6 @@
   <string name="chat_page_export_share_via">分享方式</string>
   <string name="chat_page_export_success">已导出为%1$s</string>
   <string name="chat_page_history">聊天历史</string>
-  <string name="chat_page_workflow">工作</string>
   <string name="chat_page_menu_ai_translator">AI翻译</string>
   <string name="chat_page_menu_image_generation">图像生成</string>
   <string name="chat_page_message_count">%d 条消息</string>
