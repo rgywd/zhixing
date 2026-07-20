@@ -64,6 +64,7 @@ class PhoneWorkSessionVM(
                 }
                 .collect {
                     if (sessionId.value == null) return@collect
+                    error.value = null
                     runCatching { repository.refreshSessions() }
                 }
         }
@@ -98,7 +99,7 @@ class PhoneWorkSessionVM(
         if (sessionId.value == null) selectedEffort.value = effort
     }
 
-    fun send(text: String, onCreated: (String) -> Unit = {}) {
+    fun send(text: String, onAccepted: (String?) -> Unit = {}) {
         if (text.isBlank() || sending.value) return
         viewModelScope.launch {
             sending.value = true
@@ -116,13 +117,15 @@ class PhoneWorkSessionVM(
                         )
                     ).also {
                         sessionId.value = it.id
-                        onCreated(it.id)
+                        onAccepted(it.id)
                     }
                 } else {
                     repository.sendMessage(id, text)
                     repository.refreshEvents(id)
+                    onAccepted(null)
                 }
-            }.onFailure { error.value = it.message ?: "发送失败" }
+            }.onSuccess { error.value = null }
+                .onFailure { error.value = it.message ?: "发送失败" }
             sending.value = false
         }
     }

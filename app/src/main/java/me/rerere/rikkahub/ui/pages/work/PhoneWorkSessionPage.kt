@@ -129,11 +129,13 @@ fun PhoneWorkSessionPage(sessionId: String) {
                         val text = inputState.textContent.text.toString().trim()
                         if (text.isNotEmpty()) {
                             vm.send(text) { createdId ->
-                                navigator.navigate(Screen.PhoneWorkSession(createdId)) {
-                                    popUpTo(Screen.PhoneWorkSession("")) { inclusive = true }
+                                inputState.clearInput()
+                                if (createdId != null) {
+                                    navigator.navigate(Screen.PhoneWorkSession(createdId)) {
+                                        popUpTo(Screen.PhoneWorkSession("")) { inclusive = true }
+                                    }
                                 }
                             }
-                            inputState.clearInput()
                         }
                     },
                     onLongSendClick = {},

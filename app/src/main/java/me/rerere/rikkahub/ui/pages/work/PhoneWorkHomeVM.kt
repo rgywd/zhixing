@@ -34,7 +34,8 @@ class PhoneWorkHomeVM(
             runCatching {
                 repository.refreshCatalog()
                 repository.refreshSessions()
-            }.onFailure { error.value = it.message ?: "Work 同步失败" }
+            }.onSuccess { error.value = null }
+                .onFailure { error.value = it.message ?: "Work 同步失败" }
             refreshing.value = false
         }
     }
