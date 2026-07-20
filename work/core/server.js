@@ -83,24 +83,30 @@ export function createWorkServer({ store, askTimeoutMs = 180_000 }) {
       if (request.method === "POST" && url.pathname === "/v1/runner/heartbeat") {
         const input = await readJson(request);
         requireRunner(store, request, input.runnerId);
-        return sendJson(response, 200, store.heartbeatRunner(input.runnerId));
+        return sendJson(response, 200, store.heartbeatRunner(input.runnerId, input.instanceId));
       }
       if (request.method === "GET" && url.pathname === "/v1/runner/commands") {
         const runnerId = url.searchParams.get("runnerId");
+        const instanceId = url.searchParams.get("instanceId");
         if (!runnerId) throw Object.assign(new Error("runnerId is required"), { statusCode: 400 });
         requireRunner(store, request, runnerId);
-        return sendJson(response, 200, { commands: store.listCommands(runnerId, url.searchParams.get("after") ?? "") });
+        return sendJson(response, 200, { commands: store.listCommands(runnerId, instanceId, url.searchParams.get("after") ?? "") });
       }
       let match = url.pathname.match(/^\/v1\/runner\/commands\/([^/]+)\/ack$/);
       if (request.method === "POST" && match) {
         const runnerId = store.commandRunnerId(match[1]);
         requireRunner(store, request, runnerId);
-        return sendJson(response, 200, store.ackCommand(match[1], await readJson(request), runnerId));
+        const input = await readJson(request);
+        if (!store.isRunnerInstance(runnerId, input.instanceId)) throw Object.assign(new Error("Runner instance is stale"), { statusCode: 409 });
+        return sendJson(response, 200, store.ackCommand(match[1], input, runnerId, input.instanceId));
       }
       match = url.pathname.match(/^\/v1\/runner\/sessions\/([^/]+)\/state$/);
       if (request.method === "POST" && match) {
-        requireRunner(store, request, store.sessionRunnerId(match[1]));
-        return sendJson(response, 200, store.updateSessionState(match[1], await readJson(request)));
+        const runnerId = store.sessionRunnerId(match[1]);
+        requireRunner(store, request, runnerId);
+        const input = await readJson(request);
+        if (!store.isRunnerInstance(runnerId, input.instanceId)) throw Object.assign(new Error("Runner instance is stale"), { statusCode: 409 });
+        return sendJson(response, 200, store.updateSessionState(match[1], input));
       }
 
       if (request.method === "GET" && url.pathname === "/v1/work/runners") {

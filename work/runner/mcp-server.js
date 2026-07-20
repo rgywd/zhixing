@@ -13,6 +13,7 @@ const cursorFile = required("WORK_CURSOR_FILE");
 const storedCursor = readCursor(cursorFile);
 let acknowledgedCursor = Math.max(storedCursor.acknowledgedCursor, Number(process.env.WORK_INITIAL_INBOX_CURSOR ?? 0));
 let pendingCursor = Math.max(storedCursor.pendingCursor, acknowledgedCursor);
+let canAcknowledgePending = pendingCursor === acknowledgedCursor;
 
 const questionSchema = z.object({
   id: z.string().min(1),
@@ -123,6 +124,10 @@ function readCursor(filename) {
 }
 
 function acknowledgePendingCursor() {
+  if (!canAcknowledgePending) {
+    canAcknowledgePending = true;
+    return;
+  }
   if (pendingCursor <= acknowledgedCursor) return;
   acknowledgedCursor = pendingCursor;
   persistCursor();

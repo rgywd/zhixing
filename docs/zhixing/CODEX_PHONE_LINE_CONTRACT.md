@@ -109,8 +109,8 @@ Android 不提交真实路径、任意 sandbox/approval 值或 Codex 参数。Co
 { "accepted": true, "reportId": "report_...", "messageId": "msg_...", "sanitized": true }
 ```
 
-约束：title 1–120 字符，html 最大 1 MiB。Core 存原始输入的加密副本仅用于故障恢复，对 Android 只下发清洗并由
-固定模板封装后的版本。报告消息只含标题、摘要、大小和 report ID。
+约束：title 1–120 字符，html 最大 1 MiB。Core 只持久化清洗并由固定模板封装后的版本，不保存原始 HTML。
+报告消息只含标题、摘要、大小和 report ID。
 
 ## 3. 最小 HTTP API
 
@@ -130,11 +130,11 @@ Android 不提交真实路径、任意 sandbox/approval 值或 Codex 参数。Co
 
 ### Runner scope
 
-- `POST /v1/runner/register`：登记版本、能力和仓库 catalog。
-- `POST /v1/runner/heartbeat`：租约与当前执行摘要。
-- `GET /v1/runner/commands?after=`：长轮询有序命令。
-- `POST /v1/runner/commands/{id}/ack`：领取/完成/失败。
-- `POST /v1/runner/sessions/{id}/state`：写入进程生命周期。
+- `POST /v1/runner/register`：登记进程级 `instanceId`、版本、能力和仓库 catalog；新实例回收旧实例命令。
+- `POST /v1/runner/heartbeat`：按 `runnerId + instanceId` 续租当前实例持有的命令。
+- `GET /v1/runner/commands?runnerId=&instanceId=`：拉取当前实例的有序命令。
+- `POST /v1/runner/commands/{id}/ack`：当前实例领取/完成/失败。
+- `POST /v1/runner/sessions/{id}/state`：当前实例写入进程生命周期。
 
 ### MCP session scope
 
@@ -164,4 +164,5 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 ## 6. 版本与兼容
 
 请求头携带 `X-Zhixing-Work-Protocol: 1`。Core 在不认识主版本时返回 `426 Upgrade Required`；新增可选字段保持向后兼容。
-Phone-line v1 不读取旧 Work/Happy 数据；Room v31 的旧表仅为覆盖升级保留，后续数据库迁移可在确认无回滚需求后删除。
+Phone-line v1 不读取旧 Work/Happy 数据；Room v33 迁移会删除旧 Work/Happy/App Server/Codex catalog 表，只保留
+新版 `phone_work_sessions` 与 `phone_work_events`。

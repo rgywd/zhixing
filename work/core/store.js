@@ -37,6 +37,7 @@ export class WorkStore {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS runners (
         id TEXT PRIMARY KEY,
+        instance_id TEXT,
         name TEXT NOT NULL,
         version TEXT NOT NULL,
         online INTEGER NOT NULL DEFAULT 1,
@@ -116,6 +117,7 @@ export class WorkStore {
     `);
     this.ensureColumn("commands", "claimed_by", "TEXT");
     this.ensureColumn("commands", "lease_until", "TEXT");
+    this.ensureColumn("runners", "instance_id", "TEXT");
     this.recoverInterruptedAsks();
   }
 
@@ -204,16 +206,23 @@ export class WorkStore {
   }
 
   registerRunner(input) {
+    if (!String(input.instanceId ?? "").trim()) {
+      throw Object.assign(new Error("Runner instanceId is required"), { statusCode: 400 });
+    }
     const now = new Date().toISOString();
     const leaseUntil = new Date(Date.now() + 45_000).toISOString();
     this.db.exec("BEGIN IMMEDIATE");
     try {
       this.db.prepare(`
-        INSERT INTO runners(id, name, version, online, lease_until, capabilities_json, updated_at)
-        VALUES (?, ?, ?, 1, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET name=excluded.name, version=excluded.version, online=1,
+        UPDATE commands SET state='PENDING', claimed_by=NULL, lease_until=NULL, updated_at=?
+        WHERE runner_id=? AND state='CLAIMED' AND (claimed_by IS NULL OR claimed_by<>?)
+      `).run(now, input.id, input.instanceId);
+      this.db.prepare(`
+        INSERT INTO runners(id, instance_id, name, version, online, lease_until, capabilities_json, updated_at)
+        VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET instance_id=excluded.instance_id, name=excluded.name, version=excluded.version, online=1,
           lease_until=excluded.lease_until, capabilities_json=excluded.capabilities_json, updated_at=excluded.updated_at
-      `).run(input.id, input.name, input.version, leaseUntil, json(input.capabilities ?? {}), now);
+      `).run(input.id, input.instanceId, input.name, input.version, leaseUntil, json(input.capabilities ?? {}), now);
       this.db.prepare("DELETE FROM repos WHERE runner_id = ?").run(input.id);
       const insertRepo = this.db.prepare(`
         INSERT INTO repos(runner_id, id, name, models_json, efforts_json, available) VALUES (?, ?, ?, ?, ?, ?)
@@ -229,13 +238,18 @@ export class WorkStore {
     return { accepted: true, leaseUntil };
   }
 
-  heartbeatRunner(runnerId) {
+  isRunnerInstance(runnerId, instanceId) {
+    if (!instanceId) return false;
+    return Boolean(this.db.prepare("SELECT 1 FROM runners WHERE id=? AND instance_id=?").get(runnerId, instanceId));
+  }
+
+  heartbeatRunner(runnerId, instanceId) {
     const leaseUntil = new Date(Date.now() + 45_000).toISOString();
-    const result = this.db.prepare("UPDATE runners SET online=1, lease_until=?, updated_at=? WHERE id=?")
-      .run(leaseUntil, new Date().toISOString(), runnerId);
-    if (!result.changes) throw Object.assign(new Error("Runner not found"), { statusCode: 404 });
+    const result = this.db.prepare("UPDATE runners SET online=1, lease_until=?, updated_at=? WHERE id=? AND instance_id=?")
+      .run(leaseUntil, new Date().toISOString(), runnerId, instanceId);
+    if (!result.changes) throw Object.assign(new Error("Runner instance is stale"), { statusCode: 409 });
     this.db.prepare("UPDATE commands SET lease_until=? WHERE state='CLAIMED' AND claimed_by=?")
-      .run(leaseUntil, runnerId);
+      .run(leaseUntil, instanceId);
     return { accepted: true, leaseUntil };
   }
 
@@ -359,7 +373,10 @@ export class WorkStore {
     });
   }
 
-  listCommands(runnerId, after = "") {
+  listCommands(runnerId, instanceId, after = "") {
+    if (!this.isRunnerInstance(runnerId, instanceId)) {
+      throw Object.assign(new Error("Runner instance is stale"), { statusCode: 409 });
+    }
     const now = new Date().toISOString();
     this.db.prepare("UPDATE commands SET state='PENDING', claimed_by=NULL, lease_until=NULL, updated_at=? WHERE state='CLAIMED' AND lease_until<?")
       .run(now, now);
@@ -384,14 +401,23 @@ export class WorkStore {
     return this.db.prepare("SELECT runner_id FROM sessions WHERE id=?").get(sessionId)?.runner_id ?? null;
   }
 
-  ackCommand(commandId, input, runnerId) {
+  ackCommand(commandId, input, runnerId, instanceId) {
     const allowed = new Set(["CLAIMED", "COMPLETED", "FAILED"]);
     if (!allowed.has(input.state)) throw Object.assign(new Error("Invalid command state"), { statusCode: 400 });
     const now = new Date().toISOString();
-    const leaseUntil = input.state === "CLAIMED" ? new Date(Date.now() + 45_000).toISOString() : null;
-    const result = this.db.prepare(`
-      UPDATE commands SET state=?, claimed_by=?, lease_until=?, updated_at=? WHERE id=? AND runner_id=?
-    `).run(input.state, input.state === "CLAIMED" ? runnerId : null, leaseUntil, now, commandId, runnerId);
+    let result;
+    if (input.state === "CLAIMED") {
+      const leaseUntil = new Date(Date.now() + 45_000).toISOString();
+      result = this.db.prepare(`
+        UPDATE commands SET state='CLAIMED', claimed_by=?, lease_until=?, updated_at=?
+        WHERE id=? AND runner_id=? AND state='PENDING'
+      `).run(instanceId, leaseUntil, now, commandId, runnerId);
+    } else {
+      result = this.db.prepare(`
+        UPDATE commands SET state=?, claimed_by=NULL, lease_until=NULL, updated_at=?
+        WHERE id=? AND runner_id=? AND (claimed_by=? OR (claimed_by IS NULL AND state='PENDING'))
+      `).run(input.state, now, commandId, runnerId, instanceId);
+    }
     if (!result.changes) throw Object.assign(new Error("Command not found"), { statusCode: 404 });
     return { accepted: true };
   }

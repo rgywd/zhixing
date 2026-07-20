@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { createWorkServer } from "./server.js";
 import { WorkStore } from "./store.js";
 
 const USER_TOKEN = "user-test-token";
 const RUNNER_TOKEN = "runner-test-token";
+const RUNNER_INSTANCE = "runner-instance-1";
 const PROTOCOL = { "x-zhixing-work-protocol": "1" };
 
 async function fixture(t, askTimeoutMs = 150) {
@@ -67,6 +71,7 @@ async function registerAndCreate(baseUrl) {
     method: "POST",
     body: {
       id: "runner-1",
+      instanceId: RUNNER_INSTANCE,
       name: "Minecraft",
       version: "test",
       repos: [{
@@ -91,9 +96,13 @@ async function registerAndCreate(baseUrl) {
     },
   });
   assert.equal(created.response.status, 201);
-  const commands = await request(baseUrl, "/v1/runner/commands?runnerId=runner-1", { token: RUNNER_TOKEN });
+  const commands = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
   const start = commands.payload.commands[0];
   return { session: created.payload, sessionToken: start.payload.sessionToken };
+}
+
+function runnerCommandsPath(instanceId = RUNNER_INSTANCE) {
+  return `/v1/runner/commands?runnerId=runner-1&instanceId=${encodeURIComponent(instanceId)}`;
 }
 
 test("full phone-line API flow is durable, ordered and idempotent", async (t) => {
@@ -211,24 +220,123 @@ test("ask returns a bounded timeout and a late answer queues resume", async (t) 
     body: { answers: [{ questionId: "choice", selectedOptionIds: [], otherText: "先补测试" }] },
   });
   assert.equal(answer.payload.status, "ANSWERED");
-  const commands = await request(baseUrl, "/v1/runner/commands?runnerId=runner-1", { token: RUNNER_TOKEN });
+  const commands = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
   assert.equal(commands.payload.commands.filter((command) => command.kind === "RESUME").length, 1);
 });
 
 test("expired command claims are returned to the owning runner", async (t) => {
   const { baseUrl, store } = await fixture(t);
   await registerAndCreate(baseUrl);
-  const pending = await request(baseUrl, "/v1/runner/commands?runnerId=runner-1", { token: RUNNER_TOKEN });
+  const pending = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
   const command = pending.payload.commands[0];
   const claimed = await request(baseUrl, `/v1/runner/commands/${command.id}/ack`, {
     token: RUNNER_TOKEN,
     method: "POST",
-    body: { state: "CLAIMED" },
+    body: { state: "CLAIMED", instanceId: RUNNER_INSTANCE },
   });
   assert.equal(claimed.response.status, 200);
   store.db.prepare("UPDATE commands SET lease_until=? WHERE id=?").run("2000-01-01T00:00:00.000Z", command.id);
-  const reclaimed = await request(baseUrl, "/v1/runner/commands?runnerId=runner-1", { token: RUNNER_TOKEN });
+  const reclaimed = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
   assert.equal(reclaimed.payload.commands[0].id, command.id);
+});
+
+test("a restarted runner reclaims the previous process command before its lease expires", async (t) => {
+  const { baseUrl } = await fixture(t);
+  await registerAndCreate(baseUrl);
+  const pending = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  const command = pending.payload.commands[0];
+  await request(baseUrl, `/v1/runner/commands/${command.id}/ack`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: { state: "CLAIMED", instanceId: RUNNER_INSTANCE },
+  });
+
+  const restartedInstance = "runner-instance-2";
+  const registration = await request(baseUrl, "/v1/runner/register", {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      id: "runner-1",
+      instanceId: restartedInstance,
+      name: "Minecraft restarted",
+      version: "test",
+      repos: [{
+        id: "zhixing",
+        name: "zhixing",
+        models: ["gpt-5.6-sol"],
+        reasoningEfforts: ["high", "xhigh"],
+      }],
+    },
+  });
+  assert.equal(registration.response.status, 200);
+
+  const heartbeat = await request(baseUrl, "/v1/runner/heartbeat", {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: { runnerId: "runner-1", instanceId: restartedInstance },
+  });
+  assert.equal(heartbeat.response.status, 200);
+  const reclaimed = await request(baseUrl, runnerCommandsPath(restartedInstance), { token: RUNNER_TOKEN });
+  assert.equal(reclaimed.payload.commands[0].id, command.id);
+
+  const staleHeartbeat = await request(baseUrl, "/v1/runner/heartbeat", {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: { runnerId: "runner-1", instanceId: RUNNER_INSTANCE },
+  });
+  assert.equal(staleHeartbeat.response.status, 409);
+});
+
+test("Core restart times out an interrupted ask and restores the session to idle", () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-core-restart-"));
+  const filename = join(directory, "core.sqlite");
+  const options = {
+    filename,
+    userToken: USER_TOKEN,
+    runnerTokens: { "runner-1": RUNNER_TOKEN },
+    sessionSecret: "test-session-secret-at-least-32-bytes",
+  };
+  let store = new WorkStore(options);
+  store.registerRunner({
+    id: "runner-1",
+    instanceId: RUNNER_INSTANCE,
+    name: "Minecraft",
+    version: "test",
+    repos: [{
+      id: "zhixing",
+      name: "zhixing",
+      models: ["gpt-5.6-sol"],
+      reasoningEfforts: ["high"],
+    }],
+  });
+  const session = store.createSession({
+    runnerId: "runner-1",
+    repoId: "zhixing",
+    model: "gpt-5.6-sol",
+    reasoningEffort: "high",
+    message: "wait for me",
+  }, "restart-session");
+  const ask = store.createAsk(session.id, {
+    clientCallId: "restart-ask",
+    questions: [{
+      id: "continue",
+      header: "选择",
+      question: "继续吗？",
+      multiSelect: false,
+      options: [{ id: "yes", label: "继续" }],
+    }],
+  });
+  store.close();
+
+  store = new WorkStore(options);
+  try {
+    assert.equal(store.getAsk(ask.id).status, "TIMED_OUT");
+    assert.equal(store.getSession(session.id).status, "IDLE");
+    assert.ok(store.getEvents(session.id).some((event) => event.type === "ASK_TIMED_OUT"));
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("session token is scoped and reports cannot cross sessions", async (t) => {
@@ -256,15 +364,15 @@ test("session token is scoped and reports cannot cross sessions", async (t) => {
 test("runner credentials cannot read or acknowledge another runner's commands", async (t) => {
   const { baseUrl } = await fixture(t);
   await registerAndCreate(baseUrl);
-  const crossRead = await request(baseUrl, "/v1/runner/commands?runnerId=runner-1", { token: "runner-2-token" });
+  const crossRead = await request(baseUrl, runnerCommandsPath(), { token: "runner-2-token" });
   assert.equal(crossRead.response.status, 401);
 
-  const own = await request(baseUrl, "/v1/runner/commands?runnerId=runner-1", { token: RUNNER_TOKEN });
+  const own = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
   const commandId = own.payload.commands[0].id;
   const crossAck = await request(baseUrl, `/v1/runner/commands/${commandId}/ack`, {
     token: "runner-2-token",
     method: "POST",
-    body: { state: "CLAIMED" },
+    body: { state: "CLAIMED", instanceId: RUNNER_INSTANCE },
   });
   assert.equal(crossAck.response.status, 401);
 });

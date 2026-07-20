@@ -55,7 +55,8 @@
 - [x] 为 Core 提供单机 Docker Compose、备份和健康检查；不打包 OpenAI/Codex 凭据。
 - [x] 为 Windows Runner 提供安装、登录、仓库白名单和自启动脚本。
 - [x] 建立端到端测试：Core → fake/real Runner → 三工具 → Core readback；Android 侧由同一协议仓储消费。
-- [ ] 覆盖 Core 重启、Runner 离线、ask 超时、SSE 断线、重复重试、Codex 异常退出和版本不兼容。
+- [x] 覆盖 Core 重启恢复、Runner 进程换代与命令回收、ask 超时、重复重试和 Codex 异常退出。
+- [ ] 增补 SSE 强制断线和协议主版本不兼容的自动化用例。
 - [ ] 从 v0.1.x APK 覆盖安装，确认普通聊天、Provider、知识空间和用户数据未回归。
 - [ ] 子 BOT 按三份基线文档独立审查；存在 P0/P1 缺口则继续实施，不进入发布。
 
@@ -71,8 +72,9 @@
 
 ## 当前验证证据
 
-- `npm --prefix work test`：10/10 通过，覆盖 Core 契约、Runner 隔离鉴权、命令租约回收、提问超时、Runner 参数、resume、状态持久化与 Windows 可执行文件解析。
+- `npm --prefix work test`：12/12 通过，覆盖 Core 契约与重启恢复、Runner 隔离鉴权、进程换代与命令租约回收、提问超时、Runner 参数、resume、状态持久化与 Windows 可执行文件解析。
 - `npm --prefix work run e2e:real`：真实 Codex 完成 `report → ask/answer → report_html → IDLE`，Codex session ID
-  `019f7f89-f577-7a90-a24c-e4403178e18c`；测试只使用临时 Git 仓库。
+  `019f7f96-c289-7b10-8100-90cedd8a2632`；测试只使用临时 Git 仓库。
 - `./gradlew :app:testDebugUnitTest` 与 `:app:compileDebugKotlin` 通过。
+- `Migration_32_33_Test` 已在 Android 15 模拟器通过，确认删除旧 Work 表且保留 Phone-line 表。
 - `docker compose config` 通过；本机 Docker Desktop 引擎未启动，因此容器镜像运行验证仍待部署机执行。

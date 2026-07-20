@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
+
 const PROTOCOL_HEADERS = { "x-zhixing-work-protocol": "1" };
 
 export class CoreClient {
   constructor({ baseUrl, token }) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.token = token;
+    this.instanceId = randomUUID();
   }
 
   async request(path, { method = "GET", body, idempotencyKey, signal } = {}) {
@@ -34,6 +37,7 @@ export class CoreClient {
       method: "POST",
       body: {
         id: config.id,
+        instanceId: this.instanceId,
         name: config.name,
         version: config.version,
         capabilities: { codex: true, phoneLineProtocol: 1 },
@@ -49,25 +53,25 @@ export class CoreClient {
   }
 
   heartbeat(runnerId) {
-    return this.request("/v1/runner/heartbeat", { method: "POST", body: { runnerId } });
+    return this.request("/v1/runner/heartbeat", { method: "POST", body: { runnerId, instanceId: this.instanceId } });
   }
 
   async commands(runnerId) {
-    const payload = await this.request(`/v1/runner/commands?runnerId=${encodeURIComponent(runnerId)}`);
+    const payload = await this.request(`/v1/runner/commands?runnerId=${encodeURIComponent(runnerId)}&instanceId=${encodeURIComponent(this.instanceId)}`);
     return payload.commands;
   }
 
   ack(commandId, state) {
     return this.request(`/v1/runner/commands/${encodeURIComponent(commandId)}/ack`, {
       method: "POST",
-      body: { state },
+      body: { state, instanceId: this.instanceId },
     });
   }
 
   updateState(sessionId, status, detail = null, codexSessionId = null) {
     return this.request(`/v1/runner/sessions/${encodeURIComponent(sessionId)}/state`, {
       method: "POST",
-      body: { status, detail, codexSessionId },
+      body: { status, detail, codexSessionId, instanceId: this.instanceId },
     });
   }
 }
