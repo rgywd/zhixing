@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CoreClient } from "./core-client.js";
@@ -27,14 +27,32 @@ export class WorkRunner {
 
   async start() {
     validateConfig(this.config);
-    await this.client.register(this.config);
+    let backoffMs = 500;
+    while (!this.stopped) {
+      try {
+        await this.client.register(this.config);
+        break;
+      } catch (error) {
+        this.logError("register", error);
+        await delay(backoffMs);
+        backoffMs = Math.min(backoffMs * 2, 30_000);
+      }
+    }
     const heartbeat = setInterval(() => {
       this.client.heartbeat(this.config.id).catch((error) => this.logError("heartbeat", error));
     }, 20_000);
     try {
+      backoffMs = 500;
       while (!this.stopped) {
-        await this.pollOnce();
-        await delay(this.config.pollIntervalMs ?? 2_000);
+        try {
+          await this.pollOnce();
+          backoffMs = 500;
+          await delay(this.config.pollIntervalMs ?? 2_000);
+        } catch (error) {
+          this.logError("poll", error);
+          await delay(backoffMs);
+          backoffMs = Math.min(backoffMs * 2, 30_000);
+        }
       }
     } finally {
       clearInterval(heartbeat);
@@ -111,6 +129,7 @@ export class WorkRunner {
         args,
         prompt: command.payload.message,
         cwd: repo.path,
+        env: isolatedCodexEnv(this.config.codexHome),
         onEvent: (event) => {
           const parsed = parseCodexSessionId(event);
           if (parsed && parsed !== discoveredSessionId) {
@@ -165,7 +184,7 @@ export class WorkRunner {
 }
 
 function validateConfig(config) {
-  for (const key of ["id", "name", "version", "coreUrl", "token", "stateFile"]) {
+  for (const key of ["id", "name", "version", "coreUrl", "token", "stateFile", "codexHome"]) {
     if (!config[key]) throw new Error(`Runner config is missing ${key}`);
   }
   if (!Array.isArray(config.repos) || !config.repos.length) throw new Error("Runner config needs at least one repository");
@@ -174,6 +193,21 @@ function validateConfig(config) {
       throw new Error(`Repository ${repo.id ?? "<unknown>"} is incomplete`);
     }
   }
+}
+
+export function isolatedCodexEnv(codexHome, source = process.env) {
+  if (!codexHome) return source;
+  mkdirSync(codexHome, { recursive: true });
+  const allowed = new Set([
+    "PATH", "Path", "PATHEXT", "SystemRoot", "SYSTEMROOT", "ComSpec", "COMSPEC",
+    "TEMP", "TMP", "USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA", "ProgramFiles",
+    "ProgramFiles(x86)", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+    "http_proxy", "https_proxy", "no_proxy", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR",
+  ]);
+  return Object.fromEntries([
+    ...Object.entries(source).filter(([key]) => allowed.has(key)),
+    ["CODEX_HOME", codexHome],
+  ]);
 }
 
 function safeError(error) {

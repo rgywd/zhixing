@@ -16,7 +16,7 @@ const repo = join(root, "repo");
 const store = new WorkStore({
   filename: join(root, "core.sqlite"),
   userToken: USER_TOKEN,
-  runnerToken: RUNNER_TOKEN,
+  runnerTokens: { "real-e2e-runner": RUNNER_TOKEN },
   sessionSecret: "real-e2e-session-secret-at-least-32-bytes",
 });
 const server = createWorkServer({ store, askTimeoutMs: 180_000 });
@@ -40,6 +40,7 @@ try {
     coreUrl: baseUrl,
     token: RUNNER_TOKEN,
     stateFile: join(root, "runner-state.json"),
+    codexHome: process.env.CODEX_HOME ?? join(process.env.USERPROFILE, ".codex"),
     pollIntervalMs: 250,
     codexCommand: process.env.WORK_E2E_CODEX ?? "codex",
     repos: [{ id: "fixture", name: "Fixture", path: repo, models: [model], reasoningEfforts: [effort] }],

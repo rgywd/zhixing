@@ -42,7 +42,8 @@
 - [x] 在普通会话侧增加克制的 Work 入口；设置页增加 Work 连接卡，不新建设置首页。
 - [x] Work 会话列表只展示手机创建的会话，支持离线缓存、状态和显式结束。
 - [x] 新建选择缓存的 repo/model/effort，权限固定完全访问；不显示任务表单。
-- [ ] 详情复用普通聊天的页面骨架、Markdown、附件选择和输入框视觉组件，不复用普通 Provider 生成链路。
+- [x] 详情复用普通聊天的页面骨架、Markdown 和输入框视觉组件，不复用普通 Provider 生成链路。v1 只发送文本，
+  不显示尚无协议闭环的附件按钮。
 - [x] 映射 report/ask/report_html/run-state；问题卡支持 1–4 题、多选和“其他”。
 - [x] 报告沿用应用只读报告页；SSE 断线按 seq 补拉并以低频轮询兜底。
 - [x] catalog 刷新失败只降级提示；已有缓存仍能选择 repo/model/effort。
@@ -70,8 +71,8 @@
 
 ## 当前验证证据
 
-- `npm --prefix work test`：8/8 通过，覆盖 Core 契约、Runner 参数、resume、状态持久化与 Windows 可执行文件解析。
+- `npm --prefix work test`：10/10 通过，覆盖 Core 契约、Runner 隔离鉴权、命令租约回收、提问超时、Runner 参数、resume、状态持久化与 Windows 可执行文件解析。
 - `npm --prefix work run e2e:real`：真实 Codex 完成 `report → ask/answer → report_html → IDLE`，Codex session ID
-  `019f7f6e-025a-72b1-8b58-5bfc33fb89df`；测试只使用临时 Git 仓库。
+  `019f7f89-f577-7a90-a24c-e4403178e18c`；测试只使用临时 Git 仓库。
 - `./gradlew :app:testDebugUnitTest` 与 `:app:compileDebugKotlin` 通过。
 - `docker compose config` 通过；本机 Docker Desktop 引擎未启动，因此容器镜像运行验证仍待部署机执行。

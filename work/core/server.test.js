@@ -11,13 +11,20 @@ const PROTOCOL = { "x-zhixing-work-protocol": "1" };
 async function fixture(t, askTimeoutMs = 150) {
   const store = new WorkStore({
     userToken: USER_TOKEN,
-    runnerToken: RUNNER_TOKEN,
+    runnerTokens: { "runner-1": RUNNER_TOKEN, "runner-2": "runner-2-token" },
     sessionSecret: "test-session-secret-at-least-32-bytes",
   });
   const server = createWorkServer({ store, askTimeoutMs });
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const { port } = server.address();
+  let port;
+  do {
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    ({ port } = server.address());
+    if (FETCH_BLOCKED_PORTS.has(port)) {
+      server.close();
+      await once(server, "close");
+    }
+  } while (FETCH_BLOCKED_PORTS.has(port));
   t.after(async () => {
     server.close();
     await once(server, "close");
@@ -25,6 +32,18 @@ async function fixture(t, askTimeoutMs = 150) {
   });
   return { store, baseUrl: `http://127.0.0.1:${port}` };
 }
+
+// Fetch follows the browser's unsafe-port list even for loopback URLs. An
+// ephemeral bind can occasionally land on one of these ports and make a
+// completely healthy test fail with `bad port`.
+const FETCH_BLOCKED_PORTS = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77,
+  79, 87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123,
+  135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530,
+  531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719,
+  1720, 1723, 2049, 3659, 4045, 5060, 5061, 6000, 6566, 6665, 6666, 6667,
+  6668, 6669, 6697, 10080,
+]);
 
 async function request(baseUrl, path, { token = USER_TOKEN, method = "GET", body, idempotencyKey } = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
@@ -181,6 +200,10 @@ test("ask returns a bounded timeout and a late answer queues resume", async (t) 
     },
   });
   assert.equal(timedOut.payload.status, "timeout");
+  const afterTimeout = await request(baseUrl, `/v1/work/sessions/${session.id}/events?afterSeq=0`);
+  assert.ok(afterTimeout.payload.events.some((event) => event.type === "ASK_TIMED_OUT"));
+  const timedOutSession = (await request(baseUrl, "/v1/work/sessions")).payload.sessions.find((item) => item.id === session.id);
+  assert.equal(timedOutSession.status, "IDLE");
 
   const answer = await request(baseUrl, `/v1/work/sessions/${session.id}/asks/${timedOut.payload.questionSetId}/answer`, {
     method: "POST",
@@ -190,6 +213,22 @@ test("ask returns a bounded timeout and a late answer queues resume", async (t) 
   assert.equal(answer.payload.status, "ANSWERED");
   const commands = await request(baseUrl, "/v1/runner/commands?runnerId=runner-1", { token: RUNNER_TOKEN });
   assert.equal(commands.payload.commands.filter((command) => command.kind === "RESUME").length, 1);
+});
+
+test("expired command claims are returned to the owning runner", async (t) => {
+  const { baseUrl, store } = await fixture(t);
+  await registerAndCreate(baseUrl);
+  const pending = await request(baseUrl, "/v1/runner/commands?runnerId=runner-1", { token: RUNNER_TOKEN });
+  const command = pending.payload.commands[0];
+  const claimed = await request(baseUrl, `/v1/runner/commands/${command.id}/ack`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: { state: "CLAIMED" },
+  });
+  assert.equal(claimed.response.status, 200);
+  store.db.prepare("UPDATE commands SET lease_until=? WHERE id=?").run("2000-01-01T00:00:00.000Z", command.id);
+  const reclaimed = await request(baseUrl, "/v1/runner/commands?runnerId=runner-1", { token: RUNNER_TOKEN });
+  assert.equal(reclaimed.payload.commands[0].id, command.id);
 });
 
 test("session token is scoped and reports cannot cross sessions", async (t) => {
@@ -212,4 +251,20 @@ test("session token is scoped and reports cannot cross sessions", async (t) => {
     body: { text: "越权", clientCallId: "cross" },
   });
   assert.equal(crossSession.response.status, 401);
+});
+
+test("runner credentials cannot read or acknowledge another runner's commands", async (t) => {
+  const { baseUrl } = await fixture(t);
+  await registerAndCreate(baseUrl);
+  const crossRead = await request(baseUrl, "/v1/runner/commands?runnerId=runner-1", { token: "runner-2-token" });
+  assert.equal(crossRead.response.status, 401);
+
+  const own = await request(baseUrl, "/v1/runner/commands?runnerId=runner-1", { token: RUNNER_TOKEN });
+  const commandId = own.payload.commands[0].id;
+  const crossAck = await request(baseUrl, `/v1/runner/commands/${commandId}/ack`, {
+    token: "runner-2-token",
+    method: "POST",
+    body: { state: "CLAIMED" },
+  });
+  assert.equal(crossAck.response.status, 401);
 });

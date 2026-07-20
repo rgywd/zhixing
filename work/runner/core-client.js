@@ -7,9 +7,11 @@ export class CoreClient {
   }
 
   async request(path, { method = "GET", body, idempotencyKey, signal } = {}) {
+    const timeoutSignal = AbortSignal.timeout(20_000);
+    const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
     const response = await fetch(`${this.baseUrl}${path}`, {
       method,
-      signal,
+      signal: requestSignal,
       headers: {
         ...PROTOCOL_HEADERS,
         authorization: `Bearer ${this.token}`,

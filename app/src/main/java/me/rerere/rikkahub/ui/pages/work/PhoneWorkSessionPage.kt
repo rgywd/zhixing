@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -24,6 +25,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -171,7 +173,12 @@ fun PhoneWorkSessionPage(sessionId: String) {
                     runCatching { vm.reportHtml(reportId) }
                         .onSuccess { html ->
                             val contentId = WebViewContentCache.store(context.cacheDir, html)
-                            navigator.navigate(Screen.WebView(contentId = contentId))
+                            val title = events.asSequence()
+                                .mapNotNull { event -> runCatching { workJson.decodeFromJsonElement<PhoneWorkHtmlReportPayload>(event.payload) }.getOrNull() }
+                                .firstOrNull { it.reportId == reportId }
+                                ?.title
+                                ?: "Work 报告"
+                            navigator.navigate(Screen.PhoneWorkReport(contentId = contentId, title = title))
                         }
                 }
             },
@@ -254,7 +261,13 @@ private fun WorkEventList(
     val answeredAskIds = remember(events) {
         events.filter { it.type == "ASK_ANSWERED" }.mapNotNull { it.payload.jsonObject["askId"]?.jsonPrimitive?.content }.toSet()
     }
+    val listState = rememberLazyListState()
+    LaunchedEffect(events.size) {
+        val lastIndex = events.size + if (error != null) 1 else 0
+        if (lastIndex > 0) listState.animateScrollToItem(lastIndex - 1)
+    }
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(12.dp),

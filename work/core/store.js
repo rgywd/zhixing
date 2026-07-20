@@ -21,13 +21,13 @@ function id(prefix) {
 }
 
 export class WorkStore {
-  constructor({ filename = ":memory:", userToken, runnerToken, sessionSecret }) {
-    if (!userToken || !runnerToken || !sessionSecret) {
-      throw new Error("userToken, runnerToken and sessionSecret are required");
+  constructor({ filename = ":memory:", userToken, runnerTokens, sessionSecret }) {
+    if (!userToken || !runnerTokens || !Object.keys(runnerTokens).length || !sessionSecret) {
+      throw new Error("userToken, runnerTokens and sessionSecret are required");
     }
     this.db = new DatabaseSync(filename);
     this.userTokenHash = tokenHash(userToken);
-    this.runnerTokenHash = tokenHash(runnerToken);
+    this.runnerTokenHashes = new Map(Object.entries(runnerTokens).map(([runnerId, token]) => [runnerId, tokenHash(token)]));
     this.sessionSecret = sessionSecret;
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
     this.migrate();
@@ -83,6 +83,8 @@ export class WorkStore {
         kind TEXT NOT NULL,
         payload_json TEXT NOT NULL,
         state TEXT NOT NULL DEFAULT 'PENDING',
+        claimed_by TEXT,
+        lease_until TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -112,6 +114,19 @@ export class WorkStore {
         PRIMARY KEY (scope, key)
       );
     `);
+    this.ensureColumn("commands", "claimed_by", "TEXT");
+    this.ensureColumn("commands", "lease_until", "TEXT");
+    this.recoverInterruptedAsks();
+  }
+
+  ensureColumn(table, column, definition) {
+    const existing = this.db.prepare(`PRAGMA table_info(${table})`).all().some((row) => row.name === column);
+    if (!existing) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+
+  recoverInterruptedAsks() {
+    const pending = this.db.prepare("SELECT id FROM asks WHERE status='PENDING'").all();
+    for (const ask of pending) this.timeoutAsk(ask.id);
   }
 
   close() {
@@ -122,8 +137,9 @@ export class WorkStore {
     return this.safeHashEquals(token, this.userTokenHash);
   }
 
-  authenticateRunner(token) {
-    return this.safeHashEquals(token, this.runnerTokenHash);
+  authenticateRunner(token, runnerId) {
+    const expected = this.runnerTokenHashes.get(runnerId);
+    return Boolean(expected) && this.safeHashEquals(token, expected);
   }
 
   safeHashEquals(token, expectedHash) {
@@ -134,7 +150,15 @@ export class WorkStore {
   }
 
   createSessionToken(sessionId) {
-    const payload = Buffer.from(json({ sessionId, scope: "mcp", v: 1 })).toString("base64url");
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const payload = Buffer.from(json({
+      sessionId,
+      scope: "mcp",
+      v: 1,
+      jti: randomUUID(),
+      iat: issuedAt,
+      exp: issuedAt + 30 * 24 * 60 * 60,
+    })).toString("base64url");
     const signature = createHmac("sha256", this.sessionSecret).update(payload).digest("base64url");
     return `zsm.${payload}.${signature}`;
   }
@@ -149,7 +173,11 @@ export class WorkStore {
     try {
       const claims = parseJson(Buffer.from(payload, "base64url").toString("utf8"));
       const session = this.getSession(claims.sessionId);
-      return claims.scope === "mcp" && claims.sessionId === expectedSessionId && session && !SESSION_TERMINAL.has(session.status);
+      return claims.scope === "mcp"
+        && claims.sessionId === expectedSessionId
+        && Number(claims.exp) > Math.floor(Date.now() / 1000)
+        && session
+        && !SESSION_TERMINAL.has(session.status);
     } catch {
       return false;
     }
@@ -157,12 +185,22 @@ export class WorkStore {
 
   withIdempotency(scope, key, operation) {
     if (!key) throw Object.assign(new Error("Idempotency-Key is required"), { statusCode: 400 });
-    const existing = this.db.prepare("SELECT response_json FROM idempotency WHERE scope = ? AND key = ?").get(scope, key);
-    if (existing) return parseJson(existing.response_json);
-    const response = operation();
-    this.db.prepare("INSERT INTO idempotency(scope, key, response_json, created_at) VALUES (?, ?, ?, ?)")
-      .run(scope, key, json(response), new Date().toISOString());
-    return response;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = this.db.prepare("SELECT response_json FROM idempotency WHERE scope = ? AND key = ?").get(scope, key);
+      if (existing) {
+        this.db.exec("COMMIT");
+        return parseJson(existing.response_json);
+      }
+      const response = operation();
+      this.db.prepare("INSERT INTO idempotency(scope, key, response_json, created_at) VALUES (?, ?, ?, ?)")
+        .run(scope, key, json(response), new Date().toISOString());
+      this.db.exec("COMMIT");
+      return response;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   registerRunner(input) {
@@ -196,6 +234,8 @@ export class WorkStore {
     const result = this.db.prepare("UPDATE runners SET online=1, lease_until=?, updated_at=? WHERE id=?")
       .run(leaseUntil, new Date().toISOString(), runnerId);
     if (!result.changes) throw Object.assign(new Error("Runner not found"), { statusCode: 404 });
+    this.db.prepare("UPDATE commands SET lease_until=? WHERE state='CLAIMED' AND claimed_by=?")
+      .run(leaseUntil, runnerId);
     return { accepted: true, leaseUntil };
   }
 
@@ -234,26 +274,19 @@ export class WorkStore {
       if (!String(input.message ?? "").trim()) throw Object.assign(new Error("First message is required"), { statusCode: 400 });
       const sessionId = id("work");
       const now = new Date().toISOString();
-      this.db.exec("BEGIN IMMEDIATE");
-      try {
-        this.db.prepare(`
+      this.db.prepare(`
           INSERT INTO sessions(id, runner_id, repo_id, repo_name, model, reasoning_effort, status, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?)
-        `).run(sessionId, input.runnerId, input.repoId, repo.name, input.model, input.reasoningEffort, now, now);
-        const firstMessage = this.appendEvent(sessionId, "USER_MESSAGE", { text: input.message, clientMessageId: input.clientMessageId ?? null }, now);
-        this.createCommand(input.runnerId, sessionId, "START", {
-          message: input.message,
-          repoId: input.repoId,
-          model: input.model,
-          reasoningEffort: input.reasoningEffort,
-          sessionToken: this.createSessionToken(sessionId),
-          inboxCursor: firstMessage.seq,
-        }, now);
-        this.db.exec("COMMIT");
-      } catch (error) {
-        this.db.exec("ROLLBACK");
-        throw error;
-      }
+      `).run(sessionId, input.runnerId, input.repoId, repo.name, input.model, input.reasoningEffort, now, now);
+      const firstMessage = this.appendEvent(sessionId, "USER_MESSAGE", { text: input.message, clientMessageId: input.clientMessageId ?? null }, now);
+      this.createCommand(input.runnerId, sessionId, "START", {
+        message: input.message,
+        repoId: input.repoId,
+        model: input.model,
+        reasoningEffort: input.reasoningEffort,
+        sessionToken: this.createSessionToken(sessionId),
+        inboxCursor: firstMessage.seq,
+      }, now);
       return this.getSession(sessionId);
     });
   }
@@ -327,6 +360,9 @@ export class WorkStore {
   }
 
   listCommands(runnerId, after = "") {
+    const now = new Date().toISOString();
+    this.db.prepare("UPDATE commands SET state='PENDING', claimed_by=NULL, lease_until=NULL, updated_at=? WHERE state='CLAIMED' AND lease_until<?")
+      .run(now, now);
     const query = after
       ? "SELECT * FROM commands WHERE runner_id=? AND state='PENDING' AND created_at>? ORDER BY created_at LIMIT 20"
       : "SELECT * FROM commands WHERE runner_id=? AND state='PENDING' ORDER BY created_at LIMIT 20";
@@ -340,11 +376,22 @@ export class WorkStore {
     }));
   }
 
-  ackCommand(commandId, input) {
+  commandRunnerId(commandId) {
+    return this.db.prepare("SELECT runner_id FROM commands WHERE id=?").get(commandId)?.runner_id ?? null;
+  }
+
+  sessionRunnerId(sessionId) {
+    return this.db.prepare("SELECT runner_id FROM sessions WHERE id=?").get(sessionId)?.runner_id ?? null;
+  }
+
+  ackCommand(commandId, input, runnerId) {
     const allowed = new Set(["CLAIMED", "COMPLETED", "FAILED"]);
     if (!allowed.has(input.state)) throw Object.assign(new Error("Invalid command state"), { statusCode: 400 });
-    const result = this.db.prepare("UPDATE commands SET state=?, updated_at=? WHERE id=?")
-      .run(input.state, new Date().toISOString(), commandId);
+    const now = new Date().toISOString();
+    const leaseUntil = input.state === "CLAIMED" ? new Date(Date.now() + 45_000).toISOString() : null;
+    const result = this.db.prepare(`
+      UPDATE commands SET state=?, claimed_by=?, lease_until=?, updated_at=? WHERE id=? AND runner_id=?
+    `).run(input.state, input.state === "CLAIMED" ? runnerId : null, leaseUntil, now, commandId, runnerId);
     if (!result.changes) throw Object.assign(new Error("Command not found"), { statusCode: 404 });
     return { accepted: true };
   }
@@ -403,6 +450,24 @@ export class WorkStore {
   getAsk(askId) {
     const row = this.db.prepare("SELECT * FROM asks WHERE id=?").get(askId);
     return row ? this.toAsk(row) : null;
+  }
+
+  timeoutAsk(askId) {
+    const ask = this.getAsk(askId);
+    if (!ask || ask.status !== "PENDING") return ask;
+    const now = new Date().toISOString();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare("UPDATE asks SET status='TIMED_OUT' WHERE id=? AND status='PENDING'").run(askId);
+      this.appendEvent(ask.sessionId, "ASK_TIMED_OUT", { askId }, now);
+      this.db.prepare("UPDATE sessions SET status='IDLE', updated_at=? WHERE id=? AND status='WAITING_FOR_USER'")
+        .run(now, ask.sessionId);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return this.getAsk(askId);
   }
 
   toAsk(row) {

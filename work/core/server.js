@@ -43,8 +43,10 @@ function requireUser(store, request) {
   if (!store.authenticateUser(bearer(request))) throw Object.assign(new Error("Unauthorized"), { statusCode: 401 });
 }
 
-function requireRunner(store, request) {
-  if (!store.authenticateRunner(bearer(request))) throw Object.assign(new Error("Unauthorized"), { statusCode: 401 });
+function requireRunner(store, request, runnerId) {
+  if (!runnerId || !store.authenticateRunner(bearer(request), runnerId)) {
+    throw Object.assign(new Error("Unauthorized"), { statusCode: 401 });
+  }
 }
 
 function requireSession(store, request, sessionId) {
@@ -74,28 +76,30 @@ export function createWorkServer({ store, askTimeoutMs = 180_000 }) {
       requireProtocol(request);
 
       if (request.method === "POST" && url.pathname === "/v1/runner/register") {
-        requireRunner(store, request);
-        return sendJson(response, 200, store.registerRunner(await readJson(request)));
+        const input = await readJson(request);
+        requireRunner(store, request, input.id);
+        return sendJson(response, 200, store.registerRunner(input));
       }
       if (request.method === "POST" && url.pathname === "/v1/runner/heartbeat") {
-        requireRunner(store, request);
         const input = await readJson(request);
+        requireRunner(store, request, input.runnerId);
         return sendJson(response, 200, store.heartbeatRunner(input.runnerId));
       }
       if (request.method === "GET" && url.pathname === "/v1/runner/commands") {
-        requireRunner(store, request);
         const runnerId = url.searchParams.get("runnerId");
         if (!runnerId) throw Object.assign(new Error("runnerId is required"), { statusCode: 400 });
+        requireRunner(store, request, runnerId);
         return sendJson(response, 200, { commands: store.listCommands(runnerId, url.searchParams.get("after") ?? "") });
       }
       let match = url.pathname.match(/^\/v1\/runner\/commands\/([^/]+)\/ack$/);
       if (request.method === "POST" && match) {
-        requireRunner(store, request);
-        return sendJson(response, 200, store.ackCommand(match[1], await readJson(request)));
+        const runnerId = store.commandRunnerId(match[1]);
+        requireRunner(store, request, runnerId);
+        return sendJson(response, 200, store.ackCommand(match[1], await readJson(request), runnerId));
       }
       match = url.pathname.match(/^\/v1\/runner\/sessions\/([^/]+)\/state$/);
       if (request.method === "POST" && match) {
-        requireRunner(store, request);
+        requireRunner(store, request, store.sessionRunnerId(match[1]));
         return sendJson(response, 200, store.updateSessionState(match[1], await readJson(request)));
       }
 
@@ -176,22 +180,25 @@ export function createWorkServer({ store, askTimeoutMs = 180_000 }) {
       match = url.pathname.match(/^\/v1\/mcp\/sessions\/([^/]+)\/ask$/);
       if (request.method === "POST" && match) {
         requireSession(store, request, match[1]);
-        const ask = store.createAsk(match[1], await readJson(request));
+        const input = await readJson(request);
+        const ask = store.createAsk(match[1], input);
         waitingAsks.add(ask.id);
         const answer = await waitForAnswer(store, ask.id, askTimeoutMs, request.signal);
         waitingAsks.delete(ask.id);
         if (!answer) {
+          store.timeoutAsk(ask.id);
           return sendJson(response, 200, {
             status: "timeout",
             questionSetId: ask.id,
             message: `No answer within ${Math.round(askTimeoutMs / 1000)} seconds; stop or continue with safe assumptions.`,
+            ...store.readInbox(match[1], input.inboxAfter ?? 0),
           });
         }
         return sendJson(response, 200, {
           status: "answered",
           answers: answer.answers,
           answeredAt: answer.answeredAt,
-          ...store.readInbox(match[1], 0),
+          ...store.readInbox(match[1], input.inboxAfter ?? 0),
         });
       }
       match = url.pathname.match(/^\/v1\/mcp\/sessions\/([^/]+)\/report-html$/);

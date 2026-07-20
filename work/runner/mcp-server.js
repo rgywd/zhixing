@@ -10,7 +10,9 @@ const coreUrl = required("WORK_CORE_URL").replace(/\/$/, "");
 const sessionId = required("WORK_SESSION_ID");
 const token = required("WORK_SESSION_TOKEN");
 const cursorFile = required("WORK_CURSOR_FILE");
-let inboxCursor = Math.max(readCursor(cursorFile), Number(process.env.WORK_INITIAL_INBOX_CURSOR ?? 0));
+const storedCursor = readCursor(cursorFile);
+let acknowledgedCursor = Math.max(storedCursor.acknowledgedCursor, Number(process.env.WORK_INITIAL_INBOX_CURSOR ?? 0));
+let pendingCursor = Math.max(storedCursor.pendingCursor, acknowledgedCursor);
 
 const questionSchema = z.object({
   id: z.string().min(1),
@@ -31,12 +33,13 @@ server.registerTool("report", {
   description: "向手机即时汇报一条 Markdown 消息。工具会立即返回，并捎回用户在你工作期间积压的补充消息。",
   inputSchema: { text: z.string().min(1).max(20_000) },
 }, async ({ text }) => {
+  acknowledgePendingCursor();
   const result = await post("report", {
     text,
     clientCallId: randomUUID(),
-    inboxAfter: inboxCursor,
+    inboxAfter: acknowledgedCursor,
   });
-  updateCursor(result.nextInboxCursor);
+  stageCursor(result.nextInboxCursor);
   return toolResult(result);
 });
 
@@ -45,8 +48,9 @@ server.registerTool("ask", {
   description: "在关键决策点向手机发 1-4 道结构化选择题，短挂最多三分钟等待回答。每题客户端都提供其他自由输入。",
   inputSchema: { questions: z.array(questionSchema).min(1).max(4) },
 }, async ({ questions }) => {
-  const result = await post("ask", { questions, clientCallId: randomUUID() });
-  updateCursor(result.nextInboxCursor);
+  acknowledgePendingCursor();
+  const result = await post("ask", { questions, clientCallId: randomUUID(), inboxAfter: acknowledgedCursor });
+  stageCursor(result.nextInboxCursor);
   return toolResult(result);
 });
 
@@ -57,11 +61,14 @@ server.registerTool("report_html", {
     title: z.string().min(1).max(120),
     html: z.string().min(1).max(1024 * 1024),
   },
-}, async ({ title, html }) => toolResult(await post("report-html", {
-  title,
-  html,
-  clientCallId: randomUUID(),
-})));
+}, async ({ title, html }) => {
+  acknowledgePendingCursor();
+  return toolResult(await post("report-html", {
+    title,
+    html,
+    clientCallId: randomUUID(),
+  }));
+});
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
@@ -73,18 +80,28 @@ function required(name) {
 }
 
 async function post(path, body) {
-  const response = await fetch(`${coreUrl}/v1/mcp/sessions/${encodeURIComponent(sessionId)}/${path}`, {
-    method: "POST",
-    headers: {
-      "x-zhixing-work-protocol": "1",
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.message ?? `Work Core returned ${response.status}`);
-  return payload;
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(`${coreUrl}/v1/mcp/sessions/${encodeURIComponent(sessionId)}/${path}`, {
+        method: "POST",
+        signal: AbortSignal.timeout(200_000),
+        headers: {
+          "x-zhixing-work-protocol": "1",
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message ?? `Work Core returned ${response.status}`);
+      return payload;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500 * (2 ** attempt)));
+    }
+  }
+  throw lastError;
 }
 
 function toolResult(value) {
@@ -96,17 +113,30 @@ function toolResult(value) {
 
 function readCursor(filename) {
   try {
-    return existsSync(filename) ? Number(JSON.parse(readFileSync(filename, "utf8")).inboxCursor ?? 0) : 0;
+    if (!existsSync(filename)) return { acknowledgedCursor: 0, pendingCursor: 0 };
+    const value = JSON.parse(readFileSync(filename, "utf8"));
+    const acknowledgedCursor = Number(value.acknowledgedCursor ?? value.inboxCursor ?? 0);
+    return { acknowledgedCursor, pendingCursor: Number(value.pendingCursor ?? acknowledgedCursor) };
   } catch {
-    return 0;
+    return { acknowledgedCursor: 0, pendingCursor: 0 };
   }
 }
 
-function updateCursor(value) {
-  if (!Number.isFinite(Number(value)) || Number(value) <= inboxCursor) return;
-  inboxCursor = Number(value);
+function acknowledgePendingCursor() {
+  if (pendingCursor <= acknowledgedCursor) return;
+  acknowledgedCursor = pendingCursor;
+  persistCursor();
+}
+
+function stageCursor(value) {
+  if (!Number.isFinite(Number(value)) || Number(value) <= pendingCursor) return;
+  pendingCursor = Number(value);
+  persistCursor();
+}
+
+function persistCursor() {
   mkdirSync(dirname(cursorFile), { recursive: true });
   const temporary = `${cursorFile}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify({ inboxCursor })}\n`, { mode: 0o600 });
+  writeFileSync(temporary, `${JSON.stringify({ acknowledgedCursor, pendingCursor })}\n`, { mode: 0o600 });
   renameSync(temporary, cursorFile);
 }

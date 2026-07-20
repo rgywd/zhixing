@@ -69,6 +69,7 @@ class PhoneWorkSessionVM(
                 }
         }
         viewModelScope.launch {
+            chooseDefaults(catalog.value)
             runCatching { repository.refreshCatalog() }
                 .onSuccess { chooseDefaults(it) }
                 .onFailure { error.value = it.message ?: "无法刷新开发机" }

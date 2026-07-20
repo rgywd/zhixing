@@ -5,6 +5,7 @@ import { WorkRunner } from "./runner.js";
 const configFile = resolve(process.env.WORK_RUNNER_CONFIG ?? "./work-runner.json");
 const config = JSON.parse(readFileSync(configFile, "utf8"));
 config.stateFile = resolve(config.stateFile ?? "./data/runner-state.json");
+config.codexHome = resolve(config.codexHome ?? "./data/codex-home");
 
 const runner = WorkRunner.fromConfig(config);
 process.on("SIGINT", () => runner.stop());

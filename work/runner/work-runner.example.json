@@ -5,6 +5,7 @@
   "coreUrl": "https://work.example.com",
   "token": "replace-with-runner-token",
   "stateFile": "./data/runner-state.json",
+  "codexHome": "C:/Users/you/.zhixing-work/codex-home",
   "pollIntervalMs": 2000,
   "codexCommand": "codex",
   "repos": [

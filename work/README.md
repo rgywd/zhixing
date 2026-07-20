@@ -20,7 +20,12 @@ SQLite 数据位于 Docker volume `work-core-data`。备份时先停止容器，
 
 ## Windows Runner
 
-1. 安装 Node.js 22.5+、Git 和 Codex CLI，并先在本机完成 Codex 登录。
+1. 安装 Node.js 22.5+、Git 和 Codex CLI。Runner 使用独立 `codexHome`，先为该目录完成一次登录：
+
+```powershell
+$env:CODEX_HOME = "$HOME\.zhixing-work\codex-home"
+codex login
+```
 2. 复制 `runner/work-runner.example.json` 为 `runner/work-runner.json`，填写 Core HTTPS 地址、Runner token
    和仓库白名单。token 不要提交到 Git。
 3. 前台验收：
