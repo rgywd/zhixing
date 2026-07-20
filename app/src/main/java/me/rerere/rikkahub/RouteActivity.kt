@@ -89,6 +89,8 @@ import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantPromptPage
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantRequestPage
 import me.rerere.rikkahub.ui.pages.backup.BackupPage
 import me.rerere.rikkahub.ui.pages.chat.ChatPage
+import me.rerere.rikkahub.ui.pages.work.PhoneWorkHomePage
+import me.rerere.rikkahub.ui.pages.work.PhoneWorkSessionPage
 import me.rerere.rikkahub.ui.pages.debug.DebugPage
 import me.rerere.rikkahub.ui.pages.extensions.ExtensionsPage
 import me.rerere.rikkahub.ui.pages.extensions.PromptPage
@@ -391,6 +393,14 @@ class RouteActivity : ComponentActivity() {
                                 SettingPage()
                             }
 
+                            entry<Screen.PhoneWorkHome> {
+                                PhoneWorkHomePage()
+                            }
+
+                            entry<Screen.PhoneWorkSession> { key ->
+                                PhoneWorkSessionPage(key.id)
+                            }
+
                             entry<Screen.Backup> {
                                 BackupPage()
                             }
@@ -624,6 +634,12 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object Setting : Screen
+
+    @Serializable
+    data object PhoneWorkHome : Screen
+
+    @Serializable
+    data class PhoneWorkSession(val id: String) : Screen
 
     @Serializable
     data object Backup : Screen

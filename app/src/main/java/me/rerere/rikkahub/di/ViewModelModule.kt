@@ -20,6 +20,8 @@ import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceVM
 import me.rerere.rikkahub.ui.pages.setting.SettingVM
 import me.rerere.rikkahub.ui.pages.share.handler.ShareHandlerVM
 import me.rerere.rikkahub.ui.pages.translator.TranslatorVM
+import me.rerere.rikkahub.ui.pages.work.PhoneWorkHomeVM
+import me.rerere.rikkahub.ui.pages.work.PhoneWorkSessionVM
 import org.koin.core.module.dsl.viewModel
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
@@ -77,4 +79,8 @@ val viewModelModule = module {
     viewModelOf(::FavoriteVM)
     viewModelOf(::SearchVM)
     viewModelOf(::StatsVM)
+    viewModelOf(::PhoneWorkHomeVM)
+    viewModel<PhoneWorkSessionVM> { params ->
+        PhoneWorkSessionVM(initialSessionId = params.get(), repository = get())
+    }
 }

@@ -33,6 +33,10 @@ import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.sync.webdav.WebDavSync
 import me.rerere.search.SearchService
 import me.rerere.rikkahub.data.sync.S3Sync
+import me.rerere.rikkahub.data.work.PhoneWorkApiClient
+import me.rerere.rikkahub.data.work.PhoneWorkCatalogStore
+import me.rerere.rikkahub.data.work.PhoneWorkCredentialStore
+import me.rerere.rikkahub.data.work.PhoneWorkRepository
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import org.koin.dsl.module
@@ -141,6 +145,12 @@ val dataSourceModule = module {
     single {
         get<AppDatabase>().folderDao()
     }
+
+    single { get<AppDatabase>().phoneWorkDao() }
+    single { PhoneWorkCredentialStore(get()) }
+    single { PhoneWorkCatalogStore(get()) }
+    single { PhoneWorkApiClient(get()) }
+    single { PhoneWorkRepository(get(), get(), get(), get()) }
 
     single {
         MessageFtsManager(get())

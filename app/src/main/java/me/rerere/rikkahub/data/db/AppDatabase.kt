@@ -13,6 +13,7 @@ import me.rerere.rikkahub.data.db.dao.GenMediaDAO
 import me.rerere.rikkahub.data.db.dao.ManagedFileDAO
 import me.rerere.rikkahub.data.db.dao.MemoryDAO
 import me.rerere.rikkahub.data.db.dao.MessageNodeDAO
+import me.rerere.rikkahub.data.db.dao.PhoneWorkDAO
 import me.rerere.rikkahub.data.db.dao.WorkspaceDAO
 import me.rerere.rikkahub.data.db.entity.ConversationEntity
 import me.rerere.rikkahub.data.db.entity.CodexApprovalEntity
@@ -38,6 +39,8 @@ import me.rerere.rikkahub.data.db.entity.GenMediaEntity
 import me.rerere.rikkahub.data.db.entity.ManagedFileEntity
 import me.rerere.rikkahub.data.db.entity.MemoryEntity
 import me.rerere.rikkahub.data.db.entity.MessageNodeEntity
+import me.rerere.rikkahub.data.db.entity.PhoneWorkEventEntity
+import me.rerere.rikkahub.data.db.entity.PhoneWorkSessionEntity
 import me.rerere.rikkahub.data.db.entity.WorkMachineEntity
 import me.rerere.rikkahub.data.db.entity.WorkMessageEntity
 import me.rerere.rikkahub.data.db.entity.WorkRepoPresetEntity
@@ -81,8 +84,10 @@ import me.rerere.rikkahub.utils.JsonInstant
         CodexCatalogSyncEntity::class,
         CodexCatalogChunkEntity::class,
         CodexTombstoneEntity::class,
+        PhoneWorkSessionEntity::class,
+        PhoneWorkEventEntity::class,
     ],
-    version = 31,
+    version = 32,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -109,6 +114,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         AutoMigration(from = 28, to = 29),
         AutoMigration(from = 29, to = 30),
         AutoMigration(from = 30, to = 31),
+        AutoMigration(from = 31, to = 32),
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -128,6 +134,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun workspaceDao(): WorkspaceDAO
 
     abstract fun folderDao(): FolderDAO
+
+    abstract fun phoneWorkDao(): PhoneWorkDAO
 
 }
 

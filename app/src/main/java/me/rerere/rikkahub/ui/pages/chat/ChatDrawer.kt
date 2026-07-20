@@ -56,6 +56,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ChartColumn
+import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.hugeicons.stroke.FolderAdd
@@ -245,6 +246,7 @@ fun ChatDrawerContent(
                 onCreate = { showCreateFolderDialog = true },
                 onRename = { folderToRename = it },
                 onDelete = { folderToDelete = it },
+                onWork = { navController.navigate(Screen.PhoneWorkHome) },
             )
 
             ConversationList(
@@ -780,6 +782,7 @@ private fun FolderBar(
     onCreate: () -> Unit,
     onRename: (Folder) -> Unit,
     onDelete: (Folder) -> Unit,
+    onWork: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -841,6 +844,20 @@ private fun FolderBar(
                     onClick = onCreate,
                     onLongClick = {},
                 )
+            }
+        }
+        Surface(
+            onClick = onWork,
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(HugeIcons.ComputerTerminal01, null, modifier = Modifier.size(14.dp))
+                Text("Work", style = MaterialTheme.typography.labelLarge)
             }
         }
     }
