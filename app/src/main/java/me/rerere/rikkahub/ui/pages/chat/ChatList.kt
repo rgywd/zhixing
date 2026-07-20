@@ -302,7 +302,7 @@ private fun ChatListNormal(
         }
 
         ChatFontProvider(displaySetting = settings.displaySetting) {
-            LazyColumn(
+            NativeChatTimeline(
                 state = state,
                 contentPadding = PaddingValues(16.dp) + PaddingValues(bottom = 32.dp + innerPadding.calculateBottomPadding()),
                 horizontalAlignment = Alignment.CenterHorizontally,

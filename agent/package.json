@@ -1,7 +1,7 @@
 {
   "name": "zhixing-agent",
   "version": "0.2.2",
-  "description": "知行自研开发机代理：通过 Wire v1 中继向手机端提供 Codex 原生远程会话",
+  "description": "知行开发机守护：旁路保留 Wire，并管理 Codex App Server direct 连接",
   "license": "MIT",
   "type": "module",
   "bin": {

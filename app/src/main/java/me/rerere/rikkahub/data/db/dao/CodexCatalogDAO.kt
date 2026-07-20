@@ -306,6 +306,29 @@ interface CodexCatalogDAO {
         return true
     }
 
+    /**
+     * Persists the official App Server Thread snapshot used by direct Work mode.
+     *
+     * This deliberately shares the existing Codex cache tables with the legacy
+     * catalog reader, while keeping transient approvals out of the offline cache.
+     */
+    @Transaction
+    suspend fun replaceDirectThreadCache(
+        thread: CodexThreadEntity,
+        turns: List<CodexTurnEntity>,
+        items: List<CodexItemEntity>,
+        attachments: List<CodexAttachmentEntity>,
+    ) {
+        upsertThreads(listOf(thread))
+        deleteItems(thread.machineId, thread.threadId)
+        deleteTurns(thread.machineId, thread.threadId)
+        deleteApprovals(thread.machineId, thread.threadId)
+        deleteAttachments(thread.machineId, thread.threadId)
+        if (turns.isNotEmpty()) upsertTurns(turns)
+        if (items.isNotEmpty()) upsertItems(items)
+        attachments.forEach { upsertAttachment(it) }
+    }
+
     @Transaction
     suspend fun deleteThreadWithDetails(machineId: String, threadId: String) {
         deleteItems(machineId, threadId)

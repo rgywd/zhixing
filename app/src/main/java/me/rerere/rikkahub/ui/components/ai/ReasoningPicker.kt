@@ -66,23 +66,104 @@ fun ReasoningButton(
         )
     }
 
-    ToggleSurface(
+    ReasoningButtonSurface(
         checked = reasoningLevel.isEnabled,
         onClick = { showPicker = true },
         modifier = modifier,
+        onlyIcon = onlyIcon,
     ) {
+        ReasoningIcon(reasoningLevel)
+    }
+}
+
+data class RuntimeReasoningChoice(
+    val id: String,
+    val label: String,
+)
+
+/** String-id adapter for Codex, sharing the provider chat reasoning control. */
+@Composable
+fun ReasoningButton(
+    modifier: Modifier = Modifier,
+    onlyIcon: Boolean = true,
+    reasoningLevel: String?,
+    levels: List<RuntimeReasoningChoice>,
+    onUpdateReasoningLevel: (String) -> Unit,
+) {
+    var showPicker by remember { mutableStateOf(false) }
+    if (showPicker) {
+        RuntimeReasoningPicker(
+            reasoningLevel = reasoningLevel,
+            levels = levels,
+            onDismissRequest = { showPicker = false },
+            onUpdateReasoningLevel = {
+                onUpdateReasoningLevel(it)
+                showPicker = false
+            },
+        )
+    }
+    ReasoningButtonSurface(
+        checked = reasoningLevel != null && reasoningLevel !in setOf("none", "minimal"),
+        onClick = { showPicker = true },
+        modifier = modifier,
+        onlyIcon = onlyIcon,
+    ) {
+        Icon(HugeIcons.Idea01, contentDescription = null)
+    }
+}
+
+@Composable
+private fun ReasoningButtonSurface(
+    checked: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier,
+    onlyIcon: Boolean,
+    icon: @Composable () -> Unit,
+) {
+    ToggleSurface(checked = checked, onClick = onClick, modifier = modifier) {
         Row(
             modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Box(
-                modifier = Modifier.size(24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                ReasoningIcon(reasoningLevel)
+            Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                icon()
             }
             if (!onlyIcon) Text(stringResource(R.string.setting_provider_page_reasoning))
+        }
+    }
+}
+
+@Composable
+private fun RuntimeReasoningPicker(
+    reasoningLevel: String?,
+    levels: List<RuntimeReasoningChoice>,
+    onDismissRequest: () -> Unit,
+    onUpdateReasoningLevel: (String) -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismissRequest) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.reasoning_picker_title),
+                style = MaterialTheme.typography.titleLarge,
+            )
+            levels.forEach { level ->
+                ToggleSurface(
+                    checked = level.id == reasoningLevel,
+                    onClick = { onUpdateReasoningLevel(level.id) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = level.label,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
+            }
         }
     }
 }

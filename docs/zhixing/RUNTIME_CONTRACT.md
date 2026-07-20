@@ -78,10 +78,12 @@ SettingsStore
 
 ### Codex 远程运行时
 
-Codex Thread 不进入本地 Provider `ChatService` 生成链，也不复制成普通 `Conversation`。Agent/Wire/Room
-保存 Codex Thread/Turn/Item 事实，Android 通过 `CodexRuntimeItemReducer` 与 `CodexMessageProjector` 生成临时
+Codex Thread 不进入本地 Provider `ChatService` 生成链，也不复制成普通 `Conversation`。Codex App Server
+是 Thread/Turn/Item 的远端事实来源；Room 只保存离线缓存、当前 Thread 指针、草稿和本地整理偏好。
+Android 通过 `CodexRuntimeItemReducer` 与 `CodexMessageProjector` 生成临时
 `UIMessage/UIMessagePart` 视图，并复用相同 ChatTimeline、ChatComposer、Markdown、思考和 Tool UI。
-历史 snapshot 与实时 event 必须经过同一 projector。完整合同见
+历史 snapshot 与实时 event 必须经过同一 projector。0.2.0–0.2.2 已发布的 Agent/Wire/Relay 链路仅作为
+迁移与回滚来源，不再定义目标运行时事实边界。完整合同见
 [`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md)。
 
 ### 可选知行服务端（后续）

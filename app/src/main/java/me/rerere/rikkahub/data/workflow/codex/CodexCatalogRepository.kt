@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.workflow.codex
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -41,6 +42,86 @@ class CodexCatalogRepository(
     private val dao: CodexCatalogDAO,
     private val json: Json,
 ) : WireCatalogSink {
+    suspend fun loadDirectThread(machineId: String, threadId: String): CodexThreadDetail? =
+        observeThreadDetail(machineId, threadId).first().takeIf { it.thread != null }
+
+    suspend fun cacheDirectThread(detail: CodexThreadDetail) {
+        val thread = detail.thread ?: return
+        val now = System.currentTimeMillis()
+        val turns = detail.turns.mapIndexed { index, turn ->
+            CodexTurnEntity(
+                machineId = thread.machineId,
+                threadId = thread.threadId,
+                turnId = turn.turnId,
+                status = turn.status,
+                startedAt = turn.startedAt,
+                completedAt = turn.completedAt,
+                durationMs = turn.startedAt?.let { started -> turn.completedAt?.minus(started) },
+                error = turn.error,
+                position = index,
+            )
+        }
+        val items = detail.turns.flatMap { turn ->
+            turn.items.mapIndexed { index, item ->
+                CodexItemEntity(
+                    machineId = thread.machineId,
+                    threadId = thread.threadId,
+                    turnId = turn.turnId,
+                    itemId = item.itemId,
+                    type = item.type,
+                    rawType = item.rawType,
+                    role = item.role,
+                    text = item.text,
+                    status = item.status,
+                    rawJson = json.encodeToString(item.raw),
+                    position = index,
+                )
+            }
+        }
+        val attachments = detail.attachments.values.map { attachment ->
+            CodexAttachmentEntity(
+                machineId = thread.machineId,
+                threadId = thread.threadId,
+                remotePath = attachment.remotePath,
+                localUri = attachment.localUri,
+                fileName = attachment.fileName,
+                mime = attachment.mime,
+                createdAt = now,
+            )
+        }
+        dao.replaceDirectThreadCache(
+            thread = CodexThreadEntity(
+                machineId = thread.machineId,
+                threadId = thread.threadId,
+                projectId = thread.projectId,
+                name = thread.name,
+                preview = thread.preview,
+                createdAt = thread.createdAt,
+                updatedAt = thread.updatedAt,
+                recencyAt = thread.recencyAt,
+                archived = thread.archived,
+                source = thread.source,
+                threadSource = null,
+                parentThreadId = thread.parentThreadId,
+                forkedFromId = thread.forkedFromId,
+                isSubagent = thread.isSubagent,
+                isAutomation = thread.isAutomation,
+                runtimeState = when (thread.runtimeState) {
+                    CodexRuntimeState.IDLE -> "idle"
+                    CodexRuntimeState.RUNNING -> "running"
+                    CodexRuntimeState.WAITING_APPROVAL -> "waiting_approval"
+                    CodexRuntimeState.WAITING_USER -> "waiting_user"
+                    CodexRuntimeState.SYSTEM_ERROR -> "system_error"
+                    CodexRuntimeState.UNKNOWN -> "unknown"
+                },
+                rawStatus = thread.rawStatus,
+            ),
+            turns = turns,
+            items = items,
+            attachments = attachments,
+        )
+    }
+
     suspend fun currentThreadDetailRevision(machineId: String, threadId: String): Long =
         dao.threadDetailRevision(machineId, threadId)?.revision ?: -1L
 

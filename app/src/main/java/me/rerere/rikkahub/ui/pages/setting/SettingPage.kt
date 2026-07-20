@@ -45,7 +45,6 @@ import me.rerere.hugeicons.stroke.Book03
 import me.rerere.hugeicons.stroke.Bookshelf01
 import me.rerere.hugeicons.stroke.Brain02
 import me.rerere.hugeicons.stroke.Clapping01
-import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Database02
 import me.rerere.hugeicons.stroke.GlobalSearch
 import me.rerere.hugeicons.stroke.ImageUpload
@@ -69,6 +68,7 @@ import me.rerere.rikkahub.ui.context.Navigator
 import me.rerere.rikkahub.ui.hooks.rememberColorMode
 import me.rerere.rikkahub.ui.theme.ColorMode
 import me.rerere.rikkahub.ui.theme.CustomColors
+import me.rerere.rikkahub.ui.pages.setting.components.WorkSettingsSection
 import me.rerere.rikkahub.utils.plus
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -163,13 +163,11 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         supportingContent = { Text(stringResource(R.string.setting_page_extensions_desc)) },
                         headlineContent = { Text(stringResource(R.string.setting_page_extensions)) },
                     )
-                    item(
-                        onClick = { navController.navigate(Screen.CodexWorkflowSettings) },
-                        leadingContent = { Icon(HugeIcons.ComputerTerminal01, null) },
-                        supportingContent = { Text("Codex 开发机与端到端加密中继") },
-                        headlineContent = { Text("工作连接") },
-                    )
                 }
+            }
+
+            item("workSettings") {
+                WorkSettingsSection(modifier = Modifier.padding(horizontal = 8.dp))
             }
 
             item("modelServices") {

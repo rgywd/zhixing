@@ -1,6 +1,9 @@
 # Zhixing Relay API v1
 
-状态：0.2.0 实现合约。Relay 只盲转发 `Zhixing Wire v1` 密文，不理解 Codex 或业务 payload。
+状态：Historical / 0.2.0–0.2.2 rollback only。Relay 只盲转发 `Zhixing Wire v1` 密文，不理解 Codex 或业务 payload。
+
+> Issue #66 起不再扩展该 API。active Work 数据面见
+> [`CODEX_APP_SERVER_CONTRACT.md`](./CODEX_APP_SERVER_CONTRACT.md)。
 
 ## 1. 传输与限制
 

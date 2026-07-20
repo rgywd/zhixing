@@ -51,7 +51,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
-import me.rerere.ai.provider.ProviderSetting
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Camera01
 import me.rerere.hugeicons.stroke.Codesandbox
@@ -68,8 +67,6 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.datastore.Settings
-import me.rerere.rikkahub.data.datastore.getCurrentChatModel
-import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
@@ -99,14 +96,8 @@ internal fun FilesPicker(
     showCompressDialog: Boolean,
     onShowCompressDialogChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
-    onTakePic: () -> Unit,
-    onPickImage: () -> Unit,
-    onPickVideo: () -> Unit,
-    onPickAudio: () -> Unit,
-    onPickFile: () -> Unit,
 ) {
     val settings = LocalSettings.current
-    val provider = settings.getCurrentChatModel()?.findProvider(providers = settings.providers)
     val navController = LocalNavController.current
     val workspaceRepository: WorkspaceRepository = koinInject()
     val workspaces by workspaceRepository.listFlow().collectAsState(initial = emptyList())
@@ -116,28 +107,6 @@ internal fun FilesPicker(
             .fillMaxWidth()
             .padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        FlowRow(
-            modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally),
-            horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.Start),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            TakePicButton(onLaunchCamera = onTakePic)
-
-            ImagePickButton(onClick = onPickImage)
-
-            if (provider != null && provider is ProviderSetting.Google) {
-                VideoPickButton(onClick = onPickVideo)
-
-                AudioPickButton(onClick = onPickAudio)
-            }
-
-            FilePickButton(onClick = onPickFile)
-        }
-
-        HorizontalDivider(
-            modifier = Modifier.fillMaxWidth()
-        )
-
         if (workspaces.isNotEmpty()) {
             WorkspacePickerListItem(
                 assistant = assistant,
@@ -299,6 +268,31 @@ internal fun FilesPicker(
     }
 }
 
+/** Native attachment action row shared by ordinary Chat and Work. */
+@Composable
+internal fun ChatAttachmentActions(
+    allowVideoAndAudio: Boolean = false,
+    onTakePic: () -> Unit,
+    onPickImage: () -> Unit,
+    onPickVideo: () -> Unit = {},
+    onPickAudio: () -> Unit = {},
+    onPickFile: () -> Unit,
+) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.Start),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        TakePicButton(onLaunchCamera = onTakePic)
+        ImagePickButton(onClick = onPickImage)
+        if (allowVideoAndAudio) {
+            VideoPickButton(onClick = onPickVideo)
+            AudioPickButton(onClick = onPickAudio)
+        }
+        FilePickButton(onClick = onPickFile)
+    }
+}
+
 @Composable
 private fun WorkspacePickerListItem(
     assistant: Assistant,
@@ -434,7 +428,7 @@ private fun InjectionQuickConfigSheet(
 }
 
 @Composable
-private fun ImagePickButton(onClick: () -> Unit = {}) {
+fun ImagePickButton(onClick: () -> Unit = {}) {
     BigIconTextButton(icon = {
         Icon(HugeIcons.Image02, null)
     }, text = {

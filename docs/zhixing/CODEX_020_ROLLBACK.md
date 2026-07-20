@@ -1,5 +1,11 @@
 # 知行 0.2.0 切换与回滚
 
+状态：Historical / 0.2.0–0.2.2 Wire rollback only（2026-07-19）
+
+> 本文只描述已发布 Wire 版本的回滚。Issue #66 的 direct App Server 迁移与回滚以
+> [`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md) 和
+> [`CODEX_NATIVE_IMPLEMENTATION_PLAN.md`](./CODEX_NATIVE_IMPLEMENTATION_PLAN.md) 为准。
+
 ## 正常入口
 
 0.2.0 默认将侧边栏“工作”路由到 Codex 原生项目与任务页面。Android 只连接 Wire v1 中继；

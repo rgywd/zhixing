@@ -62,14 +62,17 @@
 
 ## Concepts
 
-- **Remote Development Workflow**: The native Compose `工作` entry is a Codex conversation client, not a task monitor.
-  It groups persistent Codex sessions by machine and working directory. The transport keeps complete active and archived history, while the home page is a curated view:
-  pinned projects plus a bounded set of recent projects. Archive-only, missing-directory, and user-hidden projects stay
-  available through project management and search. Local pin/hide preferences must survive catalog replacement. Account
-  credentials and machine diagnostics belong in settings. A Codex Thread must reuse the existing chat composer,
-  `UIMessage/UIMessagePart`, Markdown, reasoning and tool rendering; do not add a second text-only message UI. Codex remains
-  the history/runtime source, while Room stores a cache/projection rather than a duplicate Provider Conversation. See
-  `docs/zhixing/CODEX_NATIVE_ARCHITECTURE.md`.
+- **Chat / Work modes**: Chat and Work are two runtimes inside the same chat product, not two top-level products.
+  Put the compact mode switch at the right side of the existing drawer folder bar; do not add another row or a duplicate
+  Work menu item. Chat folders organize Provider conversations. Work groups are user-managed Codex repositories, and the
+  main surface immediately opens the repository's current Thread instead of a project dashboard, history catalog, or task
+  form. Work must reuse the exact existing top bar, timeline, `ChatInputState`/`ChatInput`, attachment sheet,
+  `UIMessage/UIMessagePart`, Markdown, reasoning, tool, approval, voice, IME, send and stop behavior. Work-specific
+  permission and Fast controls belong in that same attachment sheet; Skill/plugin/command selection belongs in the `/`
+  completion popup. Add a Work `CardGroup` to the existing `SettingPage`; do not add a parallel settings root. The target
+  message path is Android -> Tailscale WSS -> Codex App Server. A local supervisor may manage process health, repository
+  metadata and controlled attachments, but must never proxy or translate chat JSON-RPC. See
+  `docs/zhixing/CODEX_NATIVE_ARCHITECTURE.md` and `docs/zhixing/CODEX_APP_SERVER_CONTRACT.md`.
 
 - **Assistant**: An assistant configuration with system prompts, model parameters, and conversation isolation. Each
   assistant maintains its own settings including temperature, context size, custom headers, tools, memory options, regex

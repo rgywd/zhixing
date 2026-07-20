@@ -1,69 +1,186 @@
-# 知行 Codex 原生会话打磨实施计划
+# 知行 Chat/Work 双模式与 App Server 直连实施计划
 
-状态：Accepted；第三轮独立审查全 P0 PASS
+状态：Executing（Android/tailnet WSS 闭环完成；独立复审与发布验收待完成）
 日期：2026-07-19
-分支：`feat/49-codex-chat-parity`
-验收合同：[`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md)
+分支：`feat/66-work-mode-direct`
+跟踪：[GitHub Issue #66](https://github.com/rgywd/zhixing/issues/66)
+产品合同：[`CODEX_NATIVE_ARCHITECTURE.md`](./CODEX_NATIVE_ARCHITECTURE.md)
+协议合同：[`CODEX_APP_SERVER_CONTRACT.md`](./CODEX_APP_SERVER_CONTRACT.md)
 
-## 1. 当前基线
+## 1. 交付目标
 
-`v0.2.0` 已完成 Wire v1、Codex Catalog、项目/历史入口和基本 Runtime Bridge；`v0.2.1` 修复 Agent
-常驻与项目目录整理。立项时的缺口集中在 Thread 会话本身：协议被压成纯文本、历史一次性同步、输入区重新实现，
-模型/思考/附件/Skill/上下文/权限和既有 Markdown/思考/工具渲染均未形成完整闭环。
+在不重写知行聊天 UI 的前提下，把 0.2.2 的独立 Work 产品和 Wire 消息网关收敛为：
 
-本计划不重新建设 Catalog、Relay 或项目管理，而是在现有架构上补齐“Codex 是知行聊天运行时”这一层。
+```text
+同一个 Chat 页面壳
+  ├─ Chat runtime：现有 Provider / Conversation / ChatService
+  └─ Work runtime：当前仓库 / Codex Thread / App Server JSON-RPC
 
-## 2. 交付规则
+Android -> Tailscale WSS -> Codex App Server
+                            └─ 薄 supervisor 只管生命周期、仓库元信息和附件
+```
 
-- 不使用 worktree；从最新 `main` 创建短分支。
-- 文档合同先于代码提交，后续代码与状态必须回填本计划。
-- 每阶段 RED → GREEN → focused verify → commit；不以 UI TODO 代替协议闭环。
-- 普通 Provider Chat 行为必须保持不变。
-- 未被当前 App Server 运行时验证的接口必须 capability-gate 或延期。
-- 准备收口时启动独立子 BOT，按架构文档第 15 节逐条审查；未通过则继续修复。
+完成后，用户在现有侧边栏同一行切换 Chat/Work，Work 分组就是仓库，并直接使用现有聊天页开展 Codex 对话。
 
-## 3. Phase A：文档与事实基线
+## 2. 当前基线
+
+`v0.2.2` 已发布：
+
+- Room 31 Codex Project/Thread/Item/runtime cache；
+- `CodexRuntimeItemReducer` 与 `CodexMessageProjector`；
+- `CodexChatComposer` 对现有 `ChatInput` 的部分复用；
+- 模型、effort、Fast、权限、Skill、附件和审批的 Wire 适配；
+- Agent 70 项、Relay 7 项、Android 223 项测试基线。
+
+需要保护：
+
+- `UIMessage/UIMessagePart` 和历史/实时等价投影；
+- 现有 `ChatInputState`、`ChatInput`、Markdown、Reasoning、Tool 和附件；
+- 普通 Chat 的 Conversation、Folder、Assistant、Provider、Workspace 和设置行为；
+- Room 30→31 已发布迁移和旧数据；
+- 0.2.2 Wire/Happy 回滚数据。
+
+需要替换：
+
+- Drawer 独立“工作”菜单；
+- `CodexWorkflowPage` 项目/历史首页；
+- `CodexConnectionSettingsPage` 独立设置页；
+- Android `WireRelayClient` 在默认 Work 数据面中的角色；
+- `WireCodexRuntimeBridge` 的消息翻译和状态复制；
+- Relay 作为消息必经层。
+
+## 3. 交付规则
+
+- 不创建新的 worktree；从最新 `main` 使用短分支。
+- 文档合同先提交，后续实现状态和验证结果持续回填。
+- 每阶段按 RED → GREEN → focused verify → commit 推进。
+- 一个阶段不能同时删除回滚面和切换新数据面。
+- Catalog、Tailscale 或实验 API 失败必须有缓存/只读降级，不得用 loading 锁死 UI。
+- 普通 Chat 回归是每个 UI 阶段的必过门。
+- 发布前启动全新独立审查 BOT；P0 只有代码、自动化与真实运行证据同时存在才可 PASS。
+
+## 4. Phase A：文档与事实基线
 
 状态：完成
 
 范围：
 
-- 重写 `CODEX_NATIVE_ARCHITECTURE.md`，完整记录两次调研、目标交互和验收矩阵。
-- 更新 `ZHIXING_WIRE_V1.md` 的会话、catalog、附件和事件合同。
-- 将 `NATIVE_WORKFLOW.md` 与 `AGENT_DESIGN.md` 明确为 Happy/Claude 历史与回滚材料。
-- 更新 `README.md`、`AGENTS.md` 和本计划，消除“工作模块是监控器”的描述。
+- [x] 建立 #66，记录最终产品与架构决定。
+- [x] 重写 `CODEX_NATIVE_ARCHITECTURE.md` 为 Chat/Work 双模式目标合同。
+- [x] 新增 `CODEX_APP_SERVER_CONTRACT.md`，定义 WSS、认证、JSON-RPC、缓存和降级。
+- [x] 重写本实施计划。
+- [x] 更新 `PRODUCT_DESIGN.md`、`AGENTS.md` 和 README 的 active 产品描述。
+- [x] 将 Wire/Relay 文档明确标记为 0.2.0–0.2.2 historical/rollback。
+- [x] 对文档执行一致性和对抗审查，修复冲突后提交 docs baseline。
+
+事实证据：
+
+- 本机 `codex-cli 0.144.0`；
+- `codex app-server --listen ws://IP:PORT`、capability-token 和 signed bearer auth 已存在；
+- App Server WebSocket 官方状态为 experimental/unsupported；
+- Tailscale 当前未安装，Serve 对 App Server Upgrade/header 必须真实探针；
+- 当前 `main`/`v0.2.2` 为 `907b0554516681c18df4fbe33ee09d6f025f7c85`。
 
 验证：
 
-- 文档中每个 P0 风险均对应字段、测试或明确延期。
-- 全仓搜索不存在互相冲突的 active 0.2.x 产品定义。
+```powershell
+rg -n "active|实施基线|唯一.*基线|工作.*入口|Wire.*稳定协议" docs/zhixing AGENTS.md README.md README_ZH_CN.md README_ZH_TW.md
+git diff --check
+```
 
-## 4. Phase B：Agent/App Server 保真适配
+## 5. Phase B：直连 transport contract
 
 状态：完成
 
-主要文件：
+目标：先用纯 Kotlin/OkHttp 建立可测试的 App Server JSON-RPC client，不接 UI、不切默认路由。
 
-- `agent/src/codex/appServerClient.ts`
-- `agent/src/wire/runtimeBridge.ts`
-- `agent/src/catalog/threadDetail.ts`
-- `agent/src/catalog/types.ts`
-- `agent/src/wire/types.ts`
+新增建议：
+
+```text
+app/src/main/java/me/rerere/rikkahub/data/work/
+  AppServerTransport.kt
+  AppServerJsonRpcClient.kt
+  AppServerProtocol.kt
+  AppServerCompatibility.kt
+  WorkConnectionStore.kt
+  WorkConnectionState.kt
+```
 
 RED：
 
-- Thread start/resume 的实际 model/effort/tier/profile/sandbox 被丢弃。
-- userMessage 图片被压成 `[图片]`，reasoning/tool 只剩摘要。
-- 只收到 agentMessage delta，其他 Runtime notification 无事件。
-- Turn 只能接收 text。
+- bearer 未在 Upgrade 发送；
+- initialize 前调用业务 RPC；
+- response、notification 和 server request 混淆；
+- 断线后挂起请求泄漏或重复 socket；
+- `-32001` 紧循环；
+- Catalog 失败导致模型列表为空。
 
 GREEN：
 
-- 提供 model/profile/skill/plugin/app catalog 请求和版本化 payload。
-- Turn input 支持 text/localImage/skill/mention，通用附件使用受控上传引用。
-- Thread snapshot 保存结构化 Item 和 sanitized raw。
-- Runtime event 覆盖正文、思考、计划、命令、文件、MCP、用量、设置、reroute、错误和审批。
-- start/resume/turn 响应回传 App Server 确认的 runtime settings。
+- OkHttp WebSocket 单连接 client；
+- request ID correlation、server request response 和 notification flow；
+- initialize/initialized 状态机；
+- timeout、指数退避+jitter、前后台恢复和显式断开；
+- capability/schema compatibility gate；
+- bundled model presets + cached catalog + background refresh merge；
+- Keystore 加密 connection token。
+
+Focused verify：
+
+```powershell
+./gradlew.bat :app:testDebugUnitTest --tests "*AppServer*" --tests "*WorkConnection*"
+```
+
+阶段提交：`feat(work): add direct Codex app-server transport`
+
+## 6. Phase C：薄 supervisor 与开发机探针
+
+状态：进行中（loopback supervisor 已完成；Tailscale 登录与 Serve 真机探针待完成）
+
+目标：在现有 Wire 翻译网关旁新增独立 supervisor 能力和开发机探针。此阶段不改动旧 Work
+默认数据面，也不删除、停用或降级现有 Wire 网关；真正的切换只允许在 Phase G 的 direct
+闭环和回滚验证通过后发生。
+
+主要文件：
+
+```text
+agent/src/supervisor/
+  appServerProcess.ts
+  statusServer.ts
+  repositoryCatalog.ts
+  attachmentStore.ts
+  tailscaleProbe.ts
+agent/src/cli.ts
+agent/package.json
+```
+
+RED：
+
+- supervisor 能看到或代理聊天消息；
+- App Server 绑定非 localhost；
+- transport token 出现在命令行/日志；
+- 任意路径上传、路径逃逸或无 TTL；
+- Tailscale Serve 不转发 Authorization/Upgrade 却被误判为可用。
+
+GREEN：
+
+- 固定版本 App Server 生命周期、health、schema hash；
+- token file 创建/轮换和最小权限；
+- 受控仓库候选；
+- 附件 MIME/大小/hash/路径/TTL；
+- Tailscale 安装状态、Serve 配置和 WSS 探针；
+- 诊断输出无消息正文和密钥；
+- 旧 Wire 翻译进程、命令和健康检查保持可用，现有 0.2.2 Work 行为不回归。
+
+真实开发机验证：
+
+1. 安装并登录 Tailscale；
+2. App Server 监听 localhost；
+3. 配置 `tailscale serve --bg`；
+4. 从 tailnet 客户端用 bearer 完成 initialize；
+5. Wi-Fi/5G 分别完成 `thread/start + turn/start`；
+6. 重启 Windows 后 App Server 与 Serve 恢复；
+7. 记录 direct/DERP 路由和延迟，不把 DERP 不稳定误报为应用协议错误。
 
 验证：
 
@@ -74,116 +191,180 @@ npm run typecheck
 npm run build
 ```
 
-## 5. Phase C：Wire 与 Room 合同
+阶段提交：`feat(agent): add local Codex supervisor beside Wire`
+
+## 7. Phase D：共享 Chat 页面壳
 
 状态：完成
 
-主要文件：
-
-- `app/.../data/workflow/wire/`
-- `app/.../data/workflow/codex/CodexCatalogModels.kt`
-- `app/.../data/workflow/codex/CodexCatalogRepository.kt`
-- Room entity/DAO/migration/schema
-
-RED：
-
-- 大历史超过 Relay 单包上限。
-- 快照缺块时覆盖旧历史。
-- Runtime delta 重复或乱序造成重复文本。
-- 旧 `CodexItem.text` 缓存无法兼容升级。
-
-GREEN：
-
-- Thread snapshot chunk 具备 revision、hash、原子提交和缺块重试。
-- Runtime event 带 sequence，Android reducer 幂等应用并检测 gap。
-- 结构化 Item、runtime settings、catalog 和 token usage 增量持久化。
-- v0.2.1 Room 30 通过 `30 -> 31` 增量迁移保留数据，详情 revision 使用新表，旧 text 只作为 fallback。
-
-## 6. Phase D：Codex 消息投影器
-
-状态：完成
+目标：不再维护独立 Codex Thread Scaffold，把普通 Chat 与 Work Chat 的差异收敛为 runtime/controller。
 
 主要文件：
 
-- 新增 `data/workflow/codex/CodexMessageProjector.kt`
-- 新增 `data/workflow/codex/CodexRuntimeItemReducer.kt`
-- 新增 projector fixture/tests
-- `ai/ui/Message.kt` 仅在确有共享缺口时做行为兼容扩展
+```text
+ui/pages/chat/ChatPage.kt
+ui/pages/chat/ChatDrawer.kt
+ui/pages/chat/ChatList.kt
+ui/components/ai/ChatInput.kt
+ui/pages/workflow/codex/CodexThreadPage.kt
+ui/pages/workflow/codex/CodexWorkflowVM.kt
+```
+
+设计：
+
+```kotlin
+interface ChatRuntimeController {
+    val screenState: StateFlow<ChatScreenState>
+    val inputState: ChatInputState
+    fun send(parts: List<UIMessagePart>)
+    fun stop()
+    fun newConversation()
+    fun resolveToolRequest(...)
+}
+```
+
+- Provider controller 继续使用现有 `ChatVM/ChatService`；
+- Work controller 使用 `AppServerJsonRpcClient`、Codex reducer/projector 和 Room cache；
+- `ChatPageShell` 只接收统一时间线、Top Bar、Composer options 和动作；
+- `CodexThreadPage` 最终只做 route 参数到 Work controller 的薄适配，不能再声明自己的 Scaffold/输入框。
 
 RED：
 
-- 历史 snapshot 和实时 event replay 得到不同 UI。
-- reasoning/tool 顺序被重排。
-- tool delta 没有按 Item ID 合并。
-- turn 完成后思考或工具仍处于 loading。
+- Chat 和 Work 存在两个 Scaffold/附件 Sheet/输入框；
+- Work 标题、IME、安全区、语音或附件行为与普通 Chat 不一致；
+- Work Part 绕过 Markdown/Reasoning/Tool renderer；
+- 普通 Chat 模型和发送语义回归。
 
 GREEN：
 
-- Codex Item 映射到 Text/Image/Reasoning/Tool/Note。
-- snapshot 与等价事件 replay 输出深度相等。
-- 复用 `MessagePartsBlock`、Markdown、Chain of Thought 和 Tool fallback。
-- opaque Item 只隔离自己，不破坏 Thread。
+- 同一个 Top Bar、timeline、composer 和 + Sheet；
+- Work runtime 支持 text/image/file/model/effort/Fast/profile/context；
+- 空闲发送 turn/start，运行中有草稿 steer，无草稿停止；
+- `/` CompletionProvider 提供 command/Skill/plugin/mention；
+- approval/request_user_input 内联现有 Tool UI。
 
 验证：
 
 ```powershell
-./gradlew.bat :app:testDebugUnitTest --tests "*CodexMessageProjectorTest*"
+./gradlew.bat :app:testDebugUnitTest --tests "*ChatInput*" --tests "*Codex*" --tests "*ChatRuntime*"
 ```
 
-## 7. Phase E：共享 Timeline 与 Composer
+阶段提交：`feat(work): reuse the native chat page for Codex`
+
+## 8. Phase E：侧边栏双模式与仓库分组
 
 状态：完成
+
+目标：删除独立 Work 首页，把模式与仓库切换放入现有 Drawer。
 
 主要文件：
 
-- `ui/components/ai/ChatInput.kt`
-- `ui/hooks/ChatInputState.kt`
-- `ui/pages/chat/ChatPage.kt`
-- `ui/pages/chat/ChatList.kt`
-- 新增通用 Composer option/controller 类型
-
-实施原则：
-
-- Codex 通过 `CodexChatComposer` 适配现有 `ChatInput`；普通 Provider Chat 的默认发送/停止语义保持不变。
-- Codex Thread 直接复用 `MessagePartsBlock`，不复制 `ChatMessage` 的 Markdown、思考和工具渲染逻辑。
-- Model/Reasoning UI 数据驱动；Provider Model 和 Codex model catalog 分别适配。
-- Codex reasoning 支持运行时广播的 `max/ultra`，不修改 Provider 语义。
+```text
+ui/pages/chat/ChatDrawer.kt
+ui/pages/chat/ChatDrawerVM.kt
+data/model/Folder.kt                # Chat 语义保持不变
+data/work/WorkRepositoryConfig.kt   # Work 仓库配置，不复用 FolderEntity
+RouteActivity.kt
+```
 
 RED：
 
-- 普通聊天模型、思考、附件或发送行为回归。
-- Codex 页面仍出现 `OutlinedTextField` 或 `CodexItemRow`。
-- 最大字体、IME 或横屏遮挡输入。
+- Chat/Work 切换单独占一行；
+- Work 仍存在 Drawer 菜单项或项目首页；
+- Work 仓库和 Chat Folder 共用实体导致语义/删除串线；
+- 添加仓库自动导入全部历史 CWD；
+- 切换仓库丢草稿或创建大量空 Thread。
 
 GREEN：
 
-- 普通 Chat 与 Codex Thread 使用同一输入容器和消息渲染。
-- Codex 输入支持图片、文件、Skill、model、effort、Fast、profile 和 context usage。
-- 运行中发送为 steer，空闲为 turn，停止为 interrupt。
+- 分组栏同一 Row：左侧可滚动 folders/repositories，右侧固定紧凑模式开关；
+- Chat 下现有 FolderBar 与 ConversationList 无行为变化；
+- Work 下左侧为用户明确添加的仓库，主体为当前 Thread；
+- 没有仓库时只显示“添加仓库”最小空状态，不创建假 Thread；
+- 每仓库保存当前 Thread、草稿和模型/effort/权限/Fast；
+- 无 Thread 时同一聊天壳空白展示，第一条消息惰性创建；
+- 顶部新建显式创建新 Thread；
+- `DrawerActions` 删除独立工作入口；
+- Work 历史目录不展示。
 
-## 8. Phase F：附件、恢复与错误状态
+阶段提交：`feat(work): add inline Chat and Work mode switch`
 
-状态：完成
-
-范围：
-
-- Wire E2E attachment upload/download。
-- Agent 临时文件目录、路径校验、大小/MIME/hash、TTL 清理。
-- Thread detail 自动重试、明确错误、旧 revision 保留。
-- 离线草稿、开发机离线和 Desktop takeover 确认。
-
-必须测试：
-
-- 路径逃逸、超限、hash 错误、重复 upload、过期清理。
-- detail 首次失败后自动恢复。
-- chunk 缺失/乱序/冲突不覆盖旧历史。
-- takeover 未确认时不启动第二个写入 Runtime。
-
-## 9. Phase G：跨层回归与真机验收
+## 9. Phase F：现有设置中的 Work 卡片
 
 状态：完成
 
-自动化：
+目标：删除独立 Work 设置首页，在现有 `SettingPage` 内完成连接、仓库和诊断管理。
+
+主要文件：
+
+```text
+ui/pages/setting/SettingPage.kt
+ui/pages/setting/components/WorkSettingsCard.kt
+ui/pages/workflow/codex/CodexConnectionSettingsPage.kt  # 删除
+RouteActivity.kt                                        # 删除平行设置 route
+```
+
+GREEN：
+
+- 使用现有 `CardGroup`、Dialog、BottomSheet；
+- 卡片显示连接、当前机器、仓库数量、CLI/App Server/Tailscale 状态；
+- 添加/编辑仓库不离开设置体系；
+- 连接 token 不回显；
+- 诊断可复制但已脱敏；
+- 旧 Wire/Happy 只读入口保留在卡片的回滚区域。
+
+阶段提交：`feat(settings): integrate Work into the existing settings`
+
+## 10. Phase G：直连切换与缓存迁移
+
+状态：完成（direct 默认路径与旧数据隔离完成；Tailscale 外网验证仍由 Phase C 阻断）
+
+目标：在 direct 真实闭环通过后，把 Work 默认数据面从 Wire 切到 App Server。
+
+规则：
+
+- 新版 Work 会话选择、草稿和仓库配置写入独立原子文件 `work-ui.json`，不改写已发布 Room schema 31；
+- 保留旧 Codex Item cache 并按 `(connectionId, threadId)` 映射；
+- Direct 实际 Room key 固定为 `(direct:connectionId, threadId)`，不读取仓库的 legacy `machineId`；
+- direct snapshot 成功前不覆盖旧缓存；
+- Wire/Relay/旧 Agent 保持可切回只读，不在本阶段删除；
+- 切换开关只用于发布前/故障回滚，不暴露成普通用户长期设置。
+- Phase C 新增的 supervisor 在本阶段成为 direct 路径的本机门卫；只有 direct 闭环、旧版覆盖升级和
+  回滚门全部通过后，旧 Agent 才退出默认消息路径。
+
+验证：
+
+- 0.2.2 APK 数据覆盖安装；
+- Room migration instrumentation test；
+- 旧缓存离线可读，direct 成功后原子刷新；
+- direct 断线不会回退到 Wire 双写；
+- 普通 Chat 数据完全不变。
+
+阶段提交：`feat(work): cut over Work to direct app-server`
+
+## 11. Phase H：删除旁路与完整验收
+
+状态：进行中（产品旁路已隐藏，历史/回滚代码保留一个发布周期）
+
+目标：删除产品运行时中已无引用的独立 Work UI 和翻译逻辑，但保留明确的历史/回滚材料。
+
+候选删除（必须先由引用扫描和回滚决定）：
+
+- `CodexWorkflowPage` 的项目/历史/搜索主页；
+- 独立 Work 设置 route/page；
+- 默认运行路径中的 `WireRelayClient`；
+- Agent `WireCodexRuntimeBridge` 消息翻译；
+- Relay 发布包和 CI 默认回归项（稳定一个发布周期后另开清理提交）；
+- 旧 Happy 写入 UI。
+
+不得在未验证 direct 回滚前删除：
+
+- 0.2.2 tag/release；
+- Room 旧 schema；
+- 用户 Wire/Happy 数据；
+- 运维回滚文档。
+
+完整自动化：
 
 ```powershell
 Set-Location agent
@@ -193,74 +374,147 @@ npm run build
 
 Set-Location ..
 ./gradlew.bat :app:testDebugUnitTest
+./gradlew.bat :app:lintDebug
 ./gradlew.bat :app:assembleDebug
-
-Set-Location relay
-npm test
-npm run typecheck
-npm run build
 ```
 
-真机检查：
+真机矩阵：
 
-1. 打开 Desktop 历史 Thread，看到完整用户/助手/思考/工具/图片。
-2. 选择当前模型支持的 effort、Fast 和权限，发送并确认服务端实际值。
-3. 发送截图和文件，Codex 能读取且历史重开后仍正确显示。
-4. 实时正文/思考/命令/文件修改进入同一聊天流。
-5. Relay/Agent 断开再恢复，不重复文本、不丢历史。
-6. 最大字体、深浅主题、横屏与输入法不遮挡。
+1. Chat/Work 切换不新增一行，Chat 分组和会话不丢；
+2. Work 仓库切换、添加和当前 Thread 恢复；
+3. 空白新建，无任务表单；
+4. 文本、拍照、照片、文件、语音；
+5. 模型、effort、Fast、权限、`/` Skill；
+6. Markdown、Reasoning、Tool、审批、停止和 steer；
+7. Catalog 失败、Wi-Fi/5G 切换、后台恢复、开发机休眠；
+8. 浅色、深色、大字体、横屏、IME；
+9. Android→App Server 消息链路无 Relay/翻译 Agent；
+10. 0.2.2 覆盖升级与回滚。
 
-## 10. 独立审查门
+## 12. 独立审查门
 
-每次主线准备结束时，启动独立子 BOT：
+发布准备前启动新的独立审查 BOT，逐条读取：
 
-- 只读架构合同、diff、测试输出和运行证据；
-- 逐条标记 PASS / FAIL / NOT PROVEN；
-- 任一 P0 为 FAIL 或 NOT PROVEN 时不得交付；
-- 主线修复后重新启动新的审查轮，直到全 P0 PASS。
+- `CODEX_NATIVE_ARCHITECTURE.md` 第 12 节；
+- `CODEX_APP_SERVER_CONTRACT.md` 第 14 节；
+- 本计划状态、diff、测试输出、真机截图和网络探针。
 
-## 11. 当前记录
+每项只能是：
 
-- 2026-07-19：完成 Desktop/CLI/App Server 协议同族和能力审计。
-- 2026-07-19：完成知行 ChatInput/UIMessage/ChatMessage/Markdown/Reasoning/Tool 流程审计。
-- 2026-07-19：确认当前缺口是适配器和页面旁路，而不是 Codex 不保存历史。
-- 2026-07-19：创建 `feat/49-codex-chat-parity`；远端 fetch 因本机 Schannel TLS 握手失败，
-  创建分支前本地 `main...origin/main` 记录为 `0 0`，基线 `c7b041587`。
-- 2026-07-19：Agent 改为保真传递 App Server Item、运行时设置、catalog、审批与交互请求；
-  附件上传/下载增加哈希、大小、路径授权和 TTL，历史改为带 revision/hash 的分块原子提交。
-- 2026-07-19：Room schema `29 -> 30`；Android 新增 runtime catalog/settings、附件映射和草稿缓存，
-  snapshot 与 runtime event 统一通过 `CodexRuntimeItemReducer` 和 `CodexMessageProjector`。
-- 2026-07-19：Codex Thread 切换到共享 `ChatInput` 容器和 `MessagePartsBlock`，接入图片/文件、
-  model、effort、Fast、权限、Skill、插件/App 可用性、上下文用量、steer/interrupt 与内联审批。
-- 2026-07-19：首轮独立审查结论为 FAIL：运行中补充要求不可达，plan/file/MCP/reroute 事件、取消审批、
-  动态目录与上传回执校验、详情 revision 防回退及跨层证据不足；未将该轮误记为通过。
-- 2026-07-19：按首轮审查逐项修复：共享 `ChatInput` 在 Codex 运行中有草稿时发送 steer、无草稿时停止；
-  Agent 补齐 plan/file/MCP/reroute，catalog 值与 Skill/附件回执双端校验，插件/App 失败显式进入 capability；
-  审批和 request_user_input 均支持 cancel；详情带 revision 回执，Android 仅在相同 revision 已原子落库后确认成功。
-- 2026-07-19：补齐 schema golden fixture、共享 Android→Wire→Agent 命令 fixture、全类型多 Turn 历史/实时等价、
-  设置/用量/reroute 合并、普通 ChatInput 无回归、缺块和旧 revision 等测试。
-- 2026-07-19：第二轮审查前自动化基线：Agent 17 个测试文件/69 项，Relay 3 个测试文件/7 项，
-  Android 48 个测试类/223 项（0 failure、0 skipped）；三端 typecheck/build 与 debug APK 构建通过。
-- 2026-07-19：Android 35 x86_64 模拟器完成浅色、深色、大字体、横屏与 IME 场景检查；
-  证据保存在本地 `build/ui-audit/codex-final-*.png`。检查期间发现并修复运行中 reasoning
-  在开发机/手机时钟偏差下出现负计时的问题。
-- 2026-07-19：覆盖安装验证发现已发布的 Room 30 不能被改写；新增正式 `30 -> 31` AutoMigration，
-  恢复 30 号 schema 并生成 31 号 schema。`Migration_30_31_Test` 通过 ADB/AndroidJUnitRunner
-  在 Android 35 模拟器执行（1/1）；保留旧 0.2.1 数据覆盖安装后正常恢复 `RouteActivity`，
-  logcat 无 Room identity/SafeMode/FATAL 错误，证据为本地 `build/ui-audit/codex-room31-upgrade.png`。
-- 2026-07-19：第二轮独立审查仅余一项 FAIL：`plan` 仍被投影为普通文本，与合同的
-  `UIMessagePart.Tool(toolName=update_plan)` 相反；其余 P0 与 Room 30→31 兼容门全部 PASS。
-- 2026-07-19：将历史与实时 `plan` 统一投影为稳定 itemId 的 `update_plan` Tool，input/metadata
-  保留原始结构化 plan、explanation、status 和文本；多 Turn 与历史/实时等价测试改为断言 Tool 投影。
-- 2026-07-19：第三轮全新独立审查基于 HEAD `6b01e4343` 逐项复核第 15 节，13 个验收面全部
-  PASS，阻断项为零；独立重跑 Agent 69、Relay 7、Android 223 项并复核设备迁移 1/1 证据。
-- 2026-07-19：PR #64 首轮 CI 暴露 Linux runner 将 Windows Skill 路径当成相对路径；路径归一改为
-  显式选择 Win32/POSIX flavor，不再依赖 Agent 所在主机。新增跨平台路径测试后 Agent 70/70、
-  typecheck/build 在本地通过，等待 CI 复验。
+- `PASS`：实现、自动化和运行证据齐全；
+- `FAIL`：与合同冲突；
+- `NOT PROVEN`：实现可能存在但证据不足。
 
-## 12. 延期项
+任一 P0 为 FAIL/NOT PROVEN，主线继续修复并启动全新审查轮，直到全 P0 PASS。
 
-- 官方 Desktop attach endpoint：仅在公开、可自托管且运行探针通过后评估。
-- 通用二进制文件的模型原生理解：P0 只保证受控落盘 + mention/path。
-- 新的 Codex 专用 Tool renderer：先使用通用 Tool fallback，真实高频后再做专用卡片。
-- 多 Agent 编排、完整终端和移动 Diff 编辑器不属于本计划。
+## 13. 发布流程
+
+1. `feat/66-work-mode-direct` 只经 PR 合入 `main`；
+2. CI 与真机验收完成后，从最新 `main` 创建下一个 `release/x.y.z`；
+3. 冻结分支只接收发布修复；
+4. release PR 合回 `main`；
+5. 在合并后的 `main` 创建 `vX.Y.Z`；
+6. 验证 APK、更新清单、hash 和应用内更新；
+7. 至少保留 0.2.2 Wire 回滚能力一个发布周期，再单独规划服务器与死代码下线。
+
+## 14. 延期项
+
+- Work 历史会话目录、归档、重点和全量搜索；
+- 多开发机自动切换；
+- Tailscale 自动注册/管理账号；
+- 通用终端、文件浏览器、移动 Diff；
+- Claude Code；
+- 公开 Internet/Funnel 访问；
+- App Server WebSocket 稳定前的无版本锁动态升级。
+
+## 15. 执行记录
+
+- 2026-07-19：产品讨论收口，确认 Chat/Work 为同一侧边栏中的两种模式；Work 分组直接对应仓库。
+- 2026-07-19：确认 Work 直接复用普通聊天页、现有 + Sheet、模型/思考和 `/` completion；不再建立独立页面体系。
+- 2026-07-19：确认设置只在现有 `SettingPage` 增加 Work 卡片，不保留独立 Work 设置首页。
+- 2026-07-19：创建 Issue #66 和分支 `feat/66-work-mode-direct`。
+- 2026-07-19：本机核验 `codex-cli 0.144.0` App Server WebSocket/auth/daemon；确认 Tailscale 尚未安装。
+- 2026-07-19：完成 Phase A 文档基线；独立审查首轮发现发布顺序、active runtime contract、
+  supervisor 传输安全和 Room 版本四项阻断，全部修复后复审 PASS。
+- 2026-07-19：完成 Phase B 旁路 Android transport：WSS bearer、initialize、RPC correlation、
+  notification/server request、断线清理、退避、Keystore 连接存储、静态模型兜底和 schema 兼容门；
+  focused Android 测试 8 项通过。
+- 2026-07-19：Phase C 已完成 loopback App Server 生命周期、独立 supervisor bearer、状态/重启、
+  受控附件、Tailscale 探针和 Wire 并行启动；Agent 20 个测试文件 75 项、typecheck/build 全绿，
+  真实本机探针得到 ready=200、附件上传=201、哈希一致、删除=200。Tailscale 安装仍需 Windows UAC 完成。
+- 2026-07-19：完成 Phase D–F：Chat/Work 共用 `NativeChatScaffold`、原生消息 renderer 与输入组件；
+  Drawer 同行模式开关、显式仓库分组和现有 SettingPage Work CardGroup 已在模拟器验证。旧版数据只从
+  Work 设置卡片进入只读核对，不进入新版首页。
+- 2026-07-19：完成 loopback direct 对话闭环：模型、effort、上下文、Fast/权限面板、`/` 完成项、
+  text、系统相册图片、文件上传、Markdown、Reasoning、Tool 与 inline approval 均走官方 App Server。
+  图片识别实测返回截图时间 `5:37`；文件实测读取并返回文稿一级标题。
+- 2026-07-19：修复三项真实运行缺陷：稀疏 `turn/completed` 不再抹掉流式 Items；新 Thread 清空旧
+  token usage；App Server 事件改为广播并按 threadId 过滤，避免多个仓库控制器互相吞回复。
+- 2026-07-19：Catalog 仍采用客户端 bundled presets 乐观启用、后台合并服务端列表；标题、附件清单
+  和结构化 Skill/App/Plugin 输入统一在投影边界清洗，不向用户泄露协议内部文本。
+- 2026-07-20：安装最新 x86_64 Debug APK 后完成进程级复验：Work 面板在 1080×2400 下可滚动访问
+  仓库、Fast 与三档权限；唯一消息 `EVENT_BUS_OK` 经 App Server 实时返回，强制停止并重启应用后仍可从
+  当前 Work Thread 恢复。Android 单测/构建、Agent 测试/typecheck/build 均通过；Tailscale WSS 真机链路
+  仍等待 Windows UAC 安装与登录，因此不进入发布阶段。
+- 2026-07-20：按独立审查阻塞项完成 release-blocker 收口：Chat/Work 共用 `NativeChatTimeline` 与
+  `ChatAttachmentActions`；仓库文件级增删改选/恢复、跨 Thread turn 隔离、运行中 Turn 恢复、内联
+  request_user_input、`-32001` 退避、断线自动重连、Supervisor schema 兼容门禁和运行参数拒绝回滚均进入
+  生产路径并补测试。Android 260 项单测、Debug APK、Compose 仪器测试编译与模式切换真机测试全绿；
+  最新 APK 经 loopback compatibility gate 实测收到 `DIRECT_GATE_OK`，普通 Chat 未建立 Work WebSocket。
+- 2026-07-20：按 Codex 0.144.0 `generate-ts --experimental` 的 `v2/UserInput` 修正通用文件：官方
+  `mention` 仅用于 App/Plugin 连接器，不能承载普通文件；新消息改为 Supervisor 受控落盘后用普通
+  `text` 携带本机路径清单，并在原生消息投影边界隐藏清单、恢复附件 UI。
+- 2026-07-20：独立复审补齐官方 plan/command/file/MCP/error/model-reroute 与未知 opaque 事件累计；
+  `request_user_input` 在 Item 迟到时创建可回答的原生投影；参数拒绝只回退命中字段；未配置可选
+  Supervisor 时保持文本可写，仅禁用需要受控上传的附件。
+- 2026-07-20：修正无 Supervisor 兼容门：直接校验 initialize 的精确受审 `userAgent` 与平台字段，未知版本
+  保持只读；Supervisor schema/method facts 只用于升级到 `FULL`。同时对 text-only 模型携带图片实施发送前
+  拦截，保留草稿与附件并提示切换模型；未知 opaque notification 默认不进入聊天 UI。
+- 2026-07-20：真机 WSS 回归发现 Codex 0.144.0 的 initialize `userAgent` 会追加 OS 版本和调用方元数据；
+  兼容门改为完整匹配官方结构、只对白名单首段版本做精确比较，拒绝任意前缀/子串伪装。
+- 2026-07-20：真机首轮发送发现空 Thread 在首条用户消息前不可 `thread/read(includeTurns=true)`，且
+  `turn/start` 返回后 rollout 仍有约 100–350 ms 刷盘窗口；改为首轮成功后持久化 Thread 指针并对
+  `turn/completed` 后的权威快照校准执行短退避；仅重试 `not materialized` / `rollout is empty` 两类瞬态，
+  避免半成品成功快照覆盖已到达的流式 Item，其他读取错误继续锁为只读。
+- 2026-07-20：Direct Thread 接入现有 Room 31 Codex cache：页面启动先恢复当前 Thread，官方快照立即
+  落库，流式事件短防抖刷新，网络恢复后再以 `thread/read` 覆盖；离线不恢复可操作审批。新增仪器测试完成
+  “写入 → 关闭数据库 → 重新打开 → 读取消息与附件”进程重启闭环。`thread/start` 成功后也会先保存 Thread
+  指针与快照，避免后续读取失败留下不可恢复的孤儿会话；模型 reroute 后 UI 显示实际执行模型。
+- 2026-07-20：独立复审发现兼容门前 `thread/resume` 写窗口、Direct/legacy Room key 冲突和
+  `thread/read`/notification 竞态；随后把所有连接状态先降为 `READ_ONLY`，顺序改为 initialize →
+  thread/read fixture → Supervisor gate → thread/resume，并给 mutating action 统一加 writable gate。
+  Direct cache key 改为 `direct:connectionId` 命名空间；snapshot 在途事件进入 generation buffer，映射完成后
+  重放，避免旧 read 覆盖新流式消息。
+- 2026-07-20：独立审查后的竞态收口：每次断线/重连递增 connection generation，所有写 RPC、附件上传和
+  审批响应必须持有同代写租约；thread/read 同时缓冲 notification 与 server request，成功或失败回放后重算
+  active turn 并立即落盘；仓库当前 Thread 按 connectionId 分槽保存，切换开发机不复用另一连接的 Thread ID。
+- 2026-07-20：补齐连接切换内存隔离：切换到另一开发机时只恢复该 connectionId 的 Direct cache；无缓存则
+  清空当前 detail，确保后续发送只能在新连接上 `thread/start` 或恢复该连接自己的 Thread。
+- 2026-07-20：第二次竞态审查收口：兼容门入口固定 gate identity，所有挂起点返回后拒绝旧结果；
+  `thread/start` 成功响应先按原 connectionId 记录 Thread/cache 再检查租约；断线导致 read 失败时仍把断线前
+  已接收事件和审批回放到原连接缓存。审批响应成功后才移除 pending，新建失败保留原详情与未发送草稿。
+- 2026-07-20：第三次竞态审查收口：`thread/read` 在等待 snapshot mutex 前固定 connectionId、transport
+  generation 与 threadId，所有读重试和 model/skill/plugin/app 目录读取绑定同一代 WebSocket；listener 为
+  notification/server request 标记来源代际，snapshot buffer 仅接收同代事件，跨开发机迟到事件只回写其原
+  connectionId 缓存，不再进入当前聊天或可操作审批。
+- 2026-07-20：多仓库控制器审查后把 logical connectionId 所有权上移到单例 App Server client：transport
+  state、notification 与 server request 都携带 client 标记的 connectionId，非激活仓库不得参与重连；可见
+  snapshot 记录 generation watermark，同 connectionId 的旧代迟到事件不再重复追加。缓存审批只在当前进程
+  断线窗口展示，切仓库、切连接和进程恢复继续清空，避免恢复失效 request ID。该轮 Android 283 项单测、
+  Debug APK 构建与 AndroidTest Kotlin 编译全部通过。
+- 2026-07-20：第四次竞态审查发现“仓库切换发生在旧连接已通过首次归属检查、但仍在慢握手”窗口；失活
+  repository controller 现在立即取消 connect job，client 在 initialize 后、READY 前重验归属，VM 在返回后
+  再验一次才运行 compatibility gate。新增真实排队测试覆盖 A 慢初始化、B 等待 mutex、切换后取消 A 并由 B
+  接管，以及 initialize 期间失活不得发布旧连接 READY。Android 285 项单测、Debug APK 构建与 AndroidTest
+  Kotlin 编译全部通过。
+- 2026-07-20：Tailscale HTTPS 启用后完成 tailnet-only WSS Android 模拟器闭环（不是物理手机证据）：Android 经
+  `wss://minecraft.tail427df8.ts.net` 直连 loopback App Server，未开启公网 Funnel；受控文本附件上传后
+  Codex 通过 PowerShell 读取并精确返回 `ATTACHMENT_LOOP_OK`，原生 UI 实时显示用户消息、附件、工具与回复。
+  同时修复首轮 Thread 指针、早到 Item/Delta 和权威快照覆盖本地附件映射三处竞态；强制停止并重启应用后
+  当前 Thread、上下文用量和原生附件仍完整恢复。Android 全量单测/Debug APK/AndroidTest Kotlin 与 Agent
+  75 项测试/typecheck/build 全绿。
+- 2026-07-20：独立发布复审发现 Work 仍有三处产品合同偏差：模型/effort 与附件 Sheet 只复用了底层输入框、
+  Chat/Work 模式虽写盘但未参与冷启动路由、`/` 弹层没有内置指令。现已把拍照/相册/文件选择、裁剪、类型
+  校验和 Modal Sheet 抽为 Chat/Work 唯一共享入口；模型/effort 改用共享原生选择器；冷启动按持久化模式
+  恢复；新增 `/new`、`/compact` 客户端指令并映射真实 Thread RPC。物理手机 Wi-Fi/5G/DERP 仍作为发布后
+  soak，明确不得用模拟器结果冒充。
