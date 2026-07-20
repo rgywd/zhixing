@@ -76,42 +76,6 @@ fun ReasoningButton(
     }
 }
 
-data class RuntimeReasoningChoice(
-    val id: String,
-    val label: String,
-)
-
-/** String-id adapter for Codex, sharing the provider chat reasoning control. */
-@Composable
-fun ReasoningButton(
-    modifier: Modifier = Modifier,
-    onlyIcon: Boolean = true,
-    reasoningLevel: String?,
-    levels: List<RuntimeReasoningChoice>,
-    onUpdateReasoningLevel: (String) -> Unit,
-) {
-    var showPicker by remember { mutableStateOf(false) }
-    if (showPicker) {
-        RuntimeReasoningPicker(
-            reasoningLevel = reasoningLevel,
-            levels = levels,
-            onDismissRequest = { showPicker = false },
-            onUpdateReasoningLevel = {
-                onUpdateReasoningLevel(it)
-                showPicker = false
-            },
-        )
-    }
-    ReasoningButtonSurface(
-        checked = reasoningLevel != null && reasoningLevel !in setOf("none", "minimal"),
-        onClick = { showPicker = true },
-        modifier = modifier,
-        onlyIcon = onlyIcon,
-    ) {
-        Icon(HugeIcons.Idea01, contentDescription = null)
-    }
-}
-
 @Composable
 private fun ReasoningButtonSurface(
     checked: Boolean,
@@ -130,40 +94,6 @@ private fun ReasoningButtonSurface(
                 icon()
             }
             if (!onlyIcon) Text(stringResource(R.string.setting_provider_page_reasoning))
-        }
-    }
-}
-
-@Composable
-private fun RuntimeReasoningPicker(
-    reasoningLevel: String?,
-    levels: List<RuntimeReasoningChoice>,
-    onDismissRequest: () -> Unit,
-    onUpdateReasoningLevel: (String) -> Unit,
-) {
-    ModalBottomSheet(onDismissRequest = onDismissRequest) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.reasoning_picker_title),
-                style = MaterialTheme.typography.titleLarge,
-            )
-            levels.forEach { level ->
-                ToggleSurface(
-                    checked = level.id == reasoningLevel,
-                    onClick = { onUpdateReasoningLevel(level.id) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = level.label,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                }
-            }
         }
     }
 }

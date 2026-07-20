@@ -9,9 +9,6 @@ import me.rerere.rikkahub.data.github.GitHubIssueClient
 import me.rerere.rikkahub.data.github.GitHubIssueCredentialStore
 import me.rerere.rikkahub.data.github.GitHubIssueTokenProvider
 import me.rerere.rikkahub.service.ChatNotificationManager
-import me.rerere.rikkahub.service.WorkNotificationManager
-import me.rerere.rikkahub.service.WorkSyncWorker
-import org.koin.androidx.workmanager.dsl.workerOf
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.telemetry.AppTelemetry
 import me.rerere.rikkahub.telemetry.NoOpAppTelemetry
@@ -21,27 +18,8 @@ import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.SoundEffectPlayer
 import me.rerere.rikkahub.utils.UpdateChecker
 import me.rerere.rikkahub.web.WebServerManager
-import me.rerere.rikkahub.BuildConfig
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyAuthApi
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyCredentialsStore
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyProtocol
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappyRelaySettingsStore
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappySyncApi
-import me.rerere.rikkahub.ui.pages.workflow.happy.HappySocketClient
-import me.rerere.rikkahub.data.workflow.wire.WireRelayClient
-import me.rerere.rikkahub.data.workflow.wire.WireRelayCredentialsStore
-import me.rerere.rikkahub.data.workflow.wire.WireCredentialsStore
-import me.rerere.rikkahub.data.work.AppServerJsonRpcClient
-import me.rerere.rikkahub.data.work.EncryptedWorkConnectionStore
-import me.rerere.rikkahub.data.work.FileWorkUiStore
-import me.rerere.rikkahub.data.work.WorkConnectionStore
-import me.rerere.rikkahub.data.work.WorkUiStore
-import me.rerere.rikkahub.data.work.SupervisorAttachmentClient
 import me.rerere.tts.provider.TTSManager
 import org.koin.dsl.module
-import org.koin.core.qualifier.named
-import okhttp3.OkHttpClient
-import java.util.concurrent.TimeUnit
 
 val appModule = module {
     single<Json> { JsonInstant }
@@ -61,77 +39,6 @@ val appModule = module {
     single { GitHubIssueCredentialStore(get()) }
     single<GitHubIssueTokenProvider> { get<GitHubIssueCredentialStore>() }
     single { GitHubIssueClient() }
-
-    single { HappyCredentialsStore(get(), get()) }
-    single { HappyRelaySettingsStore(get()) }
-    single {
-        HappyAuthApi(
-            client = get(),
-            json = get(),
-            clientId = HappyProtocol.clientId(BuildConfig.VERSION_NAME),
-        )
-    }
-    single {
-        HappySyncApi(
-            client = get(),
-            json = get(),
-            clientId = HappyProtocol.clientId(BuildConfig.VERSION_NAME),
-        )
-    }
-    single {
-        HappySocketClient(
-            json = get(),
-            clientId = HappyProtocol.clientId(BuildConfig.VERSION_NAME),
-        )
-    }
-
-    single { WireRelayCredentialsStore(get(), get()) }
-    single<WireCredentialsStore> { get<WireRelayCredentialsStore>() }
-    single(named("wireRelayHttp")) {
-        OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .build()
-    }
-    single {
-        WireRelayClient(
-            client = get(named("wireRelayHttp")),
-            json = get(),
-            credentialsStore = get(),
-            catalogRepository = get(),
-        )
-    }
-
-    // 0.2.0 direct path is added beside Wire until the full cutover gate passes.
-    single { EncryptedWorkConnectionStore(get(), get()) }
-    single<WorkConnectionStore> { get<EncryptedWorkConnectionStore>() }
-    single { FileWorkUiStore(context = get(), json = get()) }
-    single<WorkUiStore> { get<FileWorkUiStore>() }
-    single(named("appServerWebSocket")) {
-        OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .pingInterval(30, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .build()
-    }
-    single {
-        AppServerJsonRpcClient(
-            client = get(named("appServerWebSocket")),
-            json = get(),
-        )
-    }
-    single(named("workSupervisor")) {
-        OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
-            .writeTimeout(120, TimeUnit.SECONDS)
-            .followRedirects(false)
-            .followSslRedirects(false)
-            .build()
-    }
-    single { SupervisorAttachmentClient(get(), get(named("workSupervisor")), get()) }
 
     single {
         UpdateChecker(get())
@@ -165,16 +72,6 @@ val appModule = module {
             settingsStore = get(),
         )
     }
-
-    // 远程任务关键通知：进程存活期走 Socket 增量，周期 Worker 兜底
-    single(createdAtStart = true) {
-        WorkNotificationManager(
-            context = get(),
-            appScope = get(),
-            repository = get(),
-        )
-    }
-    workerOf(::WorkSyncWorker)
 
     single {
         ChatService(

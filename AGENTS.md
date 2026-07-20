@@ -62,18 +62,6 @@
 
 ## Concepts
 
-- **Chat / Work modes**: Chat and Work are two runtimes inside the same chat product, not two top-level products.
-  Put the compact mode switch at the right side of the existing drawer folder bar; do not add another row or a duplicate
-  Work menu item. Chat folders organize Provider conversations. Work groups are user-managed Codex repositories, and the
-  main surface immediately opens the repository's current Thread instead of a project dashboard, history catalog, or task
-  form. Work must reuse the exact existing top bar, timeline, `ChatInputState`/`ChatInput`, attachment sheet,
-  `UIMessage/UIMessagePart`, Markdown, reasoning, tool, approval, voice, IME, send and stop behavior. Work-specific
-  permission and Fast controls belong in that same attachment sheet; Skill/plugin/command selection belongs in the `/`
-  completion popup. Add a Work `CardGroup` to the existing `SettingPage`; do not add a parallel settings root. The target
-  message path is Android -> Tailscale WSS -> Codex App Server. A local supervisor may manage process health, repository
-  metadata and controlled attachments, but must never proxy or translate chat JSON-RPC. See
-  `docs/zhixing/CODEX_NATIVE_ARCHITECTURE.md` and `docs/zhixing/CODEX_APP_SERVER_CONTRACT.md`.
-
 - **Assistant**: An assistant configuration with system prompts, model parameters, and conversation isolation. Each
   assistant maintains its own settings including temperature, context size, custom headers, tools, memory options, regex
   transformations, and prompt injections (mode/lorebook). Assistants provide isolated chat environments with specific
@@ -108,6 +96,13 @@
   Output transformers support `visualTransform()` for UI display during streaming and `onGenerationFinish()` for final
   processing after generation completes.
   (app/src/main/java/me/rerere/rikkahub/data/ai/transformers/Transformer.kt)
+
+- **Work / Codex Phone-line**: A separate, mobile-created session domain for communicating with Codex processes on a
+  registered development machine. It uses a durable Work Core, an outbound-only local Runner, and exactly three MCP
+  tools (`report`, `ask`, `report_html`). It must not read Codex Desktop history, depend on Happy/App Server protocols,
+  expose arbitrary repository paths, or reuse the normal Provider generation pipeline. Product and protocol boundaries
+  are defined in `docs/zhixing/CODEX_PHONE_LINE_ARCHITECTURE.md` and
+  `docs/zhixing/CODEX_PHONE_LINE_CONTRACT.md`.
 
 ## Internationalization
 

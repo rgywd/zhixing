@@ -60,7 +60,6 @@ import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
-import me.rerere.rikkahub.data.work.WorkUiStore
 import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.ui.components.ai.ChatInput
 import me.rerere.rikkahub.ui.components.ai.FilesPicker
@@ -87,8 +86,6 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
         }
     )
     val filesManager: FilesManager = koinInject()
-    val workUiStore: WorkUiStore = koinInject()
-    val workUiState by workUiStore.state.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
     val scope = rememberCoroutineScope()
 
@@ -183,7 +180,6 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
                         current = conversation,
                         vm = vm,
                         settings = setting,
-                        mode = workUiState.mode,
                     )
                 }
             ) {
@@ -216,7 +212,6 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
                         current = conversation,
                         vm = vm,
                         settings = setting,
-                        mode = workUiState.mode,
                     )
                 }
             ) {

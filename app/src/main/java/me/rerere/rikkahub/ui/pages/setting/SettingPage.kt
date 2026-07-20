@@ -14,12 +14,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,6 +38,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.hugeicons.HugeIcons
@@ -60,6 +64,7 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.isNotConfigured
 import me.rerere.rikkahub.data.files.FilesManager
+import me.rerere.rikkahub.data.work.PhoneWorkCredentialStore
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.Select
@@ -68,7 +73,6 @@ import me.rerere.rikkahub.ui.context.Navigator
 import me.rerere.rikkahub.ui.hooks.rememberColorMode
 import me.rerere.rikkahub.ui.theme.ColorMode
 import me.rerere.rikkahub.ui.theme.CustomColors
-import me.rerere.rikkahub.ui.pages.setting.components.WorkSettingsSection
 import me.rerere.rikkahub.utils.plus
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -79,6 +83,9 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
     val navController = LocalNavController.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val filesManager: FilesManager = koinInject()
+    val workCredentialStore: PhoneWorkCredentialStore = koinInject()
+    val workConnection by workCredentialStore.connection.collectAsStateWithLifecycle()
+    var showWorkConnectionDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -166,10 +173,6 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                 }
             }
 
-            item("workSettings") {
-                WorkSettingsSection(modifier = Modifier.padding(horizontal = 8.dp))
-            }
-
             item("modelServices") {
                 CardGroup(
                     modifier = Modifier.padding(horizontal = 8.dp),
@@ -210,6 +213,27 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         leadingContent = { Icon(HugeIcons.ServerStack01, null) },
                         supportingContent = { Text(stringResource(R.string.setting_page_web_server_desc)) },
                         headlineContent = { Text(stringResource(R.string.setting_page_web_server)) },
+                    )
+                }
+            }
+
+            item("workSettings") {
+                CardGroup(
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                    title = { Text("Work") },
+                ) {
+                    item(
+                        onClick = { showWorkConnectionDialog = true },
+                        leadingContent = { Icon(HugeIcons.ServerStack01, null) },
+                        supportingContent = {
+                            Text(
+                                if (workConnection.configured) workConnection.baseUrl
+                                else "连接自建 Core，让开发机 Codex 通过三条电话线联系手机",
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                        headlineContent = { Text(if (workConnection.configured) "Work 已连接" else "连接 Work Core") },
                     )
                 }
             }
@@ -289,6 +313,76 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
             }
         }
     }
+
+    if (showWorkConnectionDialog) {
+        WorkConnectionDialog(
+            currentUrl = workConnection.baseUrl,
+            connected = workConnection.configured,
+            onDismiss = { showWorkConnectionDialog = false },
+            onSave = { url, token ->
+                workCredentialStore.save(url, token)
+                showWorkConnectionDialog = false
+            },
+            onDisconnect = {
+                workCredentialStore.clear()
+                showWorkConnectionDialog = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun WorkConnectionDialog(
+    currentUrl: String,
+    connected: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (String, String) -> Unit,
+    onDisconnect: () -> Unit,
+) {
+    var url by remember(currentUrl) { mutableStateOf(currentUrl) }
+    var token by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("连接 Work Core") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("这里仅保存 Core 地址与用户 Token；Codex 登录态和仓库仍只在开发机。")
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it; error = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("HTTPS 地址") },
+                    placeholder = { Text("https://work.example.com") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = token,
+                    onValueChange = { token = it; error = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Bearer Token") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                )
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    runCatching { onSave(url, token) }
+                        .onFailure { error = it.message ?: "保存失败" }
+                },
+                enabled = url.isNotBlank() && token.isNotBlank(),
+            ) { Text("保存") }
+        },
+        dismissButton = {
+            Row {
+                if (connected) TextButton(onClick = onDisconnect) { Text("断开") }
+                TextButton(onClick = onDismiss) { Text("取消") }
+            }
+        },
+    )
 }
 @Composable
 private fun ProviderConfigWarningCard(navController: Navigator) {

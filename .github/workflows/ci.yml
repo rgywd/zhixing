@@ -61,12 +61,8 @@ jobs:
         working-directory: web-ui
         run: pnpm install --frozen-lockfile
 
-      - name: Install agent dependencies
-        working-directory: agent
-        run: npm ci
-
-      - name: Install relay dependencies
-        working-directory: relay
+      - name: Install Work runtime dependencies
+        working-directory: work
         run: npm ci
 
       - name: Set up Gradle
@@ -74,28 +70,14 @@ jobs:
 
       - name: Test release-critical paths
         run: |
-          cd agent
-          npm run typecheck
-          npm test
-          npm run build
-          cd ..
-          cd relay
-          npm run audit:prod
-          npm run typecheck
-          npm test
-          npm run build
-          cd ..
+          npm --prefix work test
           ./gradlew :ai:testDebugUnitTest :speech:testDebugUnitTest
           ./gradlew :app:testDebugUnitTest \
             --tests me.rerere.rikkahub.AppIdentityTest \
             --tests me.rerere.rikkahub.utils.UpdateCheckerTest \
             --tests me.rerere.rikkahub.data.datastore.DefaultProvidersTest \
-            --tests me.rerere.rikkahub.data.datastore.AgentPlanSpeechKeyResolutionTest \
             --tests me.rerere.rikkahub.data.ai.tools.local.GitHubIssueToolTest \
             --tests me.rerere.rikkahub.data.github.GitHubIssueClientTest \
-            --tests me.rerere.rikkahub.ui.pages.workflow.RelayUrlEditorStateTest \
-            --tests 'me.rerere.rikkahub.ui.pages.workflow.happy.*' \
-            --tests me.rerere.rikkahub.data.workflow.wire.WireCoreTest \
             --tests me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigureConvertToTest
 
       - name: Build deployable debug APKs

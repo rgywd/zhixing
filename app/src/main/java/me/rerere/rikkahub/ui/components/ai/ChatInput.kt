@@ -133,9 +133,8 @@ fun ChatInput(
     onSendClick: () -> Unit,
     onLongSendClick: () -> Unit,
     canSend: Boolean = !state.isEmpty(),
-    allowSendWhileLoading: Boolean = false,
-    controlContent: (@Composable RowScope.() -> Unit)? = null,
-    statusContent: (@Composable () -> Unit)? = null,
+    customLeadingControls: (@Composable RowScope.() -> Unit)? = null,
+    showMoreButton: Boolean = true,
 ) {
     val toaster = LocalToaster.current
     val assistant = settings.getCurrentAssistant()
@@ -159,13 +158,13 @@ fun ChatInput(
     fun sendMessage() {
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
-        if (shouldStopOnSend(loading, canSend, allowSendWhileLoading)) onCancelClick() else onSendClick()
+        if (loading) onCancelClick() else onSendClick()
     }
 
     fun sendMessageWithoutAnswer() {
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
-        if (shouldStopOnSend(loading, canSend, allowSendWhileLoading)) onCancelClick() else onLongSendClick()
+        if (loading) onCancelClick() else onLongSendClick()
     }
 
     val asr = LocalASRState.current
@@ -243,8 +242,6 @@ fun ChatInput(
                         onSendMessage = { sendMessage() }
                     )
 
-                    statusContent?.invoke()
-
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -258,8 +255,8 @@ fun ChatInput(
                                 .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            if (controlContent != null) {
-                                controlContent()
+                            if (customLeadingControls != null) {
+                                customLeadingControls()
                             } else {
                                 ModelSelector(
                                     modelId = assistant.chatModelId ?: settings.chatModelId,
@@ -302,13 +299,15 @@ fun ChatInput(
 
                         }
 
-                        ActionIconButton(
-                            onClick = onMoreClick
-                        ) {
-                            Icon(
-                                imageVector = HugeIcons.Add01,
-                                contentDescription = stringResource(R.string.more_options)
-                            )
+                        if (showMoreButton) {
+                            ActionIconButton(
+                                onClick = onMoreClick
+                            ) {
+                                Icon(
+                                    imageVector = HugeIcons.Add01,
+                                    contentDescription = stringResource(R.string.more_options)
+                                )
+                            }
                         }
 
                         if (asrState.isAvailable || asrState.isRecording) {
@@ -356,7 +355,7 @@ fun ChatInput(
                                         }
                                     )
                             ) {
-                                val showStop = shouldStopOnSend(loading, canSend, allowSendWhileLoading)
+                                val showStop = loading
                                 val containerColor = when {
                                     showStop -> MaterialTheme.colorScheme.errorContainer
                                     !canSend -> MaterialTheme.colorScheme.surfaceContainerHigh
@@ -397,9 +396,6 @@ fun ChatInput(
         }
     }
 }
-
-internal fun shouldStopOnSend(loading: Boolean, canSend: Boolean, allowSendWhileLoading: Boolean): Boolean =
-    loading && !(allowSendWhileLoading && canSend)
 
 @Composable
 private fun ActionIconButton(

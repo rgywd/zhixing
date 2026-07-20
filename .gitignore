@@ -17,3 +17,10 @@ app/app.key
 
 # 本地凭据（GitHub token、签名密钥），禁止入库
 /env/
+
+# Work Core/Runner local dependencies, state and secrets
+/work/node_modules/
+/work/data/
+/work/runner/work-runner.json
+/work/deploy/.env
+/work/.env

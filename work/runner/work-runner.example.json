@@ -1,0 +1,20 @@
+{
+  "id": "minecraft",
+  "name": "Minecraft",
+  "version": "1.0.0",
+  "coreUrl": "https://work.example.com",
+  "token": "replace-with-runner-token",
+  "stateFile": "./data/runner-state.json",
+  "codexHome": "C:/Users/you/.zhixing-work/codex-home",
+  "pollIntervalMs": 2000,
+  "codexCommand": "codex",
+  "repos": [
+    {
+      "id": "zhixing",
+      "name": "zhixing",
+      "path": "C:/Users/you/Documents/zhixing/zhixing-rikkahub",
+      "models": ["gpt-5.6-sol", "gpt-5.6-terra"],
+      "reasoningEfforts": ["medium", "high", "xhigh", "max"]
+    }
+  ]
+}

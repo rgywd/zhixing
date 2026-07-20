@@ -4,10 +4,6 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.FileInputStream
 import java.util.Properties
 
-val codexWorkflowEnabled = providers.gradleProperty("codexWorkflowEnabled")
-    .map(String::toBoolean)
-    .orElse(true)
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -26,8 +22,6 @@ android {
         targetSdk = 37
         versionCode = 18
         versionName = "0.3.0"
-        buildConfigField("boolean", "CODEX_WORKFLOW_ENABLED", codexWorkflowEnabled.get().toString())
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
@@ -211,14 +205,6 @@ dependencies {
 
     // java-diff-utils (unified diff)
     implementation(libs.diffutils)
-
-    // Happy protocol compatibility (Ed25519 / Curve25519 / XSalsa20-Poly1305)
-    implementation(libs.tweetnacl)
-    implementation(libs.socketio.client) {
-        // Android 自带 org.json；带上 Maven 版会让 R8 按其内部字段（JSONArray.myArrayList）
-        // 内联优化，运行时命中平台类导致 NoSuchFieldError 崩溃
-        exclude(group = "org.json", module = "json")
-    }
 
     // coil
     implementation(libs.coil.compose)

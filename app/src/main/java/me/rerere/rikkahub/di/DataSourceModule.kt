@@ -29,10 +29,15 @@ import me.rerere.rikkahub.data.db.migrations.Migration_11_12
 import me.rerere.rikkahub.data.db.migrations.Migration_13_14
 import me.rerere.rikkahub.data.db.migrations.Migration_14_15
 import me.rerere.rikkahub.data.db.migrations.Migration_15_16
+import me.rerere.rikkahub.data.db.migrations.Migration_32_33
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.sync.webdav.WebDavSync
 import me.rerere.search.SearchService
 import me.rerere.rikkahub.data.sync.S3Sync
+import me.rerere.rikkahub.data.work.PhoneWorkApiClient
+import me.rerere.rikkahub.data.work.PhoneWorkCatalogStore
+import me.rerere.rikkahub.data.work.PhoneWorkCredentialStore
+import me.rerere.rikkahub.data.work.PhoneWorkRepository
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import org.koin.dsl.module
@@ -48,7 +53,7 @@ val dataSourceModule = module {
         val context: Context = get()
         Room.databaseBuilder(context, AppDatabase::class.java, "zhixing")
             .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
-            .addMigrations(Migration_6_7, Migration_11_12, Migration_13_14, Migration_14_15, Migration_15_16)
+            .addMigrations(Migration_6_7, Migration_11_12, Migration_13_14, Migration_14_15, Migration_15_16, Migration_32_33)
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: SupportSQLiteDatabase) {
                     val dictDir = SimpleDictManager.extractDict(context)
@@ -74,16 +79,6 @@ val dataSourceModule = module {
                             conversation_id UNINDEXED,
                             title UNINDEXED,
                             update_at UNINDEXED,
-                            tokenize = 'simple'
-                        )
-                        """.trimIndent()
-                    )
-                    db.execSQL(
-                        """
-                        CREATE VIRTUAL TABLE IF NOT EXISTS work_message_fts USING fts5(
-                            text,
-                            message_id UNINDEXED,
-                            session_id UNINDEXED,
                             tokenize = 'simple'
                         )
                         """.trimIndent()
@@ -152,25 +147,11 @@ val dataSourceModule = module {
         get<AppDatabase>().folderDao()
     }
 
-    single {
-        get<AppDatabase>().workSessionDao()
-    }
-
-    single {
-        get<AppDatabase>().workMessageDao()
-    }
-
-    single {
-        get<AppDatabase>().workMachineDao()
-    }
-
-    single {
-        get<AppDatabase>().workRepoPresetDao()
-    }
-
-    single {
-        get<AppDatabase>().codexCatalogDao()
-    }
+    single { get<AppDatabase>().phoneWorkDao() }
+    single { PhoneWorkCredentialStore(get()) }
+    single { PhoneWorkCatalogStore(get()) }
+    single { PhoneWorkApiClient(get()) }
+    single { PhoneWorkRepository(get(), get(), get(), get()) }
 
     single {
         MessageFtsManager(get())

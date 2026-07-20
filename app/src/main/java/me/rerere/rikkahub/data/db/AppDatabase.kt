@@ -7,46 +7,23 @@ import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import me.rerere.ai.core.TokenUsage
 import me.rerere.rikkahub.data.db.dao.ConversationDAO
-import me.rerere.rikkahub.data.db.dao.CodexCatalogDAO
 import me.rerere.rikkahub.data.db.dao.FavoriteDAO
 import me.rerere.rikkahub.data.db.dao.FolderDAO
 import me.rerere.rikkahub.data.db.dao.GenMediaDAO
 import me.rerere.rikkahub.data.db.dao.ManagedFileDAO
 import me.rerere.rikkahub.data.db.dao.MemoryDAO
 import me.rerere.rikkahub.data.db.dao.MessageNodeDAO
-import me.rerere.rikkahub.data.db.dao.WorkMachineDAO
-import me.rerere.rikkahub.data.db.dao.WorkMessageDAO
-import me.rerere.rikkahub.data.db.dao.WorkRepoPresetDAO
-import me.rerere.rikkahub.data.db.dao.WorkSessionDAO
+import me.rerere.rikkahub.data.db.dao.PhoneWorkDAO
 import me.rerere.rikkahub.data.db.dao.WorkspaceDAO
 import me.rerere.rikkahub.data.db.entity.ConversationEntity
-import me.rerere.rikkahub.data.db.entity.CodexApprovalEntity
-import me.rerere.rikkahub.data.db.entity.CodexCatalogSyncEntity
-import me.rerere.rikkahub.data.db.entity.CodexCatalogChunkEntity
-import me.rerere.rikkahub.data.db.entity.CodexItemEntity
-import me.rerere.rikkahub.data.db.entity.CodexMachineEntity
-import me.rerere.rikkahub.data.db.entity.CodexProjectEntity
-import me.rerere.rikkahub.data.db.entity.CodexProjectPreferenceEntity
-import me.rerere.rikkahub.data.db.entity.CodexRuntimeBindingEntity
-import me.rerere.rikkahub.data.db.entity.CodexRuntimeCatalogEntity
-import me.rerere.rikkahub.data.db.entity.CodexRuntimeSettingsEntity
-import me.rerere.rikkahub.data.db.entity.CodexAttachmentEntity
-import me.rerere.rikkahub.data.db.entity.CodexDraftEntity
-import me.rerere.rikkahub.data.db.entity.CodexThreadEntity
-import me.rerere.rikkahub.data.db.entity.CodexThreadDetailRevisionEntity
-import me.rerere.rikkahub.data.db.entity.CodexThreadPreferenceEntity
-import me.rerere.rikkahub.data.db.entity.CodexTombstoneEntity
-import me.rerere.rikkahub.data.db.entity.CodexTurnEntity
 import me.rerere.rikkahub.data.db.entity.FavoriteEntity
 import me.rerere.rikkahub.data.db.entity.FolderEntity
 import me.rerere.rikkahub.data.db.entity.GenMediaEntity
 import me.rerere.rikkahub.data.db.entity.ManagedFileEntity
 import me.rerere.rikkahub.data.db.entity.MemoryEntity
 import me.rerere.rikkahub.data.db.entity.MessageNodeEntity
-import me.rerere.rikkahub.data.db.entity.WorkMachineEntity
-import me.rerere.rikkahub.data.db.entity.WorkMessageEntity
-import me.rerere.rikkahub.data.db.entity.WorkRepoPresetEntity
-import me.rerere.rikkahub.data.db.entity.WorkSessionEntity
+import me.rerere.rikkahub.data.db.entity.PhoneWorkEventEntity
+import me.rerere.rikkahub.data.db.entity.PhoneWorkSessionEntity
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.db.migrations.Migration_16_17
 import me.rerere.rikkahub.data.db.migrations.Migration_22_23
@@ -63,29 +40,10 @@ import me.rerere.rikkahub.utils.JsonInstant
         FavoriteEntity::class,
         WorkspaceEntity::class,
         FolderEntity::class,
-        WorkSessionEntity::class,
-        WorkMessageEntity::class,
-        WorkMachineEntity::class,
-        WorkRepoPresetEntity::class,
-        CodexMachineEntity::class,
-        CodexProjectEntity::class,
-        CodexProjectPreferenceEntity::class,
-        CodexThreadEntity::class,
-        CodexThreadDetailRevisionEntity::class,
-        CodexThreadPreferenceEntity::class,
-        CodexTurnEntity::class,
-        CodexItemEntity::class,
-        CodexRuntimeBindingEntity::class,
-        CodexRuntimeCatalogEntity::class,
-        CodexRuntimeSettingsEntity::class,
-        CodexAttachmentEntity::class,
-        CodexDraftEntity::class,
-        CodexApprovalEntity::class,
-        CodexCatalogSyncEntity::class,
-        CodexCatalogChunkEntity::class,
-        CodexTombstoneEntity::class,
+        PhoneWorkSessionEntity::class,
+        PhoneWorkEventEntity::class,
     ],
-    version = 31,
+    version = 33,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -112,6 +70,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         AutoMigration(from = 28, to = 29),
         AutoMigration(from = 29, to = 30),
         AutoMigration(from = 30, to = 31),
+        AutoMigration(from = 31, to = 32),
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -132,15 +91,8 @@ abstract class AppDatabase : RoomDatabase() {
 
     abstract fun folderDao(): FolderDAO
 
-    abstract fun workSessionDao(): WorkSessionDAO
+    abstract fun phoneWorkDao(): PhoneWorkDAO
 
-    abstract fun workMessageDao(): WorkMessageDAO
-
-    abstract fun workMachineDao(): WorkMachineDAO
-
-    abstract fun workRepoPresetDao(): WorkRepoPresetDAO
-
-    abstract fun codexCatalogDao(): CodexCatalogDAO
 }
 
 object TokenUsageConverter {
