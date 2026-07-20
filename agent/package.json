@@ -1,6 +1,6 @@
 {
   "name": "zhixing-agent",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "知行开发机守护：旁路保留 Wire，并管理 Codex App Server direct 连接",
   "license": "MIT",
   "type": "module",

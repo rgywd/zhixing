@@ -24,8 +24,8 @@ android {
         applicationId = "dev.sundby.zhixing"
         minSdk = 26
         targetSdk = 37
-        versionCode = 17
-        versionName = "0.2.2"
+        versionCode = 18
+        versionName = "0.3.0"
         buildConfigField("boolean", "CODEX_WORKFLOW_ENABLED", codexWorkflowEnabled.get().toString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
