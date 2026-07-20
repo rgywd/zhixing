@@ -65,6 +65,7 @@ export class WorkRunner {
   }
 
   async pollOnce() {
+    await this.flushOutbox();
     const commands = await this.client.commands(this.config.id);
     for (const command of commands) {
       if (this.active.has(command.sessionId) && !["STOP", "COMPLETE"].includes(command.kind)) continue;
@@ -73,7 +74,7 @@ export class WorkRunner {
       } else if (command.kind === "STOP" || command.kind === "COMPLETE") {
         await this.stopCommand(command);
       } else {
-        await this.client.ack(command.id, "FAILED", sessionState(command.sessionId, "FAILED", "Unsupported runner command"));
+        await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", "Unsupported runner command"));
       }
     }
   }
@@ -81,7 +82,7 @@ export class WorkRunner {
   async startCommand(command) {
     const repo = this.config.repos.find((candidate) => candidate.id === (command.payload.repoId ?? this.state.get(command.sessionId)?.repoId));
     if (!repo || !existsSync(repo.path)) {
-      await this.client.ack(command.id, "FAILED", sessionState(command.sessionId, "FAILED", "Repository is not available on the runner"));
+      await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", "Repository is not available on the runner"));
       return;
     }
     const previous = this.state.get(command.sessionId) ?? {};
@@ -89,7 +90,7 @@ export class WorkRunner {
     const reasoningEffort = command.payload.reasoningEffort ?? previous.reasoningEffort;
     const sessionToken = command.payload.sessionToken ?? previous.sessionToken;
     if (!repo.models.includes(model) || !repo.reasoningEfforts.includes(reasoningEffort) || !sessionToken) {
-      await this.client.ack(command.id, "FAILED", sessionState(command.sessionId, "FAILED", "Runner rejected the session snapshot"));
+      await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", "Runner rejected the session snapshot"));
       return;
     }
 
@@ -137,7 +138,7 @@ export class WorkRunner {
         },
       });
     } catch (error) {
-      await this.client.ack(command.id, "FAILED", sessionState(command.sessionId, "FAILED", safeError(error)));
+      await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", safeError(error)));
       return;
     }
     this.active.set(command.sessionId, { ...running, startCommandId: command.id, stoppedByUser: false });
@@ -145,11 +146,11 @@ export class WorkRunner {
       const active = this.active.get(command.sessionId);
       this.active.delete(command.sessionId);
       if (active?.stoppedByUser) {
-        if (!active.startCommandAcknowledged) await this.client.ack(command.id, "COMPLETED");
+        if (!active.startCommandAcknowledged) await this.commitTransition(command.id, "COMPLETED", null);
         return;
       }
       if (result.code === 0 && discoveredSessionId) {
-        await this.client.ack(command.id, "COMPLETED", sessionState(
+        await this.commitTransition(command.id, "COMPLETED", sessionState(
           command.sessionId,
           "IDLE",
           "Codex turn completed",
@@ -157,7 +158,7 @@ export class WorkRunner {
         ));
       } else {
         const detail = discoveredSessionId ? "Codex process exited with an error" : "Codex exited before returning a session ID";
-        await this.client.ack(command.id, "FAILED", sessionState(command.sessionId, "FAILED", detail, discoveredSessionId));
+        await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", detail, discoveredSessionId));
       }
     }).catch((error) => this.logError("process-exit", error));
   }
@@ -166,15 +167,27 @@ export class WorkRunner {
     const running = this.active.get(command.sessionId);
     if (running) {
       running.stoppedByUser = true;
-      await this.client.ack(running.startCommandId, "COMPLETED");
+      await this.commitTransition(running.startCommandId, "COMPLETED", null);
       running.startCommandAcknowledged = true;
       running.child.kill();
     }
     if (command.kind === "COMPLETE") {
       this.state.delete(command.sessionId);
-      await this.client.ack(command.id, "COMPLETED", sessionState(command.sessionId, "COMPLETED", "Session completed by user"));
+      await this.commitTransition(command.id, "COMPLETED", sessionState(command.sessionId, "COMPLETED", "Session completed by user"));
     } else {
-      await this.client.ack(command.id, "COMPLETED", sessionState(command.sessionId, "IDLE", "Codex turn stopped by user"));
+      await this.commitTransition(command.id, "COMPLETED", sessionState(command.sessionId, "IDLE", "Codex turn stopped by user"));
+    }
+  }
+
+  async commitTransition(commandId, state, snapshot) {
+    this.state.enqueueTransition(commandId, state, snapshot);
+    await this.flushOutbox();
+  }
+
+  async flushOutbox() {
+    for (const transition of this.state.transitions()) {
+      await this.client.ack(transition.commandId, transition.state, transition.sessionState);
+      this.state.removeTransition(transition.commandId);
     }
   }
 

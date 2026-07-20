@@ -33,7 +33,8 @@
 - [x] 启动 `codex exec`，解析并保存 session ID；补充消息使用 `codex exec resume`。
 - [x] 使用隔离配置固定 model/effort、完全访问和三个 MCP 工具。
 - [x] 实现 `report`、`ask`、`report_html` 的 stdio MCP server 与 Core client。
-- [x] 进程退出时上报 IDLE/FAILED；stop 能终止子进程且不丢待处理消息。
+- [x] 进程退出时把 IDLE/FAILED 终态先写入本地 outbox，再原子提交 Core；断网或重启后持续重放。
+- [x] stop 能终止子进程且不丢待处理消息。
 
 验收：用假 Codex 进程覆盖启动/resume/stop；再用真实 Codex 完成三工具回环，普通桌面 Codex 配置无变化。
 
@@ -72,9 +73,9 @@
 
 ## 当前验证证据
 
-- `npm --prefix work test`：15/15 通过，覆盖 Core 契约与重启恢复、ask 故障回滚、短期 token 撤销、命令/会话原子提交、Runner 隔离鉴权、进程换代与命令租约回收、提问超时、Runner 参数、resume、状态持久化与 Windows 可执行文件解析。
+- `npm --prefix work test`：16/16 通过，覆盖 Core 契约与重启恢复、ask 故障回滚、短期 token 撤销、命令/会话原子提交、Runner 终态 outbox 重放、隔离鉴权、进程换代与命令租约回收、提问超时、Runner 参数、resume、状态持久化与 Windows 可执行文件解析。
 - `npm --prefix work run e2e:real`：真实 Codex 完成 `report → ask/answer → report_html → IDLE`，Codex session ID
-  `019f7fa1-41aa-7b93-9033-3b95d22b2f9e`；测试只使用临时 Git 仓库。
+  `019f7fa6-3280-73e0-8c9b-050e3ab5ccff`；测试只使用临时 Git 仓库。
 - `./gradlew :app:testDebugUnitTest` 与 `:app:compileDebugKotlin` 通过。
 - `Migration_32_33_Test` 已在 Android 15 模拟器通过，确认删除旧 Work 表且保留 Phone-line 表。
 - `docker compose config` 通过；本机 Docker Desktop 引擎未启动，因此容器镜像运行验证仍待部署机执行。

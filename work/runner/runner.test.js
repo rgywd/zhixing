@@ -103,7 +103,75 @@ test("runner persists discovered session id and completes one turn", async () =>
   assert.equal(completed[3].status, "IDLE");
   assert.equal(completed[3].codexSessionId, "019f-codex");
   assert.ok(!calls.some((call) => call[0] === "state" && call[2] === "IDLE"));
-  assert.equal(JSON.parse(readFileSync(join(directory, "state.json"), "utf8")).sessions["work-1"].sessionToken, "session-token");
+  const persisted = JSON.parse(readFileSync(join(directory, "state.json"), "utf8"));
+  assert.equal(persisted.sessions["work-1"].sessionToken, "session-token");
+  assert.deepEqual(persisted.outbox, {});
+});
+
+test("runner durably replays a final transition after an extended Core outage", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-outbox-"));
+  const stateFile = join(directory, "state.json");
+  const state = new RunnerState(stateFile);
+  let resolveProcess;
+  const failingClient = {
+    ack: async (_commandId, status) => {
+      if (status === "COMPLETED") throw new Error("Core unavailable");
+    },
+    updateState: async () => {},
+  };
+  const runner = new WorkRunner({
+    config: {
+      id: "runner",
+      coreUrl: "https://core",
+      stateFile,
+      repos: [{
+        id: "repo",
+        name: "repo",
+        path: directory,
+        models: ["gpt-5.6-sol"],
+        reasoningEfforts: ["high"],
+      }],
+    },
+    state,
+    client: failingClient,
+    spawnCodex: ({ onEvent }) => {
+      onEvent({ type: "thread.started", thread_id: "019f-outbox" });
+      return {
+        child: { kill() {} },
+        completed: new Promise((resolve) => { resolveProcess = resolve; }),
+      };
+    },
+  });
+  await runner.startCommand({
+    id: "cmd-outbox",
+    sessionId: "work-outbox",
+    kind: "START",
+    payload: {
+      repoId: "repo",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      sessionToken: "session-token",
+      message: "hello",
+    },
+  });
+  resolveProcess({ code: 0, signal: null, stderr: "" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(runner.active.size, 0);
+  assert.equal(state.transitions().length, 1);
+  assert.equal(state.transitions()[0].sessionState.status, "IDLE");
+
+  const replayed = [];
+  const recoveredState = new RunnerState(stateFile);
+  const recoveredRunner = new WorkRunner({
+    config: runner.config,
+    state: recoveredState,
+    client: { ack: async (...args) => replayed.push(args) },
+  });
+  await recoveredRunner.flushOutbox();
+  assert.equal(replayed[0][0], "cmd-outbox");
+  assert.equal(replayed[0][1], "COMPLETED");
+  assert.equal(replayed[0][2].status, "IDLE");
+  assert.equal(recoveredState.transitions().length, 0);
 });
 
 test("session id parser accepts current Codex JSONL event", () => {
