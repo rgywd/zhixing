@@ -242,7 +242,8 @@ OpenAI 官方将 App Server 用于富客户端集成，但 WebSocket transport �
 ## 10. 版本与降级
 
 - 首个目标固定为本机已验证的 `codex-cli 0.144.0`，并提交该版本生成的协议 schema hash。
-- 无 Supervisor 时由 initialize `userAgent` 精确锁定受审版本并校验响应字段，只开放 `TEXT_ONLY`；
+- 无 Supervisor 时由 initialize 的结构化 `userAgent` 首段精确锁定受审版本并校验响应字段，只开放
+  `TEXT_ONLY`；OS 与客户端元数据不参与版本白名单比较；
   配置 Supervisor 后再比较 schema hash 与 required method set，只有二者均通过才开放附件与 `FULL`。
 - 未知 notification 保存为 opaque 诊断对象，不能使整个 Thread 崩溃。
 - 必需写能力不兼容时进入“缓存只读”；Chat 模式继续正常工作。
@@ -266,7 +267,7 @@ OpenAI 官方将 App Server 用于富客户端集成，但 WebSocket transport �
 | Work 分组是仓库 | 仓库增删改、选择持久化和不删除远端数据的测试 |
 | 无 Work 首页/任务表单 | 切换 Work 和新建 Thread 直接进入共享空白聊天壳 |
 | 复用原聊天详情 | Chat 与 Work 使用同一 Scaffold/Timeline/Composer 组件；无第二套输入框 |
-| 图片和文件 | 现有 + Sheet 选择、预览、受控上传；图片走 `localImage`，通用文件走受控本机路径清单（官方协议无通用 file item） |
+| 图片和文件 | 现有 + Sheet 选择、预览、受控上传；图片走 `localImage`，通用文件以普通 `text` 携带受控本机路径清单并在 UI 投影时还原（官方协议无通用 file item，`mention` 只用于连接器） |
 | 模型/思考不锁死 | 无网络/无 Catalog 时客户端预设可选；服务端拒绝后的明确回退测试 |
 | 权限与 Fast 收拢 | 只在 Work 的现有 + Sheet 中显示并随 Turn 生效 |
 | `/` 指令 | CompletionProvider 展示 Skill/插件/指令，选择后结构化发送 |

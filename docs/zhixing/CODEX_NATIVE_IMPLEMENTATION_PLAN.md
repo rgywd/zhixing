@@ -461,14 +461,21 @@ Set-Location ..
   request_user_input、`-32001` 退避、断线自动重连、Supervisor schema 兼容门禁和运行参数拒绝回滚均进入
   生产路径并补测试。Android 260 项单测、Debug APK、Compose 仪器测试编译与模式切换真机测试全绿；
   最新 APK 经 loopback compatibility gate 实测收到 `DIRECT_GATE_OK`，普通 Chat 未建立 Work WebSocket。
-- 2026-07-20：按 Codex 0.144.0 `generate-ts --experimental` 的 `v2/UserInput` 修正通用文件：新消息发送
-  结构化 `mention { name, path }`，旧文本清单仅做历史兼容读取。
+- 2026-07-20：按 Codex 0.144.0 `generate-ts --experimental` 的 `v2/UserInput` 修正通用文件：官方
+  `mention` 仅用于 App/Plugin 连接器，不能承载普通文件；新消息改为 Supervisor 受控落盘后用普通
+  `text` 携带本机路径清单，并在原生消息投影边界隐藏清单、恢复附件 UI。
 - 2026-07-20：独立复审补齐官方 plan/command/file/MCP/error/model-reroute 与未知 opaque 事件累计；
   `request_user_input` 在 Item 迟到时创建可回答的原生投影；参数拒绝只回退命中字段；未配置可选
   Supervisor 时保持文本可写，仅禁用需要受控上传的附件。
 - 2026-07-20：修正无 Supervisor 兼容门：直接校验 initialize 的精确受审 `userAgent` 与平台字段，未知版本
   保持只读；Supervisor schema/method facts 只用于升级到 `FULL`。同时对 text-only 模型携带图片实施发送前
   拦截，保留草稿与附件并提示切换模型；未知 opaque notification 默认不进入聊天 UI。
+- 2026-07-20：真机 WSS 回归发现 Codex 0.144.0 的 initialize `userAgent` 会追加 OS 版本和调用方元数据；
+  兼容门改为完整匹配官方结构、只对白名单首段版本做精确比较，拒绝任意前缀/子串伪装。
+- 2026-07-20：真机首轮发送发现空 Thread 在首条用户消息前不可 `thread/read(includeTurns=true)`，且
+  `turn/start` 返回后 rollout 仍有约 100–350 ms 刷盘窗口；改为首轮成功后持久化 Thread 指针并对
+  `turn/completed` 后的权威快照校准执行短退避；仅重试 `not materialized` / `rollout is empty` 两类瞬态，
+  避免半成品成功快照覆盖已到达的流式 Item，其他读取错误继续锁为只读。
 - 2026-07-20：Direct Thread 接入现有 Room 31 Codex cache：页面启动先恢复当前 Thread，官方快照立即
   落库，流式事件短防抖刷新，网络恢复后再以 `thread/read` 覆盖；离线不恢复可操作审批。新增仪器测试完成
   “写入 → 关闭数据库 → 重新打开 → 读取消息与附件”进程重启闭环。`thread/start` 成功后也会先保存 Thread
@@ -500,3 +507,9 @@ Set-Location ..
   再验一次才运行 compatibility gate。新增真实排队测试覆盖 A 慢初始化、B 等待 mutex、切换后取消 A 并由 B
   接管，以及 initialize 期间失活不得发布旧连接 READY。Android 285 项单测、Debug APK 构建与 AndroidTest
   Kotlin 编译全部通过。
+- 2026-07-20：Tailscale HTTPS 启用后完成 tailnet-only WSS 真机闭环：Android 经
+  `wss://minecraft.tail427df8.ts.net` 直连 loopback App Server，未开启公网 Funnel；受控文本附件上传后
+  Codex 通过 PowerShell 读取并精确返回 `ATTACHMENT_LOOP_OK`，原生 UI 实时显示用户消息、附件、工具与回复。
+  同时修复首轮 Thread 指针、早到 Item/Delta 和权威快照覆盖本地附件映射三处竞态；强制停止并重启应用后
+  当前 Thread、上下文用量和原生附件仍完整恢复。Android 全量单测/Debug APK/AndroidTest Kotlin 与 Agent
+  75 项测试/typecheck/build 全绿。

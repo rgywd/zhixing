@@ -168,7 +168,7 @@ App Server 支持的字段。仓库路径只能来自已保存的 `WorkRepositor
     "input": [
       {"type": "text", "text": "修复截图中的布局"},
       {"type": "localImage", "path": "C:\\...\\uploads\\opaque\\shot.png", "detail": "auto"},
-      {"type": "mention", "name": "requirements.md", "path": "C:\\...\\uploads\\opaque\\requirements.md"},
+      {"type": "text", "text": "<zhixing_file_attachments>{...受控本机文件路径...}</zhixing_file_attachments>", "text_elements": []},
       {"type": "skill", "name": "ui-review", "path": "C:\\...\\SKILL.md"}
     ],
     "model": "<client selected model>",
@@ -182,8 +182,9 @@ App Server 支持的字段。仓库路径只能来自已保存的 `WorkRepositor
 规则：
 
 - 空闲发送为 `turn/start`；运行中有草稿发送为 `turn/steer`；
-- 文本、图片、文件和 Skill 保持 App Server 官方结构化顺序；通用文件使用 `mention { name, path }`，App/Plugin 引用来自文本内的 `text_elements`；
-- 通用文件先由薄守护受控落盘，再将本机绝对路径作为结构化 `mention` 提交；旧版文本清单仅保留只读解析兼容，不再产生；
+- 文本、图片、文件和 Skill 保持用户选择顺序；图片使用官方 `localImage`，Skill 使用官方 `skill`；
+- App Server 0.144.0 没有通用 `file` 输入，`mention` 只表示 `app://` / `plugin://` 连接器引用，不得承载普通文件路径；
+- 通用文件先由薄守护受控落盘，再以普通 `text` 输入携带机器可读的受控本机路径清单；该清单在原生消息投影边界隐藏并恢复为附件，不泄露到聊天 UI；
 - Android URI、content URI 和用户手填 Windows 路径不得直接发给 App Server；
 - 模型不支持图片时保留附件和草稿，提示用户切换，不丢内容；
 - 发送成功前不清空草稿；收到 Turn 接受响应后才转为消息投影。
@@ -348,8 +349,14 @@ Android 只接受与上传请求 ID、大小和 SHA-256 全部匹配的回执。
   job 并关闭半开 socket，`initialize` 返回后、发布 `READY` 前还要再次核对归属，连接调用返回后 repository
   controller 也必须复核激活身份才可进入 compatibility gate；同 connectionId 的新 snapshot 建立 generation
   watermark，低于 watermark 的迟到事件不得再次追加到可见消息；
-- `thread/start` 一旦收到成功响应，先把服务端 Thread ID 和最小 snapshot 写入其原 connectionId 的本地槽位，
-  再检查租约决定是否继续 `thread/read/turn/start`，避免断线制造不可恢复的孤儿 Thread；
+- `thread/start` 返回的空 Thread 在第一条用户消息前尚未 materialize，禁止以 `thread/read(includeTurns=true)`
+  作为首条消息的前置门槛；先保留本次连接内的临时 Thread，`turn/start` 成功后再把 Thread ID 与最小
+  snapshot 写入原 connectionId 的本地槽位；流式事件直接驱动聊天 UI，`turn/completed` 后再短暂重试
+  `thread/read` 等待 rollout 刷盘并以权威快照校准；
+- 首轮成功后的 Thread 指针必须以“本机尚未保存当前 Thread”为事实判断，不能只依赖易被重连清除的
+  内存 materialization 标记；Turn 占位到达前的 Item/Delta 也必须先创建 Turn 后投影，禁止静默丢弃；
+- `thread/read` 权威快照只覆盖服务端 Thread/Turn/Item；手机 URI 等本地附件映射必须按受控远端路径保留，
+  以便流式阶段、最终校准和进程重启后都投影为同一原生附件；
 - Chat Provider Conversation 不写入 Codex 表，Codex Thread 不写入 Provider Conversation 表。
 
 ## 13. 兼容门
@@ -358,7 +365,8 @@ Android 只接受与上传请求 ID、大小和 SHA-256 全部匹配的回执。
 
 1. TLS 与 bearer 认证；
 2. initialize 成功；
-3. initialize 的 `userAgent` 精确命中受审 Codex 版本，且 `codexHome/platformFamily/platformOs` 完整；
+3. initialize 的 `userAgent` 必须完整匹配 Codex Desktop 结构，首段版本精确命中受审版本；OS 与客户端
+   元数据允许随运行环境变化，且 `codexHome/platformFamily/platformOs` 必须完整；
 4. 未配置 Supervisor 时只允许 `TEXT_ONLY`，任意未知/缺失版本一律 `READ_ONLY/INCOMPATIBLE`；
 5. 配置 Supervisor 后还须验证 schema hash、P0 required method set 与附件健康，才可进入 `FULL`；
 6. 已有 Thread 的 `thread/read` 能解析核心 Item；新 Thread 首次成功后补做同一 fixture；

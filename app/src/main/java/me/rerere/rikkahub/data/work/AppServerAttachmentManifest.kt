@@ -21,8 +21,10 @@ data class ParsedAttachmentManifest(
 )
 
 /**
- * Read-only compatibility parser for attachment manifests emitted by early direct-mode builds.
- * New turns use App Server's structured `mention { name, path }` input instead.
+ * Model-visible local file context for generic documents uploaded through the Supervisor.
+ *
+ * App Server has no generic file input. `mention` is reserved for app/plugin connector references,
+ * so documents are represented as ordinary text and removed again at the native UI projection boundary.
  */
 object AppServerAttachmentManifest {
     private const val OPEN = "<zhixing_file_attachments>"

@@ -48,6 +48,37 @@ class AppServerThreadReducerTest {
     }
 
     @Test
+    fun `early item and delta notifications create their turn instead of disappearing`() {
+        val empty = AppServerThreadReducer.snapshot(
+            json.parseToJsonElement(
+                """{"thread":{"id":"thread-1","preview":"","createdAt":1,"updatedAt":2,"status":{"type":"active"},"turns":[]}}"""
+            ),
+            repositoryId = "repo-1",
+        )
+        val withUser = AppServerThreadReducer.apply(
+            empty,
+            AppServerNotification(
+                "item/completed",
+                json.parseToJsonElement(
+                    """{"threadId":"thread-1","turnId":"turn-early","item":{"type":"userMessage","id":"user-early","content":[{"type":"text","text":"Hello","text_elements":[]}]}}"""
+                ),
+            ),
+        )
+        val withAgent = AppServerThreadReducer.apply(
+            withUser,
+            AppServerNotification(
+                "item/agentMessage/delta",
+                json.parseToJsonElement(
+                    """{"threadId":"thread-1","turnId":"turn-early","itemId":"agent-early","delta":"World"}"""
+                ),
+            ),
+        )
+
+        assertEquals("turn-early", withAgent.turns.single().turnId)
+        assertEquals(listOf("Hello", "World"), withAgent.turns.single().items.map { it.text })
+    }
+
+    @Test
     fun `sparse turn completed notification keeps streamed items`() {
         val detail = AppServerThreadReducer.snapshot(
             json.parseToJsonElement(

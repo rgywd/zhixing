@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.ui.pages.workflow.codex
 
 import kotlinx.serialization.json.jsonPrimitive
+import me.rerere.rikkahub.data.work.AppServerAttachmentManifest
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.work.AppServerCompatibilityLevel
 import org.junit.Assert.assertNull
@@ -9,18 +10,36 @@ import org.junit.Test
 
 class AppServerUserInputTest {
     @Test
-    fun `document uses official structured mention input`() {
-        val input = appServerDocumentMention(
+    fun `document uses model visible text because mention is reserved for connectors`() {
+        val input = appServerDocumentInput(
             name = "requirements.md",
             path = "C:\\workspace\\uploads\\requirements.md",
+            mime = "text/markdown",
         )
 
-        assertEquals("mention", input.getValue("type").jsonPrimitive.content)
-        assertEquals("requirements.md", input.getValue("name").jsonPrimitive.content)
+        assertEquals("text", input.getValue("type").jsonPrimitive.content)
+        val parsed = AppServerAttachmentManifest.parse(input.getValue("text").jsonPrimitive.content)
+        assertEquals("", parsed.visibleText)
+        assertEquals("requirements.md", parsed.files.single().name)
         assertEquals(
             "C:\\workspace\\uploads\\requirements.md",
-            input.getValue("path").jsonPrimitive.content,
+            parsed.files.single().path,
         )
+        assertEquals("text/markdown", parsed.files.single().mime)
+    }
+
+    @Test
+    fun `document metadata is json escaped without changing the trusted local path`() {
+        val input = appServerDocumentInput(
+            name = "notes`draft\n.md",
+            path = "C:\\workspace\\uploads\\notes`draft.md",
+            mime = "text/markdown",
+        )
+
+        val parsed = AppServerAttachmentManifest.parse(input.getValue("text").jsonPrimitive.content)
+        assertEquals("notes`draft\n.md", parsed.files.single().name)
+        assertEquals("C:\\workspace\\uploads\\notes`draft.md", parsed.files.single().path)
+        assertEquals("text", input.getValue("type").jsonPrimitive.content)
     }
 
     @Test

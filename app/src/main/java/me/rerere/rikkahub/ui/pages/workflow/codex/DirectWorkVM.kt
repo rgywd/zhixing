@@ -27,6 +27,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.work.AppServerAttachedFile
+import me.rerere.rikkahub.data.work.AppServerAttachmentManifest
 import me.rerere.rikkahub.data.work.AppServerConnectionPhase
 import me.rerere.rikkahub.data.work.AppServerBackoffPolicy
 import me.rerere.rikkahub.data.work.AppServerCompatibility
@@ -38,6 +40,7 @@ import me.rerere.rikkahub.data.work.AppServerJsonRpcClient
 import me.rerere.rikkahub.data.work.AppServerNotification
 import me.rerere.rikkahub.data.work.AppServerOptionRollback
 import me.rerere.rikkahub.data.work.AppServerRequest
+import me.rerere.rikkahub.data.work.AppServerRpcException
 import me.rerere.rikkahub.data.work.AppServerRuntimeMapper
 import me.rerere.rikkahub.data.work.AppServerSnapshotBuffer
 import me.rerere.rikkahub.data.work.AppServerThreadReducer
@@ -106,6 +109,7 @@ class DirectWorkVM(
     private var reconnectJob: Job? = null
     private var connectJob: Job? = null
     private var cacheJob: Job? = null
+    private var finalSnapshotJob: Job? = null
     private var initialLoadComplete = false
     private var reconnectAttempt = 0
     private val reconnectPolicy = AppServerBackoffPolicy()
@@ -114,6 +118,7 @@ class DirectWorkVM(
     private val snapshotReadMutex = Mutex()
     private var visibleSnapshotGeneration = 0L
     private var writeGeneration = 0L
+    private var pendingMaterializationThreadId: String? = null
 
     val selectedModel get() = runtimeCatalog.models.firstOrNull { it.id == selectedModelId }
     val isRunning get() = detail.thread?.runtimeState?.name == "RUNNING"
@@ -173,6 +178,8 @@ class DirectWorkVM(
                     connectJob?.cancel(CancellationException("Work repository is no longer active"))
                     reconnectJob?.cancel()
                     reconnectJob = null
+                    finalSnapshotJob?.cancel()
+                    finalSnapshotJob = null
                     connected = false
                     lockCompatibility("当前仓库未激活")
                     statusMessage = "切回此仓库时将重新连接对应开发机"
@@ -224,6 +231,9 @@ class DirectWorkVM(
                 if (notificationThreadId == detail.thread?.threadId) {
                     currentTurnId = AppServerThreadReducer.activeTurnId(detail)
                     scheduleCache()
+                    if (notification.method == "turn/completed") {
+                        notificationThreadId?.let(::scheduleFinalSnapshot)
+                    }
                 }
             }
         }
@@ -367,6 +377,7 @@ class DirectWorkVM(
         }
         detail = cached?.copy(cwd = cached.cwd ?: repo.path, approvals = emptyList())
             ?: CodexThreadDetail(null, emptyList())
+        pendingMaterializationThreadId = null
         visibleSnapshotGeneration = 0L
         currentTurnId = AppServerThreadReducer.activeTurnId(detail)
         pendingRequests.clear()
@@ -390,9 +401,10 @@ class DirectWorkVM(
         val threadId = workUiStore.state.value.repositories
             .firstOrNull { it.id == repositoryId }
             ?.threadIdFor(credentials.connectionId)
-        val fixturePassed = threadId?.let { readThreadSnapshot(it, gate, credentials.connectionId) } ?: true
+        val fixture = threadId?.let { readThreadSnapshot(it, gate, credentials.connectionId) }
+            ?: ThreadSnapshotReadOutcome.SUCCESS
         if (!isCurrentGate(gate, credentials.connectionId)) return
-        if (!fixturePassed) {
+        if (fixture == ThreadSnapshotReadOutcome.FAILED) {
             compatibility = AppServerCompatibility(
                 AppServerCompatibilityLevel.READ_ONLY,
                 "当前 Thread 无法通过 thread/read 兼容性检查",
@@ -401,13 +413,16 @@ class DirectWorkVM(
             refreshCatalog(gate, credentials.connectionId)
             return
         }
+        pendingMaterializationThreadId = threadId.takeIf {
+            fixture == ThreadSnapshotReadOutcome.UNMATERIALIZED
+        }
         val evaluatedCompatibility = evaluateCompatibility(credentials)
         if (!isCurrentGate(gate, credentials.connectionId)) return
         compatibility = evaluatedCompatibility
         compatibility.reason?.let { reason ->
             if (compatibility.level != AppServerCompatibilityLevel.FULL) statusMessage = reason
         }
-        if (writable && threadId != null) {
+        if (writable && threadId != null && fixture == ThreadSnapshotReadOutcome.SUCCESS) {
             runCatching {
                 check(isCurrentGate(gate, credentials.connectionId)) { "连接状态已变化，请重新操作" }
                 val lease = requireNotNull(acquireWriteLease()).also { check(it == gate) }
@@ -534,6 +549,12 @@ class DirectWorkVM(
             statusMessage = null
             runCatching {
                 val threadId = detail.thread?.threadId ?: startThread(lease)
+                val activeConnection = requireNotNull(connection)
+                val needsMaterialization = directThreadNeedsMaterialization(
+                    pendingThreadId = pendingMaterializationThreadId,
+                    storedThreadId = repository?.threadIdFor(activeConnection.connectionId),
+                    targetThreadId = threadId,
+                )
                 val input = buildInput(contents, lease)
                 requireWriteLease(lease)
                 val steering = isRunning
@@ -572,6 +593,13 @@ class DirectWorkVM(
                 }
                 inputState.clearInput()
                 persistDraft("")
+                if (needsMaterialization) {
+                    val repo = requireNotNull(repository)
+                    requireWriteLease(lease)
+                    workUiStore.updateDirectThread(repo.id, activeConnection.connectionId, threadId)
+                    pendingMaterializationThreadId = null
+                    persistCacheNow()
+                }
                 acceptedPreferences = currentPreferences()
             }.onFailure { error ->
                 statusMessage = if (rollbackRejectedPreferences(error)) {
@@ -614,7 +642,11 @@ class DirectWorkVM(
         viewModelScope.launch {
             runCatching {
                 requireWriteLease(lease)
-                startThread(lease)
+                val threadId = startThread(lease)
+                val repo = requireNotNull(repository)
+                val activeConnection = requireNotNull(connection)
+                workUiStore.updateDirectThread(repo.id, activeConnection.connectionId, null)
+                threadId
             }
                 .onSuccess {
                     currentTurnId = null
@@ -806,15 +838,11 @@ class DirectWorkVM(
             directCacheMachineId(connectionAtStart.connectionId),
         )
         val threadId = requireNotNull(createdDetail.thread?.threadId)
-        workUiStore.updateDirectThread(repo.id, connectionAtStart.connectionId, threadId)
-        catalogRepository.cacheDirectThread(createdDetail)
         if (!directWorkLeaseValid(writable, writeGeneration, client.connectionGeneration, lease)) {
-            throw AppServerTransportException("连接已变化；新对话已记录，请切回原连接继续")
+            throw AppServerTransportException("连接已变化；请重新新建对话")
         }
         detail = createdDetail
-        check(readThreadSnapshot(threadId, lease, connectionAtStart.connectionId)) {
-            "新 Thread 无法通过 thread/read 校验"
-        }
+        pendingMaterializationThreadId = threadId
         return threadId
     }
 
@@ -822,54 +850,85 @@ class DirectWorkVM(
         threadId: String,
         snapshotGeneration: DirectWorkWriteLease,
         snapshotConnectionId: String,
-    ): Boolean = snapshotReadMutex.withLock {
-        if (!isCurrentGate(snapshotGeneration, snapshotConnectionId)) return@withLock false
-        val repo = repository ?: return@withLock false
+        expectMaterialized: Boolean = false,
+    ): ThreadSnapshotReadOutcome = snapshotReadMutex.withLock {
+        if (!isCurrentGate(snapshotGeneration, snapshotConnectionId)) {
+            return@withLock ThreadSnapshotReadOutcome.FAILED
+        }
+        val repo = repository ?: return@withLock ThreadSnapshotReadOutcome.FAILED
         val baseDetail = detail
         snapshotBuffer.begin(threadId, snapshotGeneration.connectionGeneration)
-        try {
-            val snapshot = client.request(
-                "thread/read",
-                buildJsonObject {
-                    put("threadId", threadId)
-                    put("includeTurns", true)
-                },
-                expectedConnectionGeneration = snapshotGeneration.connectionGeneration,
-                beforeAttempt = {
-                    check(isCurrentGate(snapshotGeneration, snapshotConnectionId)) {
-                        "连接状态已变化，取消历史同步"
+        var retryIndex = 0
+        while (true) {
+            try {
+                val snapshot = client.request(
+                    "thread/read",
+                    buildJsonObject {
+                        put("threadId", threadId)
+                        put("includeTurns", true)
+                    },
+                    expectedConnectionGeneration = snapshotGeneration.connectionGeneration,
+                    beforeAttempt = {
+                        check(isCurrentGate(snapshotGeneration, snapshotConnectionId)) {
+                            "连接状态已变化，取消历史同步"
+                        }
+                    },
+                )
+                val mapped = preserveDirectLocalMetadata(
+                    snapshot = AppServerThreadReducer.snapshot(
+                        snapshot,
+                        repo.id,
+                        directCacheMachineId(snapshotConnectionId),
+                    ),
+                    previous = baseDetail,
+                )
+                val replay = snapshotBuffer.complete(mapped)
+                commitSnapshotReplay(
+                    replay.detail,
+                    replay.serverRequests,
+                    snapshotGeneration,
+                    snapshotConnectionId,
+                    threadId,
+                    fullSnapshot = true,
+                )
+                return@withLock ThreadSnapshotReadOutcome.SUCCESS
+            } catch (error: Throwable) {
+                when (classifyThreadReadFailure(error, expectMaterialized)) {
+                    ThreadReadFailureDisposition.RETRY -> if (retryIndex < THREAD_READ_RETRY_DELAYS_MS.size) {
+                        delay(THREAD_READ_RETRY_DELAYS_MS[retryIndex++])
+                        continue
                     }
-                },
-            )
-            val mapped = AppServerThreadReducer.snapshot(
-                snapshot,
-                repo.id,
-                directCacheMachineId(snapshotConnectionId),
-            )
-            val replay = snapshotBuffer.complete(mapped)
-            commitSnapshotReplay(
-                replay.detail,
-                replay.serverRequests,
-                snapshotGeneration,
-                snapshotConnectionId,
-                threadId,
-                fullSnapshot = true,
-            )
-        } catch (error: Throwable) {
-            val replay = snapshotBuffer.abort(baseDetail)
-            val visible = commitSnapshotReplay(
-                replay.detail,
-                replay.serverRequests,
-                snapshotGeneration,
-                snapshotConnectionId,
-                threadId,
-                fullSnapshot = false,
-            )
-            if (visible) {
-                statusMessage = "历史同步失败：${error.message ?: "未知错误"}"
+                    ThreadReadFailureDisposition.UNMATERIALIZED -> {
+                        val replay = snapshotBuffer.abort(baseDetail)
+                        commitSnapshotReplay(
+                            replay.detail,
+                            replay.serverRequests,
+                            snapshotGeneration,
+                            snapshotConnectionId,
+                            threadId,
+                            fullSnapshot = false,
+                        )
+                        return@withLock ThreadSnapshotReadOutcome.UNMATERIALIZED
+                    }
+                    ThreadReadFailureDisposition.FATAL -> Unit
+                }
+                val replay = snapshotBuffer.abort(baseDetail)
+                val visible = commitSnapshotReplay(
+                    replay.detail,
+                    replay.serverRequests,
+                    snapshotGeneration,
+                    snapshotConnectionId,
+                    threadId,
+                    fullSnapshot = false,
+                )
+                if (visible) {
+                    statusMessage = "历史同步失败：${error.message ?: "未知错误"}"
+                }
+                return@withLock ThreadSnapshotReadOutcome.FAILED
             }
-            false
         }
+        @Suppress("UNREACHABLE_CODE")
+        ThreadSnapshotReadOutcome.FAILED
     }
 
     private suspend fun commitSnapshotReplay(
@@ -1058,7 +1117,7 @@ class DirectWorkVM(
                     }
                     is UIMessagePart.Document -> {
                         val receipt = requireNotNull(uploadedDocuments[part])
-                        add(appServerDocumentMention(receipt.fileName, receipt.localPath))
+                        add(appServerDocumentInput(receipt.fileName, receipt.localPath, receipt.mime))
                     }
                     else -> Unit
                 }
@@ -1121,6 +1180,24 @@ class DirectWorkVM(
         cacheJob = viewModelScope.launch {
             delay(150)
             catalogRepository.cacheDirectThread(detail)
+        }
+    }
+
+    private fun scheduleFinalSnapshot(threadId: String) {
+        val lease = acquireWriteLease() ?: return
+        val activeConnection = connection ?: return
+        finalSnapshotJob?.cancel()
+        finalSnapshotJob = viewModelScope.launch {
+            delay(150)
+            val outcome = readThreadSnapshot(
+                threadId,
+                lease,
+                activeConnection.connectionId,
+                expectMaterialized = true,
+            )
+            if (outcome != ThreadSnapshotReadOutcome.SUCCESS && isCurrentGeneration(lease)) {
+                statusMessage = "任务已结束，但 Thread 历史同步失败；重新连接后会再次校准"
+            }
         }
     }
 
@@ -1189,6 +1266,40 @@ private data class ProjectedServerRequest(
     val detail: CodexThreadDetail,
 )
 
+private enum class ThreadSnapshotReadOutcome {
+    SUCCESS,
+    UNMATERIALIZED,
+    FAILED,
+}
+
+internal enum class ThreadReadFailureDisposition {
+    RETRY,
+    UNMATERIALIZED,
+    FATAL,
+}
+
+internal fun classifyThreadReadFailure(
+    error: Throwable,
+    expectMaterialized: Boolean,
+): ThreadReadFailureDisposition {
+    val rpc = error as? AppServerRpcException ?: return ThreadReadFailureDisposition.FATAL
+    val notMaterialized = rpc.code == -32600 &&
+        rpc.message.contains("not materialized yet", ignoreCase = true)
+    if (notMaterialized) {
+        return if (expectMaterialized) {
+            ThreadReadFailureDisposition.RETRY
+        } else {
+            ThreadReadFailureDisposition.UNMATERIALIZED
+        }
+    }
+    val emptyRollout = rpc.code == -32603 &&
+        rpc.message.contains("rollout", ignoreCase = true) &&
+        rpc.message.contains("is empty", ignoreCase = true)
+    return if (emptyRollout) ThreadReadFailureDisposition.RETRY else ThreadReadFailureDisposition.FATAL
+}
+
+private val THREAD_READ_RETRY_DELAYS_MS = listOf(100L, 250L, 500L, 1_000L)
+
 internal enum class DirectWorkEventRoute {
     CURRENT,
     HISTORICAL,
@@ -1225,10 +1336,27 @@ internal fun directCacheMachineId(connectionId: String): String = "direct:$conne
 internal fun directWorkWritable(connected: Boolean, level: AppServerCompatibilityLevel): Boolean =
     connected && level in setOf(AppServerCompatibilityLevel.FULL, AppServerCompatibilityLevel.TEXT_ONLY)
 
-internal fun appServerDocumentMention(name: String, path: String): JsonObject = buildJsonObject {
-    put("type", "mention")
-    put("name", name)
-    put("path", path)
+internal fun directThreadNeedsMaterialization(
+    pendingThreadId: String?,
+    storedThreadId: String?,
+    targetThreadId: String,
+): Boolean = pendingThreadId == targetThreadId || storedThreadId != targetThreadId
+
+internal fun preserveDirectLocalMetadata(
+    snapshot: CodexThreadDetail,
+    previous: CodexThreadDetail,
+): CodexThreadDetail = snapshot.copy(attachments = previous.attachments)
+
+internal fun appServerDocumentInput(name: String, path: String, mime: String): JsonObject = buildJsonObject {
+    put("type", "text")
+    put(
+        "text",
+        AppServerAttachmentManifest.append(
+            text = "",
+            files = listOf(AppServerAttachedFile(name, path, mime)),
+        ),
+    )
+    put("text_elements", JsonArray(emptyList()))
 }
 
 internal fun directWorkInputRestriction(

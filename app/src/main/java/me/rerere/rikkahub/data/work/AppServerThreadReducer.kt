@@ -151,7 +151,8 @@ object AppServerThreadReducer {
     private fun applyItem(detail: CodexThreadDetail, params: JsonObject): CodexThreadDetail {
         val turnId = params.string("turnId") ?: return detail
         val item = (params["item"] as? JsonObject)?.let(::mapItem) ?: return detail
-        return detail.copy(turns = detail.turns.map { turn ->
+        val turns = detail.turns.ensureTurn(turnId)
+        return detail.copy(turns = turns.map { turn ->
             if (turn.turnId != turnId) turn else turn.copy(items = turn.items.replaceBy(CodexItem::itemId, item))
         })
     }
@@ -160,7 +161,8 @@ object AppServerThreadReducer {
         val turnId = params.string("turnId") ?: return detail
         val itemId = params.string("itemId") ?: return detail
         val delta = params.string("delta") ?: return detail
-        return detail.copy(turns = detail.turns.map { turn ->
+        val turns = detail.turns.ensureTurn(turnId)
+        return detail.copy(turns = turns.map { turn ->
             if (turn.turnId != turnId) return@map turn
             val existing = turn.items.firstOrNull { it.itemId == itemId }
             val item = (existing ?: CodexItem(

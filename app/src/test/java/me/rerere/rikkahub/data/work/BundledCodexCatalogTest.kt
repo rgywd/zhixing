@@ -71,13 +71,19 @@ class BundledCodexCatalogTest {
         assertEquals(AppServerCompatibilityLevel.TEXT_ONLY, textOnly.level)
         assertEquals(AppServerCompatibilityLevel.FULL, full.level)
         val direct = AppServerCompatibilityGate.evaluateInitialize(buildJsonObject {
-            put("userAgent", "Codex Desktop/0.144.0 (Windows; x86_64)")
+            put(
+                "userAgent",
+                "Codex Desktop/0.144.0 (Windows 10.0.26200; x86_64) unknown (zhixing_android; 0.2.2)",
+            )
             put("codexHome", "C:/Users/test/.codex")
             put("platformFamily", "windows")
             put("platformOs", "windows")
         })
         val unreviewed = AppServerCompatibilityGate.evaluateInitialize(buildJsonObject {
-            put("userAgent", "Codex Desktop/0.145.0 (Windows; x86_64)")
+            put(
+                "userAgent",
+                "Codex Desktop/0.145.0 (Windows 10.0.26200; x86_64) unknown (zhixing_android; 0.2.2)",
+            )
             put("codexHome", "C:/Users/test/.codex")
             put("platformFamily", "windows")
             put("platformOs", "windows")
@@ -89,7 +95,10 @@ class BundledCodexCatalogTest {
             put("platformOs", "windows")
         })
         val missingField = AppServerCompatibilityGate.evaluateInitialize(buildJsonObject {
-            put("userAgent", "Codex Desktop/0.144.0 (Windows; x86_64)")
+            put(
+                "userAgent",
+                "Codex Desktop/0.144.0 (Windows 10.0.26200; x86_64) unknown (zhixing_android; 0.2.2)",
+            )
             put("codexHome", "C:/Users/test/.codex")
             put("platformFamily", "windows")
         })

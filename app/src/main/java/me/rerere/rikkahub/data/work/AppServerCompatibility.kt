@@ -107,6 +107,6 @@ object AppServerCompatibilityGate {
     }
 
     private val VERSION_PATTERN = Regex(
-        "^Codex Desktop/(\\d+\\.\\d+\\.\\d+) \\([^()\\r\\n]+\\)$",
+        "^Codex Desktop/(\\d+\\.\\d+\\.\\d+) \\([^()\\r\\n]+\\) [A-Za-z0-9._-]+ \\([^()\\r\\n]+\\)$",
     )
 }
