@@ -87,25 +87,6 @@ sealed class ASRProviderSetting {
     }
 
     /**
-     * 火山引擎 Agent Plan ASR。Key 由应用层从 Agent Plan 主提供商运行时注入，
-     * WebSocket 地址与资源 ID 固定在控制器中，不向用户暴露。
-     */
-    @Serializable
-    @SerialName("volcengine_agent_plan")
-    data class VolcengineAgentPlan(
-        override val id: Uuid = Uuid.random(),
-        override val name: String = "火山引擎 Agent Plan ASR",
-        val providerId: String = "",
-        val language: String = "",
-        @Transient val apiKey: String = "",
-    ) : ASRProviderSetting() {
-        override fun copyProvider(
-            id: Uuid,
-            name: String,
-        ): ASRProviderSetting = copy(id = id, name = name)
-    }
-
-    /**
      * 小米 MiMo ASR (mimo-v2.5-asr)。
      *
      * 与 OpenAIRealtime / DashScope / Volcengine 不同, MiMo ASR 是基于 OpenAI 兼容
@@ -195,7 +176,6 @@ sealed class ASRProviderSetting {
                 OpenAIRealtime::class,
                 DashScope::class,
                 Volcengine::class,
-                VolcengineAgentPlan::class,
                 MiMo::class,
                 Step::class,
             )

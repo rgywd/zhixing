@@ -3,7 +3,11 @@ package me.rerere.rikkahub.data.datastore.migration
 import android.util.Log
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import me.rerere.rikkahub.data.datastore.DEFAULT_AUTO_MODEL_ID
 import me.rerere.rikkahub.utils.JsonInstant
 
 private const val TAG = "SettingsJsonMigrator"
@@ -61,9 +65,65 @@ object SettingsJsonMigrator {
                 }
             }
 
+            // V4: 删除已下线的提供商及其语音配置，并清理已失效的模型选择。
+            val providerCleanup = root["providers"]?.let { element ->
+                removeRetiredProviderEntries(JsonInstant.encodeToString(element))
+            }
+            providerCleanup?.let { cleanup ->
+                root["providers"] = JsonInstant.parseToJsonElement(cleanup.json)
+            }
+            val ttsCleanup = root["ttsProviders"]?.let { element ->
+                removeRetiredProviderEntries(JsonInstant.encodeToString(element))
+            }
+            ttsCleanup?.let { cleanup ->
+                root["ttsProviders"] = JsonInstant.parseToJsonElement(cleanup.json)
+                root.removeIfValueIn("selectedTTSProviderId", cleanup.removedIds)
+            }
+            val asrCleanup = root["asrProviders"]?.let { element ->
+                removeRetiredProviderEntries(JsonInstant.encodeToString(element))
+            }
+            asrCleanup?.let { cleanup ->
+                root["asrProviders"] = JsonInstant.parseToJsonElement(cleanup.json)
+                root.removeIfValueIn("selectedASRProviderId", cleanup.removedIds)
+            }
+
+            providerCleanup?.removedModelIds.orEmpty().let { removedModelIds ->
+                if (removedModelIds.isNotEmpty()) {
+                    listOf("chatModelId", "fastModelId", "translateModeId").forEach { key ->
+                        if (root.stringValue(key) in removedModelIds) {
+                            root[key] = JsonPrimitive(DEFAULT_AUTO_MODEL_ID.toString())
+                        }
+                    }
+                    listOf(
+                        "titleModelId",
+                        "suggestionModelId",
+                        "imageGenerationModelId",
+                        "ocrModelId",
+                    ).forEach { key -> root.removeIfValueIn(key, removedModelIds) }
+                    root["assistants"]?.let { assistants ->
+                        val cleaned = clearRetiredAssistantModels(
+                            JsonInstant.encodeToString(assistants),
+                            removedModelIds,
+                        )
+                        root["assistants"] = JsonInstant.parseToJsonElement(cleaned)
+                    }
+                }
+            }
+
             JsonInstant.encodeToString(JsonObject(root))
         }.onFailure {
             Log.e(TAG, "migrate: Failed to migrate settings JSON, using original", it)
         }.getOrDefault(settingsJson)
     }
+}
+
+private fun MutableMap<String, kotlinx.serialization.json.JsonElement>.removeIfValueIn(
+    key: String,
+    values: Set<String>,
+) {
+    if (stringValue(key) in values) remove(key)
+}
+
+private fun Map<String, kotlinx.serialization.json.JsonElement>.stringValue(key: String): String? {
+    return this[key]?.jsonPrimitive?.contentOrNull
 }

@@ -14,7 +14,6 @@ import me.rerere.tts.provider.providers.OpenAITTSProvider
 import me.rerere.tts.provider.providers.QwenTTSProvider
 import me.rerere.tts.provider.providers.StepTTSProvider
 import me.rerere.tts.provider.providers.SystemTTSProvider
-import me.rerere.tts.provider.providers.VolcengineAgentPlanTTSProvider
 import me.rerere.tts.provider.providers.XAITTSProvider
 
 class TTSManager(private val context: Context) {
@@ -29,7 +28,6 @@ class TTSManager(private val context: Context) {
     private val stepProvider = StepTTSProvider()
     private val elevenLabsProvider = ElevenLabsTTSProvider()
     private val fishAudioProvider = FishAudioTTSProvider()
-    private val volcengineAgentPlanProvider = VolcengineAgentPlanTTSProvider()
 
     fun generateSpeech(
         providerSetting: TTSProviderSetting,
@@ -47,9 +45,6 @@ class TTSManager(private val context: Context) {
             is TTSProviderSetting.ElevenLabs -> elevenLabsProvider.generateSpeech(context, providerSetting, request)
             is TTSProviderSetting.FishAudio -> fishAudioProvider.generateSpeech(context, providerSetting, request)
             is TTSProviderSetting.Step -> stepProvider.generateSpeech(context, providerSetting, request)
-            is TTSProviderSetting.VolcengineAgentPlan -> {
-                volcengineAgentPlanProvider.generateSpeech(context, providerSetting, request)
-            }
         }
     }
 
@@ -70,7 +65,6 @@ class TTSManager(private val context: Context) {
             is TTSProviderSetting.ElevenLabs -> elevenLabsProvider.promptGuidance
             is TTSProviderSetting.FishAudio -> fishAudioProvider.promptGuidance
             is TTSProviderSetting.Step -> stepProvider.promptGuidance
-            is TTSProviderSetting.VolcengineAgentPlan -> volcengineAgentPlanProvider.promptGuidance
         }
     }
 }

@@ -49,7 +49,6 @@ import kotlin.reflect.KClass
 fun ProviderConfigure(
     provider: ProviderSetting,
     modifier: Modifier = Modifier,
-    selectableTypes: List<KClass<out ProviderSetting>> = ProviderSetting.Types,
     onEdit: (provider: ProviderSetting) -> Unit
 ) {
     Column(
@@ -58,21 +57,13 @@ fun ProviderConfigure(
     ) {
         if (!provider.builtIn) {
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                selectableTypes.forEachIndexed { index, type ->
+                ProviderSetting.Types.forEachIndexed { index, type ->
                     SegmentedButton(
                         shape = SegmentedButtonDefaults.itemShape(
                             index = index,
-                            count = selectableTypes.size
+                            count = ProviderSetting.Types.size
                         ),
-                        label = {
-                            Text(
-                                if (type == ProviderSetting.VolcengineAgentPlan::class) {
-                                    "Agent Plan"
-                                } else {
-                                    type.simpleName ?: ""
-                                }
-                            )
-                        },
+                        label = { Text(type.simpleName ?: "") },
                         selected = provider::class == type,
                         onClick = { onEdit(provider.convertTo(type)) }
                     )
@@ -82,15 +73,10 @@ fun ProviderConfigure(
 
         when (provider) {
             is ProviderSetting.OpenAI -> ProviderConfigureOpenAI(provider, onEdit)
-            is ProviderSetting.VolcengineAgentPlan -> ProviderConfigureVolcengineAgentPlan(provider, onEdit)
             is ProviderSetting.Google -> ProviderConfigureGoogle(provider, onEdit)
             is ProviderSetting.Claude -> ProviderConfigureClaude(provider, onEdit)
         }
     }
-}
-
-internal val MANUALLY_ADDABLE_PROVIDER_TYPES = ProviderSetting.Types.filterNot {
-    it == ProviderSetting.VolcengineAgentPlan::class
 }
 
 fun ProviderSetting.convertTo(type: KClass<out ProviderSetting>): ProviderSetting {
@@ -98,19 +84,16 @@ fun ProviderSetting.convertTo(type: KClass<out ProviderSetting>): ProviderSettin
 
     val apiKey = when (this) {
         is ProviderSetting.OpenAI -> this.apiKey
-        is ProviderSetting.VolcengineAgentPlan -> this.apiKey
         is ProviderSetting.Google -> this.apiKey
         is ProviderSetting.Claude -> this.apiKey
     }
     val sourceBaseUrl = when (this) {
         is ProviderSetting.OpenAI -> this.baseUrl
-        is ProviderSetting.VolcengineAgentPlan -> this.baseUrl
         is ProviderSetting.Google -> this.baseUrl
         is ProviderSetting.Claude -> this.baseUrl
     }
     val targetDefaultBaseUrl = when (type) {
         ProviderSetting.OpenAI::class -> ProviderSetting.OpenAI().baseUrl
-        ProviderSetting.VolcengineAgentPlan::class -> ProviderSetting.VolcengineAgentPlan().baseUrl
         ProviderSetting.Google::class -> ProviderSetting.Google().baseUrl
         ProviderSetting.Claude::class -> ProviderSetting.Claude().baseUrl
         else -> error("Unsupported provider type: $type")
@@ -123,12 +106,6 @@ fun ProviderSetting.convertTo(type: KClass<out ProviderSetting>): ProviderSettin
             balanceOption = this.balanceOption, builtIn = this.builtIn,
             description = this.description, shortDescription = this.shortDescription,
             apiKey = apiKey, baseUrl = convertedBaseUrl
-        )
-        ProviderSetting.VolcengineAgentPlan::class -> ProviderSetting.VolcengineAgentPlan(
-            id = this.id, enabled = this.enabled, name = this.name, models = this.models,
-            balanceOption = this.balanceOption, builtIn = this.builtIn,
-            description = this.description, shortDescription = this.shortDescription,
-            apiKey = apiKey, baseUrl = targetDefaultBaseUrl
         )
         ProviderSetting.Google::class -> ProviderSetting.Google(
             id = this.id, enabled = this.enabled, name = this.name, models = this.models,
@@ -151,14 +128,12 @@ internal fun ProviderSetting.defaultBaseUrlForReset(): String {
     if (defaultProvider != null) {
         when (this) {
             is ProviderSetting.OpenAI -> if (defaultProvider is ProviderSetting.OpenAI) return defaultProvider.baseUrl
-            is ProviderSetting.VolcengineAgentPlan -> if (defaultProvider is ProviderSetting.VolcengineAgentPlan) return defaultProvider.baseUrl
             is ProviderSetting.Google -> if (defaultProvider is ProviderSetting.Google) return defaultProvider.baseUrl
             is ProviderSetting.Claude -> if (defaultProvider is ProviderSetting.Claude) return defaultProvider.baseUrl
         }
     }
     return when (this) {
         is ProviderSetting.OpenAI -> ProviderSetting.OpenAI().baseUrl
-        is ProviderSetting.VolcengineAgentPlan -> ProviderSetting.VolcengineAgentPlan().baseUrl
         is ProviderSetting.Google -> ProviderSetting.Google().baseUrl
         is ProviderSetting.Claude -> ProviderSetting.Claude().baseUrl
     }
@@ -168,7 +143,6 @@ internal fun ProviderSetting.resetBaseUrlToDefault(): ProviderSetting {
     val defaultBaseUrl = defaultBaseUrlForReset()
     return when (this) {
         is ProviderSetting.OpenAI -> this.copy(baseUrl = defaultBaseUrl)
-        is ProviderSetting.VolcengineAgentPlan -> this.copy(baseUrl = defaultBaseUrl)
         is ProviderSetting.Google -> this.copy(baseUrl = defaultBaseUrl)
         is ProviderSetting.Claude -> this.copy(baseUrl = defaultBaseUrl)
     }
@@ -177,7 +151,6 @@ internal fun ProviderSetting.resetBaseUrlToDefault(): ProviderSetting {
 internal fun ProviderSetting.isUsingDefaultBaseUrl(): Boolean {
     val baseUrl = when (this) {
         is ProviderSetting.OpenAI -> this.baseUrl
-        is ProviderSetting.VolcengineAgentPlan -> this.baseUrl
         is ProviderSetting.Google -> this.baseUrl
         is ProviderSetting.Claude -> this.baseUrl
     }
@@ -313,66 +286,6 @@ private fun ProviderConfigureOpenAI(
         Switch(
             checked = provider.includeHistoryReasoning,
             onCheckedChange = { onEdit(provider.copy(includeHistoryReasoning = it)) }
-        )
-    }
-}
-
-@Composable
-private fun ProviderConfigureVolcengineAgentPlan(
-    provider: ProviderSetting.VolcengineAgentPlan,
-    onEdit: (provider: ProviderSetting.VolcengineAgentPlan) -> Unit,
-) {
-    provider.description()
-
-    OutlinedTextField(
-        value = provider.name,
-        onValueChange = { onEdit(provider.copy(name = it.trim())) },
-        label = { Text(stringResource(R.string.setting_provider_page_name)) },
-        modifier = Modifier.fillMaxWidth(),
-    )
-
-    var keyVisible by remember { mutableStateOf(false) }
-    OutlinedTextField(
-        value = provider.apiKey,
-        onValueChange = { onEdit(provider.copy(apiKey = it.trim())) },
-        label = { Text(stringResource(R.string.setting_provider_page_agent_plan_api_key)) },
-        modifier = Modifier.fillMaxWidth(),
-        maxLines = 3,
-        visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-        trailingIcon = {
-            IconButton(onClick = { keyVisible = !keyVisible }) {
-                Icon(if (keyVisible) HugeIcons.ViewOff else HugeIcons.View, contentDescription = null)
-            }
-        },
-    )
-
-    Text(
-        text = stringResource(R.string.setting_provider_page_agent_plan_models_hint),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(stringResource(R.string.setting_provider_page_enable))
-        Switch(
-            checked = provider.enabled,
-            onCheckedChange = { onEdit(provider.copy(enabled = it)) },
-        )
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(stringResource(R.string.setting_provider_page_include_history_reasoning))
-        Switch(
-            checked = provider.includeHistoryReasoning,
-            onCheckedChange = { onEdit(provider.copy(includeHistoryReasoning = it)) },
         )
     }
 }

@@ -6,8 +6,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import kotlin.uuid.Uuid
 
-const val VOLCENGINE_AGENT_PLAN_BASE_URL = "https://ark.cn-beijing.volces.com/api/plan/v3"
-
 @Serializable
 data class BalanceOption(
     val enabled: Boolean = false, // 是否开启余额获取功能
@@ -111,59 +109,6 @@ sealed class ProviderSetting {
                 shortDescription = shortDescription
             )
         }
-    }
-
-    @Serializable
-    @SerialName("volcengine_agent_plan")
-    data class VolcengineAgentPlan(
-        override var id: Uuid = Uuid.random(),
-        override var enabled: Boolean = true,
-        override var name: String = "火山引擎 Agent Plan",
-        override var models: List<Model> = emptyList(),
-        override val balanceOption: BalanceOption = BalanceOption(),
-        @Transient override val builtIn: Boolean = false,
-        @Transient override val description: @Composable (() -> Unit) = {},
-        @Transient override val shortDescription: @Composable (() -> Unit) = {},
-        var apiKey: String = "",
-        var baseUrl: String = VOLCENGINE_AGENT_PLAN_BASE_URL,
-        var includeHistoryReasoning: Boolean = true,
-    ) : ProviderSetting() {
-        override fun addModel(model: Model): ProviderSetting = copy(models = models + model)
-
-        override fun editModel(model: Model): ProviderSetting = copy(
-            models = models.map { if (it.id == model.id) model.copy() else it }
-        )
-
-        override fun delModel(model: Model): ProviderSetting = copy(
-            models = models.filter { it.id != model.id }
-        )
-
-        override fun moveMove(from: Int, to: Int): ProviderSetting = copy(
-            models = models.toMutableList().apply {
-                val model = removeAt(from)
-                add(to, model)
-            }
-        )
-
-        override fun copyProvider(
-            id: Uuid,
-            enabled: Boolean,
-            name: String,
-            models: List<Model>,
-            balanceOption: BalanceOption,
-            builtIn: Boolean,
-            description: @Composable (() -> Unit),
-            shortDescription: @Composable (() -> Unit),
-        ): ProviderSetting = copy(
-            id = id,
-            enabled = enabled,
-            name = name,
-            models = models,
-            balanceOption = balanceOption,
-            builtIn = builtIn,
-            description = description,
-            shortDescription = shortDescription,
-        )
     }
 
     @Serializable
@@ -296,7 +241,6 @@ sealed class ProviderSetting {
         val Types by lazy {
             listOf(
                 OpenAI::class,
-                VolcengineAgentPlan::class,
                 Google::class,
                 Claude::class,
             )
