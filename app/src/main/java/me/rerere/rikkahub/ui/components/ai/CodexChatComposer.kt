@@ -1,19 +1,11 @@
 package me.rerere.rikkahub.ui.components.ai
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 import me.rerere.rikkahub.data.workflow.codex.CodexModelOption
@@ -83,36 +75,20 @@ fun CodexChatComposer(
             }
         },
         controlContent = {
-            OptionMenu(
-                label = selectedModel?.displayName ?: "模型",
-                options = models.map { it.id to it.displayName },
+            NativeModelChoiceSelector(
+                current = selectedModel?.let { NativeRuntimeChoice(it.id, it.displayName, it.description) },
+                choices = models.map { NativeRuntimeChoice(it.id, it.displayName, it.description) },
                 onSelect = onSelectModel,
             )
-            OptionMenu(
-                label = selectedEffort ?: "思考",
-                options = selectedModel?.supportedReasoningEfforts.orEmpty()
-                    .map { it.reasoningEffort to it.reasoningEffort },
+            NativeReasoningChoiceSelector(
+                currentId = selectedEffort,
+                choices = selectedModel?.supportedReasoningEfforts.orEmpty().map { effort ->
+                    NativeRuntimeChoice(effort.reasoningEffort, effort.reasoningEffort)
+                },
                 onSelect = onSelectEffort,
             )
         },
     )
-}
-
-@Composable
-private fun OptionMenu(label: String, options: List<Pair<String, String>>, onSelect: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        FilterChip(
-            selected = false,
-            onClick = { expanded = true },
-            label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        )
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { (id, title) ->
-                DropdownMenuItem(text = { Text(title) }, onClick = { expanded = false; onSelect(id) })
-            }
-        }
-    }
 }
 
 private fun runtimeLabel(settings: CodexRuntimeSettingsState): String? {

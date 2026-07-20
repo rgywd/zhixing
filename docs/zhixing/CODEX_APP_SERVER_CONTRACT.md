@@ -56,7 +56,11 @@ P0 首选 Tailscale Serve 将 tailnet HTTPS/WSS 反向代理到 `http://127.0.0.
 3. `/readyz` 和 `/healthz` 行为与 App Server 一致；
 4. 仅 tailnet 设备可达；
 5. 重启后 `--bg` 配置恢复；
-6. 手机 Wi-Fi 和 5G 均可完成初始化和一轮 Turn。
+6. Android 测试设备经 tailnet WSS 完成初始化、附件和一轮 Turn。
+
+物理手机 Wi-Fi、5G、休眠和 DERP 切换属于发布后设备/网络 soak，不得用模拟器结果冒充；失败时按网络诊断
+处理，但不再作为纯代码合并的硬门。每个正式 APK 仍应在用户设备上至少完成一次 Wi-Fi 与移动网络烟测后，
+再扩大安装范围。
 
 若 Serve 不保留 App Server 所需的 Upgrade/header，只能在 tailnet 内增加无业务状态的 TLS 终止层。该层不能解析、
 缓存或翻译 JSON-RPC，也不能暴露公网 Funnel。

@@ -274,7 +274,7 @@ OpenAI 官方将 App Server 用于富客户端集成，但 WebSocket transport �
 | 原生消息体验 | Markdown、Reasoning、Tool、审批、流式与历史重放等价测试 |
 | 设置不另造体系 | 现有 SettingPage 的 Work CardGroup；无独立设置首页 |
 | 一跳数据面 | 抓包/日志证明 Android JSON-RPC 直达 App Server；Relay/Agent 不见消息 |
-| 弱网恢复 | Wi-Fi、5G、开发机休眠和 Tailscale DERP 场景；无重复、无空历史覆盖 |
+| WSS 恢复 | Android 测试设备经真实 tailnet WSS 完成 Turn，断线/重连与进程恢复无重复、无空历史覆盖 |
 | 普通 Chat 无回归 | 分组、会话、附件、模型、语音、发送/停止与设置回归测试 |
 
 ## 13. 非目标与延期
@@ -287,6 +287,8 @@ OpenAI 官方将 App Server 用于富客户端集成，但 WebSocket transport �
 - 不在本需求内删除旧 Wire/Happy 数据或立刻下线 VPS。
 - Tailscale Serve 对 App Server WebSocket Upgrade 必须在开发机完成真实探针；未通过时只允许用同一
   tailnet 内的最小 TLS 终止层替换，不能恢复业务协议网关。
+- 物理手机 Wi-Fi、5G、开发机休眠与 DERP 切换是发布后设备/网络 soak；必须如实记录，不能用 Android
+  模拟器冒充，但不阻断已经通过真实 tailnet WSS、进程恢复和协议测试的代码发布。
 
 ## 14. 实施保护规则
 

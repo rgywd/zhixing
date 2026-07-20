@@ -1,14 +1,10 @@
 package me.rerere.rikkahub.ui.pages.workflow.codex
 
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -18,34 +14,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
-import java.io.File
-import me.rerere.ai.ui.UIMessagePart
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.hugeicons.stroke.Package01
-import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.work.WorkRepositoryConfig
 import me.rerere.rikkahub.data.workflow.codex.CodexPermissionProfile
-import me.rerere.rikkahub.ui.components.ai.ChatAttachmentActions
-import me.rerere.rikkahub.ui.components.ui.permission.PermissionCamera
-import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
-import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
+import me.rerere.rikkahub.ui.components.ai.NativeChatAttachmentSheet
+import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.hooks.ChatInputState
-import org.koin.compose.koinInject
-import kotlin.uuid.Uuid
 
 @Composable
 fun CodexWorkOptionsSheet(
@@ -61,69 +43,19 @@ fun CodexWorkOptionsSheet(
     onRepositoryChange: (String) -> Unit = {},
     onCompact: () -> Unit = {},
     onDismiss: () -> Unit,
-    filesManager: FilesManager = koinInject(),
 ) {
-    val context = LocalContext.current
-    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        uris.forEach { uri ->
-            val name = filesManager.getFileNameFromUri(uri) ?: "file"
-            val mime = filesManager.getFileMimeType(uri) ?: "application/octet-stream"
-            filesManager.createChatFilesByContents(listOf(uri)).firstOrNull()?.let { localUri ->
-                if (mime.startsWith("image/")) state.addImages(listOf(localUri))
-                else state.addFiles(listOf(UIMessagePart.Document(localUri.toString(), name, mime)))
-            }
-        }
-        if (uris.isNotEmpty()) onDismiss()
-    }
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
-        if (uris.isNotEmpty()) {
-            state.addImages(filesManager.createChatFilesByContents(uris))
-            onDismiss()
-        }
-    }
-    val cameraPermission = rememberPermissionState(PermissionCamera)
-    PermissionManager(permissionState = cameraPermission)
-    var cameraFile by remember { mutableStateOf<File?>(null) }
-    var cameraUri by remember { mutableStateOf<Uri?>(null) }
-    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captured ->
-        val uri = cameraUri
-        cameraFile?.let { file ->
-            if (captured && uri != null) state.addImages(filesManager.createChatFilesByContents(listOf(uri)))
-            file.delete()
-        }
-        cameraFile = null
-        cameraUri = null
-        if (captured) onDismiss()
-    }
-    val takePhoto = {
-        if (!cameraPermission.allRequiredPermissionsGranted) {
-            cameraPermission.requestPermissions()
-        } else {
-            val file = File(context.cacheDir, "work_camera_${Uuid.random()}.jpg")
-            cameraFile = file
-            cameraUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-            cameraLauncher.launch(cameraUri!!)
-        }
-    }
-
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    NativeChatAttachmentSheet(
+        state = state,
+        settings = LocalSettings.current,
+        onDismiss = onDismiss,
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-                .padding(16.dp),
+                .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // Keep this sheet in composition while the system picker/camera is open. The
-            // ActivityResult launcher is owned here; dismissing first unregisters it and
-            // silently drops the selected attachment.
-            ChatAttachmentActions(
-                onTakePic = takePhoto,
-                onPickImage = { imagePicker.launch("image/*") },
-                onPickFile = { filePicker.launch(arrayOf("*/*")) },
-            )
-            HorizontalDivider()
             if (repositories.isNotEmpty()) {
                 Text("当前仓库", style = MaterialTheme.typography.titleSmall)
                 FlowRow(

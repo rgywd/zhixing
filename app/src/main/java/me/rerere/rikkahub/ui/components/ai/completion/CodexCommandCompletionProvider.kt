@@ -6,6 +6,7 @@ import me.rerere.hugeicons.stroke.Package
 import me.rerere.rikkahub.data.workflow.codex.CodexAppOption
 import me.rerere.rikkahub.data.workflow.codex.CodexPluginOption
 import me.rerere.rikkahub.data.workflow.codex.CodexSkillOption
+import me.rerere.rikkahub.data.work.AppServerBuiltInCommands
 
 /** Work commands share the native chat input's completion popup instead of occupying a toolbar row. */
 class CodexCommandCompletionProvider(
@@ -20,6 +21,17 @@ class CodexCommandCompletionProvider(
         val command = findCommand(context.text, context.cursor) ?: return null
         val query = command.query.lowercase()
         val items = buildList {
+            AppServerBuiltInCommands.available.forEach { builtIn ->
+                add(
+                    Candidate(
+                        id = builtIn.name,
+                        label = "/${builtIn.name}",
+                        detail = builtIn.description,
+                        search = builtIn.name,
+                        priority = 400,
+                    )
+                )
+            }
             skills.filter { it.enabled }.forEach { skill ->
                 val displayName = skill.interfaceInfo?.displayName ?: skill.name
                 add(

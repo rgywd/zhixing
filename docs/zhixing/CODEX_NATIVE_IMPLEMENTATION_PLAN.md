@@ -1,6 +1,6 @@
 # 知行 Chat/Work 双模式与 App Server 直连实施计划
 
-状态：Executing（Android/loopback 闭环完成；Tailscale WSS 真机链路与发布验收待完成）
+状态：Executing（Android/tailnet WSS 闭环完成；独立复审与发布验收待完成）
 日期：2026-07-19
 分支：`feat/66-work-mode-direct`
 跟踪：[GitHub Issue #66](https://github.com/rgywd/zhixing/issues/66)
@@ -507,9 +507,14 @@ Set-Location ..
   再验一次才运行 compatibility gate。新增真实排队测试覆盖 A 慢初始化、B 等待 mutex、切换后取消 A 并由 B
   接管，以及 initialize 期间失活不得发布旧连接 READY。Android 285 项单测、Debug APK 构建与 AndroidTest
   Kotlin 编译全部通过。
-- 2026-07-20：Tailscale HTTPS 启用后完成 tailnet-only WSS 真机闭环：Android 经
+- 2026-07-20：Tailscale HTTPS 启用后完成 tailnet-only WSS Android 模拟器闭环（不是物理手机证据）：Android 经
   `wss://minecraft.tail427df8.ts.net` 直连 loopback App Server，未开启公网 Funnel；受控文本附件上传后
   Codex 通过 PowerShell 读取并精确返回 `ATTACHMENT_LOOP_OK`，原生 UI 实时显示用户消息、附件、工具与回复。
   同时修复首轮 Thread 指针、早到 Item/Delta 和权威快照覆盖本地附件映射三处竞态；强制停止并重启应用后
   当前 Thread、上下文用量和原生附件仍完整恢复。Android 全量单测/Debug APK/AndroidTest Kotlin 与 Agent
   75 项测试/typecheck/build 全绿。
+- 2026-07-20：独立发布复审发现 Work 仍有三处产品合同偏差：模型/effort 与附件 Sheet 只复用了底层输入框、
+  Chat/Work 模式虽写盘但未参与冷启动路由、`/` 弹层没有内置指令。现已把拍照/相册/文件选择、裁剪、类型
+  校验和 Modal Sheet 抽为 Chat/Work 唯一共享入口；模型/effort 改用共享原生选择器；冷启动按持久化模式
+  恢复；新增 `/new`、`/compact` 客户端指令并映射真实 Thread RPC。物理手机 Wi-Fi/5G/DERP 仍作为发布后
+  soak，明确不得用模拟器结果冒充。

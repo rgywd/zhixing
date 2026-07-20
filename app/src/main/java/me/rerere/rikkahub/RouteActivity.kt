@@ -65,6 +65,8 @@ import me.rerere.rikkahub.data.db.DatabaseMigrationTracker
 import me.rerere.rikkahub.data.db.MigrationState
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.work.WorkAppMode
+import me.rerere.rikkahub.data.work.WorkUiStore
 import me.rerere.rikkahub.ui.activity.SafeModeActivity
 import me.rerere.rikkahub.ui.components.ui.TTSController
 import me.rerere.rikkahub.ui.context.LocalASRState
@@ -261,6 +263,8 @@ class RouteActivity : ComponentActivity() {
         val tts = rememberCustomTtsState()
         val asr = rememberCustomAsrState()
         val eventBus = koinInject<AppEventBus>()
+        val workUiStore = koinInject<WorkUiStore>()
+        val workUiState by workUiStore.state.collectAsStateWithLifecycle()
         LaunchedEffect(tts) {
             eventBus.events.collect { event ->
                 when (event) {
@@ -274,16 +278,22 @@ class RouteActivity : ComponentActivity() {
         }
         val migrationState by DatabaseMigrationTracker.state.collectAsStateWithLifecycle()
 
-        val startScreen = Screen.Chat(
-            id = if (readBooleanPreference("create_new_conversation_on_start", true)) {
-                Uuid.random().toString()
-            } else {
-                readStringPreference(
-                    "lastConversationId",
+        val startScreen: NavKey = if (
+            BuildConfig.CODEX_WORKFLOW_ENABLED && workUiState.mode == WorkAppMode.WORK
+        ) {
+            Screen.CodexWorkflow
+        } else {
+            Screen.Chat(
+                id = if (readBooleanPreference("create_new_conversation_on_start", true)) {
                     Uuid.random().toString()
-                ) ?: Uuid.random().toString()
-            }
-        )
+                } else {
+                    readStringPreference(
+                        "lastConversationId",
+                        Uuid.random().toString()
+                    ) ?: Uuid.random().toString()
+                }
+            )
+        }
 
         val backStack = rememberNavBackStack(startScreen)
         SideEffect { this@RouteActivity.navStack = backStack }

@@ -35,6 +35,7 @@ import me.rerere.rikkahub.data.work.AppServerCompatibility
 import me.rerere.rikkahub.data.work.AppServerCompatibilityGate
 import me.rerere.rikkahub.data.work.AppServerCompatibilityLevel
 import me.rerere.rikkahub.data.work.AppServerCommandInputs
+import me.rerere.rikkahub.data.work.AppServerBuiltInCommands
 import me.rerere.rikkahub.data.work.AppServerEndpoint
 import me.rerere.rikkahub.data.work.AppServerJsonRpcClient
 import me.rerere.rikkahub.data.work.AppServerNotification
@@ -542,8 +543,20 @@ class DirectWorkVM(
 
     fun send() {
         if (!canSend) return
-        val lease = acquireWriteLease() ?: return
         val contents = inputState.getContents()
+        val builtIn = contents.singleOrNull()
+            ?.let { it as? UIMessagePart.Text }
+            ?.let { AppServerBuiltInCommands.exact(it.text) }
+        if (builtIn != null) {
+            inputState.clearInput()
+            persistDraft("")
+            when (builtIn.name) {
+                "new" -> newThread()
+                "compact" -> compactThread()
+            }
+            return
+        }
+        val lease = acquireWriteLease() ?: return
         viewModelScope.launch {
             sending = true
             statusMessage = null
