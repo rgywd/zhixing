@@ -251,6 +251,10 @@
   <string name="chat_message_remove_favorite">取消收藏</string>
   <string name="chat_message_tool_approve">批准</string>
   <string name="chat_message_tool_ask_questions">询问 %d 个问题</string>
+  <string name="chat_message_tool_ask_type_something">其他（我的想法）</string>
+  <string name="chat_message_tool_ask_chat_about">就这一点聊聊</string>
+  <string name="chat_message_tool_ask_discussed_badge">待讨论</string>
+  <string name="chat_message_tool_cancel">取消</string>
   <string name="chat_message_tool_call_generic">调用工具 %1$s</string>
   <string name="chat_message_tool_call_label">调用工具 %1$s</string>
   <string name="chat_message_tool_call_result">调用结果</string>

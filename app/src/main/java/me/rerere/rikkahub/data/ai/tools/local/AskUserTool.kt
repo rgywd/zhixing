@@ -10,10 +10,12 @@ import me.rerere.ai.core.Tool
 internal fun buildAskUserTool(): Tool = Tool(
     name = "ask_user",
     description = """
-        Ask the user one or more questions when you need clarification, additional information, or confirmation.
-        Each question can optionally provide a list of suggested options for the user to choose from.
-        The user may select an option or provide their own free-text answer for each question.
-        The answers will be returned as a JSON object mapping question IDs to the user's responses.
+        Ask the user questions when you need clarification, missing details, or a decision before proceeding. Rules:
+        - Ask at most 7 questions per call. Prefer fewer, well-chosen questions.
+        - Each question may provide 2-4 concrete, mutually exclusive options, ordered from most to least likely. Options must be short, specific, and cover the realistic choices. Never add a generic "Other" option.
+        - The UI automatically appends "Type something" (free-text answer) and "Chat about this" (mark this question for discussion) to every question; never add such options yourself.
+        - Responses are returned as JSON: {"answers": {<questionId>: <answer>}, "discuss": [<questionId>, ...]}. Ids in "discuss" mean the user is unsure and wants to talk that point through instead of picking an answer.
+        - For every id in "discuss": do NOT immediately re-ask. Discuss the topic in your normal reply — lay out the trade-offs, state your recommendation, and converge on a concrete decision together with the user. Only call ask_user again for such a topic once the discussion has produced clear candidate choices that merely need confirmation.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
@@ -21,12 +23,17 @@ internal fun buildAskUserTool(): Tool = Tool(
                 put("questions", buildJsonObject {
                     put("type", "array")
                     put("description", "List of questions to ask the user")
+                    put("maxItems", 7)
                     put("items", buildJsonObject {
                         put("type", "object")
                         put("properties", buildJsonObject {
                             put("id", buildJsonObject {
                                 put("type", "string")
                                 put("description", "Unique identifier for this question")
+                            })
+                            put("header", buildJsonObject {
+                                put("type", "string")
+                                put("description", "Short tab label for this question, max 12 characters (e.g. 'Database', 'UI style')")
                             })
                             put("question", buildJsonObject {
                                 put("type", "string")
