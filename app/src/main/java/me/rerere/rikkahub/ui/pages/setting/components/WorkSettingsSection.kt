@@ -76,9 +76,13 @@ fun WorkSettingsSection(
                 Text(
                     when {
                         activeConnection == null -> "连接后可检查 Codex App Server 与 Tailscale"
+                        connectionState.phase == AppServerConnectionPhase.DISCONNECTED ->
+                            "已保存；进入 Work 仓库时连接"
+                        connectionState.phase == AppServerConnectionPhase.CONNECTING -> "正在连接 Codex App Server"
+                        connectionState.phase == AppServerConnectionPhase.INITIALIZING -> "正在初始化 Codex App Server"
                         connectionState.phase == AppServerConnectionPhase.READY -> "Codex App Server 已连接"
                         connectionState.phase == AppServerConnectionPhase.FAILED -> connectionState.error ?: "连接失败"
-                        else -> connectionState.phase.name.lowercase()
+                        else -> "状态未知"
                     }
                 )
             },
