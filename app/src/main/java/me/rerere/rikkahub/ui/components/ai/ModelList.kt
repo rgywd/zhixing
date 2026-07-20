@@ -175,54 +175,133 @@ fun ModelSelector(
     )
     val model = state.currentModel
 
-    if (!onlyIcon) {
+    if (!onlyIcon && allowClear && model != null) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(
+            ModelSelectorTrigger(
+                modelId = model.modelId,
+                displayName = model.displayName,
+                modifier = modifier,
+                onlyIcon = false,
+                onClick = state::open,
+            )
+            IconButton(
                 onClick = {
-                    state.open()
-                },
-                modifier = modifier
+                    onSelect(Model())
+                }
             ) {
-                model?.modelId?.let {
-                    AutoAIIcon(
-                        it, Modifier
-                            .padding(end = 4.dp)
-                            .size(36.dp),
-                        color = Color.Transparent
-                    )
-                }
-                Text(
-                    text = model?.displayName ?: stringResource(R.string.model_list_select_model),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodySmall
+                Icon(
+                    imageVector = HugeIcons.Cancel01,
+                    contentDescription = "Clear"
                 )
-            }
-            if (allowClear && model != null) {
-                IconButton(
-                    onClick = {
-                        onSelect(Model())
-                    }
-                ) {
-                    Icon(
-                        imageVector = HugeIcons.Cancel01,
-                        contentDescription = "Clear"
-                    )
-                }
             }
         }
     } else {
-        IconButton(
-            onClick = {
-                state.open()
-            },
+        ModelSelectorTrigger(
+            modelId = model?.modelId,
+            displayName = model?.displayName,
+            modifier = modifier,
+            onlyIcon = onlyIcon,
+            onClick = state::open,
+        )
+    }
+
+    ModelListSheet(
+        state = state,
+        onSelect = onSelect,
+    )
+}
+
+data class RuntimeModelChoice(
+    val id: String,
+    val label: String,
+    val detail: String? = null,
+)
+
+/**
+ * Runtime adapter for the same model control used by provider chat. Codex uses
+ * stable string ids instead of provider [Uuid]s, so only the catalog adapter
+ * differs; the trigger and sheet interaction remain shared here.
+ */
+@Composable
+fun ModelSelector(
+    modelId: String?,
+    models: List<RuntimeModelChoice>,
+    modifier: Modifier = Modifier,
+    onlyIcon: Boolean = true,
+    onSelect: (String) -> Unit,
+) {
+    var visible by remember { mutableStateOf(false) }
+    val selected = models.firstOrNull { it.id == modelId }
+    ModelSelectorTrigger(
+        modelId = selected?.id,
+        displayName = selected?.label,
+        modifier = modifier,
+        onlyIcon = onlyIcon,
+        onClick = { visible = true },
+    )
+    if (!visible) return
+
+    ModalBottomSheet(onDismissRequest = { visible = false }) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            if (model != null) {
+            Text(
+                text = stringResource(R.string.model_list_select_model),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(16.dp),
+            )
+            models.forEach { choice ->
+                Surface(
+                    onClick = {
+                        onSelect(choice.id)
+                        visible = false
+                    },
+                    color = if (choice.id == modelId) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainer
+                    },
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Text(choice.label, style = MaterialTheme.typography.bodyLarge)
+                        choice.detail?.let { detail ->
+                            Text(
+                                detail,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelSelectorTrigger(
+    modelId: String?,
+    displayName: String?,
+    modifier: Modifier,
+    onlyIcon: Boolean,
+    onClick: () -> Unit,
+) {
+    if (onlyIcon) {
+        IconButton(
+            onClick = onClick,
+            modifier = modifier,
+        ) {
+            if (modelId != null) {
                 AutoAIIcon(
                     modifier = Modifier.size(36.dp),
-                    name = model.modelId,
+                    name = modelId,
                     color = Color.Transparent
                 )
             } else {
@@ -233,12 +312,23 @@ fun ModelSelector(
                 )
             }
         }
+        return
     }
-
-    ModelListSheet(
-        state = state,
-        onSelect = onSelect,
-    )
+    TextButton(onClick = onClick, modifier = modifier) {
+        modelId?.let {
+            AutoAIIcon(
+                it,
+                Modifier.padding(end = 4.dp).size(36.dp),
+                color = Color.Transparent,
+            )
+        }
+        Text(
+            text = displayName ?: stringResource(R.string.model_list_select_model),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
 }
 
 @Composable

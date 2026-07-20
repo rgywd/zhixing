@@ -75,17 +75,17 @@ fun CodexChatComposer(
             }
         },
         controlContent = {
-            NativeModelChoiceSelector(
-                current = selectedModel?.let { NativeRuntimeChoice(it.id, it.displayName, it.description) },
-                choices = models.map { NativeRuntimeChoice(it.id, it.displayName, it.description) },
+            ModelSelector(
+                modelId = selectedModel?.id,
+                models = models.map { RuntimeModelChoice(it.id, it.displayName, it.description) },
                 onSelect = onSelectModel,
             )
-            NativeReasoningChoiceSelector(
-                currentId = selectedEffort,
-                choices = selectedModel?.supportedReasoningEfforts.orEmpty().map { effort ->
-                    NativeRuntimeChoice(effort.reasoningEffort, effort.reasoningEffort)
+            ReasoningButton(
+                reasoningLevel = selectedEffort,
+                levels = selectedModel?.supportedReasoningEfforts.orEmpty().map { effort ->
+                    RuntimeReasoningChoice(effort.reasoningEffort, effort.reasoningEffort)
                 },
-                onSelect = onSelectEffort,
+                onUpdateReasoningLevel = onSelectEffort,
             )
         },
     )

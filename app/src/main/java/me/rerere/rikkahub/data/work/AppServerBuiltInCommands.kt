@@ -13,7 +13,9 @@ object AppServerBuiltInCommands {
     )
 
     fun exact(text: String): AppServerBuiltInCommand? {
-        val name = text.trim().removePrefix("/")
+        val trimmed = text.trim()
+        if (!trimmed.startsWith('/')) return null
+        val name = trimmed.removePrefix("/")
         if (name.isBlank() || name.any(Char::isWhitespace)) return null
         return available.firstOrNull { it.name == name }
     }

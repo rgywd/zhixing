@@ -15,6 +15,7 @@ class AppServerBuiltInCommandsTest {
     fun `commands embedded in prompts remain model text`() {
         assertNull(AppServerBuiltInCommands.exact("/compact after this answer"))
         assertNull(AppServerBuiltInCommands.exact("please /new"))
+        assertNull(AppServerBuiltInCommands.exact("new"))
         assertNull(AppServerBuiltInCommands.exact("/unknown"))
     }
 }
