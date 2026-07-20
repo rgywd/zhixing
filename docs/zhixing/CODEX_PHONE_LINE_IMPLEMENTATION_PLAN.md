@@ -12,14 +12,14 @@
 - [x] 删除 Happy 账号、恢复密钥、加密、socket 与同步协议。
 - [x] 删除 Relay、App Server 客户端/catalog/supervisor 和旧 Agent 运行时。
 - [x] 删除旧部署脚本、构建任务、通知与设置入口。
-- [x] 保留 Room v31 历史表的升级兼容壳，不保留 DAO 或运行时引用。
+- [x] 通过 Room v33 显式迁移删除旧 Work/Happy/App Server/Codex catalog 表与运行时实体。
 - [x] 通过 App/AI/Speech JVM 单测和 Debug APK 构建。
 
 ## Phase 1：契约与可独立验证的 Core
 
 - [x] 建立 `work/core` 服务，并使用 SQLite 耐久保存会话、事件、命令、提问和报告。
-- [ ] 实现 user、runner、session 三类 scope token 与撤销。
-- [ ] 实现 session/event/ask/report/runner command 的顺序、幂等和租约。
+- [x] 实现 user、per-runner、短期 session 三类 scope token；session token 可按会话撤销并在 resume 时刷新。
+- [x] 实现 session/event/ask/report/runner command 的顺序、原子幂等和租约。
 - [x] 实现 SSE + `afterSeq` 补拉；网络断开不影响写入。
 - [x] 实现 HTML 清洗、固定模板与报告读取安全头。
 - [x] 为跨会话越权、重复提交、顺序、超时答案补契约测试。
@@ -72,9 +72,9 @@
 
 ## 当前验证证据
 
-- `npm --prefix work test`：12/12 通过，覆盖 Core 契约与重启恢复、Runner 隔离鉴权、进程换代与命令租约回收、提问超时、Runner 参数、resume、状态持久化与 Windows 可执行文件解析。
+- `npm --prefix work test`：15/15 通过，覆盖 Core 契约与重启恢复、ask 故障回滚、短期 token 撤销、命令/会话原子提交、Runner 隔离鉴权、进程换代与命令租约回收、提问超时、Runner 参数、resume、状态持久化与 Windows 可执行文件解析。
 - `npm --prefix work run e2e:real`：真实 Codex 完成 `report → ask/answer → report_html → IDLE`，Codex session ID
-  `019f7f96-c289-7b10-8100-90cedd8a2632`；测试只使用临时 Git 仓库。
+  `019f7fa1-41aa-7b93-9033-3b95d22b2f9e`；测试只使用临时 Git 仓库。
 - `./gradlew :app:testDebugUnitTest` 与 `:app:compileDebugKotlin` 通过。
 - `Migration_32_33_Test` 已在 Android 15 模拟器通过，确认删除旧 Work 表且保留 Phone-line 表。
 - `docker compose config` 通过；本机 Docker Desktop 引擎未启动，因此容器镜像运行验证仍待部署机执行。

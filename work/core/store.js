@@ -107,6 +107,13 @@ export class WorkStore {
         html TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS session_tokens (
+        jti TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        expires_at INTEGER NOT NULL,
+        revoked_at TEXT,
+        created_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS idempotency (
         scope TEXT NOT NULL,
         key TEXT NOT NULL,
@@ -153,15 +160,20 @@ export class WorkStore {
 
   createSessionToken(sessionId) {
     const issuedAt = Math.floor(Date.now() / 1000);
+    this.db.prepare("DELETE FROM session_tokens WHERE expires_at<=?").run(issuedAt);
+    const expiresAt = issuedAt + 24 * 60 * 60;
+    const jti = randomUUID();
     const payload = Buffer.from(json({
       sessionId,
       scope: "mcp",
       v: 1,
-      jti: randomUUID(),
+      jti,
       iat: issuedAt,
-      exp: issuedAt + 30 * 24 * 60 * 60,
+      exp: expiresAt,
     })).toString("base64url");
     const signature = createHmac("sha256", this.sessionSecret).update(payload).digest("base64url");
+    this.db.prepare("INSERT INTO session_tokens(jti, session_id, expires_at, created_at) VALUES (?, ?, ?, ?)")
+      .run(jti, sessionId, expiresAt, new Date().toISOString());
     return `zsm.${payload}.${signature}`;
   }
 
@@ -175,9 +187,13 @@ export class WorkStore {
     try {
       const claims = parseJson(Buffer.from(payload, "base64url").toString("utf8"));
       const session = this.getSession(claims.sessionId);
+      const tokenRow = this.db.prepare(`
+        SELECT 1 FROM session_tokens WHERE jti=? AND session_id=? AND revoked_at IS NULL AND expires_at>?
+      `).get(claims.jti, claims.sessionId, Math.floor(Date.now() / 1000));
       return claims.scope === "mcp"
         && claims.sessionId === expectedSessionId
         && Number(claims.exp) > Math.floor(Date.now() / 1000)
+        && Boolean(tokenRow)
         && session
         && !SESSION_TERMINAL.has(session.status);
     } catch {
@@ -368,7 +384,11 @@ export class WorkStore {
       if (SESSION_TERMINAL.has(session.status)) throw Object.assign(new Error("Session is completed"), { statusCode: 409 });
       if (!String(input.text ?? "").trim()) throw Object.assign(new Error("Message is required"), { statusCode: 400 });
       const event = this.appendEvent(sessionId, "USER_MESSAGE", { text: input.text, clientMessageId: input.clientMessageId ?? null });
-      this.createCommand(session.runnerId, sessionId, "RESUME", { message: input.text, inboxCursor: event.seq });
+      this.createCommand(session.runnerId, sessionId, "RESUME", {
+        message: input.text,
+        inboxCursor: event.seq,
+        sessionToken: this.createSessionToken(sessionId),
+      });
       return event;
     });
   }
@@ -404,21 +424,35 @@ export class WorkStore {
   ackCommand(commandId, input, runnerId, instanceId) {
     const allowed = new Set(["CLAIMED", "COMPLETED", "FAILED"]);
     if (!allowed.has(input.state)) throw Object.assign(new Error("Invalid command state"), { statusCode: 400 });
-    const now = new Date().toISOString();
-    let result;
-    if (input.state === "CLAIMED") {
-      const leaseUntil = new Date(Date.now() + 45_000).toISOString();
-      result = this.db.prepare(`
-        UPDATE commands SET state='CLAIMED', claimed_by=?, lease_until=?, updated_at=?
-        WHERE id=? AND runner_id=? AND state='PENDING'
-      `).run(instanceId, leaseUntil, now, commandId, runnerId);
-    } else {
-      result = this.db.prepare(`
-        UPDATE commands SET state=?, claimed_by=NULL, lease_until=NULL, updated_at=?
-        WHERE id=? AND runner_id=? AND (claimed_by=? OR (claimed_by IS NULL AND state='PENDING'))
-      `).run(input.state, now, commandId, runnerId, instanceId);
+    const command = this.db.prepare("SELECT * FROM commands WHERE id=? AND runner_id=?").get(commandId, runnerId);
+    if (!command) throw Object.assign(new Error("Command not found"), { statusCode: 404 });
+    if (command.state === input.state) return { accepted: true };
+    if (input.sessionState?.sessionId && input.sessionState.sessionId !== command.session_id) {
+      throw Object.assign(new Error("Command session mismatch"), { statusCode: 400 });
     }
-    if (!result.changes) throw Object.assign(new Error("Command not found"), { statusCode: 404 });
+    const now = new Date().toISOString();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      let result;
+      if (input.state === "CLAIMED") {
+        const leaseUntil = new Date(Date.now() + 45_000).toISOString();
+        result = this.db.prepare(`
+          UPDATE commands SET state='CLAIMED', claimed_by=?, lease_until=?, updated_at=?
+          WHERE id=? AND runner_id=? AND state='PENDING'
+        `).run(instanceId, leaseUntil, now, commandId, runnerId);
+      } else {
+        result = this.db.prepare(`
+          UPDATE commands SET state=?, claimed_by=NULL, lease_until=NULL, updated_at=?
+          WHERE id=? AND runner_id=? AND (claimed_by=? OR (claimed_by IS NULL AND state='PENDING'))
+        `).run(input.state, now, commandId, runnerId, instanceId);
+      }
+      if (!result.changes) throw Object.assign(new Error("Command state conflict"), { statusCode: 409 });
+      if (input.sessionState) this.updateSessionState(command.session_id, input.sessionState);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
     return { accepted: true };
   }
 
@@ -464,12 +498,24 @@ export class WorkStore {
     if (existing) return this.toAsk(existing);
     const askId = id("ask");
     const now = new Date().toISOString();
-    this.db.prepare(`
-      INSERT INTO asks(id, session_id, client_call_id, questions_json, status, created_at)
-      VALUES (?, ?, ?, ?, 'PENDING', ?)
-    `).run(askId, sessionId, input.clientCallId, json(input.questions), now);
-    this.appendEvent(sessionId, "ASK", { askId, questions: input.questions });
-    this.db.prepare("UPDATE sessions SET status='WAITING_FOR_USER', updated_at=? WHERE id=?").run(now, sessionId);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const concurrent = this.db.prepare("SELECT * FROM asks WHERE session_id=? AND client_call_id=?").get(sessionId, input.clientCallId);
+      if (concurrent) {
+        this.db.exec("COMMIT");
+        return this.toAsk(concurrent);
+      }
+      this.db.prepare(`
+        INSERT INTO asks(id, session_id, client_call_id, questions_json, status, created_at)
+        VALUES (?, ?, ?, ?, 'PENDING', ?)
+      `).run(askId, sessionId, input.clientCallId, json(input.questions), now);
+      this.appendEvent(sessionId, "ASK", { askId, questions: input.questions }, now);
+      this.db.prepare("UPDATE sessions SET status='WAITING_FOR_USER', updated_at=? WHERE id=?").run(now, sessionId);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
     return this.getAsk(askId);
   }
 
@@ -525,6 +571,7 @@ export class WorkStore {
           message: formatLateAnswer(ask.questions, input.answers),
           askId,
           inboxCursor: this.getSession(sessionId).lastSeq,
+          sessionToken: this.createSessionToken(sessionId),
         }, now);
       } else {
         this.db.prepare("UPDATE sessions SET status='RUNNING', updated_at=? WHERE id=?").run(now, sessionId);
@@ -561,8 +608,25 @@ export class WorkStore {
   completeSession(sessionId) {
     const session = this.getSession(sessionId);
     if (!session) throw Object.assign(new Error("Session not found"), { statusCode: 404 });
-    this.createCommand(session.runnerId, sessionId, "COMPLETE", {});
-    return this.updateSessionState(sessionId, { status: "COMPLETED" });
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.createCommand(session.runnerId, sessionId, "COMPLETE", {});
+      this.revokeSessionTokens(sessionId);
+      const result = this.updateSessionState(sessionId, { status: "COMPLETED" });
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  revokeSessionTokens(sessionId) {
+    if (!this.getSession(sessionId)) throw Object.assign(new Error("Session not found"), { statusCode: 404 });
+    const now = new Date().toISOString();
+    const result = this.db.prepare("UPDATE session_tokens SET revoked_at=? WHERE session_id=? AND revoked_at IS NULL")
+      .run(now, sessionId);
+    return { accepted: true, revoked: Number(result.changes) };
   }
 
   stopSession(sessionId) {

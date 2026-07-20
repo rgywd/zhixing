@@ -126,6 +126,7 @@ Android 不提交真实路径、任意 sandbox/approval 值或 Codex 参数。Co
 - `POST /v1/work/sessions/{id}/asks/{askId}/answer`：提交答案。
 - `POST /v1/work/sessions/{id}/stop`：停止当前进程，会话进入 IDLE。
 - `POST /v1/work/sessions/{id}/complete`：显式结束会话。
+- `POST /v1/work/sessions/{id}/revoke-tokens`：立即撤销该会话已签发的全部 MCP token。
 - `GET /v1/work/reports/{id}`：只读清洗报告。
 
 ### Runner scope
@@ -142,7 +143,8 @@ Android 不提交真实路径、任意 sandbox/approval 值或 Codex 参数。Co
 - `POST /v1/mcp/sessions/{id}/ask`
 - `POST /v1/mcp/sessions/{id}/report-html`
 
-MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token claim 相同。
+MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token claim 相同。token 具有独立 `jti`、24 小时
+有效期和服务端撤销记录；每次 START/RESUME 都签发新 token，完成会话会撤销该会话全部 token。
 
 ## 4. 事件顺序与并发
 

@@ -99,7 +99,10 @@ test("runner persists discovered session id and completes one turn", async () =>
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(state.get("work-1").codexSessionId, "019f-codex");
   assert.ok(calls.some((call) => call[0] === "ack" && call[2] === "COMPLETED"));
-  assert.ok(calls.some((call) => call[0] === "state" && call[2] === "IDLE"));
+  const completed = calls.find((call) => call[0] === "ack" && call[2] === "COMPLETED");
+  assert.equal(completed[3].status, "IDLE");
+  assert.equal(completed[3].codexSessionId, "019f-codex");
+  assert.ok(!calls.some((call) => call[0] === "state" && call[2] === "IDLE"));
   assert.equal(JSON.parse(readFileSync(join(directory, "state.json"), "utf8")).sessions["work-1"].sessionToken, "session-token");
 });
 

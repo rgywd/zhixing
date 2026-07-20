@@ -164,6 +164,11 @@ export function createWorkServer({ store, askTimeoutMs = 180_000 }) {
         requireUser(store, request);
         return sendJson(response, 202, match[2] === "stop" ? store.stopSession(match[1]) : store.completeSession(match[1]));
       }
+      match = url.pathname.match(/^\/v1\/work\/sessions\/([^/]+)\/revoke-tokens$/);
+      if (request.method === "POST" && match) {
+        requireUser(store, request);
+        return sendJson(response, 200, store.revokeSessionTokens(match[1]));
+      }
       match = url.pathname.match(/^\/v1\/work\/reports\/([^/]+)$/);
       if (request.method === "GET" && match) {
         requireUser(store, request);

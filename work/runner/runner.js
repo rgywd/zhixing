@@ -73,7 +73,7 @@ export class WorkRunner {
       } else if (command.kind === "STOP" || command.kind === "COMPLETE") {
         await this.stopCommand(command);
       } else {
-        await this.client.ack(command.id, "FAILED");
+        await this.client.ack(command.id, "FAILED", sessionState(command.sessionId, "FAILED", "Unsupported runner command"));
       }
     }
   }
@@ -81,8 +81,7 @@ export class WorkRunner {
   async startCommand(command) {
     const repo = this.config.repos.find((candidate) => candidate.id === (command.payload.repoId ?? this.state.get(command.sessionId)?.repoId));
     if (!repo || !existsSync(repo.path)) {
-      await this.client.ack(command.id, "FAILED");
-      await this.client.updateState(command.sessionId, "FAILED", "Repository is not available on the runner");
+      await this.client.ack(command.id, "FAILED", sessionState(command.sessionId, "FAILED", "Repository is not available on the runner"));
       return;
     }
     const previous = this.state.get(command.sessionId) ?? {};
@@ -90,13 +89,11 @@ export class WorkRunner {
     const reasoningEffort = command.payload.reasoningEffort ?? previous.reasoningEffort;
     const sessionToken = command.payload.sessionToken ?? previous.sessionToken;
     if (!repo.models.includes(model) || !repo.reasoningEfforts.includes(reasoningEffort) || !sessionToken) {
-      await this.client.ack(command.id, "FAILED");
-      await this.client.updateState(command.sessionId, "FAILED", "Runner rejected the session snapshot");
+      await this.client.ack(command.id, "FAILED", sessionState(command.sessionId, "FAILED", "Runner rejected the session snapshot"));
       return;
     }
 
-    await this.client.ack(command.id, "CLAIMED");
-    await this.client.updateState(command.sessionId, "RUNNING");
+    await this.client.ack(command.id, "CLAIMED", sessionState(command.sessionId, "RUNNING"));
     const cursorFile = resolve(dirname(this.config.stateFile), "cursors", `${command.sessionId}.json`);
     const args = buildCodexArgs({
       kind: command.kind,
@@ -140,8 +137,7 @@ export class WorkRunner {
         },
       });
     } catch (error) {
-      await this.client.ack(command.id, "FAILED");
-      await this.client.updateState(command.sessionId, "FAILED", safeError(error));
+      await this.client.ack(command.id, "FAILED", sessionState(command.sessionId, "FAILED", safeError(error)));
       return;
     }
     this.active.set(command.sessionId, { ...running, startCommandId: command.id, stoppedByUser: false });
@@ -149,16 +145,19 @@ export class WorkRunner {
       const active = this.active.get(command.sessionId);
       this.active.delete(command.sessionId);
       if (active?.stoppedByUser) {
-        await this.client.ack(command.id, "COMPLETED");
+        if (!active.startCommandAcknowledged) await this.client.ack(command.id, "COMPLETED");
         return;
       }
       if (result.code === 0 && discoveredSessionId) {
-        await this.client.ack(command.id, "COMPLETED");
-        await this.client.updateState(command.sessionId, "IDLE", "Codex turn completed", discoveredSessionId);
+        await this.client.ack(command.id, "COMPLETED", sessionState(
+          command.sessionId,
+          "IDLE",
+          "Codex turn completed",
+          discoveredSessionId,
+        ));
       } else {
-        await this.client.ack(command.id, "FAILED");
         const detail = discoveredSessionId ? "Codex process exited with an error" : "Codex exited before returning a session ID";
-        await this.client.updateState(command.sessionId, "FAILED", detail, discoveredSessionId);
+        await this.client.ack(command.id, "FAILED", sessionState(command.sessionId, "FAILED", detail, discoveredSessionId));
       }
     }).catch((error) => this.logError("process-exit", error));
   }
@@ -167,14 +166,15 @@ export class WorkRunner {
     const running = this.active.get(command.sessionId);
     if (running) {
       running.stoppedByUser = true;
+      await this.client.ack(running.startCommandId, "COMPLETED");
+      running.startCommandAcknowledged = true;
       running.child.kill();
     }
-    await this.client.ack(command.id, "COMPLETED");
     if (command.kind === "COMPLETE") {
       this.state.delete(command.sessionId);
-      await this.client.updateState(command.sessionId, "COMPLETED", "Session completed by user");
+      await this.client.ack(command.id, "COMPLETED", sessionState(command.sessionId, "COMPLETED", "Session completed by user"));
     } else {
-      await this.client.updateState(command.sessionId, "IDLE", "Codex turn stopped by user");
+      await this.client.ack(command.id, "COMPLETED", sessionState(command.sessionId, "IDLE", "Codex turn stopped by user"));
     }
   }
 
@@ -212,6 +212,10 @@ export function isolatedCodexEnv(codexHome, source = process.env) {
 
 function safeError(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function sessionState(sessionId, status, detail = null, codexSessionId = null) {
+  return { sessionId, status, detail, codexSessionId };
 }
 
 function delay(ms) {

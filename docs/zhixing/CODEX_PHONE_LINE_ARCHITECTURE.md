@@ -61,7 +61,7 @@ Core 可以部署在 VPS，但不持有 OpenAI 登录态、Codex 凭据、仓库
 - 拉取启动、继续、停止命令；在仓库目录启动 Codex CLI。
 - 保存 Work session 与 Codex session ID 映射，并在重启后恢复。
 - 观察子进程开始、退出、错误，向 Core 写入运行状态；不解析 Codex 内部工具流。
-- 为每次运行生成短期 session token 和专用 MCP 配置，不污染用户的普通 Codex 配置。
+- 接收 Core 为每次 START/RESUME 签发的 24 小时 session token，并写入专用 MCP 配置，不污染用户的普通 Codex 配置。
 
 ### Phone-line MCP
 

@@ -224,6 +224,43 @@ test("ask returns a bounded timeout and a late answer queues resume", async (t) 
   assert.equal(commands.payload.commands.filter((command) => command.kind === "RESUME").length, 1);
 });
 
+test("ask creation rolls back completely when event persistence fails", async (t) => {
+  const { baseUrl, store } = await fixture(t);
+  const { session, sessionToken } = await registerAndCreate(baseUrl);
+  store.db.exec(`
+    CREATE TRIGGER fail_ask_event BEFORE INSERT ON events
+    WHEN NEW.type='ASK' BEGIN SELECT RAISE(ABORT, 'fault injection'); END;
+  `);
+  const body = {
+    clientCallId: "atomic-ask",
+    questions: [{
+      id: "choice",
+      header: "选择",
+      question: "继续吗？",
+      multiSelect: false,
+      options: [{ id: "yes", label: "继续" }],
+    }],
+  };
+  const failed = await request(baseUrl, `/v1/mcp/sessions/${session.id}/ask`, {
+    token: sessionToken,
+    method: "POST",
+    body,
+  });
+  assert.equal(failed.response.status, 500);
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM asks WHERE client_call_id='atomic-ask'").get().count, 0);
+  assert.equal(store.getEvents(session.id).filter((event) => event.type === "ASK").length, 0);
+  assert.equal(store.getSession(session.id).status, "QUEUED");
+
+  store.db.exec("DROP TRIGGER fail_ask_event");
+  const retry = await request(baseUrl, `/v1/mcp/sessions/${session.id}/ask`, {
+    token: sessionToken,
+    method: "POST",
+    body,
+  });
+  assert.equal(retry.response.status, 200);
+  assert.equal(store.getEvents(session.id).filter((event) => event.type === "ASK").length, 1);
+});
+
 test("expired command claims are returned to the owning runner", async (t) => {
   const { baseUrl, store } = await fixture(t);
   await registerAndCreate(baseUrl);
@@ -238,6 +275,48 @@ test("expired command claims are returned to the owning runner", async (t) => {
   store.db.prepare("UPDATE commands SET lease_until=? WHERE id=?").run("2000-01-01T00:00:00.000Z", command.id);
   const reclaimed = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
   assert.equal(reclaimed.payload.commands[0].id, command.id);
+});
+
+test("command acknowledgement and session state transition commit together", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const { session } = await registerAndCreate(baseUrl);
+  const pending = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  const command = pending.payload.commands[0];
+  const claim = await request(baseUrl, `/v1/runner/commands/${command.id}/ack`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      state: "CLAIMED",
+      instanceId: RUNNER_INSTANCE,
+      sessionState: { sessionId: session.id, status: "RUNNING", detail: null },
+    },
+  });
+  assert.equal(claim.response.status, 200);
+  let current = (await request(baseUrl, "/v1/work/sessions")).payload.sessions.find((item) => item.id === session.id);
+  assert.equal(current.status, "RUNNING");
+
+  const complete = await request(baseUrl, `/v1/runner/commands/${command.id}/ack`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      state: "COMPLETED",
+      instanceId: RUNNER_INSTANCE,
+      sessionState: { sessionId: session.id, status: "IDLE", detail: "done" },
+    },
+  });
+  assert.equal(complete.response.status, 200);
+  const retried = await request(baseUrl, `/v1/runner/commands/${command.id}/ack`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      state: "COMPLETED",
+      instanceId: RUNNER_INSTANCE,
+      sessionState: { sessionId: session.id, status: "IDLE", detail: "done" },
+    },
+  });
+  assert.equal(retried.response.status, 200);
+  current = (await request(baseUrl, "/v1/work/sessions")).payload.sessions.find((item) => item.id === session.id);
+  assert.equal(current.status, "IDLE");
 });
 
 test("a restarted runner reclaims the previous process command before its lease expires", async (t) => {
@@ -359,6 +438,35 @@ test("session token is scoped and reports cannot cross sessions", async (t) => {
     body: { text: "越权", clientCallId: "cross" },
   });
   assert.equal(crossSession.response.status, 401);
+});
+
+test("session tokens are short-lived, individually revocable and refreshed on resume", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const { session, sessionToken } = await registerAndCreate(baseUrl);
+  const revoked = await request(baseUrl, `/v1/work/sessions/${session.id}/revoke-tokens`, { method: "POST" });
+  assert.equal(revoked.response.status, 200);
+  assert.ok(revoked.payload.revoked >= 1);
+  const rejected = await request(baseUrl, `/v1/mcp/sessions/${session.id}/report`, {
+    token: sessionToken,
+    method: "POST",
+    body: { text: "stale", clientCallId: "revoked-token" },
+  });
+  assert.equal(rejected.response.status, 401);
+
+  await request(baseUrl, `/v1/work/sessions/${session.id}/messages`, {
+    method: "POST",
+    idempotencyKey: "resume-after-revoke",
+    body: { text: "continue", clientMessageId: "continue-1" },
+  });
+  const commands = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  const resume = commands.payload.commands.find((command) => command.kind === "RESUME");
+  assert.ok(resume.payload.sessionToken);
+  const accepted = await request(baseUrl, `/v1/mcp/sessions/${session.id}/report`, {
+    token: resume.payload.sessionToken,
+    method: "POST",
+    body: { text: "fresh", clientCallId: "fresh-token" },
+  });
+  assert.equal(accepted.response.status, 200);
 });
 
 test("runner credentials cannot read or acknowledge another runner's commands", async (t) => {

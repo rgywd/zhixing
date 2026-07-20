@@ -61,11 +61,21 @@ export class CoreClient {
     return payload.commands;
   }
 
-  ack(commandId, state) {
-    return this.request(`/v1/runner/commands/${encodeURIComponent(commandId)}/ack`, {
-      method: "POST",
-      body: { state, instanceId: this.instanceId },
-    });
+  async ack(commandId, state, sessionState = null) {
+    let lastError;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.request(`/v1/runner/commands/${encodeURIComponent(commandId)}/ack`, {
+          method: "POST",
+          body: { state, instanceId: this.instanceId, sessionState },
+        });
+      } catch (error) {
+        lastError = error;
+        if (error.statusCode && error.statusCode < 500) throw error;
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500 * (2 ** attempt)));
+      }
+    }
+    throw lastError;
   }
 
   updateState(sessionId, status, detail = null, codexSessionId = null) {
