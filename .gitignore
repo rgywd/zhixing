@@ -21,4 +21,6 @@ app/app.key
 # Work Core/Runner local dependencies, state and secrets
 /work/node_modules/
 /work/data/
+/work/runner/work-runner.json
+/work/deploy/.env
 /work/.env

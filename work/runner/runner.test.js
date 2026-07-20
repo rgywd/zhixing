@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { buildCodexArgs, parseCodexSessionId } from "./codex-process.js";
+import { buildCodexArgs, parseCodexSessionId, resolveCodexCommand } from "./codex-process.js";
 import { WorkRunner } from "./runner.js";
 import { RunnerState } from "./state.js";
 
@@ -106,4 +106,13 @@ test("runner persists discovered session id and completes one turn", async () =>
 test("session id parser accepts current Codex JSONL event", () => {
   assert.equal(parseCodexSessionId({ type: "thread.started", thread_id: "abc" }), "abc");
   assert.equal(parseCodexSessionId({ type: "item.completed" }), null);
+});
+
+test("Windows resolves the real Codex executable instead of an npm shell shim", () => {
+  assert.equal(resolveCodexCommand("codex", "win32", () => "C:/Codex/codex.exe"), "C:/Codex/codex.exe");
+  assert.throws(
+    () => resolveCodexCommand("C:/Users/me/AppData/Roaming/npm/codex.cmd", "win32"),
+    /codex\.exe/,
+  );
+  assert.equal(resolveCodexCommand("codex", "linux"), "codex");
 });

@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
+import { extname, join } from "node:path";
 
 function tomlString(value) {
   return JSON.stringify(String(value));
@@ -41,7 +44,8 @@ export function parseCodexSessionId(event) {
 }
 
 export function runCodex({ command, args, prompt, cwd, env = process.env, spawnImpl = spawn, onEvent = () => {} }) {
-  const child = spawnImpl(command, args, {
+  const executable = resolveCodexCommand(command);
+  const child = spawnImpl(executable, args, {
     cwd,
     env,
     windowsHide: true,
@@ -66,4 +70,42 @@ export function runCodex({ command, args, prompt, cwd, env = process.env, spawnI
     child.once("close", (code, signal) => resolve({ code, signal, stderr }));
   });
   return { child, completed };
+}
+
+export function resolveCodexCommand(command, platform = process.platform, findExecutable = defaultFindExecutable) {
+  if (platform !== "win32") return command;
+  const extension = extname(command).toLowerCase();
+  if ([".cmd", ".bat", ".ps1"].includes(extension)) {
+    throw new Error("codexCommand must point to codex.exe on Windows, not a shell shim");
+  }
+  if (extension || /[\\/]/.test(command)) return command;
+  return findExecutable(`${command}.exe`) ?? command;
+}
+
+function defaultFindExecutable(candidate) {
+  if (candidate.toLowerCase() === "codex.exe") {
+    const architecture = process.arch === "arm64" ? "arm64" : "x64";
+    const target = process.arch === "arm64" ? "aarch64-pc-windows-msvc" : "x86_64-pc-windows-msvc";
+    const npmRoot = process.env.APPDATA ? join(process.env.APPDATA, "npm", "node_modules") : null;
+    const bundled = npmRoot && join(
+      npmRoot,
+      "@openai",
+      "codex",
+      "node_modules",
+      `@openai/codex-win32-${architecture}`,
+      "vendor",
+      target,
+      "bin",
+      "codex.exe",
+    );
+    if (bundled && existsSync(bundled)) return bundled;
+  }
+  try {
+    return execFileSync("where.exe", [candidate], { encoding: "utf8", windowsHide: true })
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) ?? null;
+  } catch {
+    return null;
+  }
 }

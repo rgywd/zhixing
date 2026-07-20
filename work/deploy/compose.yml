@@ -1,0 +1,17 @@
+services:
+  core:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      WORK_USER_TOKEN: ${WORK_USER_TOKEN:?set WORK_USER_TOKEN}
+      WORK_RUNNER_TOKEN: ${WORK_RUNNER_TOKEN:?set WORK_RUNNER_TOKEN}
+      WORK_SESSION_SECRET: ${WORK_SESSION_SECRET:?set WORK_SESSION_SECRET}
+    ports:
+      - "127.0.0.1:${WORK_CORE_PORT:-8787}:8787"
+    volumes:
+      - work-core-data:/data
+
+volumes:
+  work-core-data:
