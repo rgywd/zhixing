@@ -714,6 +714,72 @@ test("session tokens are short-lived, individually revocable and refreshed on re
   assert.equal(accepted.response.status, 200);
 });
 
+test("a failed first turn restarts with its original message, image and session snapshot", async (t) => {
+  const { baseUrl } = await fixture(t);
+  await request(baseUrl, "/v1/runner/register", {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      id: "runner-1",
+      instanceId: RUNNER_INSTANCE,
+      name: "Minecraft",
+      version: "test",
+      repos: [{
+        id: "zhixing",
+        name: "zhixing",
+        models: ["gpt-5.6-sol"],
+        reasoningEfforts: ["high"],
+      }],
+    },
+  });
+  const uploaded = await uploadImage(baseUrl, Buffer.from("89504e470d0a1a0a", "hex"));
+  assert.equal(uploaded.response.status, 201);
+  const created = await request(baseUrl, "/v1/work/sessions", {
+    method: "POST",
+    idempotencyKey: "legacy-create",
+    body: {
+      runnerId: "runner-1",
+      repoId: "zhixing",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      message: "按截图修复布局",
+      attachmentIds: [uploaded.payload.id],
+      clientMessageId: "legacy-first",
+    },
+  });
+  const initialCommands = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  const first = initialCommands.payload.commands.find((command) => command.kind === "START");
+  await request(baseUrl, `/v1/runner/commands/${first.id}/ack`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: { instanceId: RUNNER_INSTANCE, state: "CLAIMED" },
+  });
+  await request(baseUrl, `/v1/runner/commands/${first.id}/ack`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      instanceId: RUNNER_INSTANCE,
+      state: "FAILED",
+      sessionState: { sessionId: created.payload.id, status: "FAILED", detail: "download timeout" },
+    },
+  });
+
+  const retried = await request(baseUrl, `/v1/work/sessions/${created.payload.id}/messages`, {
+    method: "POST",
+    idempotencyKey: "legacy-retry",
+    body: { text: "继续处理", clientMessageId: "legacy-retry" },
+  });
+  assert.equal(retried.response.status, 202);
+  const commands = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  const restart = commands.payload.commands.find((command) => command.id !== first.id);
+  assert.equal(restart.kind, "START");
+  assert.equal(restart.payload.repoId, "zhixing");
+  assert.equal(restart.payload.model, "gpt-5.6-sol");
+  assert.equal(restart.payload.reasoningEffort, "high");
+  assert.equal(restart.payload.message, "按截图修复布局\n\n补充消息：\n继续处理");
+  assert.deepEqual(restart.payload.attachments.map((item) => item.id), [uploaded.payload.id]);
+});
+
 test("runner credentials cannot read or acknowledge another runner's commands", async (t) => {
   const { baseUrl } = await fixture(t);
   await registerAndCreate(baseUrl);
