@@ -13,13 +13,9 @@ Android-first、本地优先的个人 AI 工作台。
 - 所有助手内置需求与 Bug 提交工具，经用户确认后打开预填的 Zhixing GitHub Issue 页面。
 - 不接入第三方 Firebase、遥测、更新源或免费模型服务。
 
-产品与架构决策见：
-
-- [产品与体验设计](docs/zhixing/PRODUCT_DESIGN.md)
-- [运行时与数据契约](docs/zhixing/RUNTIME_CONTRACT.md)
-- [知识空间 v0.1](docs/zhixing/KNOWLEDGE_SPACE.md)
-- [数据安全与定时备份](docs/zhixing/DATA_SAFETY_AND_BACKUP.md)
-- [实施计划](docs/zhixing/IMPLEMENTATION_PLAN.md)
+产品、架构与交付文档统一从 [知行文档导航](docs/zhixing/README.md) 进入。长期方向见
+[AI 助手产品愿景](docs/zhixing/AI_ASSISTANT_VISION.md)，当前运行边界见
+[运行时与数据契约](docs/zhixing/RUNTIME_CONTRACT.md)。
 
 ## 本地构建
 
