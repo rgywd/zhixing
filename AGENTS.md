@@ -16,18 +16,25 @@
 构建应用不依赖 `google-services.json`。`web` 模块会在 `preBuild` 阶段构建
 `web-ui/` 并复制静态资源，需要本地可用 `pnpm`。
 
-## Branch and Release Workflow
+## Git Workflow (Required)
 
-`main` 必须永远可部署，不直接承载功能开发。所有改动从最新 `main` 创建短分支，并通过 PR 与 CI 合并：
+先用本节做日常决策；创建分支、提交、合并或发布前，再阅读
+[`docs/zhixing/RELEASE_FLOW.md`](docs/zhixing/RELEASE_FLOW.md) 中的完整规则和命令示例。
 
-- `release/x.y.z`：发布冻结、发布修复与回滚准备。
-- `feat/需求号-简述`：功能需求。
-- `fix/问题号-简述`：缺陷修复。
-- `chore/简述`：配置、依赖、构建与仓库维护。
-- `exp/简述`：实验，不承诺合并。
+| 分支 | 用途 |
+| --- | --- |
+| `main` | 永远可部署 |
+| `release/x.y.z` | 发布冻结、修复验证与回滚准备 |
+| `feat/需求号-简述` | 功能短分支 |
+| `fix/问题号-简述` | 缺陷修复 |
+| `chore/简述` | 配置、依赖与构建调整 |
+| `exp/简述` | 实验分支，不承诺合并 |
 
-禁止直接推送、强推或删除 `main`。正式发布必须先将 `release/x.y.z` 合回 `main`，再在对应主干提交上创建
-`vX.Y.Z` 标签。详细流程见 `docs/zhixing/RELEASE_FLOW.md`。
+- 分支前缀和简述使用规范英语；简述采用小写 `kebab-case`，`feat`、`fix` 必须带需求号或问题号。
+- Commit header 使用英文 Conventional Commit 类型与 scope，摘要和正文使用中文；正文用 `1.`、`2.` 编号说明改动与验证。
+- 所有可发布改动先通过短分支 PR 合入 `main`。`main` CI 通过后，才从最新 `main` 切出 `release/x.y.z`。
+- `release/x.y.z` 是主干的冻结快照，不是把尚未进入主干的功能整体合回 `main` 的入口。
+- 禁止直接推送、强推或删除 `main`；正式标签使用严格的 `vX.Y.Z`，且必须指向 `origin/main` 历史中的提交。
 
 ## Coding Style & Naming Conventions
 
