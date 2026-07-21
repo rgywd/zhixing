@@ -32,10 +32,11 @@ export function buildCodexArgs({
   developerInstructions,
   mcp,
 }) {
+  const profile = profileName ? ["--profile", profileName] : [];
   const shared = [
     "--json",
     "--ignore-user-config",
-    ...(profileName ? ["--profile", profileName, "--dangerously-bypass-hook-trust"] : []),
+    ...(profileName ? ["--dangerously-bypass-hook-trust"] : []),
     "--dangerously-bypass-approvals-and-sandbox",
     "-m", model,
     "-c", `model_reasoning_effort=${tomlString(reasoningEffort)}`,
@@ -44,10 +45,12 @@ export function buildCodexArgs({
     ...mcpConfigArgs(mcp),
   ];
   if (kind === "START") {
-    return ["exec", "-C", repoPath, ...shared, "-"];
+    return ["exec", "-C", repoPath, ...profile, ...shared, "-"];
   }
   if (!codexSessionId) throw new Error("Cannot resume without a Codex session ID");
-  return ["exec", "resume", ...shared, codexSessionId, "-"];
+  // `--profile` is an `exec` option, not an `exec resume` option. Keeping it
+  // after `resume` makes current Codex CLI versions exit with code 2.
+  return ["exec", ...profile, "resume", ...shared, codexSessionId, "-"];
 }
 
 export function parseCodexSessionId(event) {
