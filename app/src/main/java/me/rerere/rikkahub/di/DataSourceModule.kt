@@ -38,6 +38,7 @@ import me.rerere.rikkahub.data.sync.S3Sync
 import me.rerere.rikkahub.data.work.PhoneWorkApiClient
 import me.rerere.rikkahub.data.work.PhoneWorkCatalogStore
 import me.rerere.rikkahub.data.work.PhoneWorkCredentialStore
+import me.rerere.rikkahub.data.work.PhoneWorkDraftStore
 import me.rerere.rikkahub.data.work.PhoneWorkRepository
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -151,6 +152,7 @@ val dataSourceModule = module {
     single { get<AppDatabase>().phoneWorkDao() }
     single { PhoneWorkCredentialStore(get()) }
     single { PhoneWorkCatalogStore(get()) }
+    single { PhoneWorkDraftStore(get()) }
     single { PhoneWorkApiClient(get(), get()) }
     single { PhoneWorkRepository(get(), get(), get(), get(), get()) }
 

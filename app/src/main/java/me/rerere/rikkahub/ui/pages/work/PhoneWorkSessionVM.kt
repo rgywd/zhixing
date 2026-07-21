@@ -17,6 +17,7 @@ import me.rerere.rikkahub.data.work.CreateSessionRequest
 import me.rerere.rikkahub.data.work.PhoneWorkAnswer
 import me.rerere.rikkahub.data.work.PhoneWorkCatalog
 import me.rerere.rikkahub.data.work.PhoneWorkEvent
+import me.rerere.rikkahub.data.work.PhoneWorkDraftStore
 import me.rerere.rikkahub.data.work.PhoneWorkRepo
 import me.rerere.rikkahub.data.work.PhoneWorkRepository
 import me.rerere.rikkahub.data.work.PhoneWorkSession
@@ -24,6 +25,7 @@ import me.rerere.rikkahub.data.work.PhoneWorkSession
 class PhoneWorkSessionVM(
     initialSessionId: String,
     private val repository: PhoneWorkRepository,
+    private val draftStore: PhoneWorkDraftStore,
 ) : ViewModel() {
     private val sessionId = MutableStateFlow(initialSessionId.takeIf { it.isNotBlank() })
     val session: StateFlow<PhoneWorkSession?> = sessionId.flatMapLatest { id ->
@@ -37,6 +39,7 @@ class PhoneWorkSessionVM(
     val selectedModel = MutableStateFlow(DEFAULT_MODELS.first())
     val selectedEffort = MutableStateFlow("high")
     val sending = MutableStateFlow(false)
+    val sendError = MutableStateFlow<String?>(null)
     val error = MutableStateFlow<String?>(null)
 
     init {
@@ -104,6 +107,8 @@ class PhoneWorkSessionVM(
         if ((text.isBlank() && imageUrls.isEmpty()) || sending.value) return
         viewModelScope.launch {
             sending.value = true
+            sendError.value = null
+            val draftSessionId = sessionId.value
             runCatching {
                 val id = sessionId.value
                 if (id == null) {
@@ -126,10 +131,24 @@ class PhoneWorkSessionVM(
                     repository.refreshEvents(id)
                     onAccepted(null)
                 }
-            }.onSuccess { error.value = null }
-                .onFailure { error.value = it.message ?: "发送失败" }
+            }.onSuccess {
+                error.value = null
+                draftStore.clear(draftSessionId)
+            }.onFailure {
+                sendError.value = it.message ?: "发送失败"
+            }
             sending.value = false
         }
+    }
+
+    fun loadDraft(): String = draftStore.load(sessionId.value)
+
+    fun saveDraft(text: String) {
+        draftStore.save(sessionId.value, text)
+    }
+
+    fun clearSendError() {
+        sendError.value = null
     }
 
     fun answer(askId: String, answers: List<PhoneWorkAnswer>) {

@@ -2,6 +2,14 @@
 
 状态：执行中（2026-07-20）
 
+## P1.2：Work 对话基础交互
+
+- [x] 用户与 AI 文本支持选择、复制全文和引用；用户消息支持载入输入框修改后重发。
+- [x] 继续复用普通聊天 Markdown；代码块沿用现有独立复制能力，不新增第二套渲染器。
+- [x] 文本草稿按会话本地保存，发送失败不清空并提供原地重试。
+- [x] 打开会话定位最新进展；阅读历史时不抢滚动位置，并显示新消息数量与“跳到最新”。
+- [x] 通过纯逻辑单测、App JVM 单测、Kotlin 编译与 Debug APK 构建验证。
+
 ## P1.1：后台跟踪与会话归档
 
 - [x] Core 为 session 增加 `archivedAt`，实现 active/archived 列表以及 archive/unarchive 幂等接口。
@@ -84,5 +92,6 @@
 - `npm --prefix work run e2e:real`：真实 Codex 完成 `report → ask/answer → report_html → IDLE`，Codex session ID
   `019f7fa6-3280-73e0-8c9b-050e3ab5ccff`；测试只使用临时 Git 仓库。
 - `./gradlew :app:testDebugUnitTest` 与 `:app:compileDebugKotlin` 通过。
+- `./gradlew --no-daemon -Dkotlin.compiler.execution.strategy=in-process :app:testDebugUnitTest :app:assembleDebug` 通过；产出 arm64、universal 与 x86_64 Debug APK。
 - `Migration_32_33_Test` 已在 Android 15 模拟器通过，确认删除旧 Work 表且保留 Phone-line 表。
 - `docker compose config` 通过；本机 Docker Desktop 引擎未启动，因此容器镜像运行验证仍待部署机执行。

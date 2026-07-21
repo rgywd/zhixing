@@ -187,6 +187,13 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 - `RUN_STATE`：轻量行内状态或页头状态，不伪装成 AI 文本。
 - `SYSTEM_ERROR`：可恢复错误条，保留重试动作与已有消息。
 
+消息交互遵守以下客户端契约：
+
+- `USER_MESSAGE`、`REPORT` 与 `ASSISTANT_MESSAGE` 正文都支持选择文字、复制全文和引用；Markdown 代码块继续提供独立复制。
+- “编辑后发送”只把既有用户消息载入输入框并创建新消息，不修改服务端历史事件。
+- 文本草稿使用本地会话 ID 隔离；新会话使用独立临时键。只有写请求成功后才能清除草稿。
+- SSE 或轮询追加事件时，只有用户原本位于列表底部才自动跟随；否则累计新消息数量并由用户主动跳转。
+
 ## 6. Android 后台跟踪与提醒
 
 - 存在未归档的 `QUEUED/RUNNING/WAITING_FOR_USER` 会话时，Android 启动 Work 专属前台服务；没有活跃会话时自动停止。
