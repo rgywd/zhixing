@@ -520,9 +520,12 @@ export class WorkStore {
         attachments,
         clientMessageId: input.clientMessageId ?? null,
       });
-      this.createCommand(session.runnerId, sessionId, "RESUME", {
-        message: input.text ?? "",
-        attachments,
+      const restartFailedStart = session.status === "FAILED" && !session.codexSessionId;
+      const commandInput = restartFailedStart
+        ? this.buildFailedStartInput(sessionId)
+        : { message: input.text ?? "", attachments };
+      this.createCommand(session.runnerId, sessionId, restartFailedStart ? "START" : "RESUME", {
+        ...commandInput,
         repoId: session.repoId,
         model: session.model,
         reasoningEffort: session.reasoningEffort,
@@ -531,6 +534,31 @@ export class WorkStore {
       });
       return event;
     });
+  }
+
+  buildFailedStartInput(sessionId) {
+    const messages = this.db.prepare(`
+      SELECT payload_json FROM events
+      WHERE session_id=? AND type='USER_MESSAGE'
+      ORDER BY seq
+    `).all(sessionId).map((row) => parseJson(row.payload_json, {}));
+    const uniqueTexts = [];
+    const seenTexts = new Set();
+    const attachmentMap = new Map();
+    for (const message of messages) {
+      const text = String(message.text ?? "").trim();
+      if (text && !seenTexts.has(text)) {
+        seenTexts.add(text);
+        uniqueTexts.push(text);
+      }
+      for (const attachment of message.attachments ?? []) {
+        if (attachment?.id) attachmentMap.set(attachment.id, attachment);
+      }
+    }
+    return {
+      message: uniqueTexts.join("\n\n补充消息：\n"),
+      attachments: [...attachmentMap.values()],
+    };
   }
 
   listCommands(runnerId, instanceId, after = "") {
