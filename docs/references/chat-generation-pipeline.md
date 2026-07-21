@@ -148,10 +148,11 @@ onSuccess
   - `AskUser`：向用户提问（需审批）
   - `ScreenTime`：获取屏幕使用时间
 3. **Conversation Tools**（`createConversationTools`）— `enableRecentChatsReference = true` 时，查询历史对话
-4. **Workspace Tools**（`createWorkspaceToolsIfReady`）— Workspace Shell 就绪时注入，含 `workspace_shell`
-5. **Skill Tools**（`createSkillTools`）— 助手启用的 Skill 列表
-6. **MCP Tools** — 所有已连接 MCP 服务器的工具，命名格式 `mcp__{serverName}__{toolName}`
-7. **Memory Tools**（`buildMemoryTools`，内置于 GenerationHandler）— `enableMemory = true` 时，支持记忆的增删改
+4. **Knowledge Tools**（`createKnowledgeTools`）— 仅当绑定知识空间已初始化且存在可检索文档时注入；空库不向模型暴露工具
+5. **Workspace Tools**（`createWorkspaceToolsIfReady`）— Workspace Shell 就绪时注入，含 `workspace_shell`
+6. **Skill Tools**（`createSkillTools`）— 助手启用的 Skill 列表
+7. **MCP Tools** — 所有已连接 MCP 服务器的工具，命名格式 `mcp__{serverName}__{toolName}`
+8. **Memory Tools**（`buildMemoryTools`，内置于 GenerationHandler）— `enableMemory = true` 时，支持记忆的增删改
 
 ### 工具审批状态机
 

@@ -12,6 +12,10 @@ import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.knowledge.KnowledgeSpaceService
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.workspace.KnowledgeSpaceStatus
+
+internal fun KnowledgeSpaceStatus.hasSearchableKnowledge(): Boolean =
+    initialized && indexedDocumentCount > 0
 
 suspend fun createKnowledgeTools(
     workspaceId: String?,
@@ -20,13 +24,15 @@ suspend fun createKnowledgeTools(
 ): List<Tool> {
     if (workspaceId.isNullOrBlank()) return emptyList()
     val workspace = workspaceRepository.getById(workspaceId) ?: return emptyList()
+    val status = workspaceRepository.knowledgeSpaceStatus(workspaceId)
+    if (!status.hasSearchableKnowledge()) return emptyList()
     val approvals = workspace.toolApprovalOverrides()
     fun needsApproval(name: String) = resolveWorkspaceToolApproval(name, approvals)
 
     return listOf(
         Tool(
             name = "knowledge_status",
-            description = "Inspect the bound project's local knowledge space. Works without Rootfs.",
+            description = "Inspect the bound project's local knowledge space when the user asks about its indexed project materials. Works without Rootfs.",
             parameters = { InputSchema.Obj(properties = buildJsonObject {}) },
             needsApproval = { needsApproval("knowledge_status") },
             execute = {
@@ -40,7 +46,7 @@ suspend fun createKnowledgeTools(
         ),
         Tool(
             name = "knowledge_search",
-            description = "Search the bound project's local knowledge before making project-specific claims. Returns line-level excerpts and source citations. Works without Rootfs.",
+            description = "Search indexed project materials only when the user explicitly asks to consult them or the current request clearly depends on those materials. Do not use this as a default preflight; zero matches must not block an ordinary answer. Returns line-level excerpts and source citations. Works without Rootfs.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -75,7 +81,7 @@ suspend fun createKnowledgeTools(
         ),
         Tool(
             name = "knowledge_read",
-            description = "Read a precise line range from PROJECT.md, a knowledge note, decision, output, draft, or normalized source. Use paths returned by knowledge_search. Works without Rootfs.",
+            description = "Read a precise line range from an indexed project material after knowledge_search found a relevant path. Do not use it as a default preflight. Works without Rootfs.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
