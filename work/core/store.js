@@ -77,6 +77,16 @@ export class WorkStore {
         created_at TEXT NOT NULL,
         PRIMARY KEY (session_id, seq)
       );
+      CREATE TABLE IF NOT EXISTS attachments (
+        id TEXT PRIMARY KEY,
+        session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        sha256 TEXT NOT NULL,
+        data BLOB NOT NULL,
+        created_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS commands (
         id TEXT PRIMARY KEY,
         runner_id TEXT NOT NULL,
@@ -292,6 +302,71 @@ export class WorkStore {
     }));
   }
 
+  createAttachment({ fileName, mimeType, data }) {
+    const safeName = String(fileName ?? "image").replace(/[\\/\0-\x1f]/g, "_").slice(0, 160) || "image";
+    const bytes = Buffer.from(data ?? []);
+    const attachmentId = id("att");
+    const now = new Date().toISOString();
+    this.db.prepare("DELETE FROM attachments WHERE session_id IS NULL AND created_at<?")
+      .run(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+    this.db.prepare(`
+      INSERT INTO attachments(id, session_id, file_name, mime_type, size, sha256, data, created_at)
+      VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
+    `).run(attachmentId, safeName, mimeType, bytes.length, createHash("sha256").update(bytes).digest("hex"), bytes, now);
+    return this.attachmentMetadata(attachmentId);
+  }
+
+  attachmentMetadata(attachmentId) {
+    const row = this.db.prepare("SELECT id, file_name, mime_type, size, sha256 FROM attachments WHERE id=?").get(attachmentId);
+    return row ? {
+      id: row.id,
+      fileName: row.file_name,
+      mimeType: row.mime_type,
+      size: row.size,
+      sha256: row.sha256,
+    } : null;
+  }
+
+  getAttachmentForRunner(attachmentId, runnerId) {
+    const row = this.db.prepare(`
+      SELECT a.* FROM attachments a
+      JOIN sessions s ON s.id=a.session_id
+      WHERE a.id=? AND s.runner_id=?
+    `).get(attachmentId, runnerId);
+    return row ? {
+      id: row.id,
+      fileName: row.file_name,
+      mimeType: row.mime_type,
+      size: row.size,
+      sha256: row.sha256,
+      data: row.data,
+    } : null;
+  }
+
+  validateAttachments(attachmentIds) {
+    if (attachmentIds == null) return [];
+    if (!Array.isArray(attachmentIds) || attachmentIds.some((attachmentId) => typeof attachmentId !== "string")) {
+      throw Object.assign(new Error("attachmentIds must be an array of IDs"), { statusCode: 400 });
+    }
+    const ids = [...new Set(attachmentIds)];
+    if (ids.length > 4) throw Object.assign(new Error("At most 4 images are allowed per message"), { statusCode: 400 });
+    return ids.map((attachmentId) => {
+      const row = this.db.prepare("SELECT session_id FROM attachments WHERE id=?").get(attachmentId);
+      if (!row || row.session_id) {
+        throw Object.assign(new Error("Attachment is missing or already used"), { statusCode: 409 });
+      }
+      return this.attachmentMetadata(attachmentId);
+    });
+  }
+
+  bindAttachments(sessionId, attachmentIds) {
+    const metadata = this.validateAttachments(attachmentIds);
+    for (const attachment of metadata) {
+      this.db.prepare("UPDATE attachments SET session_id=? WHERE id=? AND session_id IS NULL").run(sessionId, attachment.id);
+    }
+    return metadata;
+  }
+
   createSession(input, idempotencyKey) {
     return this.withIdempotency("create-session", idempotencyKey, () => {
       const repo = this.db.prepare("SELECT * FROM repos WHERE runner_id=? AND id=? AND available=1").get(input.runnerId, input.repoId);
@@ -301,16 +376,25 @@ export class WorkStore {
       if (!models.includes(input.model) || !efforts.includes(input.reasoningEffort)) {
         throw Object.assign(new Error("Model or reasoning effort is not advertised by the runner"), { statusCode: 400 });
       }
-      if (!String(input.message ?? "").trim()) throw Object.assign(new Error("First message is required"), { statusCode: 400 });
+      if (!String(input.message ?? "").trim() && !(input.attachmentIds?.length)) {
+        throw Object.assign(new Error("First message or image is required"), { statusCode: 400 });
+      }
+      this.validateAttachments(input.attachmentIds);
       const sessionId = id("work");
       const now = new Date().toISOString();
       this.db.prepare(`
           INSERT INTO sessions(id, runner_id, repo_id, repo_name, model, reasoning_effort, status, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?)
       `).run(sessionId, input.runnerId, input.repoId, repo.name, input.model, input.reasoningEffort, now, now);
-      const firstMessage = this.appendEvent(sessionId, "USER_MESSAGE", { text: input.message, clientMessageId: input.clientMessageId ?? null }, now);
+      const attachments = this.bindAttachments(sessionId, input.attachmentIds);
+      const firstMessage = this.appendEvent(sessionId, "USER_MESSAGE", {
+        text: input.message ?? "",
+        attachments,
+        clientMessageId: input.clientMessageId ?? null,
+      }, now);
       this.createCommand(input.runnerId, sessionId, "START", {
-        message: input.message,
+        message: input.message ?? "",
+        attachments,
         repoId: input.repoId,
         model: input.model,
         reasoningEffort: input.reasoningEffort,
@@ -382,10 +466,18 @@ export class WorkStore {
       const session = this.getSession(sessionId);
       if (!session) throw Object.assign(new Error("Session not found"), { statusCode: 404 });
       if (SESSION_TERMINAL.has(session.status)) throw Object.assign(new Error("Session is completed"), { statusCode: 409 });
-      if (!String(input.text ?? "").trim()) throw Object.assign(new Error("Message is required"), { statusCode: 400 });
-      const event = this.appendEvent(sessionId, "USER_MESSAGE", { text: input.text, clientMessageId: input.clientMessageId ?? null });
+      if (!String(input.text ?? "").trim() && !(input.attachmentIds?.length)) {
+        throw Object.assign(new Error("Message or image is required"), { statusCode: 400 });
+      }
+      const attachments = this.bindAttachments(sessionId, input.attachmentIds);
+      const event = this.appendEvent(sessionId, "USER_MESSAGE", {
+        text: input.text ?? "",
+        attachments,
+        clientMessageId: input.clientMessageId ?? null,
+      });
       this.createCommand(session.runnerId, sessionId, "RESUME", {
-        message: input.text,
+        message: input.text ?? "",
+        attachments,
         inboxCursor: event.seq,
         sessionToken: this.createSessionToken(sessionId),
       });
@@ -487,6 +579,7 @@ export class WorkStore {
       seq: row.seq,
       id: row.id,
       text: parseJson(row.payload_json, {}).text,
+      attachments: parseJson(row.payload_json, {}).attachments ?? [],
       createdAt: row.created_at,
     }));
     return { inbox, nextInboxCursor: inbox.at(-1)?.seq ?? Number(afterSeq) };

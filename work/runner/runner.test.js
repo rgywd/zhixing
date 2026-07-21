@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ test("Codex args isolate user config and fix model, effort, access and phone-lin
     repoPath: "C:/repo",
     model: "gpt-5.6-sol",
     reasoningEffort: "high",
+    imagePaths: ["C:/temp/screen.png"],
     mcp: {
       nodePath: "C:/node.exe",
       mcpServerPath: "C:/mcp-server.js",
@@ -27,7 +28,60 @@ test("Codex args isolate user config and fix model, effort, access and phone-lin
   assert.ok(args.includes("--dangerously-bypass-approvals-and-sandbox"));
   assert.ok(args.includes("model_reasoning_effort=\"high\""));
   assert.ok(args.some((arg) => arg.startsWith("mcp_servers.zhixing_phone.command=")));
+  assert.deepEqual(args.slice(args.indexOf("--image"), args.indexOf("--image") + 2), ["--image", "C:/temp/screen.png"]);
   assert.equal(args.at(-1), "-");
+});
+
+test("runner downloads images for one Codex turn and removes the temporary files afterwards", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-image-"));
+  const state = new RunnerState(join(directory, "state.json"));
+  let resolveProcess;
+  let imagePath;
+  const runner = new WorkRunner({
+    config: {
+      id: "runner",
+      coreUrl: "https://core",
+      stateFile: state.filename,
+      repos: [{
+        id: "repo",
+        name: "repo",
+        path: directory,
+        models: ["gpt-5.6-sol"],
+        reasoningEfforts: ["high"],
+      }],
+    },
+    state,
+    client: {
+      ack: async () => {},
+      updateState: async () => {},
+      downloadAttachment: async () => ({ data: Buffer.from("image"), mimeType: "image/png" }),
+    },
+    spawnCodex: ({ args, onEvent }) => {
+      imagePath = args[args.indexOf("--image") + 1];
+      assert.equal(existsSync(imagePath), true);
+      onEvent({ type: "thread.started", thread_id: "image-session" });
+      return {
+        child: { kill() {} },
+        completed: new Promise((resolve) => { resolveProcess = resolve; }),
+      };
+    },
+  });
+  await runner.startCommand({
+    id: "cmd-image",
+    sessionId: "work-image",
+    kind: "START",
+    payload: {
+      repoId: "repo",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      sessionToken: "session-token",
+      message: "inspect this",
+      attachments: [{ id: "att-image", mimeType: "image/png" }],
+    },
+  });
+  resolveProcess({ code: 0, signal: null, stderr: "" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(existsSync(imagePath), false);
 });
 
 test("resume targets the persisted Codex session", () => {

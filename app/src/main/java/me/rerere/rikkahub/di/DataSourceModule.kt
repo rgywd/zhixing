@@ -150,7 +150,7 @@ val dataSourceModule = module {
     single { get<AppDatabase>().phoneWorkDao() }
     single { PhoneWorkCredentialStore(get()) }
     single { PhoneWorkCatalogStore(get()) }
-    single { PhoneWorkApiClient(get()) }
+    single { PhoneWorkApiClient(get(), get()) }
     single { PhoneWorkRepository(get(), get(), get(), get()) }
 
     single {

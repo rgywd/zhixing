@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.ui.pages.work
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,6 +60,9 @@ import me.rerere.rikkahub.data.work.PhoneWorkQuestion
 import me.rerere.rikkahub.data.work.PhoneWorkRepo
 import me.rerere.rikkahub.data.work.PhoneWorkReportPayload
 import me.rerere.rikkahub.data.work.PhoneWorkRunStatePayload
+import me.rerere.rikkahub.data.work.PhoneWorkUserMessagePayload
+import me.rerere.rikkahub.data.files.FilesManager
+import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.ui.components.ai.ChatInput
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
@@ -68,6 +73,7 @@ import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.ui.pages.chat.NativeChatScaffold
 import me.rerere.rikkahub.ui.pages.chat.NativeChatTopBar
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
 
 private val workJson = Json { ignoreUnknownKeys = true }
@@ -81,6 +87,14 @@ fun PhoneWorkSessionPage(sessionId: String) {
     val scope = rememberCoroutineScope()
     val hazeState = rememberHazeState()
     val inputState = remember { ChatInputState() }
+    val filesManager: FilesManager = koinInject()
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        val currentImages = inputState.messageContent.filterIsInstance<UIMessagePart.Image>().size
+        val available = (4 - currentImages).coerceAtLeast(0)
+        if (available > 0) {
+            inputState.addImages(filesManager.createChatFilesByContents(uris.take(available)))
+        }
+    }
     val session by vm.session.collectAsStateWithLifecycle()
     val events by vm.events.collectAsStateWithLifecycle()
     val catalog by vm.catalog.collectAsStateWithLifecycle()
@@ -125,12 +139,15 @@ fun PhoneWorkSessionPage(sessionId: String) {
                     onUpdateChatModel = {},
                     onUpdateAssistant = {},
                     onUpdateSearchService = {},
-                    onMoreClick = {},
+                    onMoreClick = { imagePicker.launch("image/*") },
                     onCancelClick = {},
                     onSendClick = {
                         val text = inputState.textContent.text.toString().trim()
-                        if (text.isNotEmpty()) {
-                            vm.send(text) { createdId ->
+                        val imageUrls = inputState.messageContent
+                            .filterIsInstance<UIMessagePart.Image>()
+                            .map { it.url }
+                        if (text.isNotEmpty() || imageUrls.isNotEmpty()) {
+                            vm.send(text, imageUrls) { createdId ->
                                 inputState.clearInput()
                                 if (createdId != null) {
                                     navigator.navigate(Screen.PhoneWorkSession(createdId)) {
@@ -141,8 +158,9 @@ fun PhoneWorkSessionPage(sessionId: String) {
                         }
                     },
                     onLongSendClick = {},
-                    canSend = !inputState.isEmpty() && selectedRepo != null,
-                    showMoreButton = false,
+                    canSend = (!inputState.isEmpty() || inputState.messageContent.any { it is UIMessagePart.Image }) &&
+                        selectedRepo != null,
+                    showMoreButton = true,
                     customLeadingControls = {
                         WorkChoiceButton(
                             label = selectedModel,
@@ -275,9 +293,8 @@ private fun WorkEventList(
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) } }
         items(events, key = { it.id }) { event ->
             when (event.type) {
-                "USER_MESSAGE" -> WorkMarkdownBubble(
-                    event.payload.jsonObject["text"]?.jsonPrimitive?.content.orEmpty(),
-                    user = true,
+                "USER_MESSAGE" -> WorkUserMessageBubble(
+                    workJson.decodeFromJsonElement<PhoneWorkUserMessagePayload>(event.payload),
                 )
                 "REPORT" -> WorkMarkdownBubble(
                     workJson.decodeFromJsonElement<PhoneWorkReportPayload>(event.payload).text,
@@ -332,6 +349,41 @@ private fun WorkMarkdownBubble(text: String, user: Boolean) {
         ) {
             Box(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                 if (user) Text(text) else MarkdownBlock(text)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkUserMessageBubble(message: PhoneWorkUserMessagePayload) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        horizontalAlignment = Alignment.End,
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.primaryContainer,
+            shape = MaterialTheme.shapes.large,
+            modifier = Modifier.fillMaxWidth(0.84f),
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                message.attachments.forEach { attachment ->
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(HugeIcons.Book03, null, modifier = Modifier.size(18.dp))
+                        Text(
+                            attachment.fileName,
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                if (message.text.isNotBlank()) Text(message.text)
             }
         }
     }

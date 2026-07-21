@@ -15,6 +15,13 @@
       "path": "C:/Users/you/Documents/zhixing/zhixing-rikkahub",
       "models": ["gpt-5.6-sol", "gpt-5.6-terra"],
       "reasoningEfforts": ["medium", "high", "xhigh", "max"]
+    },
+    {
+      "id": "another-project",
+      "name": "another-project",
+      "path": "C:/Users/you/Documents/another-project",
+      "models": ["gpt-5.6-sol", "gpt-5.6-terra"],
+      "reasoningEfforts": ["medium", "high", "xhigh", "max"]
     }
   ]
 }

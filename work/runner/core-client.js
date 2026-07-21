@@ -61,6 +61,30 @@ export class CoreClient {
     return payload.commands;
   }
 
+  async downloadAttachment(runnerId, attachmentId) {
+    const response = await fetch(
+      `${this.baseUrl}/v1/runner/attachments/${encodeURIComponent(attachmentId)}?runnerId=${encodeURIComponent(runnerId)}`,
+      {
+        signal: AbortSignal.timeout(60_000),
+        headers: {
+          ...PROTOCOL_HEADERS,
+          authorization: `Bearer ${this.token}`,
+        },
+      },
+    );
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      const error = new Error(payload.message ?? `Attachment download failed with ${response.status}`);
+      error.statusCode = response.status;
+      throw error;
+    }
+    return {
+      data: Buffer.from(await response.arrayBuffer()),
+      sha256: response.headers.get("x-content-sha256"),
+      mimeType: response.headers.get("content-type"),
+    };
+  }
+
   async ack(commandId, state, sessionState = null) {
     let lastError;
     for (let attempt = 0; attempt < 3; attempt += 1) {

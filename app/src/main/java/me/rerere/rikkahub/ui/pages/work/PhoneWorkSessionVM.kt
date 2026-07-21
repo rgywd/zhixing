@@ -100,8 +100,8 @@ class PhoneWorkSessionVM(
         if (sessionId.value == null) selectedEffort.value = effort
     }
 
-    fun send(text: String, onAccepted: (String?) -> Unit = {}) {
-        if (text.isBlank() || sending.value) return
+    fun send(text: String, imageUrls: List<String> = emptyList(), onAccepted: (String?) -> Unit = {}) {
+        if ((text.isBlank() && imageUrls.isEmpty()) || sending.value) return
         viewModelScope.launch {
             sending.value = true
             runCatching {
@@ -115,13 +115,14 @@ class PhoneWorkSessionVM(
                             model = selectedModel.value,
                             reasoningEffort = selectedEffort.value,
                             message = text,
-                        )
+                        ),
+                        imageUrls,
                     ).also {
                         sessionId.value = it.id
                         onAccepted(it.id)
                     }
                 } else {
-                    repository.sendMessage(id, text)
+                    repository.sendMessage(id, text, imageUrls)
                     repository.refreshEvents(id)
                     onAccepted(null)
                 }
