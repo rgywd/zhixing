@@ -58,6 +58,7 @@ interface SearchService<T : SearchServiceOptions> {
                 is SearchServiceOptions.FirecrawlOptions -> FirecrawlSearchService
                 is SearchServiceOptions.JinaOptions -> JinaSearchService
                 is SearchServiceOptions.BochaOptions -> BochaSearchService
+                is SearchServiceOptions.DoubaoOptions -> DoubaoSearchService
                 is SearchServiceOptions.LegacyHostedOptions -> LegacyHostedSearchService
                 is SearchServiceOptions.GrokOptions -> GrokSearchService
                 is SearchServiceOptions.TinyfishOptions -> TinyfishSearchService
@@ -154,6 +155,7 @@ sealed class SearchServiceOptions {
             FirecrawlOptions::class to "Firecrawl",
             JinaOptions::class to "Jina",
             BochaOptions::class to "博查",
+            DoubaoOptions::class to "豆包搜索",
             GrokOptions::class to "Grok",
             TinyfishOptions::class to "Tinyfish",
             AnySearchOptions::class to "AnySearch",
@@ -261,6 +263,13 @@ sealed class SearchServiceOptions {
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
         val summary: Boolean = true,
+    ) : SearchServiceOptions()
+
+    @Serializable
+    @SerialName("doubao")
+    data class DoubaoOptions(
+        override val id: Uuid = Uuid.random(),
+        val apiKey: String = "",
     ) : SearchServiceOptions()
 
     @Serializable
