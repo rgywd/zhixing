@@ -207,6 +207,83 @@ test("runner downloads images for one Codex turn and removes the temporary files
   assert.equal(existsSync(imagePath), false);
 });
 
+test("runner can restart a failed first turn with its persisted repository and image", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-start-retry-"));
+  const state = new RunnerState(join(directory, "state.json"));
+  const acknowledgements = [];
+  let downloadAttempts = 0;
+  let resolveProcess;
+  let retryArgs;
+  const runner = new WorkRunner({
+    config: {
+      id: "runner",
+      coreUrl: "https://core",
+      stateFile: state.filename,
+      repos: [{
+        id: "repo",
+        name: "repo",
+        path: directory,
+        models: ["gpt-5.6-sol"],
+        reasoningEfforts: ["high"],
+      }],
+    },
+    state,
+    client: {
+      ack: async (...args) => acknowledgements.push(args),
+      updateState: async () => {},
+      downloadAttachment: async () => {
+        downloadAttempts += 1;
+        if (downloadAttempts === 1) throw new Error("attachment timeout");
+        return { data: Buffer.from("image"), mimeType: "image/png" };
+      },
+    },
+    spawnCodex: ({ args, onEvent }) => {
+      retryArgs = args;
+      onEvent({ type: "thread.started", thread_id: "retried-session" });
+      return {
+        child: { kill() {} },
+        completed: new Promise((resolve) => { resolveProcess = resolve; }),
+      };
+    },
+  });
+  const attachment = { id: "att-image", mimeType: "image/png" };
+
+  await runner.startCommand({
+    id: "cmd-start",
+    sessionId: "work-retry",
+    kind: "START",
+    payload: {
+      repoId: "repo",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      sessionToken: "session-token",
+      message: "inspect this",
+      attachments: [attachment],
+    },
+  });
+  assert.equal(acknowledgements.at(-1)[1], "FAILED");
+  assert.equal(state.get("work-retry").repoId, "repo");
+  assert.deepEqual(state.get("work-retry").pendingAttachments, [attachment]);
+
+  await runner.startCommand({
+    id: "cmd-resume",
+    sessionId: "work-retry",
+    kind: "RESUME",
+    payload: {
+      sessionToken: "session-token-2",
+      message: "retry",
+      attachments: [],
+    },
+  });
+  assert.deepEqual(retryArgs.slice(0, 3), ["exec", "-C", directory]);
+  assert.ok(retryArgs.includes("--image"));
+  assert.deepEqual(state.get("work-retry").pendingAttachments, []);
+
+  resolveProcess({ code: 0, signal: null, stderr: "" });
+  await waitForCondition(() => acknowledgements.some(([id, status]) => id === "cmd-resume" && status === "COMPLETED"));
+  assert.equal(state.get("work-retry").codexSessionId, "retried-session");
+});
+
 test("resume targets the persisted Codex session", () => {
   const args = buildCodexArgs({
     kind: "RESUME",
