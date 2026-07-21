@@ -451,14 +451,18 @@ export class WorkStore {
 
   getEvents(sessionId, afterSeq = 0) {
     if (!this.getSession(sessionId)) throw Object.assign(new Error("Session not found"), { statusCode: 404 });
-    return this.db.prepare("SELECT * FROM events WHERE session_id=? AND seq>? ORDER BY seq").all(sessionId, Number(afterSeq)).map((row) => ({
+    return this.db.prepare("SELECT * FROM events WHERE session_id=? AND seq>? ORDER BY seq").all(sessionId, Number(afterSeq)).map((row) => this.eventFromRow(row));
+  }
+
+  eventFromRow(row) {
+    return {
       sessionId: row.session_id,
       seq: row.seq,
       id: row.id,
       type: row.type,
       payload: parseJson(row.payload_json, {}),
       createdAt: row.created_at,
-    }));
+    };
   }
 
   postUserMessage(sessionId, input, idempotencyKey) {
@@ -555,7 +559,32 @@ export class WorkStore {
     if (!allowed.has(input.status)) throw Object.assign(new Error("Invalid session state"), { statusCode: 400 });
     this.db.prepare("UPDATE sessions SET status=?, codex_session_id=COALESCE(?, codex_session_id), updated_at=? WHERE id=?")
       .run(input.status, input.codexSessionId ?? null, new Date().toISOString(), sessionId);
-    return this.appendEvent(sessionId, "RUN_STATE", { status: input.status, detail: input.detail ?? null });
+    const payload = { status: input.status, detail: input.detail ?? null };
+    const last = this.db.prepare("SELECT * FROM events WHERE session_id=? AND type='RUN_STATE' ORDER BY seq DESC LIMIT 1")
+      .get(sessionId);
+    if (last && json(parseJson(last.payload_json, {})) === json(payload)) return this.eventFromRow(last);
+    return this.appendEvent(sessionId, "RUN_STATE", payload);
+  }
+
+  appendRunnerEvent(sessionId, input, runnerId) {
+    if (this.sessionRunnerId(sessionId) !== runnerId) {
+      throw Object.assign(new Error("Session not found"), { statusCode: 404 });
+    }
+    if (input.type !== "ASSISTANT_MESSAGE") {
+      throw Object.assign(new Error("Unsupported runner event type"), { statusCode: 400 });
+    }
+    const text = String(input.payload?.text ?? "").trim();
+    if (!text) throw Object.assign(new Error("Assistant message text is required"), { statusCode: 400 });
+    if (text.length > 20_000) throw Object.assign(new Error("Assistant message exceeds 20000 characters"), { statusCode: 413 });
+    return this.withIdempotency(`runner-event:${sessionId}`, input.clientEventId, () => {
+      const last = this.db.prepare(`
+        SELECT * FROM events
+        WHERE session_id=? AND type IN ('REPORT', 'ASSISTANT_MESSAGE')
+        ORDER BY seq DESC LIMIT 1
+      `).get(sessionId);
+      if (last && parseJson(last.payload_json, {}).text === text) return this.eventFromRow(last);
+      return this.appendEvent(sessionId, "ASSISTANT_MESSAGE", { text });
+    });
   }
 
   report(sessionId, input) {

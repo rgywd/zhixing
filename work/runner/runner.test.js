@@ -1,11 +1,21 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { buildCodexArgs, parseCodexSessionId, resolveCodexCommand } from "./codex-process.js";
-import { WorkRunner } from "./runner.js";
+import {
+  buildCodexArgs,
+  parseCodexAssistantMessage,
+  parseCodexSessionId,
+  resolveCodexCommand,
+} from "./codex-process.js";
+import { ensurePhoneHookProfile } from "./phone-hook-profile.js";
+import { PHONE_DEVELOPER_INSTRUCTIONS, WorkRunner } from "./runner.js";
 import { RunnerState } from "./state.js";
+
+const testDirectory = dirname(fileURLToPath(import.meta.url));
 
 test("Codex args isolate user config and fix model, effort, access and phone-line MCP", () => {
   const args = buildCodexArgs({
@@ -13,6 +23,8 @@ test("Codex args isolate user config and fix model, effort, access and phone-lin
     repoPath: "C:/repo",
     model: "gpt-5.6-sol",
     reasoningEffort: "high",
+    profileName: "zhixing-phone",
+    developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
     imagePaths: ["C:/temp/screen.png"],
     mcp: {
       nodePath: "C:/node.exe",
@@ -25,11 +37,84 @@ test("Codex args isolate user config and fix model, effort, access and phone-lin
   });
   assert.deepEqual(args.slice(0, 4), ["exec", "-C", "C:/repo", "--json"]);
   assert.ok(args.includes("--ignore-user-config"));
+  assert.deepEqual(args.slice(args.indexOf("--profile"), args.indexOf("--profile") + 2), ["--profile", "zhixing-phone"]);
+  assert.ok(args.includes("--dangerously-bypass-hook-trust"));
   assert.ok(args.includes("--dangerously-bypass-approvals-and-sandbox"));
+  const instructionOverride = args.find((arg) => arg.startsWith("developer_instructions="));
+  assert.match(instructionOverride, /report\(text\)/);
+  assert.match(instructionOverride, /ask\(questions\)/);
+  assert.match(instructionOverride, /report_html\(html, title\)/);
+  assert.match(instructionOverride, /final result before ending/);
   assert.ok(args.includes("model_reasoning_effort=\"high\""));
   assert.ok(args.some((arg) => arg.startsWith("mcp_servers.zhixing_phone.command=")));
   assert.deepEqual(args.slice(args.indexOf("--image"), args.indexOf("--image") + 2), ["--image", "C:/temp/screen.png"]);
   assert.equal(args.at(-1), "-");
+});
+
+test("Codex JSONL mapper only exposes completed assistant-visible messages", () => {
+  assert.deepEqual(parseCodexAssistantMessage({
+    type: "item.completed",
+    item: { id: "item-1", type: "agent_message", text: "正在跑测试。" },
+  }), { itemId: "item-1", text: "正在跑测试。" });
+  assert.equal(parseCodexAssistantMessage({
+    type: "item.started",
+    item: { id: "item-1", type: "agent_message", text: "partial" },
+  }), null);
+  assert.equal(parseCodexAssistantMessage({
+    type: "item.completed",
+    item: { id: "item-2", type: "reasoning", text: "private" },
+  }), null);
+  assert.equal(parseCodexAssistantMessage({
+    type: "item.completed",
+    item: { id: "item-3", type: "command_execution", command: "secret" },
+  }), null);
+});
+
+test("phone hook profile contains only a one-second fail-open Stop hook", () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-phone-profile-"));
+  const result = ensurePhoneHookProfile({
+    codexHome: directory,
+    nodePath: process.execPath,
+    hookScriptPath: join(testDirectory, "phone-stop-hook.js"),
+  });
+  const profile = readFileSync(result.profileFile, "utf8");
+  assert.equal(result.profileName, "zhixing-phone");
+  assert.match(profile, /\[\[hooks\.Stop\]\]/);
+  assert.match(profile, /timeout = 1/);
+  assert.doesNotMatch(profile, /PreToolUse|PostToolUse|PermissionRequest/);
+});
+
+test("phone Stop hook writes one small local marker and never emits output", () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-phone-hook-"));
+  const hookScript = join(testDirectory, "phone-stop-hook.js");
+  const result = spawnSync(process.execPath, [hookScript], {
+    input: JSON.stringify({
+      hook_event_name: "Stop",
+      session_id: "codex-session",
+      turn_id: "turn-1",
+      transcript_path: "must-not-be-copied",
+    }),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ZHIXING_WORK_HOOK_OUTBOX: directory,
+      ZHIXING_WORK_SESSION_ID: "work-session",
+    },
+  });
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
+  const files = readdirSync(directory);
+  assert.equal(files.length, 1);
+  const marker = JSON.parse(readFileSync(join(directory, files[0]), "utf8"));
+  assert.deepEqual(marker, {
+    version: 1,
+    event: "Stop",
+    workSessionId: "work-session",
+    codexSessionId: "codex-session",
+    turnId: "turn-1",
+  });
+  assert.ok(readFileSync(join(directory, files[0])).length < 1024);
 });
 
 test("runner downloads images for one Codex turn and removes the temporary files afterwards", async () => {
@@ -111,10 +196,12 @@ test("runner persists discovered session id and completes one turn", async () =>
   const client = {
     ack: async (...args) => calls.push(["ack", ...args]),
     updateState: async (...args) => calls.push(["state", ...args]),
+    publishEvent: async (...args) => calls.push(["event", ...args]),
   };
   let resolveProcess;
   const spawnCodex = ({ onEvent }) => {
     onEvent({ type: "thread.started", thread_id: "019f-codex" });
+    onEvent({ type: "item.completed", item: { id: "agent-1", type: "agent_message", text: "阶段结果" } });
     return {
       child: { kill() {} },
       completed: new Promise((resolve) => { resolveProcess = resolve; }),
@@ -153,6 +240,14 @@ test("runner persists discovered session id and completes one turn", async () =>
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(state.get("work-1").codexSessionId, "019f-codex");
   assert.ok(calls.some((call) => call[0] === "ack" && call[2] === "COMPLETED"));
+  const eventIndex = calls.findIndex((call) => call[0] === "event");
+  const completedIndex = calls.findIndex((call) => call[0] === "ack" && call[2] === "COMPLETED");
+  assert.ok(eventIndex >= 0 && eventIndex < completedIndex);
+  assert.deepEqual(calls[eventIndex].slice(1), ["work-1", {
+    clientEventId: "cmd-1:agent-1",
+    type: "ASSISTANT_MESSAGE",
+    payload: { text: "阶段结果" },
+  }]);
   const completed = calls.find((call) => call[0] === "ack" && call[2] === "COMPLETED");
   assert.equal(completed[3].status, "IDLE");
   assert.equal(completed[3].codexSessionId, "019f-codex");
@@ -160,6 +255,35 @@ test("runner persists discovered session id and completes one turn", async () =>
   const persisted = JSON.parse(readFileSync(join(directory, "state.json"), "utf8"));
   assert.equal(persisted.sessions["work-1"].sessionToken, "session-token");
   assert.deepEqual(persisted.outbox, {});
+  assert.deepEqual(persisted.eventOutbox, {});
+});
+
+test("runner replays assistant messages before the final transition after Core recovers", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-event-outbox-"));
+  const stateFile = join(directory, "state.json");
+  const state = new RunnerState(stateFile);
+  state.enqueueEvent("work-event", {
+    clientEventId: "cmd-event:item-1",
+    type: "ASSISTANT_MESSAGE",
+    payload: { text: "已完成修改" },
+  });
+  state.enqueueTransition("cmd-event", "COMPLETED", {
+    sessionId: "work-event",
+    status: "IDLE",
+  });
+  const calls = [];
+  const runner = new WorkRunner({
+    config: { id: "runner", stateFile, repos: [] },
+    state,
+    client: {
+      publishEvent: async (...args) => calls.push(["event", ...args]),
+      ack: async (...args) => calls.push(["ack", ...args]),
+    },
+  });
+  await runner.flushOutbox();
+  assert.deepEqual(calls.map((call) => call[0]), ["event", "ack"]);
+  assert.equal(state.events().length, 0);
+  assert.equal(state.transitions().length, 0);
 });
 
 test("runner durably replays a final transition after an extended Core outage", async () => {

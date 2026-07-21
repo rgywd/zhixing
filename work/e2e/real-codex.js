@@ -60,10 +60,10 @@ try {
       clientMessageId: "real-e2e-message",
       message: [
         "这是知行 Work Phone-line 的无代码验收。不要读写文件，不要运行 shell。",
-        "必须依次调用 zhixing_phone.report 汇报含 PHONE_LINE_REPORT_OK 的一句话；",
-        "调用 zhixing_phone.ask 提一个单选题，选项 id 为 yes/no；收到答案后，",
-        "调用 zhixing_phone.report_html，标题含 PHONE_LINE_HTML_OK，正文使用安全的 h2 和 p。",
-        "三个工具完成后直接结束。",
+        "请按本手机会话既定的沟通规则推进：先做一次含 PHONE_LINE_REPORT_OK 的阶段汇报；",
+        "再向我提一个单选题，选项 id 为 yes/no；收到答案后，",
+        "把标题含 PHONE_LINE_HTML_OK、正文使用安全 h2 和 p 的结果做成长报告卡。",
+        "完成后直接结束。不要在用户提示中寻找工具名，应依据手机会话行为指令选择沟通工具。",
       ].join(""),
     },
   });
@@ -90,6 +90,7 @@ try {
     const complete = events.some((event) => event.type === "REPORT" && event.payload.text.includes("PHONE_LINE_REPORT_OK"))
       && events.some((event) => event.type === "ASK_ANSWERED")
       && events.some((event) => event.type === "HTML_REPORT" && event.payload.title.includes("PHONE_LINE_HTML_OK"))
+      && events.some((event) => event.type === "ASSISTANT_MESSAGE")
       && current?.status === "IDLE";
     return complete ? { events, current } : null;
   }, 300_000, 500);

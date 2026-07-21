@@ -54,6 +54,7 @@ import me.rerere.hugeicons.stroke.Book03
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.work.PhoneWorkAnswer
 import me.rerere.rikkahub.data.work.PhoneWorkAskPayload
+import me.rerere.rikkahub.data.work.PhoneWorkAssistantMessagePayload
 import me.rerere.rikkahub.data.work.PhoneWorkEvent
 import me.rerere.rikkahub.data.work.PhoneWorkHtmlReportPayload
 import me.rerere.rikkahub.data.work.PhoneWorkQuestion
@@ -276,12 +277,18 @@ private fun WorkEventList(
     onAnswer: (String, List<PhoneWorkAnswer>) -> Unit,
     onOpenReport: (String) -> Unit,
 ) {
-    val answeredAskIds = remember(events) {
-        events.filter { it.type == "ASK_ANSWERED" }.mapNotNull { it.payload.jsonObject["askId"]?.jsonPrimitive?.content }.toSet()
+    val visibleEvents = remember(events) {
+        events.filterIndexed { index, event ->
+            val previous = events.getOrNull(index - 1)
+            event.type != "RUN_STATE" || previous?.type != "RUN_STATE" || previous.payload != event.payload
+        }
+    }
+    val answeredAskIds = remember(visibleEvents) {
+        visibleEvents.filter { it.type == "ASK_ANSWERED" }.mapNotNull { it.payload.jsonObject["askId"]?.jsonPrimitive?.content }.toSet()
     }
     val listState = rememberLazyListState()
-    LaunchedEffect(events.size) {
-        val lastIndex = events.size + if (error != null) 1 else 0
+    LaunchedEffect(visibleEvents.size) {
+        val lastIndex = visibleEvents.size + if (error != null) 1 else 0
         if (lastIndex > 0) listState.animateScrollToItem(lastIndex - 1)
     }
     LazyColumn(
@@ -291,13 +298,17 @@ private fun WorkEventList(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) } }
-        items(events, key = { it.id }) { event ->
+        items(visibleEvents, key = { it.id }) { event ->
             when (event.type) {
                 "USER_MESSAGE" -> WorkUserMessageBubble(
                     workJson.decodeFromJsonElement<PhoneWorkUserMessagePayload>(event.payload),
                 )
                 "REPORT" -> WorkMarkdownBubble(
                     workJson.decodeFromJsonElement<PhoneWorkReportPayload>(event.payload).text,
+                    user = false,
+                )
+                "ASSISTANT_MESSAGE" -> WorkMarkdownBubble(
+                    workJson.decodeFromJsonElement<PhoneWorkAssistantMessagePayload>(event.payload).text,
                     user = false,
                 )
                 "ASK" -> {

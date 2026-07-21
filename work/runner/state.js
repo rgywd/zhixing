@@ -4,12 +4,13 @@ import { dirname } from "node:path";
 export class RunnerState {
   constructor(filename) {
     this.filename = filename;
-    this.value = { sessions: {}, outbox: {} };
+    this.value = { sessions: {}, outbox: {}, eventOutbox: {} };
     if (existsSync(filename)) {
       this.value = JSON.parse(readFileSync(filename, "utf8"));
     }
     this.value.sessions ??= {};
     this.value.outbox ??= {};
+    this.value.eventOutbox ??= {};
   }
 
   get(sessionId) {
@@ -39,6 +40,21 @@ export class RunnerState {
 
   removeTransition(commandId) {
     delete this.value.outbox[commandId];
+    this.persist();
+  }
+
+  enqueueEvent(sessionId, event) {
+    this.value.eventOutbox[event.clientEventId] = { sessionId, event };
+    this.persist();
+    return this.value.eventOutbox[event.clientEventId];
+  }
+
+  events() {
+    return Object.values(this.value.eventOutbox);
+  }
+
+  removeEvent(clientEventId) {
+    delete this.value.eventOutbox[clientEventId];
     this.persist();
   }
 

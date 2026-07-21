@@ -34,6 +34,11 @@ Core 耐久保存图片，但只有该会话所属 Runner 能下载；Runner 校
 
 ## 2. 三个 MCP 工具
 
+Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `developer_instructions`：说明三个工具的用途，要求在
+有意义的阶段完成和本轮结束前调用 `report`，仅在阻断决策时调用 `ask`，长结构化产物使用 `report_html`。该约定不写入
+用户全局配置或仓库配置，普通电脑 Codex 会话不得加载。自动 `ASSISTANT_MESSAGE` 桥接独立存在，不能以模型未调用工具为由
+丢弃正常回复。
+
 ### `report(text)`
 
 输入：
@@ -144,6 +149,7 @@ Core 耐久保存图片，但只有该会话所属 Runner 能下载；Runner 校
 - `GET /v1/runner/commands?runnerId=&instanceId=`：拉取当前实例的有序命令。
 - `POST /v1/runner/commands/{id}/ack`：当前实例领取/完成/失败。
 - `POST /v1/runner/sessions/{id}/state`：当前实例写入进程生命周期。
+- `POST /v1/runner/sessions/{id}/events`：当前实例幂等写入经过白名单映射的 Codex 可见事件。
 - `GET /v1/runner/attachments/{id}?runnerId=`：下载分配给本 Runner 会话的图片附件。
 
 ### MCP session scope
@@ -162,11 +168,16 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 - 手机消息先持久化再入命令队列；Core 返回 2xx 只表示已耐久接收，不表示 Codex 已阅读。
 - `report` 读取 inbox 时使用租约式 cursor：响应已包含的消息在下一次成功提交 cursor 后才确认，避免进程崩溃丢消息。
 - stop 与新消息竞态时，先完成 stop；新消息保留为待 resume，不静默丢弃。
+- Runner 事件必须携带 `clientEventId`。首期只允许 `ASSISTANT_MESSAGE`，其正文来自公开 `codex exec --json`
+  的 `item.completed` + `agent_message`；Core 拒绝 reasoning、命令、工具参数和任意自定义事件类型。
+- Runner 必须先把消息写入本地 outbox，再异步上传；本轮 `IDLE/FAILED` transition 必须排在尚未确认的消息之后。
+- 与紧邻 `REPORT` 或既有 `ASSISTANT_MESSAGE` 完全相同的文本由 Core 幂等合并，避免模型显式汇报后重复展示。
 
 ## 5. Android 展示映射
 
 - `USER_MESSAGE`：右侧普通消息气泡。
 - `REPORT`：左侧 Markdown 消息；不展示“工具调用 report”。
+- `ASSISTANT_MESSAGE`：左侧普通 Markdown 消息；与正常聊天回复使用相同视觉，不显示 JSONL/Hook 来源。
 - `ASK`：左侧原生问题卡，回答后折叠为结果摘要。
 - `HTML_REPORT`：左侧报告卡，点击进入只读 WebView。
 - `RUN_STATE`：轻量行内状态或页头状态，不伪装成 AI 文本。
@@ -177,3 +188,10 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 请求头携带 `X-Zhixing-Work-Protocol: 1`。Core 在不认识主版本时返回 `426 Upgrade Required`；新增可选字段保持向后兼容。
 Phone-line v1 不读取旧 Work/Happy 数据；Room v33 迁移会删除旧 Work/Happy/App Server/Codex catalog 表，只保留
 新版 `phone_work_sessions` 与 `phone_work_events`。
+
+## 7. Hook 隔离与失败语义
+
+- 仅 Runner 发起的手机会话携带显式 phone profile；普通 Codex Desktop/CLI 不安装、不继承该 Hook。
+- 只允许 `Stop` Hook。Hook 输入只提取 `session_id`、`turn_id` 和事件名，输出只写本机单轮 outbox，不包含正文或密钥。
+- Hook handler 的超时上限为 1 秒并必须静默、fail-open。Hook 没有运行、没有写入标记或写入失败时，Runner 仍按
+  JSONL 与子进程退出结果完成会话，不得把 Hook 失败转换成任务失败。
