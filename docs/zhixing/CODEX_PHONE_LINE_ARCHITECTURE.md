@@ -11,7 +11,7 @@
 
 - 只管理从知行手机端创建的会话，不扫描或同步桌面历史。
 - 模型与思考深度在创建时选择；权限固定 `danger-full-access + never`。
-- Codex 只看见三个专用 MCP 工具；手机不消费 App Server JSON-RPC、终端流或工具事件流。
+- Codex 只看见三个专用 MCP 工具；手机不消费 App Server JSON-RPC、原始终端流、推理或工具参数。
 - Core 是耐久消息箱，Runner 是本地执行器；二者都不翻译 Codex 私有协议。
 
 ## 2. 目标拓扑
@@ -24,7 +24,7 @@ Work Core（公网、自建）
   | 耐久队列 + 会话状态 + 认证
   ^ HTTPS 长轮询/出站连接
 Work Runner（Windows 开发机）
-  | spawn / resume
+  | spawn / resume + public JSONL event bridge
   v
 Codex CLI（专用 profile）
   | stdio MCP
@@ -63,9 +63,20 @@ Core 可以部署在 VPS，但不持有 OpenAI 登录态、Codex 凭据、仓库
 - 拉取启动、继续、停止命令；在仓库目录启动 Codex CLI。
 - 把会话图片下载到单轮临时目录，校验摘要后通过 Codex CLI `--image` 传入，退出即清理。
 - 保存 Work session 与 Codex session ID 映射，并在重启后恢复。
+- 消费 `codex exec --json` 的公开 JSONL 事件，只把完成的 `agent_message` 映射成普通 AI 消息；不上传 reasoning、
+  命令正文、工具参数或原始工具输出。
 - 观察子进程开始、退出、错误；终态先写本地 outbox，再向 Core 原子提交并在断网/重启后重放。
-- 不解析 Codex 内部工具流。
+- JSONL 消息也先写本地 outbox，再异步上传；Core 通过客户端事件 ID 幂等去重，保证消息先于本轮终态落库。
 - 接收 Core 为每次 START/RESUME 签发的 24 小时 session token，并写入专用 MCP 配置，不污染用户的普通 Codex 配置。
+
+### 手机专属 Stop Hook
+
+- Hook 只安装到 Runner 的隔离 `CODEX_HOME` profile，普通 `~/.codex` 与仓库 `.codex/` 均不写入，因此电脑端
+  Codex Desktop/CLI 不加载。
+- 只启用 `Stop`，不启用可能位于工具执行前的 `PreToolUse`、权限 Hook 或逐工具 `PostToolUse`。
+- Hook 不联网、不持有 Core/Runner/session token，只把小于 1 KiB 的结束标记原子写入单轮本地 outbox。
+- Hook 超时为 1 秒，脚本无论错误与否都静默 `exit 0`；Runner 仍以 JSONL、子进程退出码和耐久 transition
+  为事实来源，Hook 缺失、超时或损坏不能阻断 Codex。
 
 ### Phone-line MCP
 
@@ -73,6 +84,15 @@ Core 可以部署在 VPS，但不持有 OpenAI 登录态、Codex 凭据、仓库
 - 工具调用写入 Core 后尽快返回；`ask` 例外，可短挂最多 180 秒。
 - `report` 返回从上次 inbox cursor 之后积压的手机消息，使 Codex 必然读到补充内容。
 - 本地日志只记录请求 ID、状态码和耗时，不记录消息正文或 token。
+
+### 手机会话行为指令
+
+- Runner 在每次手机 START/RESUME 的命令行中显式注入 `developer_instructions`，让 Codex 知道三个工具以及调用时机；
+  该指令不写入普通 `~/.codex`，电脑端会话不会继承。
+- `report` 至少用于有意义的阶段完成、准备进入较长无人值守等待，以及本轮结束前的最终结果；不能退化为逐工具刷屏。
+- `ask` 只用于确实阻断安全推进的用户选择，保持 1–4 个简短选择题；`report_html` 只承载适合独立阅读的长结构化交付物。
+- 工具结果中的 inbox 是模型可见输入，Codex 必须阅读并响应；普通 assistant 输出仍然保留，不能把工具调用当成唯一记录。
+- 自动 JSONL 消息桥是可靠性兜底，不依赖模型是否遵守工具指令；MCP 负责主动沟通语义，JSONL 负责避免正常回复丢失。
 
 ## 4. Codex 启动契约
 
@@ -87,6 +107,12 @@ model_reasoning_effort = "<selected>"
 
 继续消息使用 `codex exec resume <codexSessionId>`。model 与 effort 是 Work 会话的运行快照，首期不允许运行中切换；
 需要切换时新建会话。Runner 不读取 ChatGPT Desktop 的 SQLite、缓存或任务目录。
+
+Runner 使用隔离 `CODEX_HOME` 的显式 phone profile 加载上述 Stop Hook，并继续忽略普通用户配置。该 profile 仅由
+Runner 生成和维护；日常电脑会话不会携带 profile 参数，也不会使用 Work 的 hook outbox。
+
+三个 Phone-line 工具的行为约定通过同一次手机专属启动命令注入 `developer_instructions`。它必须明确要求里程碑汇报、
+阻断式提问和结束前最终汇报，确保“工具已注册”同时也“模型知道何时该用”；该指令仅作用于 Runner 发起的会话。
 
 ## 5. 状态机
 
@@ -122,7 +148,8 @@ Runner 离线是连接状态，不改写会话状态。手机允许排队发送�
 - Core 不可达：Android 展示本地缓存并允许草稿，不伪装成已发送；Runner 指数退避重连。
 - Runner 离线：消息耐久排队；上线后顺序处理，同一会话同时最多一个 Codex 进程。
 - `ask` 超时：工具返回明确 timeout；用户之后回答会形成 inbox 消息并触发一次 resume。
-- Codex 未调用最终汇报：Runner 在进程退出时发送一条系统状态消息，手机不会无限显示“运行中”。
+- Codex 未调用 `report`：Runner 自动转发公开 JSONL 中的普通 `agent_message`；进程退出时仍提交终态，手机不会
+  因模型忘记调用 MCP 而空白或无限显示“运行中”。
 - SSE 丢失：客户端用 `afterSeq` 补拉；catalog/仓库刷新失败只 toast，不禁用已有缓存选项。
 
 ## 8. 明确废弃

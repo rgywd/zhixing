@@ -21,13 +21,25 @@ export function mcpConfigArgs({ nodePath, mcpServerPath, coreUrl, sessionId, ses
   ];
 }
 
-export function buildCodexArgs({ kind, repoPath, model, reasoningEffort, codexSessionId, imagePaths = [], mcp }) {
+export function buildCodexArgs({
+  kind,
+  repoPath,
+  model,
+  reasoningEffort,
+  codexSessionId,
+  imagePaths = [],
+  profileName,
+  developerInstructions,
+  mcp,
+}) {
   const shared = [
     "--json",
     "--ignore-user-config",
+    ...(profileName ? ["--profile", profileName, "--dangerously-bypass-hook-trust"] : []),
     "--dangerously-bypass-approvals-and-sandbox",
     "-m", model,
     "-c", `model_reasoning_effort=${tomlString(reasoningEffort)}`,
+    ...(developerInstructions ? ["-c", `developer_instructions=${tomlString(developerInstructions)}`] : []),
     ...imagePaths.flatMap((imagePath) => ["--image", imagePath]),
     ...mcpConfigArgs(mcp),
   ];
@@ -42,6 +54,14 @@ export function parseCodexSessionId(event) {
   if (event?.type === "thread.started") return event.thread_id ?? event.threadId ?? null;
   if (event?.type === "session.started") return event.session_id ?? event.sessionId ?? null;
   return null;
+}
+
+export function parseCodexAssistantMessage(event) {
+  if (event?.type !== "item.completed" || event.item?.type !== "agent_message") return null;
+  const text = String(event.item.text ?? "").trim();
+  const itemId = String(event.item.id ?? "").trim();
+  if (!text || !itemId) return null;
+  return { itemId, text };
 }
 
 export function runCodex({ command, args, prompt, cwd, env = process.env, spawnImpl = spawn, onEvent = () => {} }) {

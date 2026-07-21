@@ -121,6 +121,14 @@ export function createWorkServer({ store, askTimeoutMs = 180_000 }) {
         if (!store.isRunnerInstance(runnerId, input.instanceId)) throw Object.assign(new Error("Runner instance is stale"), { statusCode: 409 });
         return sendJson(response, 200, store.updateSessionState(match[1], input));
       }
+      match = url.pathname.match(/^\/v1\/runner\/sessions\/([^/]+)\/events$/);
+      if (request.method === "POST" && match) {
+        const runnerId = store.sessionRunnerId(match[1]);
+        requireRunner(store, request, runnerId);
+        const input = await readJson(request);
+        if (!store.isRunnerInstance(runnerId, input.instanceId)) throw Object.assign(new Error("Runner instance is stale"), { statusCode: 409 });
+        return sendJson(response, 201, store.appendRunnerEvent(match[1], input, runnerId));
+      }
       match = url.pathname.match(/^\/v1\/runner\/attachments\/([^/]+)$/);
       if (request.method === "GET" && match) {
         const runnerId = url.searchParams.get("runnerId");

@@ -3,21 +3,39 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CoreClient } from "./core-client.js";
-import { buildCodexArgs, parseCodexSessionId, runCodex } from "./codex-process.js";
+import { buildCodexArgs, parseCodexAssistantMessage, parseCodexSessionId, runCodex } from "./codex-process.js";
+import { ensurePhoneHookProfile } from "./phone-hook-profile.js";
 import { RunnerState } from "./state.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+export const PHONE_DEVELOPER_INSTRUCTIONS = `You are running in a Zhixing mobile Work session.
+The user sees your ordinary assistant messages automatically. In addition, you have exactly three zhixing_phone communication tools and must use them intentionally:
+- report(text): call after a meaningful milestone, before a long unattended wait, and once with the final result before ending. Read and act on any queued user messages returned by the tool. Do not report every routine tool action.
+- ask(questions): call only when a user decision blocks safe progress. Ask 1-4 concise choice questions; each may be single- or multi-select and the app always provides an Other field. If it times out, stop or proceed only with a safe reversible assumption.
+- report_html(html, title): use for a long structured deliverable that is better opened as a report card.
+Continue to write normal assistant responses. Never assume a phone tool call is the only record of your work.`;
+
 export class WorkRunner {
-  constructor({ config, state, client, spawnCodex = runCodex, nodePath = process.execPath, mcpServerPath = resolve(here, "mcp-server.js") }) {
+  constructor({
+    config,
+    state,
+    client,
+    spawnCodex = runCodex,
+    nodePath = process.execPath,
+    mcpServerPath = resolve(here, "mcp-server.js"),
+    hookScriptPath = resolve(here, "phone-stop-hook.js"),
+  }) {
     this.config = config;
     this.state = state;
     this.client = client;
     this.spawnCodex = spawnCodex;
     this.nodePath = nodePath;
     this.mcpServerPath = mcpServerPath;
+    this.hookScriptPath = hookScriptPath;
     this.active = new Map();
     this.stopped = false;
+    this.flushPromise = Promise.resolve();
   }
 
   static fromConfig(config) {
@@ -98,10 +116,27 @@ export class WorkRunner {
     await this.client.ack(command.id, "CLAIMED", sessionState(command.sessionId, "RUNNING"));
     const cursorFile = resolve(dirname(this.config.stateFile), "cursors", `${command.sessionId}.json`);
     let attachmentDirectory = null;
+    let hookOutboxDirectory = null;
+    let profileName = null;
     let args;
     try {
       const downloaded = await this.downloadAttachments(command);
       attachmentDirectory = downloaded.directory;
+      if (this.config.codexHome) {
+        try {
+          profileName = ensurePhoneHookProfile({
+            codexHome: this.config.codexHome,
+            nodePath: this.nodePath,
+            hookScriptPath: this.hookScriptPath,
+          }).profileName;
+          hookOutboxDirectory = resolve(dirname(this.config.stateFile), "hooks", command.sessionId, command.id);
+          mkdirSync(hookOutboxDirectory, { recursive: true });
+        } catch (error) {
+          profileName = null;
+          hookOutboxDirectory = null;
+          this.logError("phone-hook", error);
+        }
+      }
       args = buildCodexArgs({
         kind: command.kind,
         repoPath: repo.path,
@@ -109,6 +144,8 @@ export class WorkRunner {
         reasoningEffort,
         codexSessionId: previous.codexSessionId,
         imagePaths: downloaded.paths,
+        profileName,
+        developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
         mcp: {
           nodePath: this.nodePath,
           mcpServerPath: this.mcpServerPath,
@@ -121,6 +158,7 @@ export class WorkRunner {
       });
     } catch (error) {
       if (attachmentDirectory) rmSync(attachmentDirectory, { recursive: true, force: true });
+      if (hookOutboxDirectory) rmSync(hookOutboxDirectory, { recursive: true, force: true });
       await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", safeError(error)));
       return;
     }
@@ -139,7 +177,10 @@ export class WorkRunner {
         args,
         prompt: command.payload.message,
         cwd: repo.path,
-        env: isolatedCodexEnv(this.config.codexHome),
+        env: isolatedCodexEnv(this.config.codexHome, process.env, hookOutboxDirectory ? {
+          ZHIXING_WORK_HOOK_OUTBOX: hookOutboxDirectory,
+          ZHIXING_WORK_SESSION_ID: command.sessionId,
+        } : {}),
         onEvent: (event) => {
           const parsed = parseCodexSessionId(event);
           if (parsed && parsed !== discoveredSessionId) {
@@ -147,16 +188,27 @@ export class WorkRunner {
             this.state.set(command.sessionId, { codexSessionId: parsed });
             this.client.updateState(command.sessionId, "RUNNING", null, parsed).catch((error) => this.logError("session-id", error));
           }
+          const message = parseCodexAssistantMessage(event);
+          if (message) {
+            this.state.enqueueEvent(command.sessionId, {
+              clientEventId: `${command.id}:${message.itemId}`,
+              type: "ASSISTANT_MESSAGE",
+              payload: { text: message.text },
+            });
+            this.flushOutbox().catch((error) => this.logError("assistant-message", error));
+          }
         },
       });
     } catch (error) {
       if (attachmentDirectory) rmSync(attachmentDirectory, { recursive: true, force: true });
+      if (hookOutboxDirectory) rmSync(hookOutboxDirectory, { recursive: true, force: true });
       await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", safeError(error)));
       return;
     }
     this.active.set(command.sessionId, { ...running, startCommandId: command.id, stoppedByUser: false });
     running.completed.then(async (result) => {
       if (attachmentDirectory) rmSync(attachmentDirectory, { recursive: true, force: true });
+      if (hookOutboxDirectory) rmSync(hookOutboxDirectory, { recursive: true, force: true });
       const active = this.active.get(command.sessionId);
       this.active.delete(command.sessionId);
       if (active?.stoppedByUser) {
@@ -167,7 +219,7 @@ export class WorkRunner {
         await this.commitTransition(command.id, "COMPLETED", sessionState(
           command.sessionId,
           "IDLE",
-          "Codex turn completed",
+          "Codex 本轮已完成",
           discoveredSessionId,
         ));
       } else {
@@ -227,6 +279,22 @@ export class WorkRunner {
   }
 
   async flushOutbox() {
+    const previous = this.flushPromise;
+    let release;
+    this.flushPromise = new Promise((resolve) => { release = resolve; });
+    await previous;
+    try {
+      await this.flushOutboxNow();
+    } finally {
+      release();
+    }
+  }
+
+  async flushOutboxNow() {
+    for (const queued of this.state.events()) {
+      await this.client.publishEvent(queued.sessionId, queued.event);
+      this.state.removeEvent(queued.event.clientEventId);
+    }
     for (const transition of this.state.transitions()) {
       await this.client.ack(transition.commandId, transition.state, transition.sessionState);
       this.state.removeTransition(transition.commandId);
@@ -250,7 +318,7 @@ function validateConfig(config) {
   }
 }
 
-export function isolatedCodexEnv(codexHome, source = process.env) {
+export function isolatedCodexEnv(codexHome, source = process.env, extra = {}) {
   if (!codexHome) return source;
   mkdirSync(codexHome, { recursive: true });
   const allowed = new Set([
@@ -262,6 +330,7 @@ export function isolatedCodexEnv(codexHome, source = process.env) {
   return Object.fromEntries([
     ...Object.entries(source).filter(([key]) => allowed.has(key)),
     ["CODEX_HOME", codexHome],
+    ...Object.entries(extra),
   ]);
 }
 

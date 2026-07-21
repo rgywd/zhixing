@@ -205,6 +205,71 @@ test("full phone-line API flow is durable, ordered and idempotent", async (t) =>
   ]);
 });
 
+test("runner assistant messages are allow-listed, idempotent and ordered", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const { session } = await registerAndCreate(baseUrl);
+  const input = {
+    instanceId: RUNNER_INSTANCE,
+    clientEventId: "cmd-1:item-1",
+    type: "ASSISTANT_MESSAGE",
+    payload: { text: "正在跑测试。" },
+  };
+  const created = await request(baseUrl, `/v1/runner/sessions/${session.id}/events`, {
+    method: "POST",
+    token: RUNNER_TOKEN,
+    body: input,
+  });
+  assert.equal(created.response.status, 201);
+  assert.equal(created.payload.type, "ASSISTANT_MESSAGE");
+  const duplicate = await request(baseUrl, `/v1/runner/sessions/${session.id}/events`, {
+    method: "POST",
+    token: RUNNER_TOKEN,
+    body: input,
+  });
+  assert.equal(duplicate.response.status, 201);
+  assert.equal(duplicate.payload.id, created.payload.id);
+  const rejected = await request(baseUrl, `/v1/runner/sessions/${session.id}/events`, {
+    method: "POST",
+    token: RUNNER_TOKEN,
+    body: { ...input, clientEventId: "cmd-1:item-2", type: "REASONING" },
+  });
+  assert.equal(rejected.response.status, 400);
+  const events = await request(baseUrl, `/v1/work/sessions/${session.id}/events?afterSeq=0`);
+  assert.equal(events.payload.events.filter((event) => event.type === "ASSISTANT_MESSAGE").length, 1);
+});
+
+test("duplicate run states and explicit report echoes do not create duplicate UI events", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const { session, sessionToken } = await registerAndCreate(baseUrl);
+  const firstState = await request(baseUrl, `/v1/runner/sessions/${session.id}/state`, {
+    method: "POST",
+    token: RUNNER_TOKEN,
+    body: { instanceId: RUNNER_INSTANCE, status: "RUNNING", detail: null },
+  });
+  const secondState = await request(baseUrl, `/v1/runner/sessions/${session.id}/state`, {
+    method: "POST",
+    token: RUNNER_TOKEN,
+    body: { instanceId: RUNNER_INSTANCE, status: "RUNNING", detail: null },
+  });
+  assert.equal(secondState.payload.id, firstState.payload.id);
+  const report = await request(baseUrl, `/v1/mcp/sessions/${session.id}/report`, {
+    method: "POST",
+    token: sessionToken,
+    body: { text: "阶段完成", clientCallId: "report-echo", inboxAfter: 0 },
+  });
+  const echoed = await request(baseUrl, `/v1/runner/sessions/${session.id}/events`, {
+    method: "POST",
+    token: RUNNER_TOKEN,
+    body: {
+      instanceId: RUNNER_INSTANCE,
+      clientEventId: "cmd-echo:item-1",
+      type: "ASSISTANT_MESSAGE",
+      payload: { text: "阶段完成" },
+    },
+  });
+  assert.equal(echoed.payload.id, report.payload.messageId);
+});
+
 test("image attachments are durable, scoped to their runner and included in Codex commands", async (t) => {
   const { baseUrl } = await fixture(t);
   await request(baseUrl, "/v1/runner/register", {

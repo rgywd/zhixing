@@ -108,4 +108,11 @@ export class CoreClient {
       body: { status, detail, codexSessionId, instanceId: this.instanceId },
     });
   }
+
+  publishEvent(sessionId, event) {
+    return this.request(`/v1/runner/sessions/${encodeURIComponent(sessionId)}/events`, {
+      method: "POST",
+      body: { ...event, instanceId: this.instanceId },
+    });
+  }
 }

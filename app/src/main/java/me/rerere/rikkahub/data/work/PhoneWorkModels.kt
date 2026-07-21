@@ -97,6 +97,9 @@ data class PhoneWorkAskPayload(
 data class PhoneWorkReportPayload(val text: String)
 
 @Serializable
+data class PhoneWorkAssistantMessagePayload(val text: String)
+
+@Serializable
 data class PhoneWorkHtmlReportPayload(
     val reportId: String,
     val title: String,
