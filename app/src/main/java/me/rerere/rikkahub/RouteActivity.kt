@@ -236,6 +236,11 @@ class RouteActivity : ComponentActivity() {
         intent.getStringExtra("conversationId")?.let { text ->
             navStack?.add(Screen.Chat(text))
         }
+        if (intent.hasExtra("workSessionId")) {
+            val id = intent.getStringExtra("workSessionId").orEmpty()
+            navStack?.add(if (id.isBlank()) Screen.PhoneWorkHome else Screen.PhoneWorkSession(id))
+            intent.removeExtra("workSessionId")
+        }
     }
 
     @OptIn(ExperimentalComposeUiApi::class)
@@ -272,6 +277,14 @@ class RouteActivity : ComponentActivity() {
 
         val backStack = rememberNavBackStack(startScreen)
         SideEffect { this@RouteActivity.navStack = backStack }
+
+        LaunchedEffect(backStack) {
+            if (intent.hasExtra("workSessionId")) {
+                val id = intent.getStringExtra("workSessionId").orEmpty()
+                backStack.add(if (id.isBlank()) Screen.PhoneWorkHome else Screen.PhoneWorkSession(id))
+                intent.removeExtra("workSessionId")
+            }
+        }
 
         ShareHandler(backStack)
 

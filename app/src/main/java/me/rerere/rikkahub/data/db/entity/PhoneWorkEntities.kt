@@ -14,6 +14,7 @@ data class PhoneWorkSessionEntity(
     val status: String,
     @ColumnInfo(name = "codex_session_id") val codexSessionId: String?,
     @ColumnInfo(name = "last_seq") val lastSeq: Long,
+    @ColumnInfo(name = "archived_at") val archivedAt: String?,
     @ColumnInfo(name = "created_at") val createdAt: String,
     @ColumnInfo(name = "updated_at") val updatedAt: String,
 )

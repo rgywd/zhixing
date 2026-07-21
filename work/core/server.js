@@ -186,7 +186,7 @@ export function createWorkServer({ store, askTimeoutMs = 180_000 }) {
       }
       if (request.method === "GET" && url.pathname === "/v1/work/sessions") {
         requireUser(store, request);
-        return sendJson(response, 200, { sessions: store.listSessions() });
+        return sendJson(response, 200, { sessions: store.listSessions({ archived: url.searchParams.get("archived") === "true" }) });
       }
       match = url.pathname.match(/^\/v1\/work\/sessions\/([^/]+)\/events$/);
       if (request.method === "GET" && match) {
@@ -218,6 +218,11 @@ export function createWorkServer({ store, askTimeoutMs = 180_000 }) {
       if (request.method === "POST" && match) {
         requireUser(store, request);
         return sendJson(response, 202, match[2] === "stop" ? store.stopSession(match[1]) : store.completeSession(match[1]));
+      }
+      match = url.pathname.match(/^\/v1\/work\/sessions\/([^/]+)\/(archive|unarchive)$/);
+      if (request.method === "POST" && match) {
+        requireUser(store, request);
+        return sendJson(response, 200, store.setSessionArchived(match[1], match[2] === "archive"));
       }
       match = url.pathname.match(/^\/v1\/work\/sessions\/([^/]+)\/revoke-tokens$/);
       if (request.method === "POST" && match) {

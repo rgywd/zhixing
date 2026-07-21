@@ -1,0 +1,264 @@
+package me.rerere.rikkahub.service
+
+import android.app.Notification
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
+import android.os.IBinder
+import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import me.rerere.rikkahub.R
+import me.rerere.rikkahub.RouteActivity
+import me.rerere.rikkahub.WORK_ALERT_NOTIFICATION_CHANNEL_ID
+import me.rerere.rikkahub.WORK_ASK_NOTIFICATION_CHANNEL_ID
+import me.rerere.rikkahub.WORK_TRACKING_NOTIFICATION_CHANNEL_ID
+import me.rerere.rikkahub.data.work.PhoneWorkEvent
+import me.rerere.rikkahub.data.work.PhoneWorkRepository
+import me.rerere.rikkahub.data.work.PhoneWorkSession
+import org.koin.android.ext.android.inject
+
+private const val TAG = "PhoneWorkTracking"
+
+class PhoneWorkTrackingService : Service() {
+    private val repository: PhoneWorkRepository by inject()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var trackingJob: Job? = null
+    private val trackingState by lazy { getSharedPreferences(TRACKING_PREFERENCES, Context.MODE_PRIVATE) }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!startForegroundCompat()) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (trackingJob == null) trackingJob = scope.launch { track() }
+        return START_STICKY
+    }
+
+    override fun onDestroy() {
+        trackingJob = null
+        scope.cancel()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        super.onDestroy()
+    }
+
+    private suspend fun track() {
+        while (scope.isActive) {
+            val before = runCatching { repository.activeSessionsSnapshot() }.getOrDefault(emptyList())
+            val sessionsRefresh = runCatching { repository.refreshSessions() }
+                .onFailure { Log.w(TAG, "Session refresh failed", it) }
+            val after = runCatching { repository.activeSessionsSnapshot() }.getOrDefault(before)
+            if (sessionsRefresh.isSuccess) after.forEach { rememberTracked(it.id) }
+            val snapshots = (before + after).associateBy { it.id }
+            trackedSessionIds().forEach { sessionId ->
+                val session = snapshots[sessionId] ?: repository.sessionSnapshot(sessionId)
+                if (session == null) {
+                    forgetTracked(sessionId)
+                    return@forEach
+                }
+                ensureNotificationCursor(sessionId)
+                runCatching {
+                    repository.refreshEvents(sessionId)
+                    deliverPendingNotifications(session)
+                    repository.sessionSnapshot(sessionId)
+                }.onSuccess { latest ->
+                    if (latest?.status !in ACTIVE_STATES) forgetTracked(sessionId)
+                }.onFailure { Log.w(TAG, "Event refresh failed for $sessionId", it) }
+            }
+            val active = runCatching { repository.activeSessionsSnapshot() }.getOrDefault(after)
+            if (active.isEmpty() && trackedSessionIds().isEmpty()) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return
+            }
+            updateOngoing(active)
+            delay(POLL_INTERVAL_MS)
+        }
+    }
+
+    private suspend fun ensureNotificationCursor(sessionId: String) {
+        val key = cursorKey(sessionId)
+        if (!trackingState.contains(key)) {
+            trackingState.edit().putLong(key, repository.maxEventSeq(sessionId)).commit()
+        }
+    }
+
+    private suspend fun deliverPendingNotifications(session: PhoneWorkSession) {
+        val key = cursorKey(session.id)
+        var cursor = trackingState.getLong(key, 0L)
+        repository.cachedEventsAfter(session.id, cursor).forEach { event ->
+            notifyEvent(session, event)
+            cursor = event.seq
+            trackingState.edit().putLong(key, cursor).commit()
+        }
+    }
+
+    private fun trackedSessionIds(): Set<String> =
+        trackingState.getStringSet(KEY_TRACKED_SESSIONS, emptySet()).orEmpty().toSet()
+
+    private fun rememberTracked(sessionId: String) {
+        trackingState.edit().putStringSet(KEY_TRACKED_SESSIONS, trackedSessionIds() + sessionId).commit()
+    }
+
+    private fun forgetTracked(sessionId: String) {
+        trackingState.edit().putStringSet(KEY_TRACKED_SESSIONS, trackedSessionIds() - sessionId).commit()
+    }
+
+    private fun cursorKey(sessionId: String) = "notified_seq_$sessionId"
+
+    private fun notifyEvent(session: PhoneWorkSession, event: PhoneWorkEvent) {
+        val payload = event.payload.jsonObject
+        val notification = when (event.type) {
+            "ASK" -> alertBuilder(
+                WORK_ASK_NOTIFICATION_CHANNEL_ID,
+                "${session.repoName} 需要你的回答",
+                payload["questions"]?.let { "Codex 遇到需要你决定的问题" } ?: "Codex 正在等待你的回答",
+                session.id,
+            ).setCategory(NotificationCompat.CATEGORY_CALL).setPriority(NotificationCompat.PRIORITY_HIGH).build()
+            "REPORT" -> alertBuilder(
+                WORK_ALERT_NOTIFICATION_CHANNEL_ID,
+                session.repoName,
+                payload["text"]?.jsonPrimitive?.content?.take(180) ?: "Codex 发来一条进度汇报",
+                session.id,
+            ).build()
+            "HTML_REPORT" -> alertBuilder(
+                WORK_ALERT_NOTIFICATION_CHANNEL_ID,
+                payload["title"]?.jsonPrimitive?.content ?: "${session.repoName} 报告",
+                "Codex 已生成一份可查看的报告",
+                session.id,
+            ).build()
+            "RUN_STATE" -> {
+                val state = payload["status"]?.jsonPrimitive?.content ?: return
+                if (state !in setOf("IDLE", "COMPLETED", "FAILED")) return
+                alertBuilder(
+                    WORK_ALERT_NOTIFICATION_CHANNEL_ID,
+                    session.repoName,
+                    when (state) {
+                        "IDLE" -> "本轮任务已完成，可以继续对话"
+                        "COMPLETED" -> "会话已结束"
+                        else -> "任务遇到问题，请打开查看"
+                    },
+                    session.id,
+                ).build()
+            }
+            else -> return
+        }
+        if (hasNotificationPermission()) {
+            NotificationManagerCompat.from(this).notify(event.id.hashCode(), notification)
+        }
+    }
+
+    private fun alertBuilder(channel: String, title: String, text: String, sessionId: String) =
+        NotificationCompat.Builder(this, channel)
+            .setSmallIcon(R.drawable.small_icon)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openWorkPendingIntent(sessionId))
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+
+    private fun startForegroundCompat(): Boolean = try {
+        val notification = ongoingNotification(emptyList())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+        true
+    } catch (error: Exception) {
+        Log.e(TAG, "Unable to start Work tracking", error)
+        false
+    }
+
+    private fun updateOngoing(active: List<PhoneWorkSession>) {
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+            .notify(NOTIFICATION_ID, ongoingNotification(active))
+    }
+
+    private fun ongoingNotification(active: List<PhoneWorkSession>): Notification {
+        val primary = active.firstOrNull()
+        val text = when {
+            primary == null -> "正在连接 Work Core"
+            active.size == 1 -> "${primary.repoName} · ${primary.status.statusText()}"
+            else -> "${primary.repoName} 等 ${active.size} 个任务正在跟踪"
+        }
+        val builder = NotificationCompat.Builder(this, WORK_TRACKING_NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.small_icon)
+            .setContentTitle("知行 Work")
+            .setContentText(text)
+            .setContentIntent(openWorkPendingIntent(primary?.id))
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            builder.setRequestPromotedOngoing(true)
+        }
+        if (Build.VERSION.SDK_INT >= 36) {
+            builder.setShortCriticalText("Work")
+        }
+        return builder.build()
+    }
+
+    private fun openWorkPendingIntent(sessionId: String?): PendingIntent {
+        val intent = Intent(this, RouteActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_WORK_SESSION_ID, sessionId.orEmpty())
+        }
+        return PendingIntent.getActivity(
+            this,
+            sessionId?.hashCode() ?: NOTIFICATION_ID,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+
+    private fun hasNotificationPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    private fun String.statusText() = when (this) {
+        "QUEUED" -> "等待开发机"
+        "RUNNING" -> "进行中"
+        "WAITING_FOR_USER" -> "等你回答"
+        else -> this
+    }
+
+    companion object {
+        const val EXTRA_WORK_SESSION_ID = "workSessionId"
+        private const val NOTIFICATION_ID = 2401
+        private const val POLL_INTERVAL_MS = 10_000L
+        private const val TRACKING_PREFERENCES = "phone_work_tracking"
+        private const val KEY_TRACKED_SESSIONS = "tracked_session_ids"
+        private val ACTIVE_STATES = setOf("QUEUED", "RUNNING", "WAITING_FOR_USER")
+
+        fun start(context: Context) {
+            ContextCompat.startForegroundService(context, Intent(context, PhoneWorkTrackingService::class.java))
+        }
+
+        fun stop(context: Context) {
+            context.stopService(Intent(context, PhoneWorkTrackingService::class.java))
+            NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
+            context.getSharedPreferences(TRACKING_PREFERENCES, Context.MODE_PRIVATE).edit().clear().apply()
+        }
+    }
+}

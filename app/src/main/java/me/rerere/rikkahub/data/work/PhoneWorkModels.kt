@@ -35,6 +35,7 @@ data class PhoneWorkSession(
     val status: String,
     val codexSessionId: String? = null,
     val lastSeq: Long = 0,
+    val archivedAt: String? = null,
     val createdAt: String,
     val updatedAt: String,
 )

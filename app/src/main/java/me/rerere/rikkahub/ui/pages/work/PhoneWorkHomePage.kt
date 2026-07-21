@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.pages.work
 
+import android.os.Build
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,10 +23,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,10 +40,14 @@ import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Refresh01
 import me.rerere.hugeicons.stroke.Settings03
 import me.rerere.hugeicons.stroke.MoreVertical
+import me.rerere.hugeicons.stroke.Package
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.work.PhoneWorkSession
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.context.LocalNavController
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionNotification
+import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import org.koin.androidx.compose.koinViewModel
 
 @Composable
@@ -50,13 +57,28 @@ fun PhoneWorkHomePage(vm: PhoneWorkHomeVM = koinViewModel()) {
     val connection by vm.connection.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
+    val showArchived by vm.showArchived.collectAsStateWithLifecycle()
+    val notificationPermission = rememberPermissionState(
+        permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setOf(PermissionNotification) else emptySet(),
+    )
+    var notificationPermissionRequested by rememberSaveable { mutableStateOf(false) }
+    PermissionManager(permissionState = notificationPermission)
+    LaunchedEffect(connection.configured, notificationPermission.allPermissionsGranted) {
+        if (connection.configured && !notificationPermission.allPermissionsGranted && !notificationPermissionRequested) {
+            notificationPermissionRequested = true
+            notificationPermission.requestPermissions()
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Work") },
+                title = { Text(if (showArchived) "已归档 Work" else "Work") },
                 navigationIcon = { BackButton() },
                 actions = {
+                    IconButton(onClick = vm::toggleArchived) {
+                        Icon(if (showArchived) HugeIcons.ComputerTerminal01 else HugeIcons.Package, if (showArchived) "返回进行中的会话" else "查看归档")
+                    }
                     IconButton(onClick = vm::refresh, enabled = connection.configured && !refreshing) {
                         Icon(HugeIcons.Refresh01, "同步")
                     }
@@ -83,10 +105,10 @@ fun PhoneWorkHomePage(vm: PhoneWorkHomeVM = koinViewModel()) {
             )
 
             sessions.isEmpty() -> EmptyWorkState(
-                title = "开始一个 Codex 会话",
-                detail = error ?: "选择仓库、模型和思考深度，然后像普通聊天一样发送消息。",
+                title = if (showArchived) "还没有归档会话" else "开始一个 Codex 会话",
+                detail = error ?: if (showArchived) "结束或暂停的会话可以归档后在这里恢复。" else "选择仓库、模型和思考深度，然后像普通聊天一样发送消息。",
                 modifier = Modifier.padding(padding),
-                onClick = { navigator.navigate(Screen.PhoneWorkSession("")) },
+                onClick = { if (showArchived) vm.toggleArchived() else navigator.navigate(Screen.PhoneWorkSession("")) },
             )
 
             else -> LazyColumn(
@@ -100,6 +122,14 @@ fun PhoneWorkHomePage(vm: PhoneWorkHomeVM = koinViewModel()) {
                         session = session,
                         onClick = { navigator.navigate(Screen.PhoneWorkSession(session.id)) },
                         onComplete = { vm.complete(session.id) },
+                        archived = showArchived,
+                        onArchive = { vm.archive(session.id) },
+                        onUnarchive = {
+                            vm.unarchive(session.id) {
+                                vm.toggleArchived()
+                                navigator.navigate(Screen.PhoneWorkSession(session.id))
+                            }
+                        },
                     )
                 }
             }
@@ -108,7 +138,14 @@ fun PhoneWorkHomePage(vm: PhoneWorkHomeVM = koinViewModel()) {
 }
 
 @Composable
-private fun WorkSessionRow(session: PhoneWorkSession, onClick: () -> Unit, onComplete: () -> Unit) {
+private fun WorkSessionRow(
+    session: PhoneWorkSession,
+    onClick: () -> Unit,
+    onComplete: () -> Unit,
+    archived: Boolean,
+    onArchive: () -> Unit,
+    onUnarchive: () -> Unit,
+) {
     var menuExpanded by remember { mutableStateOf(false) }
     Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
@@ -127,21 +164,32 @@ private fun WorkSessionRow(session: PhoneWorkSession, onClick: () -> Unit, onCom
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (session.status == "COMPLETED") {
-                Text(session.status.displayStatus(), style = MaterialTheme.typography.labelMedium)
-            } else {
-                Box {
-                    IconButton(onClick = { menuExpanded = true }) {
-                        Icon(HugeIcons.MoreVertical, "会话操作")
-                    }
-                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(HugeIcons.MoreVertical, "会话操作")
+                }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    if (archived) {
                         DropdownMenuItem(
-                            text = { Text("结束会话") },
-                            onClick = {
-                                menuExpanded = false
-                                onComplete()
-                            },
+                            text = { Text("恢复会话") },
+                            onClick = { menuExpanded = false; onUnarchive() },
                         )
+                    } else {
+                        if (session.status !in setOf("QUEUED", "RUNNING", "WAITING_FOR_USER")) {
+                            DropdownMenuItem(
+                                text = { Text("归档会话") },
+                                onClick = { menuExpanded = false; onArchive() },
+                            )
+                        }
+                        if (session.status != "COMPLETED") {
+                            DropdownMenuItem(
+                                text = { Text("结束会话") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onComplete()
+                                },
+                            )
+                        }
                     }
                 }
             }

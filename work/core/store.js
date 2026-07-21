@@ -2,6 +2,7 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 import { DatabaseSync } from "node:sqlite";
 
 const SESSION_TERMINAL = new Set(["COMPLETED"]);
+const SESSION_ACTIVE = new Set(["QUEUED", "RUNNING", "WAITING_FOR_USER"]);
 
 function tokenHash(token) {
   return createHash("sha256").update(token).digest("hex");
@@ -135,6 +136,7 @@ export class WorkStore {
     this.ensureColumn("commands", "claimed_by", "TEXT");
     this.ensureColumn("commands", "lease_until", "TEXT");
     this.ensureColumn("runners", "instance_id", "TEXT");
+    this.ensureColumn("sessions", "archived_at", "TEXT");
     this.recoverInterruptedAsks();
   }
 
@@ -440,13 +442,29 @@ export class WorkStore {
       status: row.status,
       codexSessionId: row.codex_session_id,
       lastSeq: row.last_seq,
+      archivedAt: row.archived_at ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
   }
 
-  listSessions() {
-    return this.db.prepare("SELECT id FROM sessions ORDER BY updated_at DESC").all().map((row) => this.getSession(row.id));
+  listSessions({ archived = false } = {}) {
+    const sql = archived
+      ? "SELECT id FROM sessions WHERE archived_at IS NOT NULL ORDER BY archived_at DESC"
+      : "SELECT id FROM sessions WHERE archived_at IS NULL ORDER BY updated_at DESC";
+    return this.db.prepare(sql).all().map((row) => this.getSession(row.id));
+  }
+
+  setSessionArchived(sessionId, archived) {
+    const session = this.getSession(sessionId);
+    if (!session) throw Object.assign(new Error("Session not found"), { statusCode: 404 });
+    if (archived && SESSION_ACTIVE.has(session.status)) {
+      throw Object.assign(new Error("Active session cannot be archived"), { statusCode: 409 });
+    }
+    const now = new Date().toISOString();
+    this.db.prepare("UPDATE sessions SET archived_at=?, updated_at=? WHERE id=?")
+      .run(archived ? now : null, now, sessionId);
+    return this.getSession(sessionId);
   }
 
   getEvents(sessionId, afterSeq = 0) {
@@ -469,6 +487,7 @@ export class WorkStore {
     return this.withIdempotency(`message:${sessionId}`, idempotencyKey, () => {
       const session = this.getSession(sessionId);
       if (!session) throw Object.assign(new Error("Session not found"), { statusCode: 404 });
+      if (session.archivedAt) throw Object.assign(new Error("Restore the archived session before sending"), { statusCode: 409 });
       if (SESSION_TERMINAL.has(session.status)) throw Object.assign(new Error("Session is completed"), { statusCode: 409 });
       if (!String(input.text ?? "").trim() && !(input.attachmentIds?.length)) {
         throw Object.assign(new Error("Message or image is required"), { statusCode: 400 });

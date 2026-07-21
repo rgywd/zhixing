@@ -34,6 +34,8 @@ import me.rerere.rikkahub.service.WebServerService
 import me.rerere.rikkahub.utils.CrashHandler
 import me.rerere.rikkahub.utils.DatabaseUtil
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.work.PhoneWorkCredentialStore
+import me.rerere.rikkahub.service.PhoneWorkTrackingService
 import me.rerere.workspace.WorkspaceManager
 import org.koin.android.ext.android.get
 import org.koin.android.ext.koin.androidContext
@@ -46,6 +48,9 @@ private const val TAG = "RikkaHubApp"
 const val CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID = "chat_completed"
 const val CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID = "chat_live_update"
 const val WEB_SERVER_NOTIFICATION_CHANNEL_ID = "web_server"
+const val WORK_TRACKING_NOTIFICATION_CHANNEL_ID = "work_tracking"
+const val WORK_ALERT_NOTIFICATION_CHANNEL_ID = "work_alerts"
+const val WORK_ASK_NOTIFICATION_CHANNEL_ID = "work_questions"
 
 class RikkaHubApp : Application() {
     override fun onCreate() {
@@ -84,6 +89,7 @@ class RikkaHubApp : Application() {
 
         // Start WebServer if enabled in settings
         startWebServerIfEnabled()
+        startWorkTrackingIfConfigured()
 
         // Increment launch count
         incrementLaunchCount()
@@ -222,6 +228,38 @@ class RikkaHubApp : Application() {
             .build()
         notificationManager.createNotificationChannel(webServerChannel)
 
+        notificationManager.createNotificationChannel(
+            NotificationChannelCompat.Builder(WORK_TRACKING_NOTIFICATION_CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_LOW)
+                .setName("Work 任务状态")
+                .setDescription("持续显示正在运行的开发任务")
+                .setVibrationEnabled(false)
+                .setShowBadge(false)
+                .build()
+        )
+        notificationManager.createNotificationChannel(
+            NotificationChannelCompat.Builder(WORK_ALERT_NOTIFICATION_CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_DEFAULT)
+                .setName("Work 关键进展")
+                .setDescription("任务完成、汇报和重要状态变化")
+                .build()
+        )
+        notificationManager.createNotificationChannel(
+            NotificationChannelCompat.Builder(WORK_ASK_NOTIFICATION_CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_HIGH)
+                .setName("Work 等待回答")
+                .setDescription("Codex 需要你做决定时提醒")
+                .setVibrationEnabled(true)
+                .build()
+        )
+
+    }
+
+    private fun startWorkTrackingIfConfigured() {
+        get<AppScope>().launch {
+            delay(500)
+            if (get<PhoneWorkCredentialStore>().connection.value.configured) {
+                runCatching { PhoneWorkTrackingService.start(this@RikkaHubApp) }
+                    .onFailure { Log.w(TAG, "Unable to resume Work tracking", it) }
+            }
+        }
     }
 
     override fun onTerminate() {

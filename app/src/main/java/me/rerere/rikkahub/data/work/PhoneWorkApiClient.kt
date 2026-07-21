@@ -38,7 +38,8 @@ class PhoneWorkApiClient(
     suspend fun repos(runnerId: String): List<PhoneWorkRepo> =
         get<ReposResponse>("/v1/work/repos?runnerId=${runnerId.urlEncode()}").repos
 
-    suspend fun sessions(): List<PhoneWorkSession> = get<SessionsResponse>("/v1/work/sessions").sessions
+    suspend fun sessions(archived: Boolean = false): List<PhoneWorkSession> =
+        get<SessionsResponse>("/v1/work/sessions${if (archived) "?archived=true" else ""}").sessions
 
     suspend fun events(sessionId: String, afterSeq: Long): List<PhoneWorkEvent> =
         get<EventsResponse>("/v1/work/sessions/${sessionId.urlEncode()}/events?afterSeq=$afterSeq").events
@@ -117,6 +118,12 @@ class PhoneWorkApiClient(
     suspend fun complete(sessionId: String) {
         post<UnitResponse, EmptyRequest>("/v1/work/sessions/${sessionId.urlEncode()}/complete", EmptyRequest)
     }
+
+    suspend fun archive(sessionId: String): PhoneWorkSession =
+        post("/v1/work/sessions/${sessionId.urlEncode()}/archive", EmptyRequest)
+
+    suspend fun unarchive(sessionId: String): PhoneWorkSession =
+        post("/v1/work/sessions/${sessionId.urlEncode()}/unarchive", EmptyRequest)
 
     suspend fun reportHtml(reportId: String): String = request(
         Request.Builder().url(url("/v1/work/reports/${reportId.urlEncode()}")),

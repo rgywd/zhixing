@@ -2,6 +2,13 @@
 
 状态：执行中（2026-07-20）
 
+## P1.1：后台跟踪与会话归档
+
+- [x] Core 为 session 增加 `archivedAt`，实现 active/archived 列表以及 archive/unarchive 幂等接口。
+- [x] Android Room 同步归档字段；Work 首页仅展示 active，会话菜单可归档，工具栏可进入归档列表并恢复。
+- [x] Work 前台服务轮询活跃会话与增量事件，常驻显示运行状态，并对 ASK、REPORT、HTML_REPORT、完成和失败可靠提醒。
+- [x] 验收：归档后默认列表消失、恢复后原消息和 Codex session 不变；Core 27 项测试、Kotlin 编译、Debug APK 构建与模拟器安装通过。
+
 最终效果以 [`PRODUCT_DESIGN.md`](./PRODUCT_DESIGN.md)、
 [`CODEX_PHONE_LINE_ARCHITECTURE.md`](./CODEX_PHONE_LINE_ARCHITECTURE.md) 和
 [`CODEX_PHONE_LINE_CONTRACT.md`](./CODEX_PHONE_LINE_CONTRACT.md) 为准。

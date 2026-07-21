@@ -19,6 +19,7 @@
   "approvalPolicy": "never",
   "status": "QUEUED",
   "lastSeq": 0,
+  "archivedAt": null,
   "createdAt": "2026-07-20T00:00:00Z"
 }
 ```
@@ -133,12 +134,15 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
 - `POST /v1/work/attachments`：上传一张受限图片并返回附件元数据。
 - `POST /v1/work/sessions`：创建会话与第一条用户消息。
 - `GET /v1/work/sessions?cursor=`：仅返回当前用户的手机会话。
+- `GET /v1/work/sessions?archived=true`：返回已归档会话；默认列表不包含归档项。
 - `GET /v1/work/sessions/{id}/events?afterSeq=`：补拉有序事件。
 - `GET /v1/work/sessions/{id}/stream?afterSeq=`：SSE；断开不影响写入。
 - `POST /v1/work/sessions/{id}/messages`：排队补充消息。
 - `POST /v1/work/sessions/{id}/asks/{askId}/answer`：提交答案。
 - `POST /v1/work/sessions/{id}/stop`：停止当前进程，会话进入 IDLE。
 - `POST /v1/work/sessions/{id}/complete`：显式结束会话。
+- `POST /v1/work/sessions/{id}/archive`：归档非活跃会话；运行中、等待中和排队中的会话返回 409。
+- `POST /v1/work/sessions/{id}/unarchive`：恢复到默认列表；保留原事件和 `codexSessionId`。
 - `POST /v1/work/sessions/{id}/revoke-tokens`：立即撤销该会话已签发的全部 MCP token。
 - `GET /v1/work/reports/{id}`：只读清洗报告。
 
@@ -183,13 +187,22 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 - `RUN_STATE`：轻量行内状态或页头状态，不伪装成 AI 文本。
 - `SYSTEM_ERROR`：可恢复错误条，保留重试动作与已有消息。
 
-## 6. 版本与兼容
+## 6. Android 后台跟踪与提醒
+
+- 存在未归档的 `QUEUED/RUNNING/WAITING_FOR_USER` 会话时，Android 启动 Work 专属前台服务；没有活跃会话时自动停止。
+- 常驻通知使用低优先级通道，只显示仓库、当前状态和活跃数量，点击进入 Work；不得包含 token、路径或消息正文。
+- 新增 `ASK` 时发高优先级提醒；新增 `REPORT/HTML_REPORT`、进入 `IDLE/COMPLETED/FAILED` 时发普通关键事件提醒。
+- 提醒使用独立于消息缓存的确认游标：先发通知再确认 `(sessionId, seq)`；进程中断时允许极少量重复，不能静默漏掉 `ASK`。
+- Android 13 以上未授权通知时不阻断任务创建或消息发送，只在界面提示用户无法后台提醒。
+- 保存 Core 配置后立即接管已有活跃会话；断开 Core 时停止跟踪服务并移除常驻通知。
+
+## 7. 版本与兼容
 
 请求头携带 `X-Zhixing-Work-Protocol: 1`。Core 在不认识主版本时返回 `426 Upgrade Required`；新增可选字段保持向后兼容。
 Phone-line v1 不读取旧 Work/Happy 数据；Room v33 迁移会删除旧 Work/Happy/App Server/Codex catalog 表，只保留
 新版 `phone_work_sessions` 与 `phone_work_events`。
 
-## 7. Hook 隔离与失败语义
+## 8. Hook 隔离与失败语义
 
 - 仅 Runner 发起的手机会话携带显式 phone profile；普通 Codex Desktop/CLI 不安装、不继承该 Hook。
 - 只允许 `Stop` Hook。Hook 输入只提取 `session_id`、`turn_id` 和事件名，输出只写本机单轮 outbox，不包含正文或密钥。
