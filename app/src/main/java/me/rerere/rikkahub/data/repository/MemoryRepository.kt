@@ -6,7 +6,9 @@ import me.rerere.rikkahub.data.db.dao.MemoryDAO
 import me.rerere.rikkahub.data.db.entity.MemoryEntity
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.MemoryKind
+import me.rerere.rikkahub.data.model.MemorySource
 import me.rerere.rikkahub.data.model.MemoryState
+import me.rerere.rikkahub.utils.JsonInstant
 
 class MemoryRepository(private val memoryDAO: MemoryDAO) {
     companion object {
@@ -66,6 +68,8 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
         val old = memoryDAO.getMemoryById(id) ?: error("Memory record #$id not found")
         val newMemory = old.copy(
             content = content,
+            source = MemorySource.MANUAL.name,
+            locked = true,
             updatedAt = System.currentTimeMillis(),
         )
         memoryDAO.updateMemory(newMemory)
@@ -76,15 +80,28 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
         assistantId: String,
         content: String,
         kind: MemoryKind = MemoryKind.CONTEXT,
+        dimensionId: String = "",
+        source: MemorySource = MemorySource.MANUAL,
+        state: MemoryState = MemoryState.ACTIVE,
+        confidence: Float = 1f,
+        evidenceConversationIds: List<String> = emptyList(),
+        locked: Boolean = source != MemorySource.AUTO,
+        lastEvidenceAt: Long = 0,
     ): AssistantMemory {
         val now = System.currentTimeMillis()
         val entity = MemoryEntity(
             assistantId = if (kind == MemoryKind.PROFILE) GLOBAL_MEMORY_ID else assistantId,
             content = content,
             kind = kind.name,
-            state = MemoryState.ACTIVE.name,
+            state = state.name,
             createdAt = now,
             updatedAt = now,
+            dimensionId = dimensionId,
+            confidence = confidence.coerceIn(0f, 1f),
+            source = source.name,
+            evidenceConversationIds = JsonInstant.encodeToString(evidenceConversationIds.distinct()),
+            locked = locked,
+            lastEvidenceAt = lastEvidenceAt,
         )
         return entity.copy(
             id = memoryDAO.insertMemory(entity).toInt()
@@ -95,6 +112,82 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
         val old = memoryDAO.getMemoryById(id) ?: error("Memory record #$id not found")
         val updated = old.copy(
             state = state.name,
+            updatedAt = System.currentTimeMillis(),
+        )
+        memoryDAO.updateMemory(updated)
+        return updated.toAssistantMemory()
+    }
+
+    suspend fun updateManualMemory(id: Int, content: String, dimensionId: String): AssistantMemory {
+        val old = memoryDAO.getMemoryById(id) ?: error("Memory record #$id not found")
+        val updated = old.copy(
+            content = content,
+            dimensionId = if (old.kind == MemoryKind.PROFILE.name) dimensionId else "",
+            source = MemorySource.MANUAL.name,
+            confidence = 1f,
+            locked = true,
+            updatedAt = System.currentTimeMillis(),
+        )
+        memoryDAO.updateMemory(updated)
+        return updated.toAssistantMemory()
+    }
+
+    suspend fun confirmPending(id: Int): AssistantMemory {
+        val old = memoryDAO.getMemoryById(id) ?: error("Memory record #$id not found")
+        val updated = old.copy(
+            state = MemoryState.ACTIVE.name,
+            source = MemorySource.MANUAL.name,
+            locked = true,
+            updatedAt = System.currentTimeMillis(),
+        )
+        memoryDAO.updateMemory(updated)
+        return updated.toAssistantMemory()
+    }
+
+    suspend fun addAutoProfile(
+        content: String,
+        dimensionId: String,
+        confidence: Float,
+        evidenceConversationIds: List<String>,
+        state: MemoryState,
+        lastEvidenceAt: Long,
+    ): AssistantMemory = addMemory(
+        assistantId = GLOBAL_MEMORY_ID,
+        content = content,
+        kind = MemoryKind.PROFILE,
+        dimensionId = dimensionId,
+        source = MemorySource.AUTO,
+        state = state,
+        confidence = confidence,
+        evidenceConversationIds = evidenceConversationIds,
+        locked = false,
+        lastEvidenceAt = lastEvidenceAt,
+    )
+
+    suspend fun updateAutoProfile(
+        id: Int,
+        content: String,
+        dimensionId: String,
+        confidence: Float,
+        evidenceConversationIds: List<String>,
+        state: MemoryState,
+        lastEvidenceAt: Long,
+    ): AssistantMemory? {
+        val old = memoryDAO.getMemoryById(id) ?: return null
+        if (
+            old.assistantId != GLOBAL_MEMORY_ID ||
+            old.kind != MemoryKind.PROFILE.name ||
+            old.source != MemorySource.AUTO.name ||
+            old.locked
+        ) return null
+
+        val updated = old.copy(
+            content = content,
+            dimensionId = dimensionId,
+            confidence = confidence.coerceIn(0f, 1f),
+            evidenceConversationIds = JsonInstant.encodeToString(evidenceConversationIds.distinct()),
+            state = state.name,
+            lastEvidenceAt = lastEvidenceAt,
             updatedAt = System.currentTimeMillis(),
         )
         memoryDAO.updateMemory(updated)
@@ -113,4 +206,12 @@ internal fun MemoryEntity.toAssistantMemory(): AssistantMemory = AssistantMemory
     state = runCatching { MemoryState.valueOf(state) }.getOrDefault(MemoryState.ACTIVE),
     createdAt = createdAt,
     updatedAt = updatedAt,
+    dimensionId = dimensionId,
+    confidence = confidence.coerceIn(0f, 1f),
+    source = runCatching { MemorySource.valueOf(source) }.getOrDefault(MemorySource.LEGACY),
+    evidenceConversationIds = runCatching {
+        JsonInstant.decodeFromString<List<String>>(evidenceConversationIds)
+    }.getOrDefault(emptyList()),
+    locked = locked,
+    lastEvidenceAt = lastEvidenceAt,
 )

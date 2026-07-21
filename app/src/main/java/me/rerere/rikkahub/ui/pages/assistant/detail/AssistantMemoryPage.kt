@@ -47,14 +47,23 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.MemoryKind
+import me.rerere.rikkahub.data.model.MemorySource
+import me.rerere.rikkahub.data.model.MemoryState
+import me.rerere.rikkahub.data.model.ProfileDimensions
+import me.rerere.rikkahub.data.datastore.ProfileMaintenanceConfig
+import me.rerere.rikkahub.data.datastore.ProfileMaintenanceStatus
+import me.rerere.rikkahub.data.datastore.ProfileMaintenanceStrategy
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.RikkaConfirmDialog
+import me.rerere.rikkahub.ui.components.ui.Select
 import me.rerere.rikkahub.ui.hooks.EditStateContent
 import me.rerere.rikkahub.ui.hooks.useEditState
 import me.rerere.rikkahub.ui.theme.CustomColors
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
+import java.text.DateFormat
+import java.util.Date
 
 @Composable
 fun AssistantMemoryPage(id: String) {
@@ -67,6 +76,9 @@ fun AssistantMemoryPage(id: String) {
     val profileMemories by vm.profileMemories.collectAsStateWithLifecycle()
     val contextMemories by vm.contextMemories.collectAsStateWithLifecycle()
     val archivedMemories by vm.archivedMemories.collectAsStateWithLifecycle()
+    val pendingProfileMemories by vm.pendingProfileMemories.collectAsStateWithLifecycle()
+    val profileMaintenanceConfig by vm.profileMaintenanceConfig.collectAsStateWithLifecycle()
+    val profileMaintenanceStatus by vm.profileMaintenanceStatus.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
@@ -91,12 +103,18 @@ fun AssistantMemoryPage(id: String) {
             profileMemories = profileMemories,
             contextMemories = contextMemories,
             archivedMemories = archivedMemories,
+            pendingProfileMemories = pendingProfileMemories,
+            profileMaintenanceConfig = profileMaintenanceConfig,
+            profileMaintenanceStatus = profileMaintenanceStatus,
             onUpdateAssistant = { vm.update(it) },
             onDeleteMemory = { vm.deleteMemory(it) },
             onAddMemory = { vm.addMemory(it) },
             onUpdateMemory = { vm.updateMemory(it) },
             onArchiveMemory = { vm.archiveMemory(it) },
             onRestoreMemory = { vm.restoreMemory(it) },
+            onConfirmPendingMemory = { vm.confirmPendingMemory(it) },
+            onUpdateProfileMaintenanceConfig = vm::updateProfileMaintenanceConfig,
+            onRunProfileMaintenanceNow = vm::runProfileMaintenanceNow,
         )
     }
 }
@@ -108,12 +126,18 @@ private fun AssistantMemoryContent(
     profileMemories: List<AssistantMemory>,
     contextMemories: List<AssistantMemory>,
     archivedMemories: List<AssistantMemory>,
+    pendingProfileMemories: List<AssistantMemory>,
+    profileMaintenanceConfig: ProfileMaintenanceConfig,
+    profileMaintenanceStatus: ProfileMaintenanceStatus,
     onUpdateAssistant: (Assistant) -> Unit,
     onAddMemory: (AssistantMemory) -> Unit,
     onUpdateMemory: (AssistantMemory) -> Unit,
     onDeleteMemory: (AssistantMemory) -> Unit,
     onArchiveMemory: (AssistantMemory) -> Unit,
     onRestoreMemory: (AssistantMemory) -> Unit,
+    onConfirmPendingMemory: (AssistantMemory) -> Unit,
+    onUpdateProfileMaintenanceConfig: (ProfileMaintenanceConfig) -> Unit,
+    onRunProfileMaintenanceNow: () -> Unit,
 ) {
     val memoryDialogState = useEditState<AssistantMemory> {
         if (it.id == 0) {
@@ -123,6 +147,7 @@ private fun AssistantMemoryContent(
         }
     }
     var pendingDeleteMemory by remember { mutableStateOf<AssistantMemory?>(null) }
+    var showMaintenanceSettings by remember { mutableStateOf(false) }
 
     // 记忆对话框
     memoryDialogState.EditStateContent { memory, update ->
@@ -134,17 +159,29 @@ private fun AssistantMemoryContent(
                 Text(stringResource(R.string.assistant_page_manage_memory_title))
             },
             text = {
-                TextField(
-                    value = memory.content,
-                    onValueChange = {
-                        update(memory.copy(content = it))
-                    },
-                    label = {
-                        Text(stringResource(R.string.assistant_page_manage_memory_title))
-                    },
-                    minLines = 2,
-                    maxLines = 8
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (memory.kind == MemoryKind.PROFILE) {
+                        Select(
+                            options = ProfileDimensions.builtIn,
+                            selectedOption = memory.dimensionId.takeIf { it in ProfileDimensions.builtIn }
+                                ?: ProfileDimensions.IDENTITY_CONTEXT,
+                            onOptionSelected = { update(memory.copy(dimensionId = it)) },
+                            optionToString = { profileDimensionLabel(it) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    TextField(
+                        value = memory.content,
+                        onValueChange = {
+                            update(memory.copy(content = it))
+                        },
+                        label = {
+                            Text(stringResource(R.string.assistant_page_manage_memory_title))
+                        },
+                        minLines = 2,
+                        maxLines = 8
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
@@ -260,14 +297,55 @@ private fun AssistantMemoryContent(
             )
         }
 
-        MemorySection(
-            title = stringResource(R.string.assistant_page_profile_memory),
-            description = stringResource(R.string.assistant_page_profile_memory_desc),
-            memories = profileMemories,
-            onAdd = { memoryDialogState.open(AssistantMemory(0, kind = MemoryKind.PROFILE)) },
-            onEdit = memoryDialogState::open,
-            onArchive = onArchiveMemory,
+        ProfileMaintenanceCard(
+            config = profileMaintenanceConfig,
+            status = profileMaintenanceStatus,
+            prerequisitesMet = assistant.enableMemory &&
+                assistant.useGlobalMemory &&
+                assistant.enableRecentChatsReference,
+            onToggle = { enabled ->
+                onUpdateProfileMaintenanceConfig(profileMaintenanceConfig.copy(enabled = enabled))
+            },
+            onOpenSettings = { showMaintenanceSettings = true },
+            onRunNow = onRunProfileMaintenanceNow,
         )
+
+        ProfileDimensions.builtIn.forEach { dimensionId ->
+            MemorySection(
+                title = profileDimensionLabel(dimensionId),
+                description = profileDimensionDescription(dimensionId),
+                memories = profileMemories.filter { it.dimensionId == dimensionId },
+                onAdd = {
+                    memoryDialogState.open(
+                        AssistantMemory(0, kind = MemoryKind.PROFILE, dimensionId = dimensionId)
+                    )
+                },
+                onEdit = memoryDialogState::open,
+                onArchive = onArchiveMemory,
+            )
+        }
+
+        val uncategorizedProfiles = profileMemories.filter { it.dimensionId !in ProfileDimensions.builtIn }
+        if (uncategorizedProfiles.isNotEmpty()) {
+            MemorySection(
+                title = "其他画像",
+                description = "旧版本或未来扩展维度中的画像。",
+                memories = uncategorizedProfiles,
+                onEdit = memoryDialogState::open,
+                onArchive = onArchiveMemory,
+            )
+        }
+
+        if (pendingProfileMemories.isNotEmpty()) {
+            MemorySection(
+                title = "待确认画像",
+                description = "自动整理出的候选项，确认后才会在后续对话中使用。",
+                memories = pendingProfileMemories,
+                onEdit = memoryDialogState::open,
+                onArchive = onArchiveMemory,
+                onConfirm = onConfirmPendingMemory,
+            )
+        }
 
         MemorySection(
             title = stringResource(R.string.assistant_page_context_memory),
@@ -287,6 +365,17 @@ private fun AssistantMemoryContent(
                 onDelete = { pendingDeleteMemory = it },
             )
         }
+    }
+
+    if (showMaintenanceSettings) {
+        ProfileMaintenanceSettingsDialog(
+            config = profileMaintenanceConfig,
+            onDismiss = { showMaintenanceSettings = false },
+            onSave = {
+                onUpdateProfileMaintenanceConfig(it)
+                showMaintenanceSettings = false
+            },
+        )
     }
 
     RikkaConfirmDialog(
@@ -319,6 +408,7 @@ private fun MemorySection(
     onArchive: ((AssistantMemory) -> Unit)? = null,
     onRestore: ((AssistantMemory) -> Unit)? = null,
     onDelete: ((AssistantMemory) -> Unit)? = null,
+    onConfirm: ((AssistantMemory) -> Unit)? = null,
 ) {
     Box(
         modifier = Modifier
@@ -355,6 +445,7 @@ private fun MemorySection(
                 onArchiveMemory = onArchive,
                 onRestoreMemory = onRestore,
                 onDeleteMemory = onDelete,
+                onConfirmMemory = onConfirm,
             )
         }
     }
@@ -367,6 +458,7 @@ private fun MemoryItem(
     onArchiveMemory: ((AssistantMemory) -> Unit)?,
     onRestoreMemory: ((AssistantMemory) -> Unit)?,
     onDeleteMemory: ((AssistantMemory) -> Unit)?,
+    onConfirmMemory: ((AssistantMemory) -> Unit)?,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -384,13 +476,16 @@ private fun MemoryItem(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    text = "#${memory.id} · " + stringResource(
-                        if (memory.kind == MemoryKind.PROFILE) {
-                            R.string.assistant_page_profile_memory
-                        } else {
-                            R.string.assistant_page_context_memory
-                        }
-                    ),
+                    text = buildString {
+                        append("#${memory.id} · ")
+                        append(
+                            if (memory.kind == MemoryKind.PROFILE) {
+                                profileDimensionLabel(memory.dimensionId)
+                            } else {
+                                stringResource(R.string.assistant_page_context_memory)
+                            }
+                        )
+                    },
                     style = MaterialTheme.typography.titleMediumEmphasized,
                 )
                 Text(
@@ -400,6 +495,15 @@ private fun MemoryItem(
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodySmall,
                 )
+                if (memory.source == MemorySource.AUTO) {
+                    Text(
+                        text = "自动整理 · ${(memory.confidence * 100).toInt()}% · ${memory.evidenceConversationIds.size} 条证据",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
+            onConfirmMemory?.let { confirm ->
+                TextButton(onClick = { confirm(memory) }) { Text("确认") }
             }
             onEditMemory?.let { edit ->
                 IconButton(onClick = { edit(memory) }) {
@@ -423,4 +527,192 @@ private fun MemoryItem(
             }
         }
     }
+}
+
+@Composable
+private fun ProfileMaintenanceCard(
+    config: ProfileMaintenanceConfig,
+    status: ProfileMaintenanceStatus,
+    prerequisitesMet: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onOpenSettings: () -> Unit,
+    onRunNow: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
+        colors = CustomColors.cardColorsOnSurfaceContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("画像自动维护", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (prerequisitesMet) {
+                            "使用快速模型增量整理发生变化的历史对话。"
+                        } else {
+                            "需要同时开启记忆、全局记忆和参考历史聊天记录。"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = config.enabled,
+                    onCheckedChange = onToggle,
+                    enabled = prerequisitesMet || config.enabled,
+                )
+            }
+            Text(
+                text = profileMaintenanceSummary(config, status),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (status.lastError.isBlank()) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onOpenSettings) { Text("维护设置") }
+                TextButton(
+                    onClick = onRunNow,
+                    enabled = config.enabled && prerequisitesMet,
+                ) { Text("立即维护") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileMaintenanceSettingsDialog(
+    config: ProfileMaintenanceConfig,
+    onDismiss: () -> Unit,
+    onSave: (ProfileMaintenanceConfig) -> Unit,
+) {
+    var draft by remember(config) { mutableStateOf(config) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("画像维护设置") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                SettingSelectRow(
+                    title = "维护间隔",
+                    value = draft.intervalHours,
+                    options = listOf(1, 3, 6, 12, 24),
+                    label = { "$it 小时" },
+                    onSelect = { draft = draft.copy(intervalHours = it) },
+                )
+                SettingSelectRow(
+                    title = "维护策略",
+                    value = draft.strategy,
+                    options = ProfileMaintenanceStrategy.entries,
+                    label = {
+                        when (it) {
+                            ProfileMaintenanceStrategy.CONSERVATIVE -> "保守 · 90%"
+                            ProfileMaintenanceStrategy.BALANCED -> "均衡 · 80%"
+                            ProfileMaintenanceStrategy.AGGRESSIVE -> "积极 · 70%"
+                        }
+                    },
+                    onSelect = { draft = draft.copy(strategy = it) },
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("自动应用高置信度画像")
+                        Text("关闭后候选项进入待确认区。", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(
+                        checked = draft.autoApply,
+                        onCheckedChange = { draft = draft.copy(autoApply = it) },
+                    )
+                }
+                SettingSelectRow(
+                    title = "最少证据次数",
+                    value = draft.minimumEvidence,
+                    options = (1..5).toList(),
+                    label = { "$it 个对话" },
+                    onSelect = { draft = draft.copy(minimumEvidence = it) },
+                )
+                SettingSelectRow(
+                    title = "单轮处理上限",
+                    value = draft.maxConversationsPerRun,
+                    options = listOf(5, 10, 20, 50, 100),
+                    label = { "$it 个对话" },
+                    onSelect = { draft = draft.copy(maxConversationsPerRun = it) },
+                )
+                Text(
+                    "模型固定复用“快速模型”设置；Android 后台任务按执行窗口运行，不保证精确到点。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(draft.normalized()) }) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
+}
+
+@Composable
+private fun <T> SettingSelectRow(
+    title: String,
+    value: T,
+    options: List<T>,
+    label: @Composable (T) -> String,
+    onSelect: (T) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, style = MaterialTheme.typography.labelLarge)
+        Select(
+            options = options,
+            selectedOption = value,
+            onOptionSelected = onSelect,
+            optionToString = label,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+private fun profileMaintenanceSummary(
+    config: ProfileMaintenanceConfig,
+    status: ProfileMaintenanceStatus,
+): String {
+    if (status.lastError.isNotBlank()) return "上次维护失败：${status.lastError}"
+    if (status.lastSuccessAt == 0L) {
+        return if (config.enabled) "尚未完成首次维护 · 每 ${config.intervalHours} 小时" else "当前未启用"
+    }
+    val time = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+        .format(Date(status.lastSuccessAt))
+    return "上次 $time · 处理 ${status.lastProcessedConversations} 个对话 · " +
+        "新增 ${status.lastCreated} · 更新 ${status.lastUpdated} · 待确认 ${status.lastPending}"
+}
+
+private fun profileDimensionLabel(dimensionId: String): String = when (dimensionId) {
+    ProfileDimensions.IDENTITY_CONTEXT -> "身份与背景"
+    ProfileDimensions.PREFERENCES_VALUES -> "偏好与取向"
+    ProfileDimensions.CAPABILITIES_KNOWLEDGE -> "能力与知识"
+    ProfileDimensions.BEHAVIOR_COLLABORATION -> "行为与协作方式"
+    else -> "未分类画像"
+}
+
+private fun profileDimensionDescription(dimensionId: String): String = when (dimensionId) {
+    ProfileDimensions.IDENTITY_CONTEXT -> "长期角色、领域、语言、设备环境和稳定背景。"
+    ProfileDimensions.PREFERENCES_VALUES -> "产品审美、技术选择、兴趣以及明确喜欢或排斥的方案。"
+    ProfileDimensions.CAPABILITIES_KNOWLEDGE -> "熟悉领域、技术栈、工具水平和已有经验。"
+    ProfileDimensions.BEHAVIOR_COLLABORATION -> "沟通、决策、工作节奏、风险和交付偏好。"
+    else -> "旧版本或未来扩展维度中的画像。"
 }

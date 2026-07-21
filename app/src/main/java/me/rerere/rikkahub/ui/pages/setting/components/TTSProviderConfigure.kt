@@ -53,6 +53,7 @@ fun TTSProviderConfigure(
                         is TTSProviderSetting.SystemTTS -> "System TTS"
                         is TTSProviderSetting.MiniMax -> "MiniMax"
                         is TTSProviderSetting.Qwen -> "Qwen"
+                        is TTSProviderSetting.Volcengine -> "火山引擎"
                         is TTSProviderSetting.Groq -> "Groq"
                         is TTSProviderSetting.XAI -> "xAI"
                         is TTSProviderSetting.MiMo -> "MiMo"
@@ -83,6 +84,7 @@ fun TTSProviderConfigure(
                                         TTSProviderSetting.SystemTTS::class -> "System TTS"
                                         TTSProviderSetting.MiniMax::class -> "MiniMax"
                                         TTSProviderSetting.Qwen::class -> "Qwen"
+                                        TTSProviderSetting.Volcengine::class -> "火山引擎"
                                         TTSProviderSetting.Groq::class -> "Groq"
                                         TTSProviderSetting.XAI::class -> "xAI"
                                         TTSProviderSetting.MiMo::class -> "MiMo"
@@ -119,6 +121,11 @@ fun TTSProviderConfigure(
                                     TTSProviderSetting.Qwen::class -> TTSProviderSetting.Qwen(
                                         id = setting.id,
                                         name = "Qwen TTS"
+                                    )
+
+                                    TTSProviderSetting.Volcengine::class -> TTSProviderSetting.Volcengine(
+                                        id = setting.id,
+                                        name = "火山引擎 TTS"
                                     )
 
                                     TTSProviderSetting.Groq::class -> TTSProviderSetting.Groq(
@@ -182,12 +189,98 @@ fun TTSProviderConfigure(
             is TTSProviderSetting.MiniMax -> MiniMaxTTSConfiguration(setting, onValueChange)
             is TTSProviderSetting.SystemTTS -> SystemTTSConfiguration(setting, onValueChange)
             is TTSProviderSetting.Qwen -> QwenTTSConfiguration(setting, onValueChange)
+            is TTSProviderSetting.Volcengine -> VolcengineTTSConfiguration(setting, onValueChange)
             is TTSProviderSetting.Groq -> GroqTTSConfiguration(setting, onValueChange)
             is TTSProviderSetting.XAI -> XAITTSConfiguration(setting, onValueChange)
             is TTSProviderSetting.MiMo -> MiMoTTSConfiguration(setting, onValueChange)
             is TTSProviderSetting.ElevenLabs -> ElevenLabsTTSConfiguration(setting, onValueChange)
             is TTSProviderSetting.FishAudio -> FishAudioTTSConfiguration(setting, onValueChange)
             is TTSProviderSetting.Step -> StepTTSConfiguration(setting, onValueChange)
+        }
+    }
+}
+
+@Composable
+private fun VolcengineTTSConfiguration(
+    setting: TTSProviderSetting.Volcengine,
+    onValueChange: (TTSProviderSetting) -> Unit,
+) {
+    FormItem(
+        label = { Text(stringResource(R.string.setting_tts_page_api_key)) },
+        description = { Text("火山方舟 Agent Plan API Key") },
+    ) {
+        OutlinedTextField(
+            value = setting.apiKey,
+            onValueChange = { onValueChange(setting.copy(apiKey = it)) },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("输入 API Key") },
+        )
+    }
+
+    FormItem(
+        label = { Text(stringResource(R.string.setting_tts_page_base_url)) },
+        description = { Text("V3 WebSocket 单向流式接口") },
+    ) {
+        OutlinedTextField(
+            value = setting.baseUrl,
+            onValueChange = { onValueChange(setting.copy(baseUrl = it)) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+
+    FormItem(
+        label = { Text(stringResource(R.string.setting_tts_page_model)) },
+        description = { Text("作为 X-Api-Resource-Id 发送") },
+    ) {
+        OutlinedTextField(
+            value = setting.model,
+            onValueChange = { onValueChange(setting.copy(model = it)) },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("seed-tts-2.0") },
+        )
+    }
+
+    var voiceExpanded by remember { mutableStateOf(false) }
+    val voices = remember {
+        listOf(
+            "zh_female_xiaohe_jupiter_bigtts" to "小何 2.0",
+            "zh_female_vv_jupiter_bigtts" to "Vivi",
+            "zh_male_yunzhou_jupiter_bigtts" to "云舟",
+            "zh_male_xiaotian_jupiter_bigtts" to "小天",
+        )
+    }
+    FormItem(
+        label = { Text(stringResource(R.string.setting_tts_page_voice)) },
+        description = { Text("默认使用小何 2.0，也可输入其他 Speaker ID") },
+    ) {
+        ExposedDropdownMenuBox(
+            expanded = voiceExpanded,
+            onExpandedChange = { voiceExpanded = !voiceExpanded },
+        ) {
+            OutlinedTextField(
+                value = setting.voice,
+                onValueChange = { onValueChange(setting.copy(voice = it)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .menuAnchor(MenuAnchorType.PrimaryEditable),
+                trailingIcon = {
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = voiceExpanded)
+                },
+            )
+            ExposedDropdownMenu(
+                expanded = voiceExpanded,
+                onDismissRequest = { voiceExpanded = false },
+            ) {
+                voices.forEach { (speaker, label) ->
+                    DropdownMenuItem(
+                        text = { Text("$label · $speaker") },
+                        onClick = {
+                            voiceExpanded = false
+                            onValueChange(setting.copy(voice = speaker))
+                        },
+                    )
+                }
+            }
         }
     }
 }
