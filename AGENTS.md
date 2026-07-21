@@ -116,6 +116,12 @@ CommitWiki 更新，或在结论中明确说明版本差异，不能把过期内
   processing after generation completes.
   (app/src/main/java/me/rerere/rikkahub/data/ai/transformers/Transformer.kt)
 
+- **Long-term Profile Memory**: Automatic profiles use a bounded four-stage pipeline: exact quotes from user messages
+  become internal `OBSERVATION` records, deterministic longitudinal gates promote qualified observations, and at most
+  one canonical automatic `PROFILE` summary is maintained per built-in dimension. Observations never enter prompts;
+  only active profiles do. The V2 contract, thresholds, lifecycle, evidence fields, and destructive v35→v36 legacy
+  profile cleanup are documented in `docs/zhixing/AUTO_PROFILE_MAINTENANCE.md`.
+
 - **Work / Codex Phone-line**: A separate, mobile-created session domain for communicating with Codex processes on a
   registered development machine. It uses a durable Work Core, an outbound-only local Runner, and exactly three MCP
   tools (`report`, `ask`, `report_html`). It must not read Codex Desktop history, depend on Happy/App Server protocols,
