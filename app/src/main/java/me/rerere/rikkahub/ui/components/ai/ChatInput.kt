@@ -114,6 +114,7 @@ import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.utils.SoundEffectPlayer
 import org.koin.compose.koinInject
 import kotlin.time.Duration.Companion.seconds
+import kotlin.uuid.Uuid
 
 @Composable
 fun ChatInput(
@@ -127,7 +128,7 @@ fun ChatInput(
     completionProviders: List<ChatCompletionProvider> = emptyList(),
     onUpdateChatModel: (Model) -> Unit,
     onUpdateAssistant: (Assistant) -> Unit,
-    onUpdateSearchService: (Int) -> Unit,
+    onUpdateSearchService: (Uuid, Boolean) -> Unit,
     onMoreClick: () -> Unit,
     onCancelClick: () -> Unit,
     onSendClick: () -> Unit,

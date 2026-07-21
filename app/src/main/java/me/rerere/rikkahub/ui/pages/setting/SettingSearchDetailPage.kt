@@ -48,6 +48,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import me.rerere.highlight.LocalHighlighter
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.datastore.resolveSearchServiceSelection
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.richtext.HighlightCodeVisualTransformation
 import me.rerere.rikkahub.ui.components.ui.FormItem
@@ -99,7 +100,15 @@ fun SettingSearchDetailPage(
                             onClick = {
                                 val newServices = settings.searchServices.toMutableList()
                                 newServices.removeAt(serviceIndex)
-                                vm.updateSettings(settings.copy(searchServices = newServices))
+                                vm.updateSettings(
+                                    settings.copy(
+                                        searchServices = newServices,
+                                        searchServiceSelectedIds = resolveSearchServiceSelection(
+                                            services = newServices,
+                                            selectedIds = settings.searchServiceSelectedIds - service.id,
+                                        ),
+                                    )
+                                )
                                 nav.popBackStack()
                             }
                         ) {

@@ -2,7 +2,7 @@ import * as React from "react";
 
 import { useMutation } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
-import { ChevronDown, Earth, LoaderCircle, Search } from "lucide-react";
+import { Check, ChevronDown, Earth, LoaderCircle, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { useCurrentAssistant } from "~/hooks/use-current-assistant";
@@ -113,7 +113,9 @@ export function SearchPickerButton({ disabled = false, className }: SearchPicker
 
   const builtInSearchEnabled = hasBuiltInSearch(currentModel?.tools);
   const searchEnabled = currentAssistant?.enableWebSearch ?? false;
-  const currentService = settings?.searchServices?.[settings.searchServiceSelected] ?? null;
+  const selectedServiceIds = settings?.searchServiceSelectedIds ?? [];
+  const currentService =
+    settings?.searchServices?.find((service) => selectedServiceIds.includes(service.id)) ?? null;
   const checked = searchEnabled || builtInSearchEnabled;
 
   React.useEffect(() => {
@@ -135,8 +137,8 @@ export function SearchPickerButton({ disabled = false, className }: SearchPicker
   });
 
   const selectServiceMutation = useMutation({
-    mutationFn: ({ index }: { index: number }) =>
-      api.post<{ status: string }>("settings/search/service", { index }),
+    mutationFn: ({ serviceIds }: { serviceIds: string[]; serviceId: string }) =>
+      api.post<{ status: string }>("settings/search/service", { serviceIds }),
     onError: (serviceError) => {
       setError(extractErrorMessage(serviceError, t("search.switch_service_failed")));
     },
@@ -233,7 +235,9 @@ export function SearchPickerButton({ disabled = false, className }: SearchPicker
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium">{t("search.web_title")}</div>
                   <div className="text-muted-foreground text-xs">
-                    {searchEnabled ? t("search.status_enabled") : t("search.status_disabled")}
+                    {searchEnabled
+                      ? t("search.status_enabled_multiple", { count: selectedServiceIds.length })
+                      : t("search.status_disabled")}
                   </div>
                 </div>
                 <Switch
@@ -249,11 +253,11 @@ export function SearchPickerButton({ disabled = false, className }: SearchPicker
               <ScrollArea className="h-[16rem] pr-3">
                 {settings?.searchServices?.length ? (
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {settings.searchServices.map((service, index) => {
-                      const selected = index === settings.searchServiceSelected;
+                    {settings.searchServices.map((service) => {
+                      const selected = selectedServiceIds.includes(service.id);
                       const switching =
                         selectServiceMutation.isPending &&
-                        selectServiceMutation.variables?.index === index;
+                        selectServiceMutation.variables?.serviceId === service.id;
 
                       return (
                         <button
@@ -265,9 +269,12 @@ export function SearchPickerButton({ disabled = false, className }: SearchPicker
                           )}
                           disabled={disabled || loading}
                           onClick={() => {
-                            if (!canUse || !settings || index === settings.searchServiceSelected)
-                              return;
-                            selectServiceMutation.mutate({ index });
+                            if (!canUse || !settings) return;
+                            const nextIds = selected
+                              ? selectedServiceIds.filter((id) => id !== service.id)
+                              : [...selectedServiceIds, service.id];
+                            if (nextIds.length === 0) return;
+                            selectServiceMutation.mutate({ serviceIds: nextIds, serviceId: service.id });
                           }}
                         >
                           <AIIcon
@@ -284,7 +291,11 @@ export function SearchPickerButton({ disabled = false, className }: SearchPicker
                               {getServiceType(service) ?? t("search.unknown")}
                             </div>
                           </div>
-                          {switching ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+                          {switching ? (
+                            <LoaderCircle className="size-3.5 animate-spin" />
+                          ) : selected ? (
+                            <Check className="size-3.5 text-primary" />
+                          ) : null}
                         </button>
                       );
                     })}

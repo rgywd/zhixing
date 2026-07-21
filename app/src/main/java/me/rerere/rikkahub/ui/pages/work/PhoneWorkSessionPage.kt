@@ -139,7 +139,7 @@ fun PhoneWorkSessionPage(sessionId: String) {
                     onToggleSearch = {},
                     onUpdateChatModel = {},
                     onUpdateAssistant = {},
-                    onUpdateSearchService = {},
+                    onUpdateSearchService = { _, _ -> },
                     onMoreClick = { imagePicker.launch("image/*") },
                     onCancelClick = {},
                     onSendClick = {

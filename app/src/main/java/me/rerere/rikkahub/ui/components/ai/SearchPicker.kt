@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -56,6 +56,7 @@ import me.rerere.rikkahub.ui.context.Navigator
 import me.rerere.rikkahub.ui.pages.setting.SearchAbilityTagLine
 import me.rerere.search.SearchServiceOptions
 import org.koin.compose.koinInject
+import kotlin.uuid.Uuid
 
 @Composable
 fun SearchPickerButton(
@@ -63,11 +64,11 @@ fun SearchPickerButton(
     settings: Settings,
     modifier: Modifier = Modifier,
     onToggleSearch: (Boolean) -> Unit,
-    onUpdateSearchService: (Int) -> Unit,
+    onUpdateSearchService: (Uuid, Boolean) -> Unit,
     model: Model?,
 ) {
     var showSearchPicker by remember { mutableStateOf(false) }
-    val currentService = settings.searchServices.getOrNull(settings.searchServiceSelected)
+    val currentService = settings.searchServices.firstOrNull { it.id in settings.searchServiceSelectedIds }
 
     ToggleSurface(
         modifier = modifier,
@@ -130,8 +131,8 @@ fun SearchPickerButton(
                     enableSearch = enableSearch,
                     settings = settings,
                     onToggleSearch = onToggleSearch,
-                    onUpdateSearchService = { index ->
-                        onUpdateSearchService(index)
+                    onUpdateSearchService = { id, selected ->
+                        onUpdateSearchService(id, selected)
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -153,7 +154,7 @@ private fun SearchPicker(
     model: Model?,
     modifier: Modifier = Modifier,
     onToggleSearch: (Boolean) -> Unit,
-    onUpdateSearchService: (Int) -> Unit,
+    onUpdateSearchService: (Uuid, Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     val navBackStack = LocalNavController.current
@@ -191,7 +192,7 @@ private fun AppSearchSettings(
     onToggleSearch: (Boolean) -> Unit,
     modifier: Modifier,
     settings: Settings,
-    onUpdateSearchService: (Int) -> Unit
+    onUpdateSearchService: (Uuid, Boolean) -> Unit
 ) {
     Card {
         Row(
@@ -241,16 +242,17 @@ private fun AppSearchSettings(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        itemsIndexed(settings.searchServices) { index, service ->
+        items(settings.searchServices, key = { it.id }) { service ->
+            val selected = service.id in settings.searchServiceSelectedIds
             val containerColor = animateColorAsState(
-                if (settings.searchServiceSelected == index) {
+                if (selected) {
                     MaterialTheme.colorScheme.primaryContainer
                 } else {
                     MaterialTheme.colorScheme.surface
                 }
             )
             val textColor = animateColorAsState(
-                if (settings.searchServiceSelected == index) {
+                if (selected) {
                     MaterialTheme.colorScheme.onPrimaryContainer
                 } else {
                     MaterialTheme.colorScheme.onSurface
@@ -262,7 +264,7 @@ private fun AppSearchSettings(
                     contentColor = textColor.value,
                 ),
                 onClick = {
-                    onUpdateSearchService(index)
+                    onUpdateSearchService(service.id, !selected)
                 },
                 shape = MaterialTheme.shapes.large
             ) {
