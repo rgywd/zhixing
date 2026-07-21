@@ -200,7 +200,9 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 ## 6. Android 后台跟踪与提醒
 
 - 存在未归档的 `QUEUED/RUNNING/WAITING_FOR_USER` 会话时，Android 启动 Work 专属前台服务；没有活跃会话时自动停止。
-- 常驻通知使用低优先级通道，只显示仓库、当前状态和活跃数量，点击进入 Work；不得包含 token、路径或消息正文。
+- 常驻通知使用低优先级通道，默认显示仓库、当前状态和活跃数量；当某个任务进入 `IDLE/COMPLETED/FAILED`
+  且仍有其他活跃任务时，镜像最近一次关键结果 60 秒并保留剩余活跃数量，随后恢复默认汇总。点击镜像结果进入对应会话；
+  不得包含 token、路径或消息正文。
 - 新增 `ASK` 时发高优先级提醒；新增 `REPORT/HTML_REPORT`、进入 `IDLE/COMPLETED/FAILED` 时发普通关键事件提醒。
 - 提醒使用独立于消息缓存的确认游标：先发通知再确认 `(sessionId, seq)`；进程中断时允许极少量重复，不能静默漏掉 `ASK`。
 - Android 13 以上未授权通知时不阻断任务创建或消息发送，只在界面提示用户无法后台提醒。

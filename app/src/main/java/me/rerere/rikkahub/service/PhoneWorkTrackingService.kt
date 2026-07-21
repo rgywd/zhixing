@@ -62,6 +62,7 @@ class PhoneWorkTrackingService : Service() {
 
     private suspend fun track() {
         while (scope.isActive) {
+            var latestMilestone: WorkTrackingMilestone? = null
             val before = runCatching { repository.activeSessionsSnapshot() }.getOrDefault(emptyList())
             val sessionsRefresh = runCatching { repository.refreshSessions() }
                 .onFailure { Log.w(TAG, "Session refresh failed", it) }
@@ -77,14 +78,16 @@ class PhoneWorkTrackingService : Service() {
                 ensureNotificationCursor(sessionId)
                 runCatching {
                     repository.refreshEvents(sessionId)
-                    deliverPendingNotifications(session)
+                    deliverPendingNotifications(session)?.let { latestMilestone = it }
                     repository.sessionSnapshot(sessionId)
                 }.onSuccess { latest ->
                     if (latest?.status !in ACTIVE_STATES) forgetTracked(sessionId)
                 }.onFailure { Log.w(TAG, "Event refresh failed for $sessionId", it) }
             }
+            latestMilestone?.let(::rememberMilestone)
             val active = runCatching { repository.activeSessionsSnapshot() }.getOrDefault(after)
             if (active.isEmpty() && trackedSessionIds().isEmpty()) {
+                clearMilestone()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return
@@ -101,14 +104,16 @@ class PhoneWorkTrackingService : Service() {
         }
     }
 
-    private suspend fun deliverPendingNotifications(session: PhoneWorkSession) {
+    private suspend fun deliverPendingNotifications(session: PhoneWorkSession): WorkTrackingMilestone? {
         val key = cursorKey(session.id)
         var cursor = trackingState.getLong(key, 0L)
+        var latestMilestone: WorkTrackingMilestone? = null
         repository.cachedEventsAfter(session.id, cursor).forEach { event ->
-            notifyEvent(session, event)
+            notifyEvent(session, event)?.let { latestMilestone = it }
             cursor = event.seq
             trackingState.edit().putLong(key, cursor).commit()
         }
+        return latestMilestone
     }
 
     private fun trackedSessionIds(): Set<String> =
@@ -124,8 +129,9 @@ class PhoneWorkTrackingService : Service() {
 
     private fun cursorKey(sessionId: String) = "notified_seq_$sessionId"
 
-    private fun notifyEvent(session: PhoneWorkSession, event: PhoneWorkEvent) {
+    private fun notifyEvent(session: PhoneWorkSession, event: PhoneWorkEvent): WorkTrackingMilestone? {
         val payload = event.payload.jsonObject
+        var milestoneStatus: WorkTrackingMilestoneStatus? = null
         val notification = when (event.type) {
             "ASK" -> alertBuilder(
                 WORK_ASK_NOTIFICATION_CHANNEL_ID,
@@ -146,8 +152,8 @@ class PhoneWorkTrackingService : Service() {
                 session.id,
             ).build()
             "RUN_STATE" -> {
-                val state = payload["status"]?.jsonPrimitive?.content ?: return
-                if (state !in setOf("IDLE", "COMPLETED", "FAILED")) return
+                val state = payload["status"]?.jsonPrimitive?.content ?: return null
+                milestoneStatus = runCatching { WorkTrackingMilestoneStatus.valueOf(state) }.getOrNull() ?: return null
                 alertBuilder(
                     WORK_ALERT_NOTIFICATION_CHANNEL_ID,
                     session.repoName,
@@ -159,11 +165,56 @@ class PhoneWorkTrackingService : Service() {
                     session.id,
                 ).build()
             }
-            else -> return
+            else -> return null
         }
         if (hasNotificationPermission()) {
             NotificationManagerCompat.from(this).notify(event.id.hashCode(), notification)
         }
+        return milestoneStatus?.let {
+            WorkTrackingMilestone(
+                sessionId = session.id,
+                repoName = session.repoName,
+                status = it,
+                observedAtMillis = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    private fun rememberMilestone(milestone: WorkTrackingMilestone) {
+        trackingState.edit()
+            .putString(KEY_MILESTONE_SESSION_ID, milestone.sessionId)
+            .putString(KEY_MILESTONE_REPO_NAME, milestone.repoName)
+            .putString(KEY_MILESTONE_STATUS, milestone.status.name)
+            .putLong(KEY_MILESTONE_OBSERVED_AT, milestone.observedAtMillis)
+            .commit()
+    }
+
+    private fun trackedMilestone(nowMillis: Long): WorkTrackingMilestone? {
+        val sessionId = trackingState.getString(KEY_MILESTONE_SESSION_ID, null) ?: return null
+        val repoName = trackingState.getString(KEY_MILESTONE_REPO_NAME, null) ?: return null
+        val status = trackingState.getString(KEY_MILESTONE_STATUS, null)
+            ?.let { runCatching { WorkTrackingMilestoneStatus.valueOf(it) }.getOrNull() }
+            ?: return null
+        val milestone = WorkTrackingMilestone(
+            sessionId = sessionId,
+            repoName = repoName,
+            status = status,
+            observedAtMillis = trackingState.getLong(KEY_MILESTONE_OBSERVED_AT, 0L),
+        )
+        if (nowMillis - milestone.observedAtMillis !in 0 until WORK_MILESTONE_DISPLAY_MS) {
+            clearMilestone()
+            return null
+        }
+        return milestone
+    }
+
+    private fun clearMilestone() {
+        trackingState.edit()
+            .remove(KEY_MILESTONE_SESSION_ID)
+            .remove(KEY_MILESTONE_REPO_NAME)
+            .remove(KEY_MILESTONE_STATUS)
+            .remove(KEY_MILESTONE_OBSERVED_AT)
+            .apply()
     }
 
     private fun alertBuilder(channel: String, title: String, text: String, sessionId: String) =
@@ -195,21 +246,18 @@ class PhoneWorkTrackingService : Service() {
     }
 
     private fun ongoingNotification(active: List<PhoneWorkSession>): Notification {
-        val primary = active.firstOrNull()
-        val text = when {
-            primary == null -> "正在连接 Work Core"
-            active.size == 1 -> "${primary.repoName} · ${primary.status.statusText()}"
-            else -> "${primary.repoName} 等 ${active.size} 个任务正在跟踪"
-        }
+        val nowMillis = System.currentTimeMillis()
+        val content = buildWorkTrackingNotificationContent(active, trackedMilestone(nowMillis), nowMillis)
         val builder = NotificationCompat.Builder(this, WORK_TRACKING_NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.small_icon)
             .setContentTitle("知行 Work")
-            .setContentText(text)
-            .setContentIntent(openWorkPendingIntent(primary?.id))
+            .setContentText(content.text)
+            .setContentIntent(openWorkPendingIntent(content.targetSessionId))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+        content.expandedText?.let { builder.setStyle(NotificationCompat.BigTextStyle().bigText(it)) }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
             builder.setRequestPromotedOngoing(true)
         }
@@ -236,19 +284,16 @@ class PhoneWorkTrackingService : Service() {
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
-    private fun String.statusText() = when (this) {
-        "QUEUED" -> "等待开发机"
-        "RUNNING" -> "进行中"
-        "WAITING_FOR_USER" -> "等你回答"
-        else -> this
-    }
-
     companion object {
         const val EXTRA_WORK_SESSION_ID = "workSessionId"
         private const val NOTIFICATION_ID = 2401
         private const val POLL_INTERVAL_MS = 10_000L
         private const val TRACKING_PREFERENCES = "phone_work_tracking"
         private const val KEY_TRACKED_SESSIONS = "tracked_session_ids"
+        private const val KEY_MILESTONE_SESSION_ID = "milestone_session_id"
+        private const val KEY_MILESTONE_REPO_NAME = "milestone_repo_name"
+        private const val KEY_MILESTONE_STATUS = "milestone_status"
+        private const val KEY_MILESTONE_OBSERVED_AT = "milestone_observed_at"
         private val ACTIVE_STATES = setOf("QUEUED", "RUNNING", "WAITING_FOR_USER")
 
         fun start(context: Context) {
