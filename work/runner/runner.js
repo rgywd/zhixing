@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CoreClient } from "./core-client.js";
@@ -96,22 +97,33 @@ export class WorkRunner {
 
     await this.client.ack(command.id, "CLAIMED", sessionState(command.sessionId, "RUNNING"));
     const cursorFile = resolve(dirname(this.config.stateFile), "cursors", `${command.sessionId}.json`);
-    const args = buildCodexArgs({
-      kind: command.kind,
-      repoPath: repo.path,
-      model,
-      reasoningEffort,
-      codexSessionId: previous.codexSessionId,
-      mcp: {
-        nodePath: this.nodePath,
-        mcpServerPath: this.mcpServerPath,
-        coreUrl: this.config.coreUrl,
-        sessionId: command.sessionId,
-        sessionToken,
-        cursorFile,
-        initialInboxCursor: command.payload.inboxCursor ?? 0,
-      },
-    });
+    let attachmentDirectory = null;
+    let args;
+    try {
+      const downloaded = await this.downloadAttachments(command);
+      attachmentDirectory = downloaded.directory;
+      args = buildCodexArgs({
+        kind: command.kind,
+        repoPath: repo.path,
+        model,
+        reasoningEffort,
+        codexSessionId: previous.codexSessionId,
+        imagePaths: downloaded.paths,
+        mcp: {
+          nodePath: this.nodePath,
+          mcpServerPath: this.mcpServerPath,
+          coreUrl: this.config.coreUrl,
+          sessionId: command.sessionId,
+          sessionToken,
+          cursorFile,
+          initialInboxCursor: command.payload.inboxCursor ?? 0,
+        },
+      });
+    } catch (error) {
+      if (attachmentDirectory) rmSync(attachmentDirectory, { recursive: true, force: true });
+      await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", safeError(error)));
+      return;
+    }
     this.state.set(command.sessionId, {
       repoId: repo.id,
       model,
@@ -138,11 +150,13 @@ export class WorkRunner {
         },
       });
     } catch (error) {
+      if (attachmentDirectory) rmSync(attachmentDirectory, { recursive: true, force: true });
       await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", safeError(error)));
       return;
     }
     this.active.set(command.sessionId, { ...running, startCommandId: command.id, stoppedByUser: false });
     running.completed.then(async (result) => {
+      if (attachmentDirectory) rmSync(attachmentDirectory, { recursive: true, force: true });
       const active = this.active.get(command.sessionId);
       this.active.delete(command.sessionId);
       if (active?.stoppedByUser) {
@@ -161,6 +175,30 @@ export class WorkRunner {
         await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", detail, discoveredSessionId));
       }
     }).catch((error) => this.logError("process-exit", error));
+  }
+
+  async downloadAttachments(command) {
+    const attachments = command.payload.attachments ?? [];
+    if (!attachments.length) return { directory: null, paths: [] };
+    const directory = resolve(dirname(this.config.stateFile), "attachments", command.sessionId, command.id);
+    mkdirSync(directory, { recursive: true });
+    try {
+      const paths = [];
+      for (const [index, attachment] of attachments.entries()) {
+        const result = await this.client.downloadAttachment(this.config.id, attachment.id);
+        const actualHash = createHash("sha256").update(result.data).digest("hex");
+        if (attachment.sha256 && attachment.sha256 !== actualHash) throw new Error("Attachment checksum mismatch");
+        const extension = extensionForImage(attachment.mimeType ?? result.mimeType);
+        if (!extension) throw new Error("Runner rejected an unsupported image type");
+        const filePath = resolve(directory, `${index + 1}-${attachment.id}${extension}`);
+        writeFileSync(filePath, result.data, { flag: "wx" });
+        paths.push(filePath);
+      }
+      return { directory, paths };
+    } catch (error) {
+      rmSync(directory, { recursive: true, force: true });
+      throw error;
+    }
   }
 
   async stopCommand(command) {
@@ -229,6 +267,15 @@ export function isolatedCodexEnv(codexHome, source = process.env) {
 
 function safeError(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function extensionForImage(mimeType) {
+  return ({
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+  })[String(mimeType ?? "").split(";", 1)[0].toLowerCase()] ?? null;
 }
 
 function sessionState(sessionId, status, detail = null, codexSessionId = null) {

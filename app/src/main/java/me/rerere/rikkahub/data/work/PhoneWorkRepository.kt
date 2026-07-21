@@ -58,16 +58,23 @@ class PhoneWorkRepository(
         }
     }
 
-    suspend fun createSession(request: CreateSessionRequest): PhoneWorkSession {
-        val session = api.createSession(request)
+    suspend fun createSession(request: CreateSessionRequest, imageUrls: List<String> = emptyList()): PhoneWorkSession {
+        val attachmentIds = uploadImages(imageUrls)
+        val session = api.createSession(request.copy(attachmentIds = attachmentIds))
         dao.upsertSession(session.toEntity())
         refreshEvents(session.id)
         return session
     }
 
-    suspend fun sendMessage(sessionId: String, text: String) {
-        dao.upsertEvents(listOf(api.sendMessage(sessionId, text).toEntity()))
+    suspend fun sendMessage(sessionId: String, text: String, imageUrls: List<String> = emptyList()) {
+        val attachmentIds = uploadImages(imageUrls)
+        dao.upsertEvents(listOf(api.sendMessage(sessionId, text, attachmentIds).toEntity()))
         refreshSessions()
+    }
+
+    private suspend fun uploadImages(imageUrls: List<String>): List<String> {
+        require(imageUrls.size <= 4) { "每条 Work 消息最多发送 4 张图片" }
+        return imageUrls.map { api.uploadImage(it).id }
     }
 
     suspend fun answer(sessionId: String, askId: String, answers: List<PhoneWorkAnswer>) {

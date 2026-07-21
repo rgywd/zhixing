@@ -21,13 +21,14 @@ export function mcpConfigArgs({ nodePath, mcpServerPath, coreUrl, sessionId, ses
   ];
 }
 
-export function buildCodexArgs({ kind, repoPath, model, reasoningEffort, codexSessionId, mcp }) {
+export function buildCodexArgs({ kind, repoPath, model, reasoningEffort, codexSessionId, imagePaths = [], mcp }) {
   const shared = [
     "--json",
     "--ignore-user-config",
     "--dangerously-bypass-approvals-and-sandbox",
     "-m", model,
     "-c", `model_reasoning_effort=${tomlString(reasoningEffort)}`,
+    ...imagePaths.flatMap((imagePath) => ["--image", imagePath]),
     ...mcpConfigArgs(mcp),
   ];
   if (kind === "START") {

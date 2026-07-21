@@ -25,6 +25,13 @@
 
 Android 不提交真实路径、任意 sandbox/approval 值或 Codex 参数。Core 只接受 Runner 已公布的 repo/model/effort 组合。
 
+用户消息可额外携带 `attachmentIds`。Android 先通过 `POST /v1/work/attachments` 上传图片，再在创建会话或补充消息时
+引用返回的 ID。每条消息最多 4 张，每张最大 10 MiB，仅接受 PNG、JPEG、WebP 和 GIF。事件与 Runner 命令只携带
+附件 ID、文件名、MIME、大小和 SHA-256，不内嵌图片字节。
+
+Core 耐久保存图片，但只有该会话所属 Runner 能下载；Runner 校验 SHA-256 后写入本轮专用临时目录，通过 Codex CLI
+`--image` 传入，并在该轮进程退出后删除临时副本。Android 不提交或读取开发机真实文件路径。
+
 ## 2. 三个 MCP 工具
 
 ### `report(text)`
@@ -118,6 +125,7 @@ Android 不提交真实路径、任意 sandbox/approval 值或 Codex 参数。Co
 
 - `GET /v1/work/runners`：Runner 在线状态与缓存版本。
 - `GET /v1/work/repos?runnerId=`：仓库 catalog，支持 `ETag`。
+- `POST /v1/work/attachments`：上传一张受限图片并返回附件元数据。
 - `POST /v1/work/sessions`：创建会话与第一条用户消息。
 - `GET /v1/work/sessions?cursor=`：仅返回当前用户的手机会话。
 - `GET /v1/work/sessions/{id}/events?afterSeq=`：补拉有序事件。
@@ -136,6 +144,7 @@ Android 不提交真实路径、任意 sandbox/approval 值或 Codex 参数。Co
 - `GET /v1/runner/commands?runnerId=&instanceId=`：拉取当前实例的有序命令。
 - `POST /v1/runner/commands/{id}/ack`：当前实例领取/完成/失败。
 - `POST /v1/runner/sessions/{id}/state`：当前实例写入进程生命周期。
+- `GET /v1/runner/attachments/{id}?runnerId=`：下载分配给本 Runner 会话的图片附件。
 
 ### MCP session scope
 

@@ -50,6 +50,21 @@ data class PhoneWorkEvent(
 )
 
 @Serializable
+data class PhoneWorkAttachment(
+    val id: String,
+    val fileName: String,
+    val mimeType: String,
+    val size: Long,
+    val sha256: String,
+)
+
+@Serializable
+data class PhoneWorkUserMessagePayload(
+    val text: String = "",
+    val attachments: List<PhoneWorkAttachment> = emptyList(),
+)
+
+@Serializable
 data class PhoneWorkQuestionOption(
     val id: String,
     val label: String,

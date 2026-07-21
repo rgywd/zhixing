@@ -34,8 +34,9 @@ Phone-line MCP（report / ask / report_html）
   +-----------------------> Work Core
 ```
 
-Core 可以部署在 VPS，但不持有 OpenAI 登录态、Codex 凭据、仓库文件或 shell 能力。开发机永远主动出站，
-不暴露端口，也不依赖手机与 Tailscale/VPN 共存。
+Core 可以部署在 VPS，但不持有 OpenAI 登录态、Codex 凭据、仓库文件或 shell 能力。Core 可以耐久保存用户主动发送的
+受限图片附件；附件不等同于仓库文件，只能由所属会话的 Runner 凭据下载。开发机永远主动出站，不暴露端口，也不依赖
+手机与 Tailscale/VPN 共存。
 
 ## 3. 组件职责
 
@@ -50,6 +51,7 @@ Core 可以部署在 VPS，但不持有 OpenAI 登录态、Codex 凭据、仓库
 ### Work Core
 
 - 是 Work 会话、消息、问题、答案、报告和命令的事实来源。
+- 保存用户图片附件及摘要，并只向所属 Runner 提供鉴权下载。
 - 对 Android、Runner 和单个 Codex session 使用不同作用域的 token。
 - 为所有写请求提供客户端 ID/幂等键，保证重试不重复创建消息或答案。
 - 只存仓库显示名与 Runner 内部 repo ID，不接收真实路径和源码。
@@ -59,6 +61,7 @@ Core 可以部署在 VPS，但不持有 OpenAI 登录态、Codex 凭据、仓库
 
 - 登记本机允许使用的仓库白名单，向 Core 上报稳定 repo ID、显示名和可用状态。
 - 拉取启动、继续、停止命令；在仓库目录启动 Codex CLI。
+- 把会话图片下载到单轮临时目录，校验摘要后通过 Codex CLI `--image` 传入，退出即清理。
 - 保存 Work session 与 Codex session ID 映射，并在重启后恢复。
 - 观察子进程开始、退出、错误；终态先写本地 outbox，再向 Core 原子提交并在断网/重启后重放。
 - 不解析 Codex 内部工具流。

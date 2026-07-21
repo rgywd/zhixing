@@ -65,6 +65,20 @@ async function request(baseUrl, path, { token = USER_TOKEN, method = "GET", body
   return { response, payload };
 }
 
+async function uploadImage(baseUrl, data, { fileName = "screen.png", mimeType = "image/png" } = {}) {
+  const response = await fetch(`${baseUrl}/v1/work/attachments`, {
+    method: "POST",
+    headers: {
+      ...PROTOCOL,
+      authorization: `Bearer ${USER_TOKEN}`,
+      "content-type": mimeType,
+      "x-file-name": encodeURIComponent(fileName),
+    },
+    body: data,
+  });
+  return { response, payload: await response.json() };
+}
+
 async function registerAndCreate(baseUrl) {
   const registration = await request(baseUrl, "/v1/runner/register", {
     token: RUNNER_TOKEN,
@@ -189,6 +203,61 @@ test("full phone-line API flow is durable, ordered and idempotent", async (t) =>
   assert.deepEqual(events.payload.events.map((event) => event.type), [
     "USER_MESSAGE", "REPORT", "USER_MESSAGE", "ASK", "ASK_ANSWERED", "HTML_REPORT",
   ]);
+});
+
+test("image attachments are durable, scoped to their runner and included in Codex commands", async (t) => {
+  const { baseUrl } = await fixture(t);
+  await request(baseUrl, "/v1/runner/register", {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      id: "runner-1",
+      instanceId: RUNNER_INSTANCE,
+      name: "Minecraft",
+      version: "test",
+      repos: [{
+        id: "zhixing",
+        name: "zhixing",
+        models: ["gpt-5.6-sol"],
+        reasoningEfforts: ["high"],
+      }],
+    },
+  });
+  const bytes = Buffer.from("89504e470d0a1a0a", "hex");
+  const uploaded = await uploadImage(baseUrl, bytes, { fileName: "错误 截图.png" });
+  assert.equal(uploaded.response.status, 201);
+  assert.equal(uploaded.payload.fileName, "错误 截图.png");
+
+  const created = await request(baseUrl, "/v1/work/sessions", {
+    method: "POST",
+    idempotencyKey: "image-session",
+    body: {
+      runnerId: "runner-1",
+      repoId: "zhixing",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      message: "",
+      attachmentIds: [uploaded.payload.id],
+    },
+  });
+  assert.equal(created.response.status, 201);
+  const events = await request(baseUrl, `/v1/work/sessions/${created.payload.id}/events?afterSeq=0`);
+  assert.equal(events.payload.events[0].payload.attachments[0].sha256, uploaded.payload.sha256);
+
+  const commands = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  assert.equal(commands.payload.commands[0].payload.attachments[0].id, uploaded.payload.id);
+  const download = await fetch(
+    `${baseUrl}/v1/runner/attachments/${uploaded.payload.id}?runnerId=runner-1`,
+    { headers: { ...PROTOCOL, authorization: `Bearer ${RUNNER_TOKEN}` } },
+  );
+  assert.equal(download.status, 200);
+  assert.deepEqual(Buffer.from(await download.arrayBuffer()), bytes);
+
+  const crossRunner = await fetch(
+    `${baseUrl}/v1/runner/attachments/${uploaded.payload.id}?runnerId=runner-2`,
+    { headers: { ...PROTOCOL, authorization: "Bearer runner-2-token" } },
+  );
+  assert.equal(crossRunner.status, 404);
 });
 
 test("ask returns a bounded timeout and a late answer queues resume", async (t) => {

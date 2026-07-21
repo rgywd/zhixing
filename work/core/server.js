@@ -2,6 +2,8 @@ import { createServer } from "node:http";
 import sanitizeHtml from "sanitize-html";
 
 const PROTOCOL_VERSION = "1";
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 
 function sendJson(response, statusCode, body, headers = {}) {
   response.writeHead(statusCode, {
@@ -26,6 +28,17 @@ async function readJson(request, limit = 1024 * 1024 + 4096) {
   } catch {
     throw Object.assign(new Error("Request body must be valid JSON"), { statusCode: 400 });
   }
+}
+
+async function readBytes(request, limit) {
+  const chunks = [];
+  let length = 0;
+  for await (const chunk of request) {
+    length += chunk.length;
+    if (length > limit) throw Object.assign(new Error("Request body is too large"), { statusCode: 413 });
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 function bearer(request) {
@@ -108,6 +121,21 @@ export function createWorkServer({ store, askTimeoutMs = 180_000 }) {
         if (!store.isRunnerInstance(runnerId, input.instanceId)) throw Object.assign(new Error("Runner instance is stale"), { statusCode: 409 });
         return sendJson(response, 200, store.updateSessionState(match[1], input));
       }
+      match = url.pathname.match(/^\/v1\/runner\/attachments\/([^/]+)$/);
+      if (request.method === "GET" && match) {
+        const runnerId = url.searchParams.get("runnerId");
+        requireRunner(store, request, runnerId);
+        const attachment = store.getAttachmentForRunner(match[1], runnerId);
+        if (!attachment) throw Object.assign(new Error("Attachment not found"), { statusCode: 404 });
+        response.writeHead(200, {
+          "content-type": attachment.mimeType,
+          "content-length": attachment.size,
+          "x-content-sha256": attachment.sha256,
+          "cache-control": "private, no-store",
+          "x-content-type-options": "nosniff",
+        });
+        return response.end(attachment.data);
+      }
 
       if (request.method === "GET" && url.pathname === "/v1/work/runners") {
         requireUser(store, request);
@@ -124,6 +152,25 @@ export function createWorkServer({ store, askTimeoutMs = 180_000 }) {
           return response.end();
         }
         return sendJson(response, 200, { repos }, { etag });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/work/attachments") {
+        requireUser(store, request);
+        const mimeType = String(request.headers["content-type"] ?? "").split(";", 1)[0].trim().toLowerCase();
+        if (!IMAGE_TYPES.has(mimeType)) {
+          throw Object.assign(new Error("Only PNG, JPEG, WebP and GIF images are supported"), { statusCode: 415 });
+        }
+        const data = await readBytes(request, MAX_IMAGE_BYTES);
+        if (!data.length) throw Object.assign(new Error("Image is empty"), { statusCode: 400 });
+        if (!hasImageSignature(data, mimeType)) {
+          throw Object.assign(new Error("Image content does not match its content type"), { statusCode: 415 });
+        }
+        let fileName = "image";
+        try {
+          fileName = decodeURIComponent(String(request.headers["x-file-name"] ?? "image"));
+        } catch {
+          throw Object.assign(new Error("Invalid image file name"), { statusCode: 400 });
+        }
+        return sendJson(response, 201, store.createAttachment({ fileName, mimeType, data }));
       }
       if (request.method === "POST" && url.pathname === "/v1/work/sessions") {
         requireUser(store, request);
@@ -232,6 +279,16 @@ export function createWorkServer({ store, askTimeoutMs = 180_000 }) {
     }
   });
   return server;
+}
+
+function hasImageSignature(data, mimeType) {
+  if (mimeType === "image/png") return data.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"));
+  if (mimeType === "image/jpeg") return data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff;
+  if (mimeType === "image/gif") return ["GIF87a", "GIF89a"].includes(data.subarray(0, 6).toString("ascii"));
+  if (mimeType === "image/webp") {
+    return data.subarray(0, 4).toString("ascii") === "RIFF" && data.subarray(8, 12).toString("ascii") === "WEBP";
+  }
+  return false;
 }
 
 function waitForAnswer(store, askId, timeoutMs, signal) {

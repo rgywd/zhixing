@@ -1,5 +1,8 @@
 package me.rerere.rikkahub.data.work
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
@@ -12,12 +15,15 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.net.URLConnection
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 class PhoneWorkApiClient(
     private val credentialStore: PhoneWorkCredentialStore,
+    private val context: Context,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val client = OkHttpClient.Builder()
@@ -65,13 +71,35 @@ class PhoneWorkApiClient(
             idempotencyKey = request.clientMessageId,
         )
 
-    suspend fun sendMessage(sessionId: String, text: String): PhoneWorkEvent {
-        val body = SendMessageRequest(text = text, clientMessageId = UUID.randomUUID().toString())
+    suspend fun sendMessage(sessionId: String, text: String, attachmentIds: List<String>): PhoneWorkEvent {
+        val body = SendMessageRequest(
+            text = text,
+            attachmentIds = attachmentIds,
+            clientMessageId = UUID.randomUUID().toString(),
+        )
         return post<PhoneWorkEvent, SendMessageRequest>(
             path = "/v1/work/sessions/${sessionId.urlEncode()}/messages",
             body = body,
             idempotencyKey = body.clientMessageId,
         )
+    }
+
+    suspend fun uploadImage(uriString: String): PhoneWorkAttachment = withContext(Dispatchers.IO) {
+        val uri = Uri.parse(uriString)
+        val fileName = queryFileName(uri) ?: uri.lastPathSegment?.substringAfterLast('/') ?: "image"
+        val mimeType = context.contentResolver.getType(uri)
+            ?: URLConnection.guessContentTypeFromName(fileName)
+            ?: throw PhoneWorkApiException("无法识别图片格式")
+        if (mimeType !in SUPPORTED_IMAGE_TYPES) {
+            throw PhoneWorkApiException("Work 仅支持 PNG、JPEG、WebP 和 GIF 图片")
+        }
+        val data = context.contentResolver.openInputStream(uri)?.use(::readImageBytes)
+            ?: throw PhoneWorkApiException("无法读取图片")
+        val builder = Request.Builder()
+            .url(url("/v1/work/attachments"))
+            .header("X-File-Name", Uri.encode(fileName))
+            .post(data.toRequestBody(mimeType.toMediaType()))
+        request(builder) { response -> json.decodeFromString(response.body?.string().orEmpty()) }
     }
 
     suspend fun answer(sessionId: String, askId: String, answers: List<PhoneWorkAnswer>) {
@@ -140,8 +168,34 @@ class PhoneWorkApiClient(
 
     private fun String.urlEncode(): String = java.net.URLEncoder.encode(this, Charsets.UTF_8.name())
 
+    private fun queryFileName(uri: Uri): String? = context.contentResolver.query(
+        uri,
+        arrayOf(OpenableColumns.DISPLAY_NAME),
+        null,
+        null,
+        null,
+    )?.use { cursor ->
+        if (cursor.moveToFirst()) cursor.getString(0) else null
+    }
+
+    private fun readImageBytes(input: java.io.InputStream): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var total = 0
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            total += read
+            if (total > MAX_IMAGE_BYTES) throw PhoneWorkApiException("单张图片不能超过 10 MiB")
+            output.write(buffer, 0, read)
+        }
+        return output.toByteArray()
+    }
+
     private companion object {
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
+        val SUPPORTED_IMAGE_TYPES = setOf("image/png", "image/jpeg", "image/webp", "image/gif")
+        const val MAX_IMAGE_BYTES = 10 * 1024 * 1024
     }
 }
 
@@ -154,10 +208,15 @@ data class CreateSessionRequest(
     val model: String,
     val reasoningEffort: String,
     val message: String,
+    val attachmentIds: List<String> = emptyList(),
     val clientMessageId: String = UUID.randomUUID().toString(),
 )
 
-@Serializable private data class SendMessageRequest(val text: String, val clientMessageId: String)
+@Serializable private data class SendMessageRequest(
+    val text: String,
+    val attachmentIds: List<String>,
+    val clientMessageId: String,
+)
 @Serializable private data class AnswerRequest(val answers: List<PhoneWorkAnswer>)
 @Serializable private data object EmptyRequest
 @Serializable private class UnitResponse
