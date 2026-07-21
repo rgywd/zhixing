@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
@@ -51,6 +53,8 @@ import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.LeftToRightListBullet
 import me.rerere.hugeicons.stroke.Menu03
 import me.rerere.hugeicons.stroke.MessageAdd01
+import me.rerere.hugeicons.stroke.MoreVertical
+import me.rerere.hugeicons.stroke.Task01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findProvider
@@ -98,6 +102,7 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     val errors by vm.errors.collectAsStateWithLifecycle()
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    var agendaDrawerVisible by rememberSaveable { mutableStateOf(false) }
     val softwareKeyboardController = LocalSoftwareKeyboardController.current
 
     // Handle back press when drawer is open
@@ -108,8 +113,8 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     }
 
     // Hide keyboard when drawer is open
-    LaunchedEffect(drawerState.isOpen) {
-        if (drawerState.isOpen) {
+    LaunchedEffect(drawerState.isOpen, agendaDrawerVisible) {
+        if (drawerState.isOpen || agendaDrawerVisible) {
             softwareKeyboardController?.hide()
         }
     }
@@ -171,70 +176,82 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
         }
     }
 
-    when {
-        isBigScreen -> {
-            PermanentNavigationDrawer(
-                drawerContent = {
-                    ChatDrawerContent(
+    AgendaDrawerHost(
+        visible = agendaDrawerVisible,
+        onDismissRequest = { agendaDrawerVisible = false },
+    ) {
+        when {
+            isBigScreen -> {
+                PermanentNavigationDrawer(
+                    drawerContent = {
+                        ChatDrawerContent(
+                            navController = navController,
+                            current = conversation,
+                            vm = vm,
+                            settings = setting,
+                        )
+                    }
+                ) {
+                    ChatPageContent(
+                        inputState = inputState,
+                        loadingJob = loadingJob,
+                        processingStatus = processingStatus,
+                        setting = setting,
+                        conversation = conversation,
+                        drawerState = drawerState,
                         navController = navController,
-                        current = conversation,
                         vm = vm,
-                        settings = setting,
+                        chatListState = chatListState,
+                        enableWebSearch = enableWebSearch,
+                        currentChatModel = currentChatModel,
+                        bigScreen = true,
+                        errors = errors,
+                        onOpenAgenda = { agendaDrawerVisible = true },
+                        onDismissError = { vm.dismissError(it) },
+                        onClearAllErrors = { vm.clearAllErrors() },
                     )
                 }
-            ) {
-                ChatPageContent(
-                    inputState = inputState,
-                    loadingJob = loadingJob,
-                    processingStatus = processingStatus,
-                    setting = setting,
-                    conversation = conversation,
-                    drawerState = drawerState,
-                    navController = navController,
-                    vm = vm,
-                    chatListState = chatListState,
-                    enableWebSearch = enableWebSearch,
-                    currentChatModel = currentChatModel,
-                    bigScreen = true,
-                    errors = errors,
-                    onDismissError = { vm.dismissError(it) },
-                    onClearAllErrors = { vm.clearAllErrors() },
-                )
             }
-        }
 
-        else -> {
-            ModalNavigationDrawer(
-                drawerState = drawerState,
-                drawerContent = {
-                    ChatDrawerContent(
+            else -> {
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
+                        ChatDrawerContent(
+                            navController = navController,
+                            current = conversation,
+                            vm = vm,
+                            settings = setting,
+                        )
+                    }
+                ) {
+                    ChatPageContent(
+                        inputState = inputState,
+                        loadingJob = loadingJob,
+                        processingStatus = processingStatus,
+                        setting = setting,
+                        conversation = conversation,
+                        drawerState = drawerState,
                         navController = navController,
-                        current = conversation,
                         vm = vm,
-                        settings = setting,
+                        chatListState = chatListState,
+                        enableWebSearch = enableWebSearch,
+                        currentChatModel = currentChatModel,
+                        bigScreen = false,
+                        errors = errors,
+                        onOpenAgenda = {
+                            scope.launch {
+                                drawerState.close()
+                                agendaDrawerVisible = true
+                            }
+                        },
+                        onDismissError = { vm.dismissError(it) },
+                        onClearAllErrors = { vm.clearAllErrors() },
                     )
                 }
-            ) {
-                ChatPageContent(
-                    inputState = inputState,
-                    loadingJob = loadingJob,
-                    processingStatus = processingStatus,
-                    setting = setting,
-                    conversation = conversation,
-                    drawerState = drawerState,
-                    navController = navController,
-                    vm = vm,
-                    chatListState = chatListState,
-                    enableWebSearch = enableWebSearch,
-                    currentChatModel = currentChatModel,
-                    bigScreen = false,
-                    errors = errors,
-                    onDismissError = { vm.dismissError(it) },
-                    onClearAllErrors = { vm.clearAllErrors() },
-                )
-            }
-            BackHandler(drawerState.isOpen) {
-                scope.launch { drawerState.close() }
+                BackHandler(drawerState.isOpen) {
+                    scope.launch { drawerState.close() }
+                }
             }
         }
     }
@@ -255,6 +272,7 @@ private fun ChatPageContent(
     enableWebSearch: Boolean,
     currentChatModel: Model?,
     errors: List<ChatError>,
+    onOpenAgenda: () -> Unit,
     onDismissError: (Uuid) -> Unit,
     onClearAllErrors: () -> Unit,
 ) {
@@ -297,6 +315,7 @@ private fun ChatPageContent(
                     onClickMenu = {
                         previewMode = !previewMode
                     },
+                    onOpenAgenda = onOpenAgenda,
                     onUpdateTitle = {
                         vm.updateTitle(it)
                     }
@@ -550,6 +569,7 @@ private fun TopBar(
     bigScreen: Boolean,
     previewMode: Boolean,
     onClickMenu: () -> Unit,
+    onOpenAgenda: () -> Unit,
     onNewChat: () -> Unit,
     onUpdateTitle: (String) -> Unit
 ) {
@@ -558,6 +578,7 @@ private fun TopBar(
     val titleState = useEditState<String> {
         onUpdateTitle(it)
     }
+    var showMoreMenu by remember { mutableStateOf(false) }
 
     NativeChatTopBar(
         containerColor = Color.Transparent,
@@ -610,19 +631,41 @@ private fun TopBar(
         },
         actions = {
             IconButton(
-                onClick = {
-                    onClickMenu()
-                }
+                onClick = onOpenAgenda,
             ) {
-                Icon(if (previewMode) HugeIcons.Cancel01 else HugeIcons.LeftToRightListBullet, "Chat Options")
+                Icon(HugeIcons.Task01, "打开事项")
             }
 
-            IconButton(
-                onClick = {
-                    onNewChat()
+            androidx.compose.foundation.layout.Box {
+                IconButton(onClick = { showMoreMenu = true }) {
+                    Icon(HugeIcons.MoreVertical, "更多操作")
                 }
-            ) {
-                Icon(HugeIcons.MessageAdd01, "New Message")
+                DropdownMenu(
+                    expanded = showMoreMenu,
+                    onDismissRequest = { showMoreMenu = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(if (previewMode) "退出聊天选项" else "聊天选项") },
+                        leadingIcon = {
+                            Icon(
+                                if (previewMode) HugeIcons.Cancel01 else HugeIcons.LeftToRightListBullet,
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            showMoreMenu = false
+                            onClickMenu()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.chat_page_new_chat)) },
+                        leadingIcon = { Icon(HugeIcons.MessageAdd01, contentDescription = null) },
+                        onClick = {
+                            showMoreMenu = false
+                            onNewChat()
+                        },
+                    )
+                }
             }
         },
     )
