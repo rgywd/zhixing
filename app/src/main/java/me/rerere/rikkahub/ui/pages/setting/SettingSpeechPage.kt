@@ -693,6 +693,7 @@ private fun TTSProviderItem(
                             is TTSProviderSetting.MiniMax -> "MiniMax"
                             is TTSProviderSetting.SystemTTS -> stringResource(R.string.setting_tts_page_provider_system)
                             is TTSProviderSetting.Qwen -> "Qwen"
+                            is TTSProviderSetting.Volcengine -> "火山引擎"
                             is TTSProviderSetting.Groq -> "Groq"
                             is TTSProviderSetting.XAI -> "xAI"
                             is TTSProviderSetting.MiMo -> "MiMo"

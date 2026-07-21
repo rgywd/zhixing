@@ -120,6 +120,32 @@ sealed class TTSProviderSetting {
         }
     }
 
+    /**
+     * 火山引擎方舟 Agent Plan 语音合成。
+     *
+     * 使用 V3 WebSocket 单向流式协议；[model] 会作为 `X-Api-Resource-Id`
+     * 请求头发送。接口默认值来自方舟 Agent Plan 的语音模型接入文档。
+     */
+    @Serializable
+    @SerialName("volcengine_tts")
+    data class Volcengine(
+        override var id: Uuid = Uuid.random(),
+        override var name: String = "火山引擎 TTS",
+        val apiKey: String = "",
+        val baseUrl: String = "wss://openspeech.bytedance.com/api/v3/plan/tts/unidirectional/stream",
+        val model: String = "seed-tts-2.0",
+        val voice: String = "zh_female_xiaohe_jupiter_bigtts",
+        val format: String = "mp3",
+        val sampleRate: Int = 24000,
+        val speechRate: Int = 0,
+        val loudnessRate: Int = 0,
+    ) : TTSProviderSetting() {
+        override fun copyProvider(
+            id: Uuid,
+            name: String,
+        ): TTSProviderSetting = copy(id = id, name = name)
+    }
+
     @Serializable
     @SerialName("groq")
     data class Groq(
@@ -291,6 +317,7 @@ sealed class TTSProviderSetting {
                 SystemTTS::class,
                 MiniMax::class,
                 Qwen::class,
+                Volcengine::class,
                 Groq::class,
                 XAI::class,
                 MiMo::class,
