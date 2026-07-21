@@ -223,4 +223,5 @@ Phone-line v1 不读取旧 Work/Happy 数据；Room v33 迁移会删除旧 Work/
 - 仅 Runner 发起的手机会话携带显式 phone profile；普通 Codex Desktop/CLI 不安装、不继承该 Hook。
 - 只允许 `Stop` Hook。Hook 输入只提取 `session_id`、`turn_id` 和事件名，输出只写本机单轮 outbox，不包含正文或密钥。
 - Hook handler 的超时上限为 1 秒并必须静默、fail-open。Hook 没有运行、没有写入标记或写入失败时，Runner 仍按
-  JSONL 与子进程退出结果完成会话，不得把 Hook 失败转换成任务失败。
+  JSONL 的 `turn.completed` / `turn.failed` 完成会话，并以子进程退出结果作为兼容兜底。收到语义终态后 CLI
+  若未在短暂宽限期内退出，Runner 必须清理其进程树；不得把 Hook 失败转换成任务失败。

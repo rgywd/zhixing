@@ -50,7 +50,8 @@
 - [x] 启动 `codex exec`，解析并保存 session ID；补充消息使用 `codex exec resume`。
 - [x] 使用隔离配置固定 model/effort、完全访问和三个 MCP 工具。
 - [x] 实现 `report`、`ask`、`report_html` 的 stdio MCP server 与 Core client。
-- [x] 进程退出时把 IDLE/FAILED 终态先写入本地 outbox，再原子提交 Core；断网或重启后持续重放。
+- [x] 以 `turn.completed` / `turn.failed` 收口 IDLE/FAILED；CLI 未退出时清理进程树，进程退出作为兜底；
+  终态先写入本地 outbox，再原子提交 Core，断网或重启后持续重放。
 - [x] stop 能终止子进程且不丢待处理消息。
 
 验收：用假 Codex 进程覆盖启动/resume/stop；再用真实 Codex 完成三工具回环，普通桌面 Codex 配置无变化。

@@ -9,13 +9,23 @@ import {
   buildCodexArgs,
   parseCodexAssistantMessage,
   parseCodexSessionId,
+  parseCodexTurnOutcome,
   resolveCodexCommand,
+  terminateProcessTree,
 } from "./codex-process.js";
 import { ensurePhoneHookProfile } from "./phone-hook-profile.js";
 import { PHONE_DEVELOPER_INSTRUCTIONS, WorkRunner } from "./runner.js";
 import { RunnerState } from "./state.js";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
+
+async function waitForCondition(predicate, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error("Timed out waiting for test condition");
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+}
 
 test("Codex args isolate user config and fix model, effort, access and phone-line MCP", () => {
   const args = buildCodexArgs({
@@ -71,6 +81,31 @@ test("Codex JSONL mapper only exposes completed assistant-visible messages", () 
     type: "item.completed",
     item: { id: "item-3", type: "command_execution", command: "secret" },
   }), null);
+});
+
+test("Codex JSONL mapper treats turn events as the semantic terminal state", () => {
+  assert.deepEqual(parseCodexTurnOutcome({ type: "turn.completed" }), { status: "COMPLETED", detail: null });
+  assert.deepEqual(parseCodexTurnOutcome({
+    type: "turn.failed",
+    error: { message: "tool host failed" },
+  }), { status: "FAILED", detail: "tool host failed" });
+  assert.equal(parseCodexTurnOutcome({ type: "item.completed" }), null);
+});
+
+test("Windows process cleanup terminates the full Codex child tree", async () => {
+  const calls = [];
+  const child = { pid: 4321, kill: () => calls.push(["fallback"]) };
+  await terminateProcessTree(child, "win32", (command, args, options) => ({
+    once(event, callback) {
+      if (event === "close") queueMicrotask(callback);
+      calls.push([event, command, args, options]);
+    },
+  }));
+  const close = calls.find((call) => call[0] === "close");
+  assert.equal(close[1], "taskkill.exe");
+  assert.deepEqual(close[2], ["/PID", "4321", "/T", "/F"]);
+  assert.equal(close[3].windowsHide, true);
+  assert.ok(!calls.some((call) => call[0] === "fallback"));
 });
 
 test("phone hook profile contains only a one-second fail-open Stop hook", () => {
@@ -262,6 +297,65 @@ test("runner persists discovered session id and completes one turn", async () =>
   assert.equal(persisted.sessions["work-1"].sessionToken, "session-token");
   assert.deepEqual(persisted.outbox, {});
   assert.deepEqual(persisted.eventOutbox, {});
+});
+
+test("runner completes a semantic turn even when the Codex process never exits", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-semantic-complete-"));
+  const state = new RunnerState(join(directory, "state.json"));
+  const calls = [];
+  let emitEvent;
+  let terminated = false;
+  const runner = new WorkRunner({
+    config: {
+      id: "runner",
+      coreUrl: "https://core",
+      stateFile: state.filename,
+      semanticExitGraceMs: 0,
+      repos: [{
+        id: "repo",
+        name: "repo",
+        path: directory,
+        models: ["gpt-5.6-sol"],
+        reasoningEfforts: ["high"],
+      }],
+    },
+    state,
+    client: {
+      ack: async (...args) => calls.push(["ack", ...args]),
+      updateState: async () => {},
+      publishEvent: async () => {},
+    },
+    spawnCodex: ({ onEvent }) => {
+      emitEvent = onEvent;
+      onEvent({ type: "thread.started", thread_id: "019f-semantic" });
+      return {
+        child: { pid: 1234, kill() {} },
+        completed: new Promise(() => {}),
+      };
+    },
+    terminateCodex: async () => { terminated = true; },
+  });
+
+  await runner.startCommand({
+    id: "cmd-semantic",
+    sessionId: "work-semantic",
+    kind: "START",
+    payload: {
+      repoId: "repo",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      sessionToken: "session-token",
+      message: "hello",
+    },
+  });
+  emitEvent({ type: "turn.completed" });
+  await waitForCondition(() => terminated && runner.active.size === 0);
+
+  assert.equal(terminated, true);
+  assert.equal(runner.active.size, 0);
+  const completed = calls.find((call) => call[0] === "ack" && call[2] === "COMPLETED");
+  assert.equal(completed[3].status, "IDLE");
+  assert.equal(completed[3].codexSessionId, "019f-semantic");
 });
 
 test("runner replays assistant messages before the final transition after Core recovers", async () => {

@@ -3,7 +3,14 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CoreClient } from "./core-client.js";
-import { buildCodexArgs, parseCodexAssistantMessage, parseCodexSessionId, runCodex } from "./codex-process.js";
+import {
+  buildCodexArgs,
+  parseCodexAssistantMessage,
+  parseCodexSessionId,
+  parseCodexTurnOutcome,
+  runCodex,
+  terminateProcessTree,
+} from "./codex-process.js";
 import { ensurePhoneHookProfile } from "./phone-hook-profile.js";
 import {
   buildRepositoryCatalog,
@@ -27,6 +34,7 @@ export class WorkRunner {
     state,
     client,
     spawnCodex = runCodex,
+    terminateCodex = terminateProcessTree,
     nodePath = process.execPath,
     mcpServerPath = resolve(here, "mcp-server.js"),
     hookScriptPath = resolve(here, "phone-stop-hook.js"),
@@ -35,6 +43,7 @@ export class WorkRunner {
     this.state = state;
     this.client = client;
     this.spawnCodex = spawnCodex;
+    this.terminateCodex = terminateCodex;
     this.nodePath = nodePath;
     this.mcpServerPath = mcpServerPath;
     this.hookScriptPath = hookScriptPath;
@@ -85,7 +94,13 @@ export class WorkRunner {
       }
     } finally {
       clearInterval(heartbeat);
-      for (const value of this.active.values()) value.child.kill();
+      await Promise.all([...this.active.values()].map(async (value) => {
+        try {
+          await this.terminateCodex(value.child);
+        } catch (error) {
+          this.logError("shutdown-cleanup", error);
+        }
+      }));
     }
   }
 
@@ -181,6 +196,8 @@ export class WorkRunner {
       lastCommandId: command.id,
     });
     let discoveredSessionId = previous.codexSessionId ?? null;
+    let resolveSemanticOutcome;
+    const semanticOutcome = new Promise((resolve) => { resolveSemanticOutcome = resolve; });
     let running;
     try {
       running = this.spawnCodex({
@@ -208,6 +225,8 @@ export class WorkRunner {
             });
             this.flushOutbox().catch((error) => this.logError("assistant-message", error));
           }
+          const outcome = parseCodexTurnOutcome(event);
+          if (outcome) resolveSemanticOutcome(outcome);
         },
       });
     } catch (error) {
@@ -217,16 +236,57 @@ export class WorkRunner {
       return;
     }
     this.active.set(command.sessionId, { ...running, startCommandId: command.id, stoppedByUser: false });
-    running.completed.then(async (result) => {
-      if (attachmentDirectory) rmSync(attachmentDirectory, { recursive: true, force: true });
-      if (hookOutboxDirectory) rmSync(hookOutboxDirectory, { recursive: true, force: true });
+    this.monitorCommand({
+      command,
+      running,
+      semanticOutcome,
+      getDiscoveredSessionId: () => discoveredSessionId,
+      attachmentDirectory,
+      hookOutboxDirectory,
+    }).catch((error) => this.logError("process-exit", error));
+  }
+
+  async monitorCommand({
+    command,
+    running,
+    semanticOutcome,
+    getDiscoveredSessionId,
+    attachmentDirectory,
+    hookOutboxDirectory,
+  }) {
+    const processOutcome = running.completed.then(
+      (result) => ({ source: "process", result }),
+      (error) => ({ source: "process-error", error }),
+    );
+    const first = await Promise.race([
+      processOutcome,
+      semanticOutcome.then((outcome) => ({ source: "semantic", outcome })),
+    ]);
+    if (first.source === "semantic") {
+      const graceMs = this.config.semanticExitGraceMs ?? 2_000;
+      const exited = await Promise.race([
+        processOutcome.then(() => true),
+        delay(graceMs).then(() => false),
+      ]);
+      if (!exited) {
+        try {
+          await this.terminateCodex(running.child);
+        } catch (error) {
+          this.logError("process-cleanup", error);
+        }
+      }
+    }
+    try {
       const active = this.active.get(command.sessionId);
       this.active.delete(command.sessionId);
       if (active?.stoppedByUser) {
         if (!active.startCommandAcknowledged) await this.commitTransition(command.id, "COMPLETED", null);
         return;
       }
-      if (result.code === 0 && discoveredSessionId) {
+      const discoveredSessionId = getDiscoveredSessionId();
+      const semanticSuccess = first.source === "semantic" && first.outcome.status === "COMPLETED";
+      const processSuccess = first.source === "process" && first.result.code === 0;
+      if ((semanticSuccess || processSuccess) && discoveredSessionId) {
         await this.commitTransition(command.id, "COMPLETED", sessionState(
           command.sessionId,
           "IDLE",
@@ -234,10 +294,17 @@ export class WorkRunner {
           discoveredSessionId,
         ));
       } else {
-        const detail = discoveredSessionId ? "Codex process exited with an error" : "Codex exited before returning a session ID";
+        const detail = first.source === "semantic" && first.outcome.detail
+          ? first.outcome.detail
+          : discoveredSessionId
+            ? "Codex process exited with an error"
+            : "Codex exited before returning a session ID";
         await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", detail, discoveredSessionId));
       }
-    }).catch((error) => this.logError("process-exit", error));
+    } finally {
+      if (attachmentDirectory) rmSync(attachmentDirectory, { recursive: true, force: true });
+      if (hookOutboxDirectory) rmSync(hookOutboxDirectory, { recursive: true, force: true });
+    }
   }
 
   async downloadAttachments(command) {
@@ -269,7 +336,7 @@ export class WorkRunner {
     if (running) {
       running.stoppedByUser = true;
       running.startCommandAcknowledged = true;
-      running.child.kill();
+      await this.terminateCodex(running.child);
       this.state.enqueueTransition(running.startCommandId, "COMPLETED", null);
     }
     let finalState;

@@ -67,6 +67,45 @@ export function parseCodexAssistantMessage(event) {
   return { itemId, text };
 }
 
+export function parseCodexTurnOutcome(event) {
+  if (event?.type === "turn.completed") return { status: "COMPLETED", detail: null };
+  if (event?.type !== "turn.failed") return null;
+  const detail = typeof event.error === "string"
+    ? event.error
+    : String(event.error?.message ?? "Codex turn failed");
+  return { status: "FAILED", detail };
+}
+
+export async function terminateProcessTree(child, platform = process.platform, spawnImpl = spawn) {
+  if (!child) return;
+  if (platform !== "win32" || !Number.isInteger(child.pid)) {
+    child.kill();
+    return;
+  }
+  await new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    try {
+      const killer = spawnImpl("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+      killer.once("error", () => {
+        try { child.kill(); } catch { /* Process already exited. */ }
+        finish();
+      });
+      killer.once("close", finish);
+    } catch {
+      try { child.kill(); } catch { /* Process already exited. */ }
+      finish();
+    }
+  });
+}
+
 export function runCodex({ command, args, prompt, cwd, env = process.env, spawnImpl = spawn, onEvent = () => {} }) {
   const executable = resolveCodexCommand(command);
   const child = spawnImpl(executable, args, {
