@@ -8,12 +8,13 @@ import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.MemoryKind
 import me.rerere.rikkahub.data.model.MemorySource
 import me.rerere.rikkahub.data.model.MemoryState
+import me.rerere.rikkahub.data.model.ProfileEvidence
 import me.rerere.rikkahub.utils.JsonInstant
 
 class MemoryRepository(private val memoryDAO: MemoryDAO) {
     companion object {
         const val GLOBAL_MEMORY_ID = "__global__"
-        const val PROFILE_PROMPT_LIMIT = 32
+        const val PROFILE_PROMPT_LIMIT = 8
         const val CONTEXT_PROMPT_LIMIT = 20
     }
 
@@ -85,6 +86,10 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
         state: MemoryState = MemoryState.ACTIVE,
         confidence: Float = 1f,
         evidenceConversationIds: List<String> = emptyList(),
+        profileEvidence: List<ProfileEvidence> = emptyList(),
+        supportingObservationIds: List<Int> = emptyList(),
+        canonicalKey: String = "",
+        firstEvidenceAt: Long = 0,
         locked: Boolean = source != MemorySource.AUTO,
         lastEvidenceAt: Long = 0,
     ): AssistantMemory {
@@ -100,6 +105,10 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
             confidence = confidence.coerceIn(0f, 1f),
             source = source.name,
             evidenceConversationIds = JsonInstant.encodeToString(evidenceConversationIds.distinct()),
+            profileEvidenceJson = JsonInstant.encodeToString(profileEvidence.distinctBy(ProfileEvidence::messageId)),
+            supportingObservationIds = JsonInstant.encodeToString(supportingObservationIds.distinct()),
+            canonicalKey = canonicalKey,
+            firstEvidenceAt = firstEvidenceAt,
             locked = locked,
             lastEvidenceAt = lastEvidenceAt,
         )
@@ -151,6 +160,9 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
         evidenceConversationIds: List<String>,
         state: MemoryState,
         lastEvidenceAt: Long,
+        profileEvidence: List<ProfileEvidence> = emptyList(),
+        supportingObservationIds: List<Int> = emptyList(),
+        firstEvidenceAt: Long = 0,
     ): AssistantMemory = addMemory(
         assistantId = GLOBAL_MEMORY_ID,
         content = content,
@@ -160,6 +172,9 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
         state = state,
         confidence = confidence,
         evidenceConversationIds = evidenceConversationIds,
+        profileEvidence = profileEvidence,
+        supportingObservationIds = supportingObservationIds,
+        firstEvidenceAt = firstEvidenceAt,
         locked = false,
         lastEvidenceAt = lastEvidenceAt,
     )
@@ -172,6 +187,9 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
         evidenceConversationIds: List<String>,
         state: MemoryState,
         lastEvidenceAt: Long,
+        profileEvidence: List<ProfileEvidence> = emptyList(),
+        supportingObservationIds: List<Int> = emptyList(),
+        firstEvidenceAt: Long = 0,
     ): AssistantMemory? {
         val old = memoryDAO.getMemoryById(id) ?: return null
         if (
@@ -186,8 +204,83 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
             dimensionId = dimensionId,
             confidence = confidence.coerceIn(0f, 1f),
             evidenceConversationIds = JsonInstant.encodeToString(evidenceConversationIds.distinct()),
+            profileEvidenceJson = JsonInstant.encodeToString(profileEvidence.distinctBy(ProfileEvidence::messageId)),
+            supportingObservationIds = JsonInstant.encodeToString(supportingObservationIds.distinct()),
+            firstEvidenceAt = firstEvidenceAt,
             state = state.name,
             lastEvidenceAt = lastEvidenceAt,
+            updatedAt = System.currentTimeMillis(),
+        )
+        memoryDAO.updateMemory(updated)
+        return updated.toAssistantMemory()
+    }
+
+    suspend fun archiveMemory(id: Int): AssistantMemory {
+        val old = memoryDAO.getMemoryById(id) ?: error("Memory record #$id not found")
+        val updated = old.copy(
+            state = MemoryState.ARCHIVED.name,
+            locked = old.locked ||
+                (old.kind == MemoryKind.PROFILE.name && old.source == MemorySource.AUTO.name),
+            updatedAt = System.currentTimeMillis(),
+        )
+        memoryDAO.updateMemory(updated)
+        return updated.toAssistantMemory()
+    }
+
+    suspend fun addAutoObservation(
+        content: String,
+        dimensionId: String,
+        canonicalKey: String,
+        confidence: Float,
+        evidence: List<ProfileEvidence>,
+        state: MemoryState,
+    ): AssistantMemory = addMemory(
+        assistantId = GLOBAL_MEMORY_ID,
+        content = content,
+        kind = MemoryKind.OBSERVATION,
+        dimensionId = dimensionId,
+        source = MemorySource.AUTO,
+        state = state,
+        confidence = confidence,
+        evidenceConversationIds = evidence.map(ProfileEvidence::conversationId),
+        profileEvidence = evidence,
+        canonicalKey = canonicalKey,
+        firstEvidenceAt = evidence.minOfOrNull(ProfileEvidence::observedAt) ?: 0,
+        locked = false,
+        lastEvidenceAt = evidence.maxOfOrNull(ProfileEvidence::observedAt) ?: 0,
+    )
+
+    suspend fun updateAutoObservation(
+        id: Int,
+        content: String,
+        dimensionId: String,
+        canonicalKey: String,
+        confidence: Float,
+        evidence: List<ProfileEvidence>,
+        state: MemoryState,
+    ): AssistantMemory? {
+        val old = memoryDAO.getMemoryById(id) ?: return null
+        if (
+            old.assistantId != GLOBAL_MEMORY_ID ||
+            old.kind != MemoryKind.OBSERVATION.name ||
+            old.source != MemorySource.AUTO.name ||
+            old.locked
+        ) return null
+
+        val updated = old.copy(
+            content = content,
+            dimensionId = dimensionId,
+            canonicalKey = canonicalKey,
+            confidence = confidence.coerceIn(0f, 1f),
+            evidenceConversationIds = JsonInstant.encodeToString(
+                evidence.map(ProfileEvidence::conversationId).distinct()
+            ),
+            profileEvidenceJson = JsonInstant.encodeToString(
+                evidence.distinctBy(ProfileEvidence::messageId)
+            ),
+            state = state.name,
+            firstEvidenceAt = evidence.minOfOrNull(ProfileEvidence::observedAt) ?: 0,
+            lastEvidenceAt = evidence.maxOfOrNull(ProfileEvidence::observedAt) ?: 0,
             updatedAt = System.currentTimeMillis(),
         )
         memoryDAO.updateMemory(updated)
@@ -212,6 +305,14 @@ internal fun MemoryEntity.toAssistantMemory(): AssistantMemory = AssistantMemory
     evidenceConversationIds = runCatching {
         JsonInstant.decodeFromString<List<String>>(evidenceConversationIds)
     }.getOrDefault(emptyList()),
+    profileEvidence = runCatching {
+        JsonInstant.decodeFromString<List<ProfileEvidence>>(profileEvidenceJson)
+    }.getOrDefault(emptyList()),
+    supportingObservationIds = runCatching {
+        JsonInstant.decodeFromString<List<Int>>(supportingObservationIds)
+    }.getOrDefault(emptyList()),
+    canonicalKey = canonicalKey,
+    firstEvidenceAt = firstEvidenceAt,
     locked = locked,
     lastEvidenceAt = lastEvidenceAt,
 )
