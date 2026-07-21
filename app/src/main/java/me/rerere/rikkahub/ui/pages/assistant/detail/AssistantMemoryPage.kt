@@ -3,6 +3,8 @@ package me.rerere.rikkahub.ui.pages.assistant.detail
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.PencilEdit01
 import me.rerere.hugeicons.stroke.Add01
+import me.rerere.hugeicons.stroke.ArrowLeft01
+import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Eraser
 import me.rerere.hugeicons.stroke.Refresh01
@@ -24,14 +26,18 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -310,37 +316,27 @@ private fun AssistantMemoryContent(
             onRunNow = onRunProfileMaintenanceNow,
         )
 
-        ProfileDimensions.builtIn.forEach { dimensionId ->
-            MemorySection(
-                title = profileDimensionLabel(dimensionId),
-                description = profileDimensionDescription(dimensionId),
-                memories = profileMemories.filter { it.dimensionId == dimensionId },
-                onAdd = {
-                    memoryDialogState.open(
-                        AssistantMemory(0, kind = MemoryKind.PROFILE, dimensionId = dimensionId)
-                    )
-                },
-                onEdit = memoryDialogState::open,
-                onArchive = onArchiveMemory,
-            )
-        }
+        ProfileMemoryTabs(
+            profileMemories = profileMemories,
+            pendingProfileMemories = pendingProfileMemories,
+            onAdd = { dimensionId ->
+                memoryDialogState.open(
+                    AssistantMemory(0, kind = MemoryKind.PROFILE, dimensionId = dimensionId)
+                )
+            },
+            onEdit = memoryDialogState::open,
+            onArchive = onArchiveMemory,
+            onConfirm = onConfirmPendingMemory,
+        )
 
-        val uncategorizedProfiles = profileMemories.filter { it.dimensionId !in ProfileDimensions.builtIn }
+        val uncategorizedProfiles = (profileMemories + pendingProfileMemories)
+            .filter { it.dimensionId !in ProfileDimensions.builtIn }
+            .sortedWith(compareByDescending<AssistantMemory> { it.updatedAt }.thenByDescending { it.id })
         if (uncategorizedProfiles.isNotEmpty()) {
             MemorySection(
                 title = "其他画像",
                 description = "旧版本或未来扩展维度中的画像。",
                 memories = uncategorizedProfiles,
-                onEdit = memoryDialogState::open,
-                onArchive = onArchiveMemory,
-            )
-        }
-
-        if (pendingProfileMemories.isNotEmpty()) {
-            MemorySection(
-                title = "待确认画像",
-                description = "自动整理出的候选项，确认后才会在后续对话中使用。",
-                memories = pendingProfileMemories,
                 onEdit = memoryDialogState::open,
                 onArchive = onArchiveMemory,
                 onConfirm = onConfirmPendingMemory,
@@ -399,6 +395,55 @@ private fun AssistantMemoryContent(
 }
 
 @Composable
+private fun ProfileMemoryTabs(
+    profileMemories: List<AssistantMemory>,
+    pendingProfileMemories: List<AssistantMemory>,
+    onAdd: (String) -> Unit,
+    onEdit: (AssistantMemory) -> Unit,
+    onArchive: (AssistantMemory) -> Unit,
+    onConfirm: (AssistantMemory) -> Unit,
+) {
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    val selectedDimension = ProfileDimensions.builtIn[selectedTabIndex]
+    val selectedMemories = remember(profileMemories, pendingProfileMemories, selectedDimension) {
+        (profileMemories + pendingProfileMemories)
+            .filter { it.dimensionId == selectedDimension }
+            .sortedWith(compareByDescending<AssistantMemory> { it.updatedAt }.thenByDescending { it.id })
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = "我的画像",
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(horizontal = 8.dp),
+        )
+        SecondaryTabRow(
+            selectedTabIndex = selectedTabIndex,
+            containerColor = CustomColors.topBarColors.containerColor,
+        ) {
+            ProfileDimensions.builtIn.forEachIndexed { index, dimensionId ->
+                Tab(
+                    selected = selectedTabIndex == index,
+                    onClick = { selectedTabIndex = index },
+                    text = { Text(profileDimensionTabLabel(dimensionId)) },
+                )
+            }
+        }
+        key(selectedDimension) {
+            MemorySection(
+                title = profileDimensionLabel(selectedDimension),
+                description = profileDimensionDescription(selectedDimension),
+                memories = selectedMemories,
+                onAdd = { onAdd(selectedDimension) },
+                onEdit = onEdit,
+                onArchive = onArchive,
+                onConfirm = onConfirm,
+            )
+        }
+    }
+}
+
+@Composable
 private fun MemorySection(
     title: String,
     description: String,
@@ -410,6 +455,12 @@ private fun MemorySection(
     onDelete: ((AssistantMemory) -> Unit)? = null,
     onConfirm: ((AssistantMemory) -> Unit)? = null,
 ) {
+    var page by remember(title) { mutableIntStateOf(0) }
+    val pagedMemories = paginateItems(memories, page)
+    LaunchedEffect(pagedMemories.page) {
+        if (page != pagedMemories.page) page = pagedMemories.page
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -437,7 +488,7 @@ private fun MemorySection(
         )
     }
 
-    memories.fastForEach { memory ->
+    pagedMemories.items.fastForEach { memory ->
         key(memory.id) {
             MemoryItem(
                 memory = memory,
@@ -447,6 +498,45 @@ private fun MemorySection(
                 onDeleteMemory = onDelete,
                 onConfirmMemory = onConfirm,
             )
+        }
+    }
+
+    if (pagedMemories.totalPages > 1) {
+        MemoryPagination(
+            currentPage = pagedMemories.page,
+            totalPages = pagedMemories.totalPages,
+            onPageChange = { page = it },
+        )
+    }
+}
+
+@Composable
+private fun MemoryPagination(
+    currentPage: Int,
+    totalPages: Int,
+    onPageChange: (Int) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(
+            onClick = { onPageChange(currentPage - 1) },
+            enabled = currentPage > 0,
+        ) {
+            Icon(HugeIcons.ArrowLeft01, contentDescription = "上一页")
+        }
+        Text(
+            text = "第 ${currentPage + 1} / $totalPages 页",
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
+        IconButton(
+            onClick = { onPageChange(currentPage + 1) },
+            enabled = currentPage < totalPages - 1,
+        ) {
+            Icon(HugeIcons.ArrowRight01, contentDescription = "下一页")
         }
     }
 }
@@ -502,8 +592,10 @@ private fun MemoryItem(
                     )
                 }
             }
-            onConfirmMemory?.let { confirm ->
-                TextButton(onClick = { confirm(memory) }) { Text("确认") }
+            if (memory.state == MemoryState.PENDING) {
+                onConfirmMemory?.let { confirm ->
+                    TextButton(onClick = { confirm(memory) }) { Text("确认") }
+                }
             }
             onEditMemory?.let { edit ->
                 IconButton(onClick = { edit(memory) }) {
@@ -709,6 +801,14 @@ private fun profileDimensionLabel(dimensionId: String): String = when (dimension
     else -> "未分类画像"
 }
 
+private fun profileDimensionTabLabel(dimensionId: String): String = when (dimensionId) {
+    ProfileDimensions.IDENTITY_CONTEXT -> "身份"
+    ProfileDimensions.PREFERENCES_VALUES -> "偏好"
+    ProfileDimensions.CAPABILITIES_KNOWLEDGE -> "能力"
+    ProfileDimensions.BEHAVIOR_COLLABORATION -> "协作"
+    else -> "其他"
+}
+
 private fun profileDimensionDescription(dimensionId: String): String = when (dimensionId) {
     ProfileDimensions.IDENTITY_CONTEXT -> "长期角色、领域、语言、设备环境和稳定背景。"
     ProfileDimensions.PREFERENCES_VALUES -> "产品审美、技术选择、兴趣以及明确喜欢或排斥的方案。"
@@ -716,3 +816,28 @@ private fun profileDimensionDescription(dimensionId: String): String = when (dim
     ProfileDimensions.BEHAVIOR_COLLABORATION -> "沟通、决策、工作节奏、风险和交付偏好。"
     else -> "旧版本或未来扩展维度中的画像。"
 }
+
+internal data class PaginatedItems<T>(
+    val items: List<T>,
+    val page: Int,
+    val totalPages: Int,
+)
+
+internal fun <T> paginateItems(
+    items: List<T>,
+    requestedPage: Int,
+    pageSize: Int = MEMORY_PAGE_SIZE,
+): PaginatedItems<T> {
+    require(pageSize > 0) { "pageSize must be greater than zero" }
+    val totalPages = ((items.size + pageSize - 1) / pageSize).coerceAtLeast(1)
+    val page = requestedPage.coerceIn(0, totalPages - 1)
+    val fromIndex = (page * pageSize).coerceAtMost(items.size)
+    val toIndex = (fromIndex + pageSize).coerceAtMost(items.size)
+    return PaginatedItems(
+        items = items.subList(fromIndex, toIndex),
+        page = page,
+        totalPages = totalPages,
+    )
+}
+
+private const val MEMORY_PAGE_SIZE = 5
