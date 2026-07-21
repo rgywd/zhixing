@@ -147,6 +147,10 @@ class SettingsStore(
         // 备份提醒
         val BACKUP_REMINDER_CONFIG = stringPreferencesKey("backup_reminder_config")
 
+        // 自动画像维护
+        val PROFILE_MAINTENANCE_CONFIG = stringPreferencesKey("profile_maintenance_config")
+        val PROFILE_MAINTENANCE_STATUS = stringPreferencesKey("profile_maintenance_status")
+
         // 统计
         val LAUNCH_COUNT = intPreferencesKey("launch_count")
 
@@ -251,6 +255,12 @@ class SettingsStore(
                 backupReminderConfig = preferences[BACKUP_REMINDER_CONFIG]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: BackupReminderConfig(),
+                profileMaintenanceConfig = preferences[PROFILE_MAINTENANCE_CONFIG]?.let {
+                    runCatching { JsonInstant.decodeFromString<ProfileMaintenanceConfig>(it) }.getOrNull()
+                } ?: ProfileMaintenanceConfig(),
+                profileMaintenanceStatus = preferences[PROFILE_MAINTENANCE_STATUS]?.let {
+                    runCatching { JsonInstant.decodeFromString<ProfileMaintenanceStatus>(it) }.getOrNull()
+                } ?: ProfileMaintenanceStatus(),
                 launchCount = preferences[LAUNCH_COUNT] ?: 0,
                 sponsorAlertDismissedAt = preferences[SPONSOR_ALERT_DISMISSED_AT] ?: 0,
             )
@@ -431,6 +441,8 @@ class SettingsStore(
             preferences[WEB_SERVER_ACCESS_PASSWORD] = settings.webServerAccessPassword
             preferences[WEB_SERVER_LOCALHOST_ONLY] = settings.webServerLocalhostOnly
             preferences[BACKUP_REMINDER_CONFIG] = JsonInstant.encodeToString(settings.backupReminderConfig)
+            preferences[PROFILE_MAINTENANCE_CONFIG] = JsonInstant.encodeToString(settings.profileMaintenanceConfig)
+            preferences[PROFILE_MAINTENANCE_STATUS] = JsonInstant.encodeToString(settings.profileMaintenanceStatus)
             preferences[LAUNCH_COUNT] = settings.launchCount
             preferences[SPONSOR_ALERT_DISMISSED_AT] = settings.sponsorAlertDismissedAt
         }
@@ -574,6 +586,8 @@ data class Settings(
     val webServerAccessPassword: String = "",
     val webServerLocalhostOnly: Boolean = false,
     val backupReminderConfig: BackupReminderConfig = BackupReminderConfig(),
+    val profileMaintenanceConfig: ProfileMaintenanceConfig = ProfileMaintenanceConfig(),
+    val profileMaintenanceStatus: ProfileMaintenanceStatus = ProfileMaintenanceStatus(),
     val launchCount: Int = 0,
     val sponsorAlertDismissedAt: Int = 0,
 ) {
@@ -675,6 +689,43 @@ data class BackupReminderConfig(
     val enabled: Boolean = false,
     val intervalDays: Int = 7,
     val lastBackupTime: Long = 0L,
+)
+
+@Serializable
+data class ProfileMaintenanceConfig(
+    val enabled: Boolean = false,
+    val intervalHours: Int = 6,
+    val strategy: ProfileMaintenanceStrategy = ProfileMaintenanceStrategy.BALANCED,
+    val autoApply: Boolean = true,
+    val minimumEvidence: Int = 2,
+    val maxConversationsPerRun: Int = 20,
+) {
+    fun normalized() = copy(
+        intervalHours = intervalHours.coerceIn(1, 24),
+        minimumEvidence = minimumEvidence.coerceIn(1, 5),
+        maxConversationsPerRun = maxConversationsPerRun.coerceIn(5, 100),
+    )
+}
+
+@Serializable
+enum class ProfileMaintenanceStrategy(val confidenceThreshold: Float) {
+    CONSERVATIVE(0.90f),
+    BALANCED(0.80f),
+    AGGRESSIVE(0.70f),
+}
+
+@Serializable
+data class ProfileMaintenanceStatus(
+    val cursorUpdatedAt: Long = 0,
+    val cursorConversationId: String = "",
+    val lastRunAt: Long = 0,
+    val lastSuccessAt: Long = 0,
+    val lastProcessedConversations: Int = 0,
+    val lastCreated: Int = 0,
+    val lastUpdated: Int = 0,
+    val lastPending: Int = 0,
+    val lastSkipped: Int = 0,
+    val lastError: String = "",
 )
 
 fun Settings.isNotConfigured() = providers.all { it.models.isEmpty() }

@@ -27,4 +27,16 @@ data class MemoryEntity(
     val createdAt: Long = 0,
     @ColumnInfo("updated_at", defaultValue = "0")
     val updatedAt: Long = 0,
+    @ColumnInfo("dimension_id", defaultValue = "''")
+    val dimensionId: String = "",
+    @ColumnInfo("confidence", defaultValue = "1.0")
+    val confidence: Float = 1f,
+    @ColumnInfo("source", defaultValue = "'LEGACY'")
+    val source: String = "LEGACY",
+    @ColumnInfo("evidence_conversation_ids", defaultValue = "'[]'")
+    val evidenceConversationIds: String = "[]",
+    @ColumnInfo("locked", defaultValue = "0")
+    val locked: Boolean = false,
+    @ColumnInfo("last_evidence_at", defaultValue = "0")
+    val lastEvidenceAt: Long = 0,
 )

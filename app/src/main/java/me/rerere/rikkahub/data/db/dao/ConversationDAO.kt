@@ -51,6 +51,32 @@ interface ConversationDAO {
     @Query("SELECT id FROM conversationentity")
     suspend fun getAllIds(): List<String>
 
+    @Query(
+        """
+        SELECT id, update_at AS updateAt
+        FROM conversationentity
+        WHERE update_at > :cursorUpdatedAt
+           OR (update_at = :cursorUpdatedAt AND id > :cursorConversationId)
+        ORDER BY update_at ASC, id ASC
+        LIMIT :limit
+        """
+    )
+    suspend fun getChangedConversationCursors(
+        cursorUpdatedAt: Long,
+        cursorConversationId: String,
+        limit: Int,
+    ): List<ConversationCursorEntity>
+
+    @Query(
+        """
+        SELECT id, update_at AS updateAt
+        FROM conversationentity
+        ORDER BY update_at DESC, id DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun getRecentConversationCursors(limit: Int): List<ConversationCursorEntity>
+
     @Query("SELECT * FROM conversationentity WHERE id = :id")
     suspend fun getConversationById(id: String): ConversationEntity?
 
@@ -101,3 +127,8 @@ interface ConversationDAO {
 }
 
 data class ConversationDayCount(val day: String, val count: Int)
+
+data class ConversationCursorEntity(
+    val id: String,
+    val updateAt: Long,
+)

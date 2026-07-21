@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.datastore.ProfileMaintenanceConfig
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.files.SkillManager
@@ -28,6 +29,7 @@ import me.rerere.rikkahub.data.model.MemoryState
 import me.rerere.rikkahub.data.model.Tag
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.profile.ProfileMaintenanceScheduler
 import kotlin.uuid.Uuid
 
 private const val TAG = "AssistantDetailVM"
@@ -39,6 +41,7 @@ class AssistantDetailVM(
     private val filesManager: FilesManager,
     private val skillManager: SkillManager,
     private val workspaceRepository: WorkspaceRepository,
+    private val profileMaintenanceScheduler: ProfileMaintenanceScheduler,
 ) : ViewModel() {
     private val assistantId = Uuid.parse(id)
 
@@ -53,6 +56,14 @@ class AssistantDetailVM(
 
     val settings: StateFlow<Settings> =
         settingsStore.settingsFlow.stateIn(viewModelScope, SharingStarted.Eagerly, Settings.dummy())
+
+    val profileMaintenanceConfig = settingsStore.settingsFlow
+        .map { it.profileMaintenanceConfig }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ProfileMaintenanceConfig())
+
+    val profileMaintenanceStatus = settingsStore.settingsFlow
+        .map { it.profileMaintenanceStatus }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, Settings.dummy().profileMaintenanceStatus)
 
     val mcpServerConfigs = settingsStore
         .settingsFlow.map { settings ->
@@ -91,6 +102,14 @@ class AssistantDetailVM(
     val contextMemories = scopedMemories
         .map { memories ->
             memories.filter { it.kind == MemoryKind.CONTEXT && it.state == MemoryState.ACTIVE }
+        }
+        .stateIn(
+            scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
+        )
+
+    val pendingProfileMemories = globalMemories
+        .map { memories ->
+            memories.filter { it.kind == MemoryKind.PROFILE && it.state == MemoryState.PENDING }
         }
         .stateIn(
             scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
@@ -223,7 +242,11 @@ class AssistantDetailVM(
 
     fun updateMemory(memory: AssistantMemory) {
         viewModelScope.launch {
-            memoryRepository.updateContent(id = memory.id, content = memory.content)
+            memoryRepository.updateManualMemory(
+                id = memory.id,
+                content = memory.content,
+                dimensionId = memory.dimensionId,
+            )
         }
     }
 
@@ -243,6 +266,25 @@ class AssistantDetailVM(
         viewModelScope.launch {
             memoryRepository.updateState(id = memory.id, state = MemoryState.ACTIVE)
         }
+    }
+
+    fun confirmPendingMemory(memory: AssistantMemory) {
+        viewModelScope.launch {
+            memoryRepository.confirmPending(memory.id)
+        }
+    }
+
+    fun updateProfileMaintenanceConfig(config: ProfileMaintenanceConfig) {
+        viewModelScope.launch {
+            settingsStore.update { current ->
+                current.copy(profileMaintenanceConfig = config.normalized())
+            }
+            profileMaintenanceScheduler.sync()
+        }
+    }
+
+    fun runProfileMaintenanceNow() {
+        profileMaintenanceScheduler.runNow()
     }
 
     fun checkAvatarDelete(old: Assistant, new: Assistant) {
