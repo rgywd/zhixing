@@ -20,6 +20,7 @@ data class PhoneWorkRepo(
     val models: List<String>,
     val reasoningEfforts: List<String>,
     val available: Boolean,
+    val group: String? = null,
 )
 
 @Serializable

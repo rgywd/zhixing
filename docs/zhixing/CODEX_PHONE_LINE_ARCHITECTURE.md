@@ -61,12 +61,16 @@ Core 可以部署在 VPS，但不持有 OpenAI 登录态、Codex 凭据、仓库
 - 保存用户图片附件及摘要，并只向所属 Runner 提供鉴权下载。
 - 对 Android、Runner 和单个 Codex session 使用不同作用域的 token。
 - 为所有写请求提供客户端 ID/幂等键，保证重试不重复创建消息或答案。
-- 只存仓库显示名与 Runner 内部 repo ID，不接收真实路径和源码。
+- 只存仓库显示名、可选分组与 Runner 内部 repo ID，不接收真实路径和源码。
 - 清理过期 session token，保留可配置的会话与报告生命周期。
 
 ### Work Runner
 
 - 登记本机允许使用的仓库白名单，向 Core 上报稳定 repo ID、显示名和可用状态。
+- 仓库白名单既可包含固定 `repos`，也可包含显式授权的 `repoRoots`。Runner 只在这些根目录内直接扫描文件系统，
+  支持发现一级子目录或按项目标记递归发现；不得使用 Windows Search 或 Codex Desktop 私有数据库作为事实来源。
+- Runner 启动及配置的刷新周期内重新校验目录。新增目录自动加入 catalog，删除的固定目录标为不可用，删除的发现目录
+  从 catalog 移除；符号链接或 junction 不得借机越过授权根目录。
 - 拉取启动、继续、停止命令；在仓库目录启动 Codex CLI。
 - 把会话图片下载到单轮临时目录，校验摘要后通过 Codex CLI `--image` 传入，退出即清理。
 - 保存 Work session 与 Codex session ID 映射，并在重启后恢复。

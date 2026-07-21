@@ -27,7 +27,14 @@ $env:CODEX_HOME = "$HOME\.zhixing-work\codex-home"
 codex login
 ```
 2. 复制 `runner/work-runner.example.json` 为 `runner/work-runner.json`，填写 Core HTTPS 地址、Runner token
-   和仓库白名单。token 不要提交到 Git。
+   和仓库白名单。token 不要提交到 Git。目录来源支持两种方式：
+   - `repos`：固定目录，兼容已有配置；Runner 会实时校验目录是否仍然存在。
+   - `repoRoots`：显式授权的本机根目录。`children` 发现一级子目录，`projects` 在 `maxDepth` 内寻找
+     `.git`、`AGENTS.md`、`package.json`、`pyproject.toml`、Gradle、Cargo 或 Go 项目标记。
+
+   `repoRoots.path` 支持 `%USERPROFILE%`、`${HOME}` 和 `~`。真实路径始终留在 Runner；Core 与 Android
+   只接收稳定目录 ID、显示名、分组和可用状态。默认跳过隐藏目录、符号链接以及常见构建/依赖目录。
+   `catalogRefreshIntervalMs` 控制自动重扫间隔，默认 30 秒。
 3. 前台验收：
 
 ```powershell

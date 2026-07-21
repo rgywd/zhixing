@@ -25,6 +25,8 @@
 ```
 
 Android 不提交真实路径、任意 sandbox/approval 值或 Codex 参数。Core 只接受 Runner 已公布的 repo/model/effort 组合。
+仓库 catalog 项可携带可选 `group` 和 `available`；`group` 是 Runner 配置的公开显示标签，不得包含真实绝对路径。
+Android 只允许创建 `available=true` 的目录会话，并可按 `group` 分组和搜索。
 
 用户消息可额外携带 `attachmentIds`。Android 先通过 `POST /v1/work/attachments` 上传图片，再在创建会话或补充消息时
 引用返回的 ID。每条消息最多 4 张，每张最大 10 MiB，仅接受 PNG、JPEG、WebP 和 GIF。事件与 Runner 命令只携带
@@ -148,7 +150,8 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
 
 ### Runner scope
 
-- `POST /v1/runner/register`：登记进程级 `instanceId`、版本、能力和仓库 catalog；新实例回收旧实例命令。
+- `POST /v1/runner/register`：登记进程级 `instanceId`、版本、能力和仓库 catalog；同一实例可在本机目录变化后重新登记
+  catalog，新实例回收旧实例命令。
 - `POST /v1/runner/heartbeat`：按 `runnerId + instanceId` 续租当前实例持有的命令。
 - `GET /v1/runner/commands?runnerId=&instanceId=`：拉取当前实例的有序命令。
 - `POST /v1/runner/commands/{id}/ack`：当前实例领取/完成/失败。

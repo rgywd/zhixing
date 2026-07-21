@@ -5,6 +5,11 @@ import { fileURLToPath } from "node:url";
 import { CoreClient } from "./core-client.js";
 import { buildCodexArgs, parseCodexAssistantMessage, parseCodexSessionId, runCodex } from "./codex-process.js";
 import { ensurePhoneHookProfile } from "./phone-hook-profile.js";
+import {
+  buildRepositoryCatalog,
+  repositoryCatalogFingerprint,
+  validateRepositoryConfig,
+} from "./repo-catalog.js";
 import { RunnerState } from "./state.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -36,6 +41,10 @@ export class WorkRunner {
     this.active = new Map();
     this.stopped = false;
     this.flushPromise = Promise.resolve();
+    this.repositories = buildRepositoryCatalog(config);
+    this.publishedCatalogFingerprint = null;
+    this.nextCatalogRefreshAt = 0;
+    this.catalogReady = false;
   }
 
   static fromConfig(config) {
@@ -49,7 +58,8 @@ export class WorkRunner {
     let backoffMs = 500;
     while (!this.stopped) {
       try {
-        await this.client.register(this.config);
+        await this.refreshCatalog(true);
+        this.catalogReady = true;
         break;
       } catch (error) {
         this.logError("register", error);
@@ -84,6 +94,7 @@ export class WorkRunner {
   }
 
   async pollOnce() {
+    if (this.catalogReady) await this.refreshCatalog();
     await this.flushOutbox();
     const commands = await this.client.commands(this.config.id);
     for (const command of commands) {
@@ -99,7 +110,7 @@ export class WorkRunner {
   }
 
   async startCommand(command) {
-    const repo = this.config.repos.find((candidate) => candidate.id === (command.payload.repoId ?? this.state.get(command.sessionId)?.repoId));
+    const repo = this.repositories.find((candidate) => candidate.id === (command.payload.repoId ?? this.state.get(command.sessionId)?.repoId));
     if (!repo || !existsSync(repo.path)) {
       await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", "Repository is not available on the runner"));
       return;
@@ -301,6 +312,24 @@ export class WorkRunner {
     }
   }
 
+  async refreshCatalog(force = false) {
+    const now = Date.now();
+    if (!force && now < this.nextCatalogRefreshAt) return false;
+    this.nextCatalogRefreshAt = now + (this.config.catalogRefreshIntervalMs ?? 30_000);
+    const repositories = buildRepositoryCatalog(this.config);
+    const fingerprint = repositoryCatalogFingerprint(repositories);
+    this.repositories = repositories;
+    if (!force && fingerprint === this.publishedCatalogFingerprint) return false;
+    try {
+      await this.client.register({ ...this.config, repos: repositories });
+      this.publishedCatalogFingerprint = fingerprint;
+      return true;
+    } catch (error) {
+      this.nextCatalogRefreshAt = 0;
+      throw error;
+    }
+  }
+
   logError(area, error) {
     console.error(`[${area}] ${safeError(error)}`);
   }
@@ -310,12 +339,7 @@ function validateConfig(config) {
   for (const key of ["id", "name", "version", "coreUrl", "token", "stateFile", "codexHome"]) {
     if (!config[key]) throw new Error(`Runner config is missing ${key}`);
   }
-  if (!Array.isArray(config.repos) || !config.repos.length) throw new Error("Runner config needs at least one repository");
-  for (const repo of config.repos) {
-    if (!repo.id || !repo.name || !repo.path || !repo.models?.length || !repo.reasoningEfforts?.length) {
-      throw new Error(`Repository ${repo.id ?? "<unknown>"} is incomplete`);
-    }
-  }
+  validateRepositoryConfig(config);
 }
 
 export function isolatedCodexEnv(codexHome, source = process.env, extra = {}) {

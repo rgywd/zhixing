@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -272,6 +273,7 @@ private fun RepoTitleSelector(
     onSelect: (PhoneWorkRepo) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
     Box {
         Column(
             modifier = Modifier.clickable(enabled = enabled) { expanded = true },
@@ -279,21 +281,115 @@ private fun RepoTitleSelector(
         ) {
             Text(selected?.name ?: "选择仓库", maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                if (selected == null) "等待开发机目录" else "Codex · 完全访问",
+                if (selected == null) {
+                    "等待开发机目录"
+                } else {
+                    selected.group?.let { "$it · Codex 完全访问" } ?: "Codex · 完全访问"
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            repos.forEach { repo ->
-                DropdownMenuItem(
-                    text = { Text(repo.name) },
-                    leadingIcon = { Icon(HugeIcons.Folder01, null) },
-                    onClick = { onSelect(repo); expanded = false },
+    }
+    if (expanded) {
+        val groups = remember(repos, query) { filterWorkRepos(repos, query) }
+        ModalBottomSheet(
+            onDismissRequest = {
+                expanded = false
+                query = ""
+            },
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("选择工作目录", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "目录由开发机 Runner 从已授权位置发现",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("搜索工作目录") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (groups.isEmpty()) {
+                    Text(
+                        if (query.isBlank()) "开发机暂时没有可用目录" else "没有匹配“$query”的目录",
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        groups.forEach { (group, items) ->
+                            item(key = "group:$group") {
+                                Text(
+                                    group,
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            items(items, key = { repo -> "${repo.runnerId}:${repo.id}" }) { repo ->
+                                val isSelected = selected != null && repo.id == selected.id && repo.runnerId == selected.runnerId
+                                Surface(
+                                    onClick = {
+                                        onSelect(repo)
+                                        expanded = false
+                                        query = ""
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = MaterialTheme.shapes.medium,
+                                    color = if (isSelected) {
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.surface
+                                    },
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(HugeIcons.Folder01, null, modifier = Modifier.size(24.dp))
+                                        Text(repo.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                                        if (isSelected) {
+                                            Text(
+                                                "已选择",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+internal fun filterWorkRepos(repos: List<PhoneWorkRepo>, query: String): Map<String, List<PhoneWorkRepo>> {
+    val normalizedQuery = query.trim()
+    return repos.asSequence()
+        .filter { it.available }
+        .filter { repo ->
+            normalizedQuery.isBlank() || repo.name.contains(normalizedQuery, ignoreCase = true) ||
+                repo.group.orEmpty().contains(normalizedQuery, ignoreCase = true)
+        }
+        .sortedWith(compareBy<PhoneWorkRepo>({ it.group.orEmpty() }, { it.name }))
+        .groupBy { it.group?.takeIf(String::isNotBlank) ?: "固定目录" }
 }
 
 @Composable

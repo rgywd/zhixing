@@ -50,6 +50,7 @@ export class WorkStore {
         runner_id TEXT NOT NULL REFERENCES runners(id) ON DELETE CASCADE,
         id TEXT NOT NULL,
         name TEXT NOT NULL,
+        group_name TEXT,
         models_json TEXT NOT NULL,
         efforts_json TEXT NOT NULL,
         available INTEGER NOT NULL DEFAULT 1,
@@ -136,6 +137,7 @@ export class WorkStore {
     this.ensureColumn("commands", "claimed_by", "TEXT");
     this.ensureColumn("commands", "lease_until", "TEXT");
     this.ensureColumn("runners", "instance_id", "TEXT");
+    this.ensureColumn("repos", "group_name", "TEXT");
     this.ensureColumn("sessions", "archived_at", "TEXT");
     this.recoverInterruptedAsks();
   }
@@ -253,10 +255,18 @@ export class WorkStore {
       `).run(input.id, input.instanceId, input.name, input.version, leaseUntil, json(input.capabilities ?? {}), now);
       this.db.prepare("DELETE FROM repos WHERE runner_id = ?").run(input.id);
       const insertRepo = this.db.prepare(`
-        INSERT INTO repos(runner_id, id, name, models_json, efforts_json, available) VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO repos(runner_id, id, name, group_name, models_json, efforts_json, available) VALUES (?, ?, ?, ?, ?, ?, ?)
       `);
       for (const repo of input.repos ?? []) {
-        insertRepo.run(input.id, repo.id, repo.name, json(repo.models ?? []), json(repo.reasoningEfforts ?? []), repo.available === false ? 0 : 1);
+        insertRepo.run(
+          input.id,
+          repo.id,
+          repo.name,
+          repo.group ?? null,
+          json(repo.models ?? []),
+          json(repo.reasoningEfforts ?? []),
+          repo.available === false ? 0 : 1,
+        );
       }
       this.db.exec("COMMIT");
     } catch (error) {
@@ -298,6 +308,7 @@ export class WorkStore {
       id: row.id,
       runnerId: row.runner_id,
       name: row.name,
+      group: row.group_name,
       models: parseJson(row.models_json, []),
       reasoningEfforts: parseJson(row.efforts_json, []),
       available: Boolean(row.available),

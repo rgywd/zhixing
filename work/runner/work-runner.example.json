@@ -7,19 +7,30 @@
   "stateFile": "./data/runner-state.json",
   "codexHome": "C:/Users/you/.zhixing-work/codex-home",
   "pollIntervalMs": 2000,
+  "catalogRefreshIntervalMs": 30000,
   "codexCommand": "codex",
+  "defaultModels": ["gpt-5.6-sol", "gpt-5.6-terra"],
+  "defaultReasoningEfforts": ["medium", "high", "xhigh", "max"],
+  "repoRoots": [
+    {
+      "id": "workspace",
+      "name": "Workspace",
+      "path": "D:/workspace",
+      "strategy": "children"
+    },
+    {
+      "id": "documents",
+      "name": "Documents",
+      "path": "%USERPROFILE%/Documents",
+      "strategy": "projects",
+      "maxDepth": 3
+    }
+  ],
   "repos": [
     {
       "id": "zhixing",
       "name": "zhixing",
       "path": "C:/Users/you/Documents/zhixing/zhixing-rikkahub",
-      "models": ["gpt-5.6-sol", "gpt-5.6-terra"],
-      "reasoningEfforts": ["medium", "high", "xhigh", "max"]
-    },
-    {
-      "id": "another-project",
-      "name": "another-project",
-      "path": "C:/Users/you/Documents/another-project",
       "models": ["gpt-5.6-sol", "gpt-5.6-terra"],
       "reasoningEfforts": ["medium", "high", "xhigh", "max"]
     }
