@@ -35,6 +35,14 @@ data class MemoryEntity(
     val source: String = "LEGACY",
     @ColumnInfo("evidence_conversation_ids", defaultValue = "'[]'")
     val evidenceConversationIds: String = "[]",
+    @ColumnInfo("profile_evidence_json", defaultValue = "'[]'")
+    val profileEvidenceJson: String = "[]",
+    @ColumnInfo("supporting_observation_ids", defaultValue = "'[]'")
+    val supportingObservationIds: String = "[]",
+    @ColumnInfo("canonical_key", defaultValue = "''")
+    val canonicalKey: String = "",
+    @ColumnInfo("first_evidence_at", defaultValue = "0")
+    val firstEvidenceAt: Long = 0,
     @ColumnInfo("locked", defaultValue = "0")
     val locked: Boolean = false,
     @ColumnInfo("last_evidence_at", defaultValue = "0")

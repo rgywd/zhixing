@@ -45,6 +45,7 @@ import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
+import me.rerere.rikkahub.data.model.MemoryState
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.utils.applyPlaceholders
 import java.util.Locale
@@ -109,7 +110,11 @@ class GenerationHandler(
                             memoryRepo.updateContent(id, content)
                         },
                         onStateChange = { id, state ->
-                            memoryRepo.updateState(id, state)
+                            if (state == MemoryState.ARCHIVED) {
+                                memoryRepo.archiveMemory(id)
+                            } else {
+                                memoryRepo.updateState(id, state)
+                            }
                         },
                         onDelete = { id ->
                             memoryRepo.deleteMemory(id)

@@ -697,12 +697,16 @@ data class ProfileMaintenanceConfig(
     val intervalHours: Int = 6,
     val strategy: ProfileMaintenanceStrategy = ProfileMaintenanceStrategy.BALANCED,
     val autoApply: Boolean = true,
-    val minimumEvidence: Int = 2,
+    val minimumEvidence: Int = 3,
+    val minimumEvidenceSpanDays: Int = 7,
+    val staleAfterDays: Int = 180,
     val maxConversationsPerRun: Int = 20,
 ) {
     fun normalized() = copy(
         intervalHours = intervalHours.coerceIn(1, 24),
-        minimumEvidence = minimumEvidence.coerceIn(1, 5),
+        minimumEvidence = minimumEvidence.coerceIn(2, 10),
+        minimumEvidenceSpanDays = minimumEvidenceSpanDays.coerceIn(1, 90),
+        staleAfterDays = staleAfterDays.coerceIn(30, 730),
         maxConversationsPerRun = maxConversationsPerRun.coerceIn(5, 100),
     )
 }
@@ -716,6 +720,7 @@ enum class ProfileMaintenanceStrategy(val confidenceThreshold: Float) {
 
 @Serializable
 data class ProfileMaintenanceStatus(
+    val pipelineVersion: Int = 0,
     val cursorUpdatedAt: Long = 0,
     val cursorConversationId: String = "",
     val lastRunAt: Long = 0,
@@ -727,6 +732,8 @@ data class ProfileMaintenanceStatus(
     val lastSkipped: Int = 0,
     val lastError: String = "",
 )
+
+const val PROFILE_MAINTENANCE_PIPELINE_VERSION = 2
 
 fun Settings.isNotConfigured() = providers.all { it.models.isEmpty() }
 

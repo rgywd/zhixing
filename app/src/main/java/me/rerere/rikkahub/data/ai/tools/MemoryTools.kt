@@ -36,13 +36,15 @@ fun buildMemoryTools(
             - User asks to reactivate an archived record: `restore` + `id`
             - User explicitly asks to forget/delete permanently: `delete` + `id`
             Memories are retrieved automatically in later conversations; do not ask for separate memory tools.
-            `PROFILE` is only for stable user facts, preferences, relationships, long-term goals,
-            and durable constraints. It is global across assistants.
+            `PROFILE` is a user-directed profile entry. Create or edit it only when the user explicitly asks
+            to remember a durable fact/preference or corrects an existing profile. Ordinary conversation is
+            handled by the separate longitudinal profile pipeline; never persist your own inference here.
+            `PROFILE` is global across assistants.
             `CONTEXT` is for everything else the user explicitly asks to remember. Do not invent task,
             calendar, contact, or other domain-specific workflows.
             Do not store sensitive information (e.g., ethnicity, religion, sexual orientation, political views, sex life, criminal records).
             If the user explicitly asks to remember something, persist it and briefly confirm.
-            If memory would only be inferred from ordinary conversation, ask for confirmation before persistence.
+            Never create memory merely because a statement might be useful later.
             Today is ${LocalDate.now().toLocalString(true)}.
             Store one independently correctable fact per record.
             Similar or corrected memories must update the existing record instead of creating contradictions.
@@ -99,6 +101,9 @@ fun buildMemoryTools(
                     val kindValue = params["kind"]?.jsonPrimitive?.contentOrNull ?: error("kind is required")
                     val kind = runCatching { MemoryKind.valueOf(kindValue) }
                         .getOrElse { error("unknown kind: $kindValue, must be one of [PROFILE, CONTEXT]") }
+                    require(kind == MemoryKind.PROFILE || kind == MemoryKind.CONTEXT) {
+                        "unknown kind: $kindValue, must be one of [PROFILE, CONTEXT]"
+                    }
                     val content = params["content"]?.jsonPrimitive?.contentOrNull ?: error("content is required")
                     json.encodeToJsonElement(AssistantMemory.serializer(), onCreation(kind, content))
                 }

@@ -258,7 +258,7 @@ class AssistantDetailVM(
 
     fun archiveMemory(memory: AssistantMemory) {
         viewModelScope.launch {
-            memoryRepository.updateState(id = memory.id, state = MemoryState.ARCHIVED)
+            memoryRepository.archiveMemory(id = memory.id)
         }
     }
 

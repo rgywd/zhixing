@@ -27,6 +27,7 @@ import me.rerere.rikkahub.data.db.entity.PhoneWorkSessionEntity
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.db.migrations.Migration_16_17
 import me.rerere.rikkahub.data.db.migrations.Migration_22_23
+import me.rerere.rikkahub.data.db.migrations.Migration_35_36
 import me.rerere.rikkahub.data.db.migrations.Migration_8_9
 import me.rerere.rikkahub.utils.JsonInstant
 
@@ -43,7 +44,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         PhoneWorkSessionEntity::class,
         PhoneWorkEventEntity::class,
     ],
-    version = 35,
+    version = 36,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -72,6 +73,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         AutoMigration(from = 30, to = 31),
         AutoMigration(from = 31, to = 32),
         AutoMigration(from = 34, to = 35),
+        AutoMigration(from = 35, to = 36, spec = Migration_35_36::class),
     ]
 )
 @TypeConverters(TokenUsageConverter::class)

@@ -550,6 +550,7 @@ private fun MemoryItem(
     onDeleteMemory: ((AssistantMemory) -> Unit)?,
     onConfirmMemory: ((AssistantMemory) -> Unit)?,
 ) {
+    var showEvidence by remember(memory.id) { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CustomColors.cardColorsOnSurfaceContainer
@@ -587,9 +588,18 @@ private fun MemoryItem(
                 )
                 if (memory.source == MemorySource.AUTO) {
                     Text(
-                        text = "自动整理 · ${(memory.confidence * 100).toInt()}% · ${memory.evidenceConversationIds.size} 条证据",
+                        text = "自动整理 · ${(memory.confidence * 100).toInt()}% · " +
+                            "${memory.evidenceConversationIds.distinct().size} 个对话",
                         style = MaterialTheme.typography.labelSmall,
                     )
+                    if (memory.profileEvidence.isNotEmpty()) {
+                        TextButton(
+                            onClick = { showEvidence = true },
+                            contentPadding = PaddingValues(0.dp),
+                        ) {
+                            Text("查看 ${memory.profileEvidence.size} 条用户原话")
+                        }
+                    }
                 }
             }
             if (memory.state == MemoryState.PENDING) {
@@ -618,6 +628,37 @@ private fun MemoryItem(
                 }
             }
         }
+    }
+    if (showEvidence) {
+        AlertDialog(
+            onDismissRequest = { showEvidence = false },
+            title = { Text("画像依据") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        "这里只展示被规则校验过的用户原话，不把助手回复当作画像证据。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    memory.profileEvidence.forEach { evidence ->
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("“${evidence.quote}”", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                                    .format(Date(evidence.observedAt)),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showEvidence = false }) { Text("关闭") }
+            },
+        )
     }
 }
 
@@ -649,7 +690,7 @@ private fun ProfileMaintenanceCard(
                     Text("画像自动维护", style = MaterialTheme.typography.titleMedium)
                     Text(
                         if (prerequisitesMet) {
-                            "使用快速模型增量整理发生变化的历史对话。"
+                            "先积累用户原话观察，再生成少量长期画像。"
                         } else {
                             "需要同时开启记忆、全局记忆和参考历史聊天记录。"
                         },
@@ -731,11 +772,25 @@ private fun ProfileMaintenanceSettingsDialog(
                     )
                 }
                 SettingSelectRow(
-                    title = "最少证据次数",
+                    title = "最少独立对话",
                     value = draft.minimumEvidence,
-                    options = (1..5).toList(),
+                    options = (2..10).toList(),
                     label = { "$it 个对话" },
                     onSelect = { draft = draft.copy(minimumEvidence = it) },
+                )
+                SettingSelectRow(
+                    title = "最短观察跨度",
+                    value = draft.minimumEvidenceSpanDays,
+                    options = listOf(3, 7, 14, 30, 60, 90),
+                    label = { "$it 天" },
+                    onSelect = { draft = draft.copy(minimumEvidenceSpanDays = it) },
+                )
+                SettingSelectRow(
+                    title = "多久未出现视为过期",
+                    value = draft.staleAfterDays,
+                    options = listOf(30, 90, 180, 365, 730),
+                    label = { "$it 天" },
+                    onSelect = { draft = draft.copy(staleAfterDays = it) },
                 )
                 SettingSelectRow(
                     title = "单轮处理上限",
@@ -745,7 +800,7 @@ private fun ProfileMaintenanceSettingsDialog(
                     onSelect = { draft = draft.copy(maxConversationsPerRun = it) },
                 )
                 Text(
-                    "模型固定复用“快速模型”设置；Android 后台任务按执行窗口运行，不保证精确到点。",
+                    "模型只负责提取和归纳；证据真实性、独立对话数、时间跨度、置信度和过期均由本地规则判断。",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

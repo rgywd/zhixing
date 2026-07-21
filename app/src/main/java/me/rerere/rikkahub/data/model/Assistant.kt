@@ -70,14 +70,27 @@ data class AssistantMemory(
     val confidence: Float = 1f,
     val source: MemorySource = MemorySource.LEGACY,
     val evidenceConversationIds: List<String> = emptyList(),
+    val profileEvidence: List<ProfileEvidence> = emptyList(),
+    val supportingObservationIds: List<Int> = emptyList(),
+    val canonicalKey: String = "",
+    val firstEvidenceAt: Long = 0,
     val locked: Boolean = false,
     val lastEvidenceAt: Long = 0,
+)
+
+@Serializable
+data class ProfileEvidence(
+    val conversationId: String,
+    val messageId: String,
+    val quote: String,
+    val observedAt: Long,
 )
 
 @Serializable
 enum class MemoryKind {
     PROFILE,
     CONTEXT,
+    OBSERVATION,
 }
 
 @Serializable
