@@ -73,11 +73,16 @@ class PhoneWorkSessionVM(
         }
         viewModelScope.launch {
             chooseDefaults(catalog.value)
-            runCatching { repository.refreshCatalog() }
-                .onSuccess { chooseDefaults(it) }
-                .onFailure { error.value = it.message ?: "无法刷新开发机" }
             while (isActive) {
-                sessionId.value?.let { id ->
+                val id = sessionId.value
+                if (id == null) {
+                    runCatching { repository.refreshCatalog() }
+                        .onSuccess {
+                            chooseDefaults(it)
+                            error.value = null
+                        }
+                        .onFailure { error.value = it.message ?: "无法刷新开发机目录，正在重试" }
+                } else {
                     runCatching { repository.refreshEvents(id) }
                         .onFailure { error.value = it.message ?: "同步失败，正在重试" }
                 }
@@ -169,7 +174,24 @@ class PhoneWorkSessionVM(
     suspend fun reportHtml(reportId: String): String = repository.reportHtml(reportId)
 
     private fun chooseDefaults(value: PhoneWorkCatalog) {
-        if (selectedRepo.value == null) value.repos.firstOrNull { it.available }?.let(::selectRepo)
+        if (sessionId.value != null) return
+        val available = value.repos.filter { it.available }
+        val current = selectedRepo.value
+        val next = available.firstOrNull { current != null && it.id == current.id && it.runnerId == current.runnerId }
+            ?: available.firstOrNull()
+        if (next == null) {
+            selectedRepo.value = null
+        } else if (next.id != current?.id || next.runnerId != current.runnerId) {
+            selectRepo(next)
+        } else {
+            selectedRepo.value = next
+            if (selectedModel.value !in next.models) selectedModel.value = next.models.firstOrNull() ?: DEFAULT_MODELS.first()
+            if (selectedEffort.value !in next.reasoningEfforts) {
+                selectedEffort.value = next.reasoningEfforts.firstOrNull { it == "high" }
+                    ?: next.reasoningEfforts.firstOrNull()
+                    ?: "high"
+            }
+        }
     }
 
     companion object {

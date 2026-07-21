@@ -44,9 +44,10 @@ export class CoreClient {
         repos: config.repos.map((repo) => ({
           id: repo.id,
           name: repo.name,
+          group: repo.group ?? null,
           models: repo.models,
           reasoningEfforts: repo.reasoningEfforts,
-          available: true,
+          available: repo.available !== false,
         })),
       },
     });

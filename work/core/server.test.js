@@ -205,6 +205,58 @@ test("full phone-line API flow is durable, ordered and idempotent", async (t) =>
   ]);
 });
 
+test("repository catalog preserves groups and rejects unavailable directories", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const registration = await request(baseUrl, "/v1/runner/register", {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      id: "runner-1",
+      instanceId: RUNNER_INSTANCE,
+      name: "Minecraft",
+      version: "test",
+      repos: [
+        {
+          id: "available",
+          name: "company-api",
+          group: "Workspace",
+          models: ["gpt-5.6-sol"],
+          reasoningEfforts: ["high"],
+          available: true,
+        },
+        {
+          id: "deleted",
+          name: "deleted-project",
+          group: "Documents",
+          models: ["gpt-5.6-sol"],
+          reasoningEfforts: ["high"],
+          available: false,
+        },
+      ],
+    },
+  });
+  assert.equal(registration.response.status, 200);
+
+  const catalog = await request(baseUrl, "/v1/work/repos?runnerId=runner-1");
+  assert.deepEqual(catalog.payload.repos.map((repo) => [repo.name, repo.group, repo.available]), [
+    ["company-api", "Workspace", true],
+    ["deleted-project", "Documents", false],
+  ]);
+
+  const rejected = await request(baseUrl, "/v1/work/sessions", {
+    method: "POST",
+    idempotencyKey: "unavailable-repo",
+    body: {
+      runnerId: "runner-1",
+      repoId: "deleted",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      message: "do not run",
+    },
+  });
+  assert.equal(rejected.response.status, 409);
+});
+
 test("runner assistant messages are allow-listed, idempotent and ordered", async (t) => {
   const { baseUrl } = await fixture(t);
   const { session } = await registerAndCreate(baseUrl);
