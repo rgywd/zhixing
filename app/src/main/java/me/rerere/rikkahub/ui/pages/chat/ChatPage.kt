@@ -375,12 +375,17 @@ private fun ChatPageContent(
                             )
                         )
                     },
-                    onUpdateSearchService = { index ->
-                        vm.updateSettings(
-                            setting.copy(
-                                searchServiceSelected = index
+                    onUpdateSearchService = { serviceId, selected ->
+                        val selectedIds = if (selected) {
+                            setting.searchServiceSelectedIds + serviceId
+                        } else {
+                            setting.searchServiceSelectedIds - serviceId
+                        }
+                        if (selectedIds.isNotEmpty()) {
+                            vm.updateSettings(
+                                setting.copy(searchServiceSelectedIds = selectedIds)
                             )
-                        )
+                        }
                     },
                     onMoreClick = {
                         showFilesSheet = true

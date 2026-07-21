@@ -50,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.data.datastore.resolveSearchServiceSelection
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
 import me.rerere.rikkahub.ui.components.ui.FormItem
@@ -141,7 +142,13 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
                                 val newServices = settings.searchServices.toMutableList()
                                 newServices.removeAt(index)
                                 vm.updateSettings(
-                                    settings.copy(searchServices = newServices)
+                                    settings.copy(
+                                        searchServices = newServices,
+                                        searchServiceSelectedIds = resolveSearchServiceSelection(
+                                            services = newServices,
+                                            selectedIds = settings.searchServiceSelectedIds - service.id,
+                                        ),
+                                    )
                                 )
                             }
                         },

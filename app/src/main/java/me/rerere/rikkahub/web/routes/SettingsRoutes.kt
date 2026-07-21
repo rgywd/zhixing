@@ -140,15 +140,20 @@ fun Route.settingsRoutes(
 
         post("/search/service") {
             val request = call.receive<UpdateSearchServiceRequest>()
+            val requestedIds = request.serviceIds.map { it.toUuid("serviceIds") }.toSet()
 
             settingsStore.update { settings ->
                 if (settings.searchServices.isEmpty()) {
                     throw BadRequestException("No search services configured")
                 }
-                if (request.index !in settings.searchServices.indices) {
-                    throw BadRequestException("search service index out of range")
+                if (requestedIds.isEmpty()) {
+                    throw BadRequestException("At least one search service must be selected")
                 }
-                settings.copy(searchServiceSelected = request.index)
+                val configuredIds = settings.searchServices.mapTo(mutableSetOf()) { it.id }
+                if (!configuredIds.containsAll(requestedIds)) {
+                    throw BadRequestException("serviceIds contains an unknown search service")
+                }
+                settings.copy(searchServiceSelectedIds = requestedIds)
             }
             call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
         }

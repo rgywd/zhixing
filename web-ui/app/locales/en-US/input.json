@@ -83,6 +83,7 @@
     "builtin_desc": "Use the model's native search capability",
     "web_title": "Web search",
     "status_enabled": "Enabled",
+    "status_enabled_multiple": "Enabled · {{count}} source(s)",
     "status_disabled": "Disabled",
     "unknown": "Unknown",
     "empty": "No search services available",

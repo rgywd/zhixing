@@ -113,6 +113,7 @@ class SettingsStore(
         val SEARCH_SERVICES = stringPreferencesKey("search_services")
         val SEARCH_COMMON = stringPreferencesKey("search_common")
         val SEARCH_SELECTED = intPreferencesKey("search_selected")
+        val SEARCH_SELECTED_IDS = stringPreferencesKey("search_selected_ids")
 
         // MCP
         val MCP_SERVERS = stringPreferencesKey("mcp_servers")
@@ -163,6 +164,17 @@ class SettingsStore(
                 throw exception
             }
         }.map { preferences ->
+            val searchServices = preferences[SEARCH_SERVICES]?.let {
+                JsonInstant.decodeFromString<List<SearchServiceOptions>>(it)
+            } ?: listOf(SearchServiceOptions.DEFAULT)
+            val storedSearchServiceIds = preferences[SEARCH_SELECTED_IDS]?.let {
+                JsonInstant.decodeFromString<Set<Uuid>>(it)
+            }.orEmpty()
+            val searchServiceSelectedIds = resolveSearchServiceSelection(
+                services = searchServices,
+                selectedIds = storedSearchServiceIds,
+                legacyIndex = preferences[SEARCH_SELECTED] ?: 0,
+            )
             Settings(
                 favoriteModels = preferences[FAVORITE_MODELS]?.let {
                     JsonInstant.decodeFromString(it)
@@ -199,13 +211,11 @@ class SettingsStore(
                 } ?: emptyList(),
                 developerMode = preferences[DEVELOPER_MODE] == true,
                 displaySetting = JsonInstant.decodeFromString(preferences[DISPLAY_SETTING] ?: "{}"),
-                searchServices = preferences[SEARCH_SERVICES]?.let {
-                    JsonInstant.decodeFromString(it)
-                } ?: listOf(SearchServiceOptions.DEFAULT),
+                searchServices = searchServices,
                 searchCommonOptions = preferences[SEARCH_COMMON]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: SearchCommonOptions(),
-                searchServiceSelected = preferences[SEARCH_SELECTED] ?: 0,
+                searchServiceSelectedIds = searchServiceSelectedIds,
                 mcpServers = preferences[MCP_SERVERS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
@@ -287,6 +297,7 @@ class SettingsStore(
             val validLorebookIds = settings.lorebooks.map { it.id }.toSet()
             val validQuickMessageIds = settings.quickMessages.map { it.id }.toSet()
             val asrProviders = settings.asrProviders.distinctBy { it.id }
+            val searchServices = settings.searchServices.distinctBy { it.id }
             settings.copy(
                 providers = settings.providers.distinctBy { it.id }.map { provider ->
                     when (provider) {
@@ -328,6 +339,11 @@ class SettingsStore(
                 selectedASRProviderId = settings.selectedASRProviderId
                     ?.takeIf { id -> asrProviders.any { provider -> provider.id == id } }
                     ?: asrProviders.firstOrNull()?.id,
+                searchServices = searchServices,
+                searchServiceSelectedIds = resolveSearchServiceSelection(
+                    services = searchServices,
+                    selectedIds = settings.searchServiceSelectedIds,
+                ),
                 favoriteModels = settings.favoriteModels.filter { uuid ->
                     settings.providers.flatMap { it.models }.any { it.id == uuid }
                 },
@@ -386,7 +402,14 @@ class SettingsStore(
 
             preferences[SEARCH_SERVICES] = JsonInstant.encodeToString(settings.searchServices)
             preferences[SEARCH_COMMON] = JsonInstant.encodeToString(settings.searchCommonOptions)
-            preferences[SEARCH_SELECTED] = settings.searchServiceSelected.coerceIn(0, settings.searchServices.size - 1)
+            val selectedSearchServiceIds = resolveSearchServiceSelection(
+                services = settings.searchServices,
+                selectedIds = settings.searchServiceSelectedIds,
+            )
+            preferences[SEARCH_SELECTED_IDS] = JsonInstant.encodeToString(selectedSearchServiceIds)
+            preferences[SEARCH_SELECTED] = settings.searchServices.indexOfFirst {
+                it.id in selectedSearchServiceIds
+            }.coerceAtLeast(0)
 
             preferences[MCP_SERVERS] = JsonInstant.encodeToString(settings.mcpServers)
             preferences[WEBDAV_CONFIG] = JsonInstant.encodeToString(settings.webDavConfig)
@@ -534,7 +557,7 @@ data class Settings(
     val assistantTags: List<Tag> = emptyList(),
     val searchServices: List<SearchServiceOptions> = listOf(SearchServiceOptions.DEFAULT),
     val searchCommonOptions: SearchCommonOptions = SearchCommonOptions(),
-    val searchServiceSelected: Int = 0,
+    val searchServiceSelectedIds: Set<Uuid> = searchServices.firstOrNull()?.let { setOf(it.id) }.orEmpty(),
     val mcpServers: List<McpServerConfig> = emptyList(),
     val webDavConfig: WebDavConfig = WebDavConfig(),
     val s3Config: S3Config = S3Config(),
@@ -558,6 +581,21 @@ data class Settings(
         // 构造一个用于初始化的settings, 但它不能用于保存，防止使用初始值存储
         fun dummy() = Settings(init = true)
     }
+}
+
+internal fun resolveSearchServiceSelection(
+    services: List<SearchServiceOptions>,
+    selectedIds: Set<Uuid> = emptySet(),
+    legacyIndex: Int = 0,
+): Set<Uuid> {
+    val validIds = services.mapTo(linkedSetOf()) { it.id }
+    val selected = selectedIds.filterTo(linkedSetOf()) { it in validIds }
+    if (selected.isNotEmpty()) return selected
+
+    return services.getOrNull(legacyIndex)?.id
+        ?.let(::setOf)
+        ?: services.firstOrNull()?.id?.let(::setOf)
+        ?: emptySet()
 }
 
 @Serializable
