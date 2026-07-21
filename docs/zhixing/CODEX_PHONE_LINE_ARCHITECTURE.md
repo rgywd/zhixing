@@ -77,7 +77,9 @@ Core 可以部署在 VPS，但不持有 OpenAI 登录态、Codex 凭据、仓库
 - 保存 Work session 与 Codex session ID 映射，并在重启后恢复。
 - 消费 `codex exec --json` 的公开 JSONL 事件，只把完成的 `agent_message` 映射成普通 AI 消息；不上传 reasoning、
   命令正文、工具参数或原始工具输出。
-- 观察子进程开始、退出、错误；终态先写本地 outbox，再向 Core 原子提交并在断网/重启后重放。
+- 观察 Codex JSONL 的 `turn.completed` / `turn.failed` 语义终态，以及子进程退出和错误；语义终态到达后若
+  CLI 未在短暂宽限期内退出，Runner 清理整棵子进程树。终态先写本地 outbox，再向 Core 原子提交并在
+  断网/重启后重放。
 - JSONL 消息也先写本地 outbox，再异步上传；Core 通过客户端事件 ID 幂等去重，保证消息先于本轮终态落库。
 - 接收 Core 为每次 START/RESUME 签发的 24 小时 session token，并写入专用 MCP 配置，不污染用户的普通 Codex 配置。
 
@@ -87,7 +89,7 @@ Core 可以部署在 VPS，但不持有 OpenAI 登录态、Codex 凭据、仓库
   Codex Desktop/CLI 不加载。
 - 只启用 `Stop`，不启用可能位于工具执行前的 `PreToolUse`、权限 Hook 或逐工具 `PostToolUse`。
 - Hook 不联网、不持有 Core/Runner/session token，只把小于 1 KiB 的结束标记原子写入单轮本地 outbox。
-- Hook 超时为 1 秒，脚本无论错误与否都静默 `exit 0`；Runner 仍以 JSONL、子进程退出码和耐久 transition
+- Hook 超时为 1 秒，脚本无论错误与否都静默 `exit 0`；Runner 仍以 JSONL 语义终态、子进程退出码和耐久 transition
   为事实来源，Hook 缺失、超时或损坏不能阻断 Codex。
 
 ### Phone-line MCP
@@ -139,7 +141,7 @@ CREATED -> QUEUED -> RUNNING -> WAITING_FOR_USER -> RUNNING
 ```
 
 - `CREATED/QUEUED`：Core 已接收，等待 Runner。
-- `RUNNING`：Codex 子进程存活。
+- `RUNNING`：Codex 本轮尚未产生语义终态；不能仅因 CLI 进程仍存活就继续显示运行中。
 - `WAITING_FOR_USER`：存在尚未回答的 `ask`；180 秒超时后进入 `IDLE`，不宣告失败。
 - `IDLE`：本轮 Codex 已退出，但会话可用下一条手机消息 resume。
 - `COMPLETED`：用户主动结束；不可再发送。
@@ -163,8 +165,8 @@ Runner 离线是连接状态，不改写会话状态。手机允许排队发送�
 - Core 不可达：Android 展示本地缓存并允许草稿，不伪装成已发送；Runner 指数退避重连。
 - Runner 离线：消息耐久排队；上线后顺序处理，同一会话同时最多一个 Codex 进程。
 - `ask` 超时：工具返回明确 timeout；用户之后回答会形成 inbox 消息并触发一次 resume。
-- Codex 未调用 `report`：Runner 自动转发公开 JSONL 中的普通 `agent_message`；进程退出时仍提交终态，手机不会
-  因模型忘记调用 MCP 而空白或无限显示“运行中”。
+- Codex 未调用 `report`：Runner 自动转发公开 JSONL 中的普通 `agent_message`；`turn.completed` / `turn.failed`
+  到达时提交终态，子进程退出仅作为兼容兜底，手机不会因模型忘记调用 MCP 而空白或无限显示“运行中”。
 - SSE 丢失：客户端用 `afterSeq` 补拉；catalog/仓库刷新失败只 toast，不禁用已有缓存选项。
 
 ## 8. 明确废弃
