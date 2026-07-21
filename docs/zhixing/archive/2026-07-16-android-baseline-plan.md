@@ -1,4 +1,7 @@
-# 知行 Android 基座实施计划
+# 知行 Android 基座实施计划（已归档）
+
+> 归档于 2026-07-21。本计划混合了 0.1.0 基座、知识空间、记忆 MVP 与早期 Work 阶段；其中多项状态已经被
+> 后续版本和专项契约取代。它仅用于追溯历史，不再作为当前待办清单。现行文档入口见 [`../README.md`](../README.md)。
 
 状态：执行中（2026-07-16）
 
@@ -15,7 +18,7 @@
 
 ## Phase 0.5：数据安全与可恢复升级
 
-目标：在继续扩展知识库和工作区前，建立从 `v0.1.0` 起可验证的数据保留、备份和恢复底座。完整契约见 [`DATA_SAFETY_AND_BACKUP.md`](./DATA_SAFETY_AND_BACKUP.md)。
+目标：在继续扩展知识库和工作区前，建立从 `v0.1.0` 起可验证的数据保留、备份和恢复底座。完整契约见 [`DATA_SAFETY_AND_BACKUP.md`](../DATA_SAFETY_AND_BACKUP.md)。
 
 - [ ] 统一数据库名称为 `zhixing`，修复 WebDAV/S3 仍读写 `rikka_hub` 的错误并兼容旧备份。
 - [ ] 将 Workspace 用户文件纳入备份，排除 RootFS、临时目录和可重建索引。
@@ -45,7 +48,7 @@
 
 ### Phase 2.1：项目知识空间 v0.1
 
-完整契约见 [`KNOWLEDGE_SPACE.md`](./KNOWLEDGE_SPACE.md)。
+完整契约见 [`KNOWLEDGE_SPACE.md`](../KNOWLEDGE_SPACE.md)。
 
 - [x] Workspace 幂等初始化标准项目目录和 `PROJECT.md`，不覆盖已有用户内容。
 - [x] 导入 PDF、DOCX、PPTX、EPUB 与常见文本资料，保留原文并生成可重建的归一 Markdown。
@@ -55,7 +58,7 @@
 
 ### Phase 2.3：记忆 MVP
 
-完整契约见 [`MEMORY_MVP.md`](./MEMORY_MVP.md)。
+历史契约见 [`2026-07-19-memory-mvp.md`](./2026-07-19-memory-mvp.md)。
 
 - [x] 将文本记忆增量升级为 `PROFILE / CONTEXT` 原子记录，并提供 `ACTIVE / ARCHIVED` 最小生命周期。
 - [x] 保留旧记忆内容与范围，将其兼容迁移为活跃的“记住的事”。
@@ -77,7 +80,7 @@
 
 目标：让手机创建的 Codex 会话通过三条 MCP 电话线完成可靠的异步沟通，不复制 Codex Desktop，不恢复旧
 Happy/App Server/Relay 链路。完整架构、协议和阶段验收见
-[`CODEX_PHONE_LINE_IMPLEMENTATION_PLAN.md`](./CODEX_PHONE_LINE_IMPLEMENTATION_PLAN.md)。
+[`CODEX_PHONE_LINE_IMPLEMENTATION_PLAN.md`](../CODEX_PHONE_LINE_IMPLEMENTATION_PLAN.md)。
 
 - [x] 下架旧 Work/Happy/Relay/App Server/Agent 运行时并通过回归构建。
 - [x] 冻结 Phone-line 产品、架构、协议和安全边界。

@@ -1,4 +1,9 @@
-# 知行 Android 重构：产品与体验设计
+# 知行 Android 重构：产品与体验设计（已归档）
+
+> 归档于 2026-07-21。本文件记录从 Android 基座到 Work Phone-line 的阶段产品决策，不再作为当前产品总纲。
+> 当前方向以 [`../AI_ASSISTANT_VISION.md`](../AI_ASSISTANT_VISION.md) 为准；Work 的现行约束以
+> [`../CODEX_PHONE_LINE_ARCHITECTURE.md`](../CODEX_PHONE_LINE_ARCHITECTURE.md) 和
+> [`../CODEX_PHONE_LINE_CONTRACT.md`](../CODEX_PHONE_LINE_CONTRACT.md) 为准。
 
 状态：实施基线（2026-07-20 更新）
 
