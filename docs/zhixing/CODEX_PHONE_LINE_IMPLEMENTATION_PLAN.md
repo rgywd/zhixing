@@ -44,7 +44,8 @@
 ## Phase 2：Windows Runner 与 MCP
 
 - [x] 建立 `work/runner`，本地配置只允许仓库白名单和 Core 凭据。
-- [x] 登记 catalog、心跳、拉取命令、单会话互斥和进程状态恢复。
+- [x] 登记 catalog、心跳、拉取命令、单会话互斥和进程状态恢复；catalog 同时兼容固定 `repos` 与显式授权
+  `repoRoots`，并按周期重扫本机目录变化。
 - [x] 启动 `codex exec`，解析并保存 session ID；补充消息使用 `codex exec resume`。
 - [x] 使用隔离配置固定 model/effort、完全访问和三个 MCP 工具。
 - [x] 实现 `report`、`ask`、`report_html` 的 stdio MCP server 与 Core client。
@@ -57,7 +58,8 @@
 
 - [x] 在普通会话侧增加克制的 Work 入口；设置页增加 Work 连接卡，不新建设置首页。
 - [x] Work 会话列表只展示手机创建的会话，支持离线缓存、状态和显式结束。
-- [x] 新建选择缓存的 repo/model/effort，权限固定完全访问；不显示任务表单。
+- [x] 新建选择缓存的 repo/model/effort，权限固定完全访问；目录选择支持按来源分组搜索，并清除已经失效的选择；
+  不显示任务表单。
 - [x] 详情复用普通聊天的页面骨架、Markdown 和输入框视觉组件，不复用普通 Provider 生成链路。v1 只发送文本，
   不显示尚无协议闭环的附件按钮。
 - [x] 映射 report/ask/report_html/run-state；问题卡支持 1–4 题、多选和“其他”。
@@ -88,7 +90,10 @@
 
 ## 当前验证证据
 
-- `npm --prefix work test`：17/17 通过，覆盖 Core 契约与重启恢复、ask 故障回滚、短期 token 撤销、命令/会话原子提交、Runner 终态 outbox 重放、断网 STOP 本地优先、隔离鉴权、进程换代与命令租约回收、提问超时、Runner 参数、resume、状态持久化与 Windows 可执行文件解析。
+- `npm --prefix work test`：34/34 通过，覆盖 Core 契约与重启恢复、ask 故障回滚、短期 token 撤销、命令/会话
+  原子提交、Runner 终态 outbox 重放、断网 STOP 本地优先、隔离鉴权、进程换代与命令租约回收、提问超时、
+  Runner 参数、resume、状态持久化、Windows 可执行文件解析，以及固定目录兼容、授权根目录发现、路径隔离、
+  环境变量展开和 catalog 动态刷新。
 - `npm --prefix work run e2e:real`：真实 Codex 完成 `report → ask/answer → report_html → IDLE`，Codex session ID
   `019f7fa6-3280-73e0-8c9b-050e3ab5ccff`；测试只使用临时 Git 仓库。
 - `./gradlew :app:testDebugUnitTest` 与 `:app:compileDebugKotlin` 通过。
