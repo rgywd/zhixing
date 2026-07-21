@@ -287,9 +287,19 @@ private fun WorkEventList(
         visibleEvents.filter { it.type == "ASK_ANSWERED" }.mapNotNull { it.payload.jsonObject["askId"]?.jsonPrimitive?.content }.toSet()
     }
     val listState = rememberLazyListState()
-    LaunchedEffect(visibleEvents.size) {
-        val lastIndex = visibleEvents.size + if (error != null) 1 else 0
-        if (lastIndex > 0) listState.animateScrollToItem(lastIndex - 1)
+    var hasPositionedInitialContent by remember { mutableStateOf(false) }
+    val itemCount = visibleEvents.size + if (error != null) 1 else 0
+    LaunchedEffect(itemCount) {
+        if (itemCount == 0) {
+            hasPositionedInitialContent = false
+        } else if (hasPositionedInitialContent) {
+            listState.animateScrollToItem(itemCount - 1)
+        } else {
+            // Opening a long session must show the latest progress immediately. Animating from
+            // index 0 exposes stale history first and can be cancelled by incoming events.
+            listState.scrollToItem(itemCount - 1)
+            hasPositionedInitialContent = true
+        }
     }
     LazyColumn(
         state = listState,
