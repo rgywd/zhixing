@@ -15,6 +15,7 @@ import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.db.fts.MessageFtsManager
 import me.rerere.rikkahub.data.db.fts.MessageSearchSort
 import me.rerere.rikkahub.data.db.dao.ConversationDAO
+import me.rerere.rikkahub.data.db.dao.ConversationCursorEntity
 import me.rerere.rikkahub.data.db.dao.FavoriteDAO
 import me.rerere.rikkahub.data.db.dao.MessageNodeDAO
 import me.rerere.rikkahub.data.db.entity.ConversationEntity
@@ -273,6 +274,28 @@ class ConversationRepository(
             val nodes = loadMessageNodes(entity.id)
             conversationEntityToConversation(entity, nodes)
         } else null
+    }
+
+    suspend fun getChangedConversations(
+        cursorUpdatedAt: Long,
+        cursorConversationId: String,
+        limit: Int,
+    ): List<Conversation> = loadConversations(
+        conversationDAO.getChangedConversationCursors(
+            cursorUpdatedAt = cursorUpdatedAt,
+            cursorConversationId = cursorConversationId,
+            limit = limit,
+        )
+    )
+
+    suspend fun getRecentConversationsForProfile(limit: Int): List<Conversation> = loadConversations(
+        conversationDAO.getRecentConversationCursors(limit).asReversed()
+    )
+
+    private suspend fun loadConversations(
+        cursors: List<ConversationCursorEntity>,
+    ): List<Conversation> = cursors.mapNotNull { cursor ->
+        runCatching { getConversationById(Uuid.parse(cursor.id)) }.getOrNull()
     }
 
     suspend fun existsConversationById(uuid: Uuid): Boolean {

@@ -35,6 +35,7 @@ import me.rerere.rikkahub.utils.CrashHandler
 import me.rerere.rikkahub.utils.DatabaseUtil
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.work.PhoneWorkCredentialStore
+import me.rerere.rikkahub.data.profile.ProfileMaintenanceScheduler
 import me.rerere.rikkahub.service.PhoneWorkTrackingService
 import me.rerere.workspace.WorkspaceManager
 import org.koin.android.ext.android.get
@@ -90,6 +91,7 @@ class RikkaHubApp : Application() {
         // Start WebServer if enabled in settings
         startWebServerIfEnabled()
         startWorkTrackingIfConfigured()
+        scheduleProfileMaintenance()
 
         // Increment launch count
         incrementLaunchCount()
@@ -259,6 +261,13 @@ class RikkaHubApp : Application() {
                 runCatching { PhoneWorkTrackingService.start(this@RikkaHubApp) }
                     .onFailure { Log.w(TAG, "Unable to resume Work tracking", it) }
             }
+        }
+    }
+
+    private fun scheduleProfileMaintenance() {
+        get<AppScope>().launch(Dispatchers.IO) {
+            runCatching { get<ProfileMaintenanceScheduler>().sync() }
+                .onFailure { Log.w(TAG, "Unable to schedule profile maintenance", it) }
         }
     }
 
