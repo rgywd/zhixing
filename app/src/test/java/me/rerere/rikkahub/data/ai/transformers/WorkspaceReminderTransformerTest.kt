@@ -8,14 +8,13 @@ import org.junit.Test
 
 class WorkspaceReminderTransformerTest {
     @Test
-    fun initializedKnowledgeToolsArePromptedWithoutRootfs() {
+    fun initializedKnowledgeSpaceIsNotPromotedAsARequiredPreflight() {
         val prompt = buildWorkspacePrompt(
             workspace = workspace(WorkspaceShellStatus.DISABLED),
-            knowledgeInitialized = true,
         )
 
-        assertTrue(prompt.contains("knowledge_search"))
-        assertTrue(prompt.contains("PROJECT.md"))
+        assertFalse(prompt.contains("knowledge_search"))
+        assertFalse(prompt.contains("PROJECT.md"))
         assertFalse(prompt.contains("workspace_shell"))
         assertFalse(prompt.contains("Linux Rootfs is ready"))
     }
@@ -24,13 +23,13 @@ class WorkspaceReminderTransformerTest {
     fun shellInstructionsOnlyAppearWhenRootfsIsReady() {
         val prompt = buildWorkspacePrompt(
             workspace = workspace(WorkspaceShellStatus.READY),
-            knowledgeInitialized = false,
             cwd = "/workspace/notes",
         )
 
         assertTrue(prompt.contains("workspace_shell"))
         assertTrue(prompt.contains("/workspace/notes"))
-        assertTrue(prompt.contains("not initialized as a knowledge space"))
+        assertFalse(prompt.contains("knowledge_status"))
+        assertFalse(prompt.contains("not initialized as a knowledge space"))
     }
 
     private fun workspace(status: WorkspaceShellStatus) = WorkspaceEntity(

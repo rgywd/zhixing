@@ -10,7 +10,8 @@ import me.rerere.workspace.WorkspaceShellStatus
 /**
  * Workspace 系统提示注入转换器
  *
- * 当助手绑定 workspace 时注入知识空间上下文；Rootfs 就绪时再追加 Shell 能力。
+ * 当助手绑定 workspace 时注入基本上下文；Rootfs 就绪时再追加 Shell 能力。
+ * 知识空间是按需工具，不在这里把检索提升为普通对话的前置步骤。
  */
 class WorkspaceReminderTransformer(
     private val workspaceRepository: WorkspaceRepository,
@@ -21,10 +22,8 @@ class WorkspaceReminderTransformer(
     ): List<UIMessage> {
         val workspaceId = ctx.assistant.workspaceId?.toString() ?: return messages
         val workspace = workspaceRepository.getById(workspaceId) ?: return messages
-        val knowledgeStatus = workspaceRepository.knowledgeSpaceStatus(workspaceId)
         val prompt = buildWorkspacePrompt(
             workspace = workspace,
-            knowledgeInitialized = knowledgeStatus.initialized,
             cwd = ctx.workspaceCwd,
         )
 
@@ -42,20 +41,10 @@ class WorkspaceReminderTransformer(
 
 internal fun buildWorkspacePrompt(
     workspace: WorkspaceEntity,
-    knowledgeInitialized: Boolean,
     cwd: String? = null,
 ): String = buildString {
     appendLine("<workspace>")
     appendLine("You are bound to a persistent local workspace named \"${workspace.name}\".")
-    appendLine("- `knowledge_status`, `knowledge_search`, and `knowledge_read` work locally without a Rootfs.")
-    if (knowledgeInitialized) {
-        appendLine("- This workspace is an initialized project knowledge space. Read `PROJECT.md` for project goals and constraints.")
-        appendLine("- Before making project-specific claims, use `knowledge_search`, then `knowledge_read` for the relevant lines. Cite the returned sourcePath/citation. If no source supports a claim, label it as an assumption.")
-        appendLine("- `knowledge/sources` contains original user material; `.zhixing/knowledge/normalized` is derived and rebuildable.")
-        appendLine("- `knowledge_ingest` persists a file from `/upload` and requires approval.")
-    } else {
-        appendLine("- The workspace is not initialized as a knowledge space yet. `knowledge_status` can confirm this; the user can initialize it from Workspace details.")
-    }
     if (workspace.shellStatus == WorkspaceShellStatus.READY.name) {
         appendLine("- A sandboxed Linux Rootfs is ready. The persistent files area is mounted at `/workspace`.")
         appendLine("- Workspace tool paths must be absolute inside the Rootfs, for example `/workspace/notes.md`.")
