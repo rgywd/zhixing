@@ -98,7 +98,10 @@ private val workJson = Json { ignoreUnknownKeys = true }
 
 @Composable
 fun PhoneWorkSessionPage(sessionId: String) {
-    val vm: PhoneWorkSessionVM = koinViewModel(parameters = { parametersOf(sessionId) })
+    val vm: PhoneWorkSessionVM = koinViewModel(
+        key = phoneWorkSessionViewModelKey(sessionId),
+        parameters = { parametersOf(sessionId) },
+    )
     val navigator = LocalNavController.current
     val context = LocalContext.current
     val settings = LocalSettings.current
@@ -264,6 +267,9 @@ fun PhoneWorkSessionPage(sessionId: String) {
         )
     }
 }
+
+internal fun phoneWorkSessionViewModelKey(sessionId: String): String =
+    "phone-work-session:${sessionId.ifBlank { "new" }}"
 
 @Composable
 private fun RepoTitleSelector(
