@@ -35,7 +35,10 @@ test("Codex args isolate user config and fix model, effort, access and phone-lin
       cursorFile: "C:/cursor.json",
     },
   });
-  assert.deepEqual(args.slice(0, 4), ["exec", "-C", "C:/repo", "--json"]);
+  assert.deepEqual(
+    args.slice(0, 6),
+    ["exec", "-C", "C:/repo", "--profile", "zhixing-phone", "--json"],
+  );
   assert.ok(args.includes("--ignore-user-config"));
   assert.deepEqual(args.slice(args.indexOf("--profile"), args.indexOf("--profile") + 2), ["--profile", "zhixing-phone"]);
   assert.ok(args.includes("--dangerously-bypass-hook-trust"));
@@ -176,6 +179,7 @@ test("resume targets the persisted Codex session", () => {
     model: "gpt-5.6-sol",
     reasoningEffort: "xhigh",
     codexSessionId: "019f-session",
+    profileName: "zhixing-phone",
     mcp: {
       nodePath: "node",
       mcpServerPath: "mcp.js",
@@ -185,7 +189,9 @@ test("resume targets the persisted Codex session", () => {
       cursorFile: "cursor.json",
     },
   });
-  assert.deepEqual(args.slice(0, 3), ["exec", "resume", "--json"]);
+  assert.deepEqual(args.slice(0, 4), ["exec", "--profile", "zhixing-phone", "resume"]);
+  assert.ok(args.indexOf("--profile") < args.indexOf("resume"));
+  assert.ok(args.indexOf("--dangerously-bypass-hook-trust") > args.indexOf("resume"));
   assert.deepEqual(args.slice(-2), ["019f-session", "-"]);
 });
 
