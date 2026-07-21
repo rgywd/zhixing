@@ -523,6 +523,9 @@ export class WorkStore {
       this.createCommand(session.runnerId, sessionId, "RESUME", {
         message: input.text ?? "",
         attachments,
+        repoId: session.repoId,
+        model: session.model,
+        reasoningEffort: session.reasoningEffort,
         inboxCursor: event.seq,
         sessionToken: this.createSessionToken(sessionId),
       });
