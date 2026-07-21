@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.work
 
 import android.content.Context
+import android.content.Intent
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -13,8 +14,10 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import me.rerere.rikkahub.service.PhoneWorkTrackingService
 
 class PhoneWorkCredentialStore(context: Context) {
+    private val appContext = context.applicationContext
     private val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
     private val credentialFile = File(context.noBackupFilesDir, CREDENTIAL_FILE)
     private val mutableConnection = MutableStateFlow(loadConnection())
@@ -35,12 +38,14 @@ class PhoneWorkCredentialStore(context: Context) {
         check(temporaryFile.renameTo(credentialFile)) { "无法保存 Work 凭据" }
         preferences.edit().putString(KEY_BASE_URL, normalizedUrl).apply()
         mutableConnection.value = PhoneWorkConnection(normalizedUrl, configured = true)
+        PhoneWorkTrackingService.start(appContext)
     }
 
     fun clear() {
         credentialFile.delete()
         preferences.edit().remove(KEY_BASE_URL).apply()
         mutableConnection.value = PhoneWorkConnection("", configured = false)
+        PhoneWorkTrackingService.stop(appContext)
     }
 
     fun token(): String? = runCatching {

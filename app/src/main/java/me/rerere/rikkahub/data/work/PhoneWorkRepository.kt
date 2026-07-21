@@ -1,27 +1,35 @@
 package me.rerere.rikkahub.data.work
 
+import android.content.Context
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import me.rerere.rikkahub.data.db.dao.PhoneWorkDAO
 import me.rerere.rikkahub.data.db.entity.PhoneWorkEventEntity
 import me.rerere.rikkahub.data.db.entity.PhoneWorkSessionEntity
+import me.rerere.rikkahub.service.PhoneWorkTrackingService
 
 class PhoneWorkRepository(
     private val dao: PhoneWorkDAO,
     private val api: PhoneWorkApiClient,
     val credentials: PhoneWorkCredentialStore,
     private val catalogStore: PhoneWorkCatalogStore,
+    private val context: Context,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val mutableCatalog = MutableStateFlow(catalogStore.load())
     val catalog: StateFlow<PhoneWorkCatalog> = mutableCatalog
 
     fun observeSessions(): Flow<List<PhoneWorkSession>> = dao.observeSessions().map { rows -> rows.map { it.toModel() } }
+
+    fun observeArchivedSessions(): Flow<List<PhoneWorkSession>> = dao.observeArchivedSessions().map { rows -> rows.map { it.toModel() } }
+
+    fun observeActiveSessions(): Flow<List<PhoneWorkSession>> = dao.observeActiveSessions().map { rows -> rows.map { it.toModel() } }
 
     fun observeSession(id: String): Flow<PhoneWorkSession?> = dao.observeSession(id).map { it?.toModel() }
 
@@ -41,13 +49,22 @@ class PhoneWorkRepository(
     }
 
     suspend fun refreshSessions() {
-        dao.upsertSessions(api.sessions().map { it.toEntity() })
+        val sessions = api.sessions() + api.sessions(archived = true)
+        dao.replaceSessions(sessions.distinctBy { it.id }.map { it.toEntity() })
     }
 
-    suspend fun refreshEvents(sessionId: String) {
+    suspend fun refreshEvents(sessionId: String): List<PhoneWorkEvent> {
         val events = api.events(sessionId, dao.maxSeq(sessionId))
         if (events.isNotEmpty()) dao.upsertEvents(events.map { it.toEntity() })
         refreshSessions()
+        return events
+    }
+
+    suspend fun activeSessionsSnapshot(): List<PhoneWorkSession> = observeActiveSessions().first()
+    suspend fun sessionSnapshot(id: String): PhoneWorkSession? = observeSession(id).first()
+    suspend fun maxEventSeq(id: String): Long = dao.maxSeq(id)
+    suspend fun cachedEventsAfter(id: String, afterSeq: Long): List<PhoneWorkEvent> = dao.eventsAfter(id, afterSeq).map { row ->
+        PhoneWorkEvent(row.sessionId, row.seq, row.id, row.type, json.parseToJsonElement(row.payloadJson), row.createdAt)
     }
 
     fun liveEvents(sessionId: String): Flow<Unit> = flow {
@@ -63,6 +80,7 @@ class PhoneWorkRepository(
         val session = api.createSession(request.copy(attachmentIds = attachmentIds))
         dao.upsertSession(session.toEntity())
         refreshEvents(session.id)
+        PhoneWorkTrackingService.start(context)
         return session
     }
 
@@ -70,6 +88,7 @@ class PhoneWorkRepository(
         val attachmentIds = uploadImages(imageUrls)
         dao.upsertEvents(listOf(api.sendMessage(sessionId, text, attachmentIds).toEntity()))
         refreshSessions()
+        PhoneWorkTrackingService.start(context)
     }
 
     private suspend fun uploadImages(imageUrls: List<String>): List<String> {
@@ -87,15 +106,17 @@ class PhoneWorkRepository(
         api.complete(sessionId)
         refreshEvents(sessionId)
     }
+    suspend fun archive(sessionId: String) = dao.upsertSession(api.archive(sessionId).toEntity())
+    suspend fun unarchive(sessionId: String) = dao.upsertSession(api.unarchive(sessionId).toEntity())
     suspend fun reportHtml(reportId: String): String = api.reportHtml(reportId)
 
     private fun PhoneWorkSession.toEntity() = PhoneWorkSessionEntity(
-        id, runnerId, repoId, repoName, model, reasoningEffort, status, codexSessionId, lastSeq, createdAt, updatedAt,
+        id, runnerId, repoId, repoName, model, reasoningEffort, status, codexSessionId, lastSeq, archivedAt, createdAt, updatedAt,
     )
 
     private fun PhoneWorkSessionEntity.toModel() = PhoneWorkSession(
         id, runnerId, repoId, repoName, model, reasoningEffort, status = status,
-        codexSessionId = codexSessionId, lastSeq = lastSeq, createdAt = createdAt, updatedAt = updatedAt,
+        codexSessionId = codexSessionId, lastSeq = lastSeq, archivedAt = archivedAt, createdAt = createdAt, updatedAt = updatedAt,
     )
 
     private fun PhoneWorkEvent.toEntity() = PhoneWorkEventEntity(

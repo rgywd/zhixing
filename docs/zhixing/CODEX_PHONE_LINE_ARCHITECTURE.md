@@ -47,6 +47,9 @@ Core 可以部署在 VPS，但不持有 OpenAI 登录态、Codex 凭据、仓库
 - 新建时选择 Runner、仓库、模型、思考深度；第一条消息就是普通聊天输入。
 - 使用普通聊天页的视觉骨架和 Markdown 渲染；Work 使用独立数据源，不写入普通 `Conversation`。
 - SSE 断开时按游标增量补拉；缓存已有消息，弱网不锁死模型/思考深度控件。
+- 只要存在 `QUEUED/RUNNING/WAITING_FOR_USER` 的未归档会话，就以低打扰常驻通知持续显示任务状态并在后台增量补拉。
+- `REPORT/HTML_REPORT/ASK`、任务完成和失败属于关键时刻：后台或未停留在对应会话时发送可点击通知；`ASK` 使用高优先级提醒。
+- 归档只改变会话在首页的可见性，不删除事件、报告、Codex session 映射或恢复能力；恢复后仍对同一个会话继续发送。
 
 ### Work Core
 
@@ -132,6 +135,9 @@ CREATED -> QUEUED -> RUNNING -> WAITING_FOR_USER -> RUNNING
 - `IDLE`：本轮 Codex 已退出，但会话可用下一条手机消息 resume。
 - `COMPLETED`：用户主动结束；不可再发送。
 - `FAILED`：启动或 resume 失败，可重试；已有消息与报告仍可读。
+
+归档不是运行状态。活跃任务不能归档，Core 对 `QUEUED/RUNNING/WAITING_FOR_USER` 返回 409；`IDLE/FAILED/COMPLETED`
+可归档并从默认列表隐藏。恢复归档会话后，`IDLE/FAILED` 可继续原 Codex session，`COMPLETED` 仍只读。
 
 Runner 离线是连接状态，不改写会话状态。手机允许排队发送，并明确显示“等待开发机上线”。
 

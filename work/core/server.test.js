@@ -574,6 +574,45 @@ test("session token is scoped and reports cannot cross sessions", async (t) => {
   assert.equal(crossSession.response.status, 401);
 });
 
+test("idle sessions can be archived, restored and resumed without losing the Codex session", async (t) => {
+  const { baseUrl, store } = await fixture(t);
+  const { session } = await registerAndCreate(baseUrl);
+  store.updateSessionState(session.id, {
+    status: "IDLE",
+    codexSessionId: "codex-original-session",
+    detail: "turn finished",
+  });
+
+  const archived = await request(baseUrl, `/v1/work/sessions/${session.id}/archive`, { method: "POST" });
+  assert.equal(archived.response.status, 200);
+  assert.ok(archived.payload.archivedAt);
+  assert.equal(archived.payload.codexSessionId, "codex-original-session");
+
+  const active = await request(baseUrl, "/v1/work/sessions");
+  assert.equal(active.payload.sessions.some((item) => item.id === session.id), false);
+  const archive = await request(baseUrl, "/v1/work/sessions?archived=true");
+  assert.equal(archive.payload.sessions[0].id, session.id);
+
+  const restored = await request(baseUrl, `/v1/work/sessions/${session.id}/unarchive`, { method: "POST" });
+  assert.equal(restored.response.status, 200);
+  assert.equal(restored.payload.archivedAt, null);
+  assert.equal(restored.payload.codexSessionId, "codex-original-session");
+
+  const resumed = await request(baseUrl, `/v1/work/sessions/${session.id}/messages`, {
+    method: "POST",
+    idempotencyKey: "resume-archived-session",
+    body: { text: "继续原任务", clientMessageId: "resume-archived-session" },
+  });
+  assert.equal(resumed.response.status, 202);
+});
+
+test("active sessions cannot be archived", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const { session } = await registerAndCreate(baseUrl);
+  const archived = await request(baseUrl, `/v1/work/sessions/${session.id}/archive`, { method: "POST" });
+  assert.equal(archived.response.status, 409);
+});
+
 test("session tokens are short-lived, individually revocable and refreshed on resume", async (t) => {
   const { baseUrl } = await fixture(t);
   const { session, sessionToken } = await registerAndCreate(baseUrl);

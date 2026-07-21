@@ -129,7 +129,7 @@ fun PhoneWorkSessionPage(sessionId: String) {
             )
         },
         bottomBar = {
-            if (session?.status != "COMPLETED") {
+            if (session?.status != "COMPLETED" && session?.archivedAt == null) {
                 ChatInput(
                     state = inputState,
                     loading = sending,
