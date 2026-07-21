@@ -208,6 +208,9 @@ private fun SearchServiceOptionsEditor(
         is SearchServiceOptions.BochaOptions -> {
             BochaOptions(options) { onUpdateOptions(it) }
         }
+        is SearchServiceOptions.DoubaoOptions -> {
+            DoubaoOptions(options) { onUpdateOptions(it) }
+        }
         is SearchServiceOptions.LegacyHostedOptions -> {
             LegacyHostedOptions(options) { onUpdateOptions(it) }
         }
@@ -417,6 +420,26 @@ internal fun ExaOptions(
 internal fun ZhipuOptions(
     options: SearchServiceOptions.ZhipuOptions,
     onUpdateOptions: (SearchServiceOptions.ZhipuOptions) -> Unit
+) {
+    FormItem(
+        label = {
+            Text(stringResource(R.string.search_detail_api_key))
+        }
+    ) {
+        OutlinedTextField(
+            value = options.apiKey,
+            onValueChange = {
+                onUpdateOptions(options.copy(apiKey = it))
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+internal fun DoubaoOptions(
+    options: SearchServiceOptions.DoubaoOptions,
+    onUpdateOptions: (SearchServiceOptions.DoubaoOptions) -> Unit
 ) {
     FormItem(
         label = {
