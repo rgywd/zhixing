@@ -63,27 +63,37 @@ export class CoreClient {
   }
 
   async downloadAttachment(runnerId, attachmentId) {
-    const response = await fetch(
-      `${this.baseUrl}/v1/runner/attachments/${encodeURIComponent(attachmentId)}?runnerId=${encodeURIComponent(runnerId)}`,
-      {
-        signal: AbortSignal.timeout(60_000),
-        headers: {
-          ...PROTOCOL_HEADERS,
-          authorization: `Bearer ${this.token}`,
-        },
-      },
-    );
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      const error = new Error(payload.message ?? `Attachment download failed with ${response.status}`);
-      error.statusCode = response.status;
-      throw error;
+    let lastError;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const response = await fetch(
+          `${this.baseUrl}/v1/runner/attachments/${encodeURIComponent(attachmentId)}?runnerId=${encodeURIComponent(runnerId)}`,
+          {
+            signal: AbortSignal.timeout(15_000),
+            headers: {
+              ...PROTOCOL_HEADERS,
+              authorization: `Bearer ${this.token}`,
+            },
+          },
+        );
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          const error = new Error(payload.message ?? `Attachment download failed with ${response.status}`);
+          error.statusCode = response.status;
+          throw error;
+        }
+        return {
+          data: Buffer.from(await response.arrayBuffer()),
+          sha256: response.headers.get("x-content-sha256"),
+          mimeType: response.headers.get("content-type"),
+        };
+      } catch (error) {
+        lastError = error;
+        if (error.statusCode && error.statusCode < 500) throw error;
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 250 * (2 ** attempt)));
+      }
     }
-    return {
-      data: Buffer.from(await response.arrayBuffer()),
-      sha256: response.headers.get("x-content-sha256"),
-      mimeType: response.headers.get("content-type"),
-    };
+    throw lastError;
   }
 
   async ack(commandId, state, sessionState = null) {

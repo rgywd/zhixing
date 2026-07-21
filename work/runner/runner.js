@@ -125,12 +125,12 @@ export class WorkRunner {
   }
 
   async startCommand(command) {
-    const repo = this.repositories.find((candidate) => candidate.id === (command.payload.repoId ?? this.state.get(command.sessionId)?.repoId));
+    const previous = this.state.get(command.sessionId) ?? {};
+    const repo = this.repositories.find((candidate) => candidate.id === (command.payload.repoId ?? previous.repoId));
     if (!repo || !existsSync(repo.path)) {
       await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", "Repository is not available on the runner"));
       return;
     }
-    const previous = this.state.get(command.sessionId) ?? {};
     const model = command.payload.model ?? previous.model;
     const reasoningEffort = command.payload.reasoningEffort ?? previous.reasoningEffort;
     const sessionToken = command.payload.sessionToken ?? previous.sessionToken;
@@ -139,6 +139,20 @@ export class WorkRunner {
       return;
     }
 
+    const pendingAttachments = command.payload.attachments?.length
+      ? command.payload.attachments
+      : previous.codexSessionId
+        ? []
+        : previous.pendingAttachments ?? [];
+    this.state.set(command.sessionId, {
+      repoId: repo.id,
+      model,
+      reasoningEffort,
+      sessionToken,
+      pendingAttachments,
+      lastCommandId: command.id,
+    });
+
     await this.client.ack(command.id, "CLAIMED", sessionState(command.sessionId, "RUNNING"));
     const cursorFile = resolve(dirname(this.config.stateFile), "cursors", `${command.sessionId}.json`);
     let attachmentDirectory = null;
@@ -146,7 +160,7 @@ export class WorkRunner {
     let profileName = null;
     let args;
     try {
-      const downloaded = await this.downloadAttachments(command);
+      const downloaded = await this.downloadAttachments(command, pendingAttachments);
       attachmentDirectory = downloaded.directory;
       if (this.config.codexHome) {
         try {
@@ -164,7 +178,7 @@ export class WorkRunner {
         }
       }
       args = buildCodexArgs({
-        kind: command.kind,
+        kind: command.kind === "RESUME" && !previous.codexSessionId ? "START" : command.kind,
         repoPath: repo.path,
         model,
         reasoningEffort,
@@ -188,13 +202,6 @@ export class WorkRunner {
       await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", safeError(error)));
       return;
     }
-    this.state.set(command.sessionId, {
-      repoId: repo.id,
-      model,
-      reasoningEffort,
-      sessionToken,
-      lastCommandId: command.id,
-    });
     let discoveredSessionId = previous.codexSessionId ?? null;
     let resolveSemanticOutcome;
     const semanticOutcome = new Promise((resolve) => { resolveSemanticOutcome = resolve; });
@@ -213,7 +220,7 @@ export class WorkRunner {
           const parsed = parseCodexSessionId(event);
           if (parsed && parsed !== discoveredSessionId) {
             discoveredSessionId = parsed;
-            this.state.set(command.sessionId, { codexSessionId: parsed });
+            this.state.set(command.sessionId, { codexSessionId: parsed, pendingAttachments: [] });
             this.client.updateState(command.sessionId, "RUNNING", null, parsed).catch((error) => this.logError("session-id", error));
           }
           const message = parseCodexAssistantMessage(event);
@@ -307,8 +314,7 @@ export class WorkRunner {
     }
   }
 
-  async downloadAttachments(command) {
-    const attachments = command.payload.attachments ?? [];
+  async downloadAttachments(command, attachments = command.payload.attachments ?? []) {
     if (!attachments.length) return { directory: null, paths: [] };
     const directory = resolve(dirname(this.config.stateFile), "attachments", command.sessionId, command.id);
     mkdirSync(directory, { recursive: true });
