@@ -66,6 +66,12 @@ data class AssistantMemory(
     val state: MemoryState = MemoryState.ACTIVE,
     val createdAt: Long = 0,
     val updatedAt: Long = 0,
+    val dimensionId: String = "",
+    val confidence: Float = 1f,
+    val source: MemorySource = MemorySource.LEGACY,
+    val evidenceConversationIds: List<String> = emptyList(),
+    val locked: Boolean = false,
+    val lastEvidenceAt: Long = 0,
 )
 
 @Serializable
@@ -77,7 +83,29 @@ enum class MemoryKind {
 @Serializable
 enum class MemoryState {
     ACTIVE,
+    PENDING,
     ARCHIVED,
+}
+
+@Serializable
+enum class MemorySource {
+    LEGACY,
+    MANUAL,
+    AUTO,
+}
+
+object ProfileDimensions {
+    const val IDENTITY_CONTEXT = "identity_context"
+    const val PREFERENCES_VALUES = "preferences_values"
+    const val CAPABILITIES_KNOWLEDGE = "capabilities_knowledge"
+    const val BEHAVIOR_COLLABORATION = "behavior_collaboration"
+
+    val builtIn = listOf(
+        IDENTITY_CONTEXT,
+        PREFERENCES_VALUES,
+        CAPABILITIES_KNOWLEDGE,
+        BEHAVIOR_COLLABORATION,
+    )
 }
 
 @Serializable

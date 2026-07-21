@@ -5,6 +5,9 @@ import me.rerere.highlight.Highlighter
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.profile.ProfileMaintenanceScheduler
+import me.rerere.rikkahub.data.profile.ProfileMaintenanceService
+import me.rerere.rikkahub.data.profile.ProfileMaintenanceWorker
 import me.rerere.rikkahub.data.github.GitHubIssueClient
 import me.rerere.rikkahub.data.github.GitHubIssueCredentialStore
 import me.rerere.rikkahub.data.github.GitHubIssueTokenProvider
@@ -20,6 +23,7 @@ import me.rerere.rikkahub.utils.UpdateChecker
 import me.rerere.rikkahub.web.WebServerManager
 import me.rerere.tts.provider.TTSManager
 import org.koin.dsl.module
+import org.koin.androidx.workmanager.dsl.workerOf
 
 val appModule = module {
     single<Json> { JsonInstant }
@@ -61,6 +65,10 @@ val appModule = module {
     single {
         SoundEffectPlayer(get())
     }
+
+    single { ProfileMaintenanceService(get(), get(), get(), get()) }
+    single { ProfileMaintenanceScheduler(get(), get()) }
+    workerOf(::ProfileMaintenanceWorker)
 
     // 生成通知与业务解耦：ChatService 只发事件，通知由这里消费；
     // createdAtStart 保证进程启动即订阅，否则后台生成的事件会因无订阅者而丢失
