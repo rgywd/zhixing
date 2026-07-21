@@ -57,8 +57,8 @@ class PhoneWorkSessionVM(
         viewModelScope.launch {
             sessionId.filterNotNull()
                 .flatMapLatest(repository::liveEvents)
-                .retryWhen { cause, _ ->
-                    error.value = cause.message ?: "实时连接断开，正在重连"
+                .retryWhen { _, _ ->
+                    error.value = "实时连接已断开，正在重连…"
                     delay(3_000)
                     true
                 }

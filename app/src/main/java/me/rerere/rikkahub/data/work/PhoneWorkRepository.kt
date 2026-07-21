@@ -69,9 +69,14 @@ class PhoneWorkRepository(
 
     fun liveEvents(sessionId: String): Flow<Unit> = flow {
         val cursor = dao.maxSeq(sessionId)
-        api.eventStream(sessionId, cursor).collect { event ->
-            dao.upsertEvents(listOf(event.toEntity()))
-            emit(Unit)
+        api.eventStream(sessionId, cursor).collect { update ->
+            when (update) {
+                PhoneWorkStreamUpdate.Connected -> emit(Unit)
+                is PhoneWorkStreamUpdate.Event -> {
+                    dao.upsertEvents(listOf(update.event.toEntity()))
+                    emit(Unit)
+                }
+            }
         }
     }
 

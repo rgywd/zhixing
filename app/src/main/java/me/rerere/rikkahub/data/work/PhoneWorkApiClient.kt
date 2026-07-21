@@ -44,7 +44,7 @@ class PhoneWorkApiClient(
     suspend fun events(sessionId: String, afterSeq: Long): List<PhoneWorkEvent> =
         get<EventsResponse>("/v1/work/sessions/${sessionId.urlEncode()}/events?afterSeq=$afterSeq").events
 
-    fun eventStream(sessionId: String, afterSeq: Long): Flow<PhoneWorkEvent> = channelFlow {
+    fun eventStream(sessionId: String, afterSeq: Long): Flow<PhoneWorkStreamUpdate> = channelFlow {
         withContext(Dispatchers.IO) {
             val token = credentialStore.token() ?: throw PhoneWorkApiException("请先在设置中连接 Work Core")
             val request = Request.Builder()
@@ -54,13 +54,19 @@ class PhoneWorkApiClient(
                 .build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw response.toApiException()
+                trySend(PhoneWorkStreamUpdate.Connected).getOrThrow()
                 val source = response.body.source()
                 while (!source.exhausted()) {
                     val line = source.readUtf8Line() ?: break
                     if (line.startsWith("data: ")) {
-                        trySend(json.decodeFromString<PhoneWorkEvent>(line.removePrefix("data: "))).getOrThrow()
+                        trySend(
+                            PhoneWorkStreamUpdate.Event(
+                                json.decodeFromString<PhoneWorkEvent>(line.removePrefix("data: ")),
+                            )
+                        ).getOrThrow()
                     }
                 }
+                throw IOException("Work 实时连接已关闭")
             }
         }
     }
@@ -207,6 +213,11 @@ class PhoneWorkApiClient(
 }
 
 class PhoneWorkApiException(message: String, cause: Throwable? = null) : IOException(message, cause)
+
+sealed interface PhoneWorkStreamUpdate {
+    data object Connected : PhoneWorkStreamUpdate
+    data class Event(val event: PhoneWorkEvent) : PhoneWorkStreamUpdate
+}
 
 @Serializable
 data class CreateSessionRequest(
