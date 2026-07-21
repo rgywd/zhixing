@@ -736,6 +736,34 @@ class ChatService(
 
     // ---- 生成标题 ----
 
+    suspend fun generateWorkTitle(message: String): String? {
+        if (message.isBlank()) return null
+
+        return try {
+            val settings = settingsStore.settingsFlow.first()
+            val model = settings.findModelById(settings.fastModelId) ?: return null
+            val provider = model.findProvider(settings.providers) ?: return null
+            val result = providerManager.getProviderByType(provider).generateText(
+                providerSetting = provider,
+                messages = listOf(
+                    UIMessage.user(
+                        prompt = settings.titlePrompt.applyPlaceholders(
+                            "locale" to Locale.getDefault().displayName,
+                            "content" to message.take(2_000),
+                        ),
+                    ),
+                ),
+                params = backgroundTextGenerationParams(model),
+            )
+            normalizeWorkSessionTitle(result.choices.firstOrNull()?.message?.toText().orEmpty())
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w(TAG, "Failed to generate Work session title", error)
+            null
+        }
+    }
+
     suspend fun generateTitle(
         conversationId: Uuid,
         conversation: Conversation,
@@ -1267,3 +1295,12 @@ class ChatService(
         finishInterruptedPendingTools(conversationId)
     }
 }
+
+internal fun normalizeWorkSessionTitle(value: String): String? = value
+    .lineSequence()
+    .map(String::trim)
+    .firstOrNull(String::isNotBlank)
+    ?.trim('"', '\'', '“', '”', '‘', '’')
+    ?.take(80)
+    ?.trim()
+    ?.takeIf(String::isNotBlank)

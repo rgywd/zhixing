@@ -103,6 +103,7 @@ async function registerAndCreate(baseUrl) {
     body: {
       runnerId: "runner-1",
       repoId: "zhixing",
+      title: "实现 Work 电话线闭环",
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
       message: "实现 phone-line 闭环",
@@ -122,6 +123,7 @@ function runnerCommandsPath(instanceId = RUNNER_INSTANCE) {
 test("full phone-line API flow is durable, ordered and idempotent", async (t) => {
   const { baseUrl } = await fixture(t, 500);
   const { session, sessionToken } = await registerAndCreate(baseUrl);
+  assert.equal(session.title, "实现 Work 电话线闭环");
 
   const duplicate = await request(baseUrl, "/v1/work/sessions", {
     method: "POST",
@@ -129,6 +131,20 @@ test("full phone-line API flow is durable, ordered and idempotent", async (t) =>
     body: { runnerId: "ignored" },
   });
   assert.equal(duplicate.payload.id, session.id);
+
+  const invalidTitle = await request(baseUrl, "/v1/work/sessions", {
+    method: "POST",
+    idempotencyKey: "create-invalid-title",
+    body: {
+      runnerId: "runner-1",
+      repoId: "zhixing",
+      title: "x".repeat(81),
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      message: "标题过长",
+    },
+  });
+  assert.equal(invalidTitle.response.status, 400);
 
   const report = await request(baseUrl, `/v1/mcp/sessions/${session.id}/report`, {
     token: sessionToken,
@@ -581,6 +597,7 @@ test("Core restart times out an interrupted ask and restores the session to idle
     reasoningEffort: "high",
     message: "wait for me",
   }, "restart-session");
+  assert.equal(session.title, "zhixing");
   const ask = store.createAsk(session.id, {
     clientCallId: "restart-ask",
     questions: [{

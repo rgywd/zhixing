@@ -18,9 +18,10 @@
 当前已经具备：
 
 - 正式包名为 `dev.sundby.zhixing`，`v0.1.0` 已使用知行长期发布签名。
-- Room 数据库当前版本为 36，已声明从 1 到 36 的连续自动或手工迁移链。v33 迁移已删除旧
+- Room 数据库当前版本为 37，已声明从 1 到 37 的连续自动或手工迁移链。v33 迁移已删除旧
   Work/Happy/App Server/Codex catalog 表并建立 Phone-line 表；v35→v36 为长期画像 V2 增加结构化证据、
-  支撑观察与时间字段，并按产品决策清空旧 `PROFILE`，普通 `CONTEXT` 记忆继续保留。
+  支撑观察与时间字段，并按产品决策清空旧 `PROFILE`，普通 `CONTEXT` 记忆继续保留；v36→v37 为
+  Phone-line 会话增加标题并用仓库名回填旧记录。
 - Room 未启用 destructive migration；迁移缺失时应失败，而不是主动删库。
 - Workspace 用户文件位于应用内部 `files/workspaces/<root>/files`，与可替换的 RootFS `linux` 目录分离。
 - WorkManager 与 Koin WorkManager 工厂已接入。
