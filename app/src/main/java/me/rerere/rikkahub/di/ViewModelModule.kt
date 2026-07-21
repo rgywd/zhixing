@@ -82,6 +82,11 @@ val viewModelModule = module {
     viewModelOf(::StatsVM)
     viewModelOf(::PhoneWorkHomeVM)
     viewModel<PhoneWorkSessionVM> { params ->
-        PhoneWorkSessionVM(initialSessionId = params.get(), repository = get(), draftStore = get())
+        PhoneWorkSessionVM(
+            initialSessionId = params.get(),
+            repository = get(),
+            draftStore = get(),
+            chatService = get(),
+        )
     }
 }

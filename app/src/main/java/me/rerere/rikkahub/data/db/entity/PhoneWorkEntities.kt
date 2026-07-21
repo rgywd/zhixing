@@ -9,6 +9,7 @@ data class PhoneWorkSessionEntity(
     @ColumnInfo(name = "runner_id") val runnerId: String,
     @ColumnInfo(name = "repo_id") val repoId: String,
     @ColumnInfo(name = "repo_name") val repoName: String,
+    @ColumnInfo(defaultValue = "''") val title: String,
     val model: String,
     @ColumnInfo(name = "reasoning_effort") val reasoningEffort: String,
     val status: String,

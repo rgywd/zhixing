@@ -29,6 +29,7 @@ data class PhoneWorkSession(
     val runnerId: String,
     val repoId: String,
     val repoName: String,
+    val title: String = "",
     val model: String,
     val reasoningEffort: String,
     val sandboxMode: String = "danger-full-access",

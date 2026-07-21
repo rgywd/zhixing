@@ -61,6 +61,7 @@ export class WorkStore {
         runner_id TEXT NOT NULL,
         repo_id TEXT NOT NULL,
         repo_name TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
         model TEXT NOT NULL,
         reasoning_effort TEXT NOT NULL,
         status TEXT NOT NULL,
@@ -139,6 +140,8 @@ export class WorkStore {
     this.ensureColumn("runners", "instance_id", "TEXT");
     this.ensureColumn("repos", "group_name", "TEXT");
     this.ensureColumn("sessions", "archived_at", "TEXT");
+    this.ensureColumn("sessions", "title", "TEXT NOT NULL DEFAULT ''");
+    this.db.prepare("UPDATE sessions SET title=repo_name WHERE title=''").run();
     this.recoverInterruptedAsks();
   }
 
@@ -392,13 +395,20 @@ export class WorkStore {
       if (!String(input.message ?? "").trim() && !(input.attachmentIds?.length)) {
         throw Object.assign(new Error("First message or image is required"), { statusCode: 400 });
       }
+      if (input.title != null && typeof input.title !== "string") {
+        throw Object.assign(new Error("Session title must be a string"), { statusCode: 400 });
+      }
+      const title = input.title?.trim() || repo.name;
+      if (title.length > 80) {
+        throw Object.assign(new Error("Session title must not exceed 80 characters"), { statusCode: 400 });
+      }
       this.validateAttachments(input.attachmentIds);
       const sessionId = id("work");
       const now = new Date().toISOString();
       this.db.prepare(`
-          INSERT INTO sessions(id, runner_id, repo_id, repo_name, model, reasoning_effort, status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?)
-      `).run(sessionId, input.runnerId, input.repoId, repo.name, input.model, input.reasoningEffort, now, now);
+          INSERT INTO sessions(id, runner_id, repo_id, repo_name, title, model, reasoning_effort, status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?)
+      `).run(sessionId, input.runnerId, input.repoId, repo.name, title, input.model, input.reasoningEffort, now, now);
       const attachments = this.bindAttachments(sessionId, input.attachmentIds);
       const firstMessage = this.appendEvent(sessionId, "USER_MESSAGE", {
         text: input.message ?? "",
@@ -446,6 +456,7 @@ export class WorkStore {
       runnerId: row.runner_id,
       repoId: row.repo_id,
       repoName: row.repo_name,
+      title: row.title || row.repo_name,
       model: row.model,
       reasoningEffort: row.reasoning_effort,
       sandboxMode: "danger-full-access",

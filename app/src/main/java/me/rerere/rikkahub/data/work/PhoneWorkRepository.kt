@@ -116,12 +116,35 @@ class PhoneWorkRepository(
     suspend fun reportHtml(reportId: String): String = api.reportHtml(reportId)
 
     private fun PhoneWorkSession.toEntity() = PhoneWorkSessionEntity(
-        id, runnerId, repoId, repoName, model, reasoningEffort, status, codexSessionId, lastSeq, archivedAt, createdAt, updatedAt,
+        id,
+        runnerId,
+        repoId,
+        repoName,
+        title,
+        model,
+        reasoningEffort,
+        status,
+        codexSessionId,
+        lastSeq,
+        archivedAt,
+        createdAt,
+        updatedAt,
     )
 
     private fun PhoneWorkSessionEntity.toModel() = PhoneWorkSession(
-        id, runnerId, repoId, repoName, model, reasoningEffort, status = status,
-        codexSessionId = codexSessionId, lastSeq = lastSeq, archivedAt = archivedAt, createdAt = createdAt, updatedAt = updatedAt,
+        id,
+        runnerId,
+        repoId,
+        repoName,
+        title,
+        model,
+        reasoningEffort,
+        status = status,
+        codexSessionId = codexSessionId,
+        lastSeq = lastSeq,
+        archivedAt = archivedAt,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
     )
 
     private fun PhoneWorkEvent.toEntity() = PhoneWorkEventEntity(

@@ -13,6 +13,7 @@
   "runnerId": "runner_...",
   "repoId": "repo_...",
   "repoName": "zhixing",
+  "title": "生成 Work 会话标题",
   "model": "gpt-5.6-sol",
   "reasoningEffort": "high",
   "sandboxMode": "danger-full-access",
@@ -27,6 +28,9 @@
 Android 不提交真实路径、任意 sandbox/approval 值或 Codex 参数。Core 只接受 Runner 已公布的 repo/model/effort 组合。
 仓库 catalog 项可携带可选 `group` 和 `available`；`group` 是 Runner 配置的公开显示标签，不得包含真实绝对路径。
 Android 只允许创建 `available=true` 的目录会话，并可按 `group` 分组和搜索。
+
+Android 创建会话时可提交最多 80 字符的 `title`。当前客户端用已配置的快速模型根据首条文本生成标题；模型不可用、
+生成失败或仅发送图片时使用首条文本摘要或仓库名兜底。旧客户端未提交标题时，Core 使用 `repoName`，保持 v1 向后兼容。
 
 用户消息可额外携带 `attachmentIds`。Android 先通过 `POST /v1/work/attachments` 上传图片，再在创建会话或补充消息时
 引用返回的 ID。每条消息最多 4 张，每张最大 10 MiB，仅接受 PNG、JPEG、WebP 和 GIF。事件与 Runner 命令只携带
@@ -134,7 +138,7 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
 - `GET /v1/work/runners`：Runner 在线状态与缓存版本。
 - `GET /v1/work/repos?runnerId=`：仓库 catalog，支持 `ETag`。
 - `POST /v1/work/attachments`：上传一张受限图片并返回附件元数据。
-- `POST /v1/work/sessions`：创建会话与第一条用户消息。
+- `POST /v1/work/sessions`：创建会话与第一条用户消息，可携带可选 `title`。
 - `GET /v1/work/sessions?cursor=`：仅返回当前用户的手机会话。
 - `GET /v1/work/sessions?archived=true`：返回已归档会话；默认列表不包含归档项。
 - `GET /v1/work/sessions/{id}/events?afterSeq=`：补拉有序事件。

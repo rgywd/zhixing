@@ -155,7 +155,12 @@ private fun WorkSessionRow(
         ) {
             Icon(HugeIcons.ComputerTerminal01, null)
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(session.repoName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    session.title.ifBlank { session.repoName },
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Text(
                     "${session.model} · ${session.reasoningEffort} · ${session.status.displayStatus()}",
                     style = MaterialTheme.typography.bodySmall,
