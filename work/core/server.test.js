@@ -702,6 +702,9 @@ test("session tokens are short-lived, individually revocable and refreshed on re
   });
   const commands = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
   const resume = commands.payload.commands.find((command) => command.kind === "RESUME");
+  assert.equal(resume.payload.repoId, "zhixing");
+  assert.equal(resume.payload.model, "gpt-5.6-sol");
+  assert.equal(resume.payload.reasoningEffort, "high");
   assert.ok(resume.payload.sessionToken);
   const accepted = await request(baseUrl, `/v1/mcp/sessions/${session.id}/report`, {
     token: resume.payload.sessionToken,
