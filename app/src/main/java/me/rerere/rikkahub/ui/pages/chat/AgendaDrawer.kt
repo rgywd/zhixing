@@ -9,6 +9,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -42,6 +44,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -53,6 +58,7 @@ import me.rerere.hugeicons.stroke.Calendar03
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.CheckmarkCircle02
 import me.rerere.hugeicons.stroke.Task01
+import kotlin.math.abs
 
 @Composable
 fun AgendaDrawerHost(
@@ -117,7 +123,12 @@ private fun AgendaDrawerContent(
     val items = remember { agendaPreviewItems }
 
     Surface(
-        modifier = modifier.fillMaxHeight(),
+        modifier = modifier
+            .fillMaxHeight()
+            .agendaSwipeGesture(
+                direction = AgendaSwipeDirection.CLOSE,
+                onSwipe = onClose,
+            ),
         shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
         color = MaterialTheme.colorScheme.surfaceContainer,
         tonalElevation = 1.dp,
@@ -151,6 +162,57 @@ private fun AgendaDrawerContent(
             )
         }
     }
+}
+
+internal enum class AgendaSwipeDirection {
+    OPEN,
+    CLOSE,
+}
+
+internal fun Modifier.agendaSwipeGesture(
+    direction: AgendaSwipeDirection,
+    onSwipe: () -> Unit,
+): Modifier = pointerInput(direction, onSwipe) {
+    val threshold = 64.dp.toPx()
+    awaitEachGesture {
+        val down = awaitFirstDown(
+            requireUnconsumed = false,
+            pass = PointerEventPass.Main,
+        )
+        var totalX = 0f
+        var totalY = 0f
+        var blockedByChild = false
+
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Main)
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            if (change.isConsumed) {
+                blockedByChild = true
+            } else if (!blockedByChild) {
+                val delta = change.positionChange()
+                totalX += delta.x
+                totalY += delta.y
+                if (isAgendaSwipeTriggered(direction, totalX, totalY, threshold)) {
+                    onSwipe()
+                    break
+                }
+            }
+            if (!change.pressed) break
+        }
+    }
+}
+
+internal fun isAgendaSwipeTriggered(
+    direction: AgendaSwipeDirection,
+    totalX: Float,
+    totalY: Float,
+    threshold: Float,
+): Boolean {
+    val directionMatches = when (direction) {
+        AgendaSwipeDirection.OPEN -> totalX < 0f
+        AgendaSwipeDirection.CLOSE -> totalX > 0f
+    }
+    return directionMatches && abs(totalX) >= threshold && abs(totalX) > abs(totalY) * 1.25f
 }
 
 @Composable
