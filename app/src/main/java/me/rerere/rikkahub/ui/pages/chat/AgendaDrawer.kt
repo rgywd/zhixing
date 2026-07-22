@@ -1,5 +1,11 @@
 package me.rerere.rikkahub.ui.pages.chat
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -30,10 +36,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -51,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.ContextCompat
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.ChartColumn
@@ -66,6 +76,9 @@ import me.rerere.rikkahub.data.quota.ProviderQuotaStatus
 import me.rerere.rikkahub.data.quota.QuotaRepository
 import me.rerere.rikkahub.data.quota.QuotaRepositoryState
 import me.rerere.rikkahub.data.quota.buildQuotaOverviews
+import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbe
+import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbeStage
+import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbeState
 import org.koin.compose.koinInject
 import java.time.Instant
 import java.time.ZoneId
@@ -133,7 +146,9 @@ private fun LifeOverviewDrawerContent(
     modifier: Modifier = Modifier,
 ) {
     val quotaRepository: QuotaRepository = koinInject()
+    val watchProbe: LenovoWatchProbe = koinInject()
     val quotaState by quotaRepository.state.collectAsStateWithLifecycle()
+    val watchState by watchProbe.state.collectAsStateWithLifecycle()
     val quotaItems = remember(quotaState.envelope) { buildQuotaOverviews(quotaState.envelope) }
     LaunchedEffect(quotaRepository) { quotaRepository.refresh() }
 
@@ -159,12 +174,13 @@ private fun LifeOverviewDrawerContent(
                 item(key = "status-title") {
                     OverviewSectionTitle(
                         title = "我的状态",
-                        subtitle = "预览数据 · 等待手表或健康服务接入",
+                        subtitle = watchState.statusText,
                     )
                 }
-                item(key = "status-greeting") { StatusGreeting() }
-                item(key = "steps") { StepsCard() }
-                item(key = "status-grid") { StatusMetricGrid() }
+                item(key = "watch-probe") { WatchProbeCard(watchProbe, watchState) }
+                item(key = "status-greeting") { StatusGreeting(watchState.statusText) }
+                item(key = "steps") { StepsCard(watchState) }
+                item(key = "status-grid") { StatusMetricGrid(watchState) }
 
                 item(key = "agenda") { AgendaOverviewSection() }
 
@@ -243,7 +259,7 @@ private fun OverviewSectionTitle(
 }
 
 @Composable
-private fun StatusGreeting() {
+private fun StatusGreeting(deviceStatus: String) {
     val now = remember { Calendar.getInstance() }
     val hour = now.get(Calendar.HOUR_OF_DAY)
     val weekday = listOf("周日", "周一", "周二", "周三", "周四", "周五", "周六")
@@ -270,12 +286,108 @@ private fun StatusGreeting() {
                 fontWeight = FontWeight.Medium,
             )
             Text(
-                text = "设备尚未连接",
+                text = deviceStatus,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
+}
+
+@Composable
+private fun WatchProbeCard(
+    watchProbe: LenovoWatchProbe,
+    state: LenovoWatchProbeState,
+) {
+    val context = LocalContext.current
+    val permissions = remember { requiredWatchPermissions() }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        if (hasWatchPermissions(context, permissions)) watchProbe.start()
+    }
+    val active = state.stage !in setOf(LenovoWatchProbeStage.IDLE, LenovoWatchProbeStage.ERROR)
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Lenovo Watch Pro", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = state.address ?: "仅在你点击后扫描，不会后台抢占官方 App",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (state.stage in setOf(
+                        LenovoWatchProbeStage.SCANNING,
+                        LenovoWatchProbeStage.CONNECTING,
+                        LenovoWatchProbeStage.DISCOVERING,
+                        LenovoWatchProbeStage.ENABLING_NOTIFICATIONS,
+                        LenovoWatchProbeStage.HANDSHAKING,
+                        LenovoWatchProbeStage.SYNCING,
+                    )
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                }
+            }
+
+            Text(
+                text = state.error ?: state.statusText,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (state.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            state.lastEvent?.let {
+                Text(
+                    text = "$it · 已收 ${state.receivedFrames} 帧",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        if (active) {
+                            watchProbe.disconnect()
+                        } else if (hasWatchPermissions(context, permissions)) {
+                            watchProbe.start()
+                        } else {
+                            permissionLauncher.launch(permissions)
+                        }
+                    },
+                ) {
+                    Text(if (active) "断开" else if (state.stage == LenovoWatchProbeStage.ERROR) "重试" else "连接手表")
+                }
+                if (state.canSync) {
+                    OutlinedButton(onClick = watchProbe::sync) {
+                        Text("同步健康数据")
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun requiredWatchPermissions(): Array<String> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+} else {
+    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+}
+
+private fun hasWatchPermissions(context: Context, permissions: Array<String>): Boolean = permissions.all {
+    ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
 }
 
 internal fun lifeOverviewGreeting(hour: Int): String = when (hour) {
@@ -287,7 +399,9 @@ internal fun lifeOverviewGreeting(hour: Int): String = when (hour) {
 }
 
 @Composable
-private fun StepsCard() {
+private fun StepsCard(state: LenovoWatchProbeState) {
+    val steps = state.health.steps
+    val progress = ((steps ?: 0) / DAILY_STEP_GOAL.toFloat()).coerceIn(0f, 1f)
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
@@ -303,14 +417,18 @@ private fun StepsCard() {
                 contentAlignment = Alignment.Center,
             ) {
                 CircularProgressIndicator(
-                    progress = { 0.83f },
+                    progress = { progress },
                     modifier = Modifier.fillMaxSize(),
                     strokeWidth = 8.dp,
                     trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 )
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("83%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("预览", style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        text = steps?.let { "${(progress * 100).roundToInt()}%" } ?: "--",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(if (steps == null) "未同步" else "今日", style = MaterialTheme.typography.labelSmall)
                 }
             }
             Column(
@@ -324,9 +442,13 @@ private fun StepsCard() {
                     Icon(HugeIcons.ChartColumn, contentDescription = null, modifier = Modifier.size(18.dp))
                     Text("步数", style = MaterialTheme.typography.labelMedium)
                 }
-                Text("8,342", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                 Text(
-                    text = "/ 10,000 步 · 较昨日 +17%",
+                    text = steps?.let(::formatCount) ?: "--",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = if (steps == null) "连接手表并同步后显示" else "/ ${formatCount(DAILY_STEP_GOAL)} 步",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -336,9 +458,53 @@ private fun StepsCard() {
 }
 
 @Composable
-private fun StatusMetricGrid() {
+private fun StatusMetricGrid(state: LenovoWatchProbeState) {
+    val health = state.health
+    val sleepMinutes = listOfNotNull(health.shallowSleepMinutes, health.deepSleepMinutes)
+        .takeIf { it.isNotEmpty() }
+        ?.sum()
+    val items = listOf(
+        StatusPreviewItem(
+            label = "睡眠",
+            value = sleepMinutes?.let(::formatMinutes) ?: "--",
+            detail = health.deepSleepMinutes?.let { "深睡 ${formatMinutes(it)}" } ?: "暂无睡眠数据",
+            icon = HugeIcons.Clock02,
+        ),
+        StatusPreviewItem(
+            label = "心率",
+            value = health.heartRate?.let { "$it bpm" } ?: "--",
+            detail = health.systolic?.let { systolic ->
+                health.diastolic?.let { diastolic -> "血压 $systolic/$diastolic" }
+            } ?: "最近一次有效测量",
+            icon = HugeIcons.Favourite,
+        ),
+        StatusPreviewItem(
+            label = "卡路里",
+            value = health.calories?.let { "$it 千卡" } ?: "--",
+            detail = "今日累计",
+            icon = HugeIcons.Zap,
+        ),
+        StatusPreviewItem(
+            label = "运动锻炼",
+            value = health.exerciseCount?.let { "$it 次" } ?: "--",
+            detail = health.exerciseSeconds?.let { "共 ${formatMinutes(it / 60)}" } ?: "暂无运动数据",
+            icon = HugeIcons.Rocket01,
+        ),
+        StatusPreviewItem(
+            label = "血氧",
+            value = health.bloodOxygen?.let { "$it%" } ?: "--",
+            detail = "最近一次有效测量",
+            icon = HugeIcons.Favourite,
+        ),
+        StatusPreviewItem(
+            label = "体温",
+            value = health.temperatureCelsius?.let { String.format("%.1f℃", it) } ?: "--",
+            detail = health.immunity?.let { "免疫力 $it" } ?: "最近一次有效测量",
+            icon = HugeIcons.Time02,
+        ),
+    )
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        statusPreviewItems.chunked(2).forEach { rowItems ->
+        items.chunked(2).forEach { rowItems ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -530,16 +696,17 @@ private data class StatusPreviewItem(
     val progress: Float? = null,
 )
 
-private val statusPreviewItems = listOf(
-    StatusPreviewItem("睡眠", "7h24m", "深睡 1h58m", HugeIcons.Clock02, 0.82f),
-    StatusPreviewItem("心率", "58~76", "bpm · 实时", HugeIcons.Favourite),
-    StatusPreviewItem("卡路里", "486 千卡", "较昨日 13%", HugeIcons.Zap),
-    StatusPreviewItem("运动锻炼", "2 次", "共 58 分钟", HugeIcons.Rocket01),
-    StatusPreviewItem("血氧", "97%", "与昨日持平", HugeIcons.Favourite),
-    StatusPreviewItem("活动小时", "11/12h", "还差 1 小时", HugeIcons.Time02, 0.92f),
-)
+private fun formatCount(value: Int): String = String.format("%,d", value)
+
+private fun formatMinutes(value: Int): String = when {
+    value <= 0 -> "0 分钟"
+    value < 60 -> "$value 分钟"
+    value % 60 == 0 -> "${value / 60} 小时"
+    else -> "${value / 60}小时${value % 60}分"
+}
 
 private val QUOTA_TIME_FORMATTER = DateTimeFormatter.ofPattern("M月d日 HH:mm")
+private const val DAILY_STEP_GOAL = 10_000
 
 internal enum class AgendaSwipeDirection {
     OPEN,
