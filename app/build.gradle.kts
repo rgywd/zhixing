@@ -29,7 +29,7 @@ android {
         buildConfigField(
             "String",
             "UPDATE_FEED_URL",
-            "\"https://github.com/rgywd/zhixing/releases/latest/download/latest.json\"",
+            "\"https://github.com/rgywd/zhixing-releases/releases/latest/download/latest.json\"",
         )
         buildConfigField("boolean", "STAGING_TEST_DRIVER_ENABLED", "false")
 

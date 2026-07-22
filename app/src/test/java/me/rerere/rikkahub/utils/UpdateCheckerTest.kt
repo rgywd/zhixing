@@ -30,7 +30,7 @@ class UpdateCheckerTest {
                           "changelog":"Update test",
                           "downloads":[{
                             "name":"zhixing-0.2.0-universal.apk",
-                            "url":"https://github.com/rgywd/zhixing/releases/download/v0.2.0/zhixing-0.2.0-universal.apk",
+                            "url":"https://github.com/rgywd/zhixing-releases/releases/download/v0.2.0/zhixing-0.2.0-universal.apk",
                             "size":"100 MiB",
                             "sha256":"abc123"
                           }]
@@ -69,6 +69,6 @@ class UpdateCheckerTest {
 
     private companion object {
         const val PRODUCTION_FEED =
-            "https://github.com/rgywd/zhixing/releases/latest/download/latest.json"
+            "https://github.com/rgywd/zhixing-releases/releases/latest/download/latest.json"
     }
 }

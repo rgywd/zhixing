@@ -11,7 +11,10 @@ on:
         required: true
         type: string
 permissions:
-  contents: write
+  contents: read
+
+env:
+  RELEASES_REPOSITORY: rgywd/zhixing-releases
 
 jobs:
   release:
@@ -58,6 +61,7 @@ jobs:
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "source_commit=${tagged_sha}" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -100,6 +104,7 @@ jobs:
           ./gradlew :ai:testDebugUnitTest :speech:testDebugUnitTest
           ./gradlew :app:testStagingUnitTest \
             --tests me.rerere.rikkahub.AppIdentityTest \
+            --tests me.rerere.rikkahub.DistributionIdentityTest \
             --tests me.rerere.rikkahub.utils.UpdateCheckerTest \
             --tests me.rerere.rikkahub.data.datastore.DefaultProvidersTest \
             --tests me.rerere.rikkahub.data.ai.tools.local.GitHubIssueToolTest \
@@ -114,49 +119,51 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          TAG: ${{ steps.version.outputs.tag }}
+          TAG_NAME: ${{ steps.version.outputs.tag }}
+          SOURCE_COMMIT: ${{ steps.version.outputs.source_commit }}
+          RELEASES_REPOSITORY: ${{ env.RELEASES_REPOSITORY }}
+        run: bash .github/scripts/prepare-release-assets.sh
+
+      - name: Publish public GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG_NAME: ${{ steps.version.outputs.tag }}
+          RELEASES_REPOSITORY: ${{ env.RELEASES_REPOSITORY }}
         run: |
-          mkdir -p release
-          mapfile -t release_apks < <(find app/build/outputs/apk/release -type f -name '*.apk' -print)
-          if [[ "${#release_apks[@]}" -ne 1 ]]; then
-            echo "Expected exactly one universal release APK, found ${#release_apks[@]}" >&2
-            printf '%s\n' "${release_apks[@]}" >&2
-            exit 1
-          fi
-          universal_source="${release_apks[0]}"
+          test -n "${GH_TOKEN}" || { echo "Missing RELEASES_REPO_TOKEN secret" >&2; exit 1; }
 
-          universal_name="zhixing-${VERSION}-universal.apk"
-          cp "${universal_source}" "release/${universal_name}"
+          assets=(
+            "release/zhixing-${VERSION}-universal.apk"
+            "release/zhixing-${VERSION}-source.tar.gz"
+            "release/latest.json"
+            "release/SHA256SUMS.txt"
+            "release/LICENSE"
+            "release/THIRD_PARTY_NOTICES.md"
+          )
 
-          sha256="$(sha256sum "release/${universal_name}" | cut -d ' ' -f 1)"
-          size_bytes="$(stat -c '%s' "release/${universal_name}")"
-          size="$(numfmt --to=iec-i --suffix=B "${size_bytes}")"
           if [[ -f "release-notes/${VERSION}.md" ]]; then
-            changelog="$(cat "release-notes/${VERSION}.md")"
+            notes_file="release-notes/${VERSION}.md"
           else
-            changelog="$(git log -1 --pretty=%B)"
+            notes_file="${RUNNER_TEMP}/release-notes.md"
+            git log -1 --pretty=%B > "${notes_file}"
           fi
-          published_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          download_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${universal_name}"
 
-          jq -n \
-            --arg version "${VERSION}" \
-            --arg publishedAt "${published_at}" \
-            --arg changelog "${changelog}" \
-            --arg name "${universal_name}" \
-            --arg url "${download_url}" \
-            --arg size "${size}" \
-            --arg sha256 "${sha256}" \
-            '{version: $version, publishedAt: $publishedAt, changelog: $changelog, downloads: [{name: $name, url: $url, size: $size, sha256: $sha256}]}' \
-            > release/latest.json
-
-          sha256sum "release/${universal_name}" > release/SHA256SUMS.txt
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Zhixing v${{ steps.version.outputs.version }}
-          body_path: release-notes/${{ steps.version.outputs.version }}.md
-          generate_release_notes: true
-          files: release/*
+          if gh release view "${TAG_NAME}" --repo "${RELEASES_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${TAG_NAME}" "${assets[@]}" \
+              --repo "${RELEASES_REPOSITORY}" \
+              --clobber
+            gh release edit "${TAG_NAME}" \
+              --repo "${RELEASES_REPOSITORY}" \
+              --title "Zhixing v${VERSION}" \
+              --notes-file "${notes_file}" \
+              --latest
+          else
+            gh release create "${TAG_NAME}" "${assets[@]}" \
+              --repo "${RELEASES_REPOSITORY}" \
+              --target main \
+              --title "Zhixing v${VERSION}" \
+              --notes-file "${notes_file}" \
+              --latest
+          fi

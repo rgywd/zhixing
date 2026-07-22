@@ -57,4 +57,6 @@ Android 的安全机制仍会要求用户在安装新版本时进行系统确认
 
 ## 许可
 
-许可条款见 [LICENSE](LICENSE)，上游版权与依赖归属集中记录在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+正式安装包与每个版本的对应源码归档发布在
+[rgywd/zhixing-releases](https://github.com/rgywd/zhixing-releases/releases)。许可条款见 [LICENSE](LICENSE)，
+上游版权与依赖归属集中记录在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
