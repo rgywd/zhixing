@@ -1,14 +1,17 @@
 ---
-source_commit: 4e68436185cb505db643c54224ab82d2f2745844
+source_commit: 762c37f2ba2c6f3f982c8b1ae5761fadb904b8af
 generated: 2026-07-21
 ---
 
 
 # 模块：search
 
-搜索模块封装 20+ 搜索引擎的 API 集成，提供统一的搜索与网页抓取接口。
-模块以 `SearchService<T>` 抽象接口为核心，各服务实现类（如 `BingSearchService`、`TavilySearchService` 等）独立封装 API 调用、参数 schema 与响应解析，统一产出 `SearchResult`/`ScrapedResult`。`SearchServiceOptions` 密封类管理所有服务选项，UI 层通过选项选择服务。模块依赖 `:ai` 与 `:common` 模块，使用 OkHttp 做网络请求，Kotlinx Serialization 处理 JSON，QuickJS 支持自定义脚本搜索。
-**修改指引**：新增搜索服务时，创建 `SearchService` 实现类，并在 `SearchServiceOptions` 中注册对应子类。
+搜索模块提供统一接口接入多种搜索引擎及自定义JS脚本，实现搜索与网页抓取。
+核心通过 `SearchService<T>` 接口抽象操作，各服务实现类调用对应API或执行QuickJS脚本，返回统一的 `SearchResult`/`ScrapedResult`。
+`SearchServiceOptions` 密封类定义所有可用服务及通用参数，供上层选择。
+模块依赖 `ai`、`common` 基础模块，以及 OkHttp、kotlinx.serialization、jsoup、QuickJS 等库。
+修改指引：新增搜索服务时，实现 `SearchService` 接口并在 `SearchServiceOptions` 中添加对应子类。
+
 
 ## 文件摘要
 
@@ -21,14 +24,14 @@ Android 搜索模块 Gradle 构建脚本，配置 Compose、序列化及实验�
 
 ### `search/consumer-rules.pro`
 
-- 空消费者规则文件，供该模块发布时保留入口。  
-- 无关键符号。
+```
+- 空 ProGuard 消费者规则文件，无自定义保护条目。
+```
 
 ### `search/proguard-rules.pro`
 
-搜索模块的 ProGuard 混淆规则文件，当前为空模板。
-
-- 无自定义规则定义，仅含注释示例（保留 WebView JS 接口、行号调试等）。
+Android ProGuard 规则配置文件，当前仅含注释及示例未启用规则。  
+- 无活跃规则：所有配置均为注释或示例说明。
 
 ### `search/src/androidTest/java/me/rerere/search/ExampleInstrumentedTest.kt`
 
@@ -192,6 +195,8 @@ Jina搜索服务实现，封装搜索与网页抓取。
 - `SearchCommonOptions`：通用搜索选项（resultSize）
 - `SearchResult`/`ScrapedResult`：搜索结果/抓取结果数据类
 - `Call.await()`：OkHttp 扩展挂起函数
+
+> 符号导航：[files/search/src/main/java/me/rerere/search/SearchService.kt.md](../files/search/src/main/java/me/rerere/search/SearchService.kt.md)
 
 ### `search/src/main/java/me/rerere/search/SerperSearchService.kt`
 

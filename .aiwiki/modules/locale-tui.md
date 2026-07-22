@@ -1,14 +1,17 @@
 ---
-source_commit: 4e68436185cb505db643c54224ab82d2f2745844
+source_commit: 762c37f2ba2c6f3f982c8b1ae5761fadb904b8af
 generated: 2026-07-21
 ---
 
 
 # 模块：locale-tui
 
-一个用于 Android 多语言资源的 TUI 翻译管理工具，支持死条目检测与 AI 批量翻译。  
-模块按配置驱动组织：config.yml 定义模块/语言，Textual 应用（app.py）启动模块选择屏（screens/module_select.py），进入翻译表屏（screens/translation_table.py）解析 XML 字符串、执行过滤与编辑。AI 翻译服务（services/translator.py）通过 OpenAI API 批量处理缺失项，死条目检测服务（services/dead_entry_finder.py）扫描源码标识未引用条目。对外提供 CLI 命令（main.py）和 TUI 交互界面。  
-修改指引：调整翻译逻辑应修改 services/translator.py，界面与快捷键改动集中 screens/translation_table.py，配置与模型变更在 config.py 和 config.yml。
+**locale-tui** 是一个基于 Textual 的 Android 多语言资源文件翻译管理 TUI 工具。
+
+模块按功能分层：`screens/` 管理界面（模块选择与翻译表格），`services/` 封装 XML 解析、死条目检测及 AI 翻译，`models/entry.py` 定义翻译条目，`widgets/edit_modal.py` 提供编辑弹窗。数据流为：加载 `config.yml`→选择模块→解析 XML→检测死条目→AI 翻译缺失条目→保存回写。对外提供 CLI 与 TUI 双入口，依赖 OpenAI API 与 Textual 框架。
+
+**修改指引**：UI 调整在 `screens/` 或 `widgets/`，业务逻辑修改在 `services/`，配置项变更在 `config.py` 与 `config.yml`。
+
 
 ## 文件摘要
 
@@ -77,6 +80,8 @@ Android 语言资源管理 TUI/CLI 入口，提供配置加载、条目增改及
 - `set`：手动设置指定语言条目值
 - `list-keys`：列出源语言所有条目键
 
+> 符号导航：[files/locale-tui/src/main.py.md](../files/locale-tui/src/main.py.md)
+
 ### `locale-tui/src/models/__init__.py`
 
 模型包初始化，导出 `TranslationEntry` 类。
@@ -115,6 +120,8 @@ Android 语言资源管理 TUI/CLI 入口，提供配置加载、条目增改及
 - `load_entries`：加载所有语言翻译条目。
 - `apply_filters`：应用搜索与死词/缺失过滤。
 - `BINDINGS`：定义快捷键（t翻译、d死词过滤、m缺失过滤、s保存等）。
+
+> 符号导航：[files/locale-tui/src/screens/translation_table.py.md](../files/locale-tui/src/screens/translation_table.py.md)
 
 ### `locale-tui/src/services/__init__.py`
 

@@ -1,18 +1,17 @@
 ---
-source_commit: 4e68436185cb505db643c54224ab82d2f2745844
+source_commit: 762c37f2ba2c6f3f982c8b1ae5761fadb904b8af
 generated: 2026-07-21
 ---
 
 
 # 模块：workspace
 
-# 模块：workspace
+**工作空间管理模块**：负责 Android 端工作空间的全生命周期管理，包括根文件系统安装、沙箱文件操作、PRoot 命令执行及知识空间存储与搜索。
 
-工作空间管理模块，负责沙箱文件系统、命令执行、PRoot 容器与知识库操作。
+模块以 `WorkspaceManager` 为核心，通过 `WorkspaceFileSystem` 提供沙箱化的文件 CRUD；`RootfsInstaller` 下载并解压根文件系统，`RootfsPatcher` 完成 DNS/hosts 等修补后，由 `ProotShellRunner` 在 PRoot 环境中执行 Linux 命令。`KnowledgeSpaceManager` 基于工作空间实现知识导入、搜索与路径安全控制。原生层通过 `termux_pty.cpp` 创建 PTY 伪终端，支撑终端交互。模块依赖 `appcompat`、`serialization.json`、`xz` 等库。
 
-模块以 `WorkspaceManager` 为核心，管理生命周期与文件 CRUD，`WorkspaceFileSystem` 提供安全路径解析、通配匹配和内容搜索。`ProotShellRunner` 通过 JNI PTY 伪终端在 PRoot 环境中执行 Linux 命令，`RootfsInstaller` 与 `RootfsPatcher` 完成根文件系统下载、解压与修补。`KnowledgeSpaceManager` 基于 `WorkspaceManager` 实现知识导入、中文搜索和引用溯源。模块依赖 `kotlinx-serialization`、`xz` 及原生 C++ 库（termux PTY）。
+**修改指引**：典型改动通常从 `WorkspaceManager` 或 `WorkspaceFileSystem` 入手，扩展文件操作或命令执行流程；根文件系统相关逻辑修改 `RootfsInstaller`/`RootfsPatcher`；知识空间功能调整 `KnowledgeSpaceManager`。
 
-修改指引：普通文件操作调整从 `WorkspaceFileSystem` 入手，环境执行变更从 `ProotShellRunner` 或 `WorkspaceShellRunner` 入手，新增知识能力扩展 `KnowledgeSpaceManager`。
 
 ## 文件摘要
 
@@ -99,6 +98,8 @@ PRoot 环境执行器，用于在 Android 上运行 Linux 命令。
 - `download`：HTTP 下载，分段进度上报
 - `extractTar`：解析 tar，处理长名/Pax/符号硬链接
 - `ArchiveFormat`：枚举 TAR_GZ/TAR_XZ，自动从 URL 判断格式
+
+> 符号导航：[files/workspace/src/main/java/me/rerere/workspace/RootfsInstaller.kt.md](../files/workspace/src/main/java/me/rerere/workspace/RootfsInstaller.kt.md)
 
 ### `workspace/src/main/java/me/rerere/workspace/RootfsPatcher.kt`
 

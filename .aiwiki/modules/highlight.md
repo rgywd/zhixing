@@ -1,16 +1,19 @@
 ---
-source_commit: 4e68436185cb505db643c54224ab82d2f2745844
+source_commit: 762c37f2ba2c6f3f982c8b1ae5761fadb904b8af
 generated: 2026-07-21
 ---
 
 
 # 模块：highlight
 
-提供基于 Compose 和 QuickJS 的代码语法高亮组件。
+该模块提供代码语法高亮的 Compose 组件，基于 QuickJS 执行 Prism 脚本解析代码。
 
-核心由 `Highlighter` 挂起函数通过 QuickJS 执行 Prism 脚本，将代码解析为 `HighlightToken` 序列；`buildHighlightText` 将其转为 `AnnotatedString`，最终由 `HighlightText` 可组合项渲染。颜色通过 `HighlightTextColorPalette` 配置，`LocalHighlighter` 作为上下文提供引擎。模块依赖 `quickjs` 和 `kotlinx-serialization` 进行 JSON 解析。
+- 核心为 `HighlightText` 可组合项，通过 `LocalHighlighter` 提供高亮引擎，将代码字符串转换为 `AnnotatedString` 渲染。
+- `Highlighter` 封装 QuickJS 上下文，调用 Prism 生成 `HighlightToken` 列表，经 `buildHighlightText` 映射为样式。
+- 对外暴露 `HighlightText`、`HighlightTextColorPalette` 及 `LocalHighlighter`，依赖 `quickjs` 和 `kotlinx-serialization-json`。
 
-修改指引：更改高亮逻辑应编辑 `Highlighter` 或 JS 脚本；调整 UI 样式应从 `HighlightTextColorPalette` 或 `HighlightText` 入手。
+修改指引：添加语言支持需更新 Prism 脚本与颜色映射；修改解析逻辑入口在 `Highlighter`，样式调整在 `buildHighlightText` 与 `HighlightTextColorPalette`。
+
 
 ## 文件摘要
 
@@ -25,14 +28,13 @@ generated: 2026-07-21
 ### `highlight/consumer-rules.pro`
 
 ```
-ProGuard 消费者规则文件，当前为空，无保留规则。
-- 无关键条目
+- 空 ProGuard 消费者规则文件，无自定义保护条目。
 ```
 
 ### `highlight/proguard-rules.pro`
 
-这是一个 Android ProGuard 规则模板，当前仅含注释，无实际规则。  
-- 关键定义：`-keepclassmembers`（JS接口保留）、`-keepattributes`（行号保留）、`-renamesourcefileattribute`（源文件名混淆）均以注释形式存在。
+Android ProGuard 规则配置文件，当前仅含注释及示例未启用规则。  
+- 无活跃规则：所有配置均为注释或示例说明。
 
 ### `highlight/src/androidTest/java/me/rerere/highlight/ExampleInstrumentedTest.kt`
 
@@ -43,8 +45,7 @@ Android 仪器化测试示例，验证应用上下文包名。
 
 ### `highlight/src/main/AndroidManifest.xml`
 
-Android 清单文件（空壳，无应用定义）。  
-- 无关键符号或配置条目。
+空 Android 清单文件，暂无组件声明。
 
 ### `highlight/src/main/java/me/rerere/highlight/HighlightText.kt`
 

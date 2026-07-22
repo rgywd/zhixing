@@ -1,14 +1,17 @@
 ---
-source_commit: 4e68436185cb505db643c54224ab82d2f2745844
+source_commit: 762c37f2ba2c6f3f982c8b1ae5761fadb904b8af
 generated: 2026-07-21
 ---
 
 
 # 模块：web
 
-提供嵌入式Ktor Web服务器，托管前端静态资源并支持SPA。  
-模块通过 `build.gradle.kts` 中的 `buildWebUi` 任务构建前端资源并复制到 `static` 目录，`Entry.kt` 使用 CIO 引擎启动服务器，挂载压缩、CORS、SSE 等插件，并将根路径映射为静态文件服务。依赖 Ktor 库及 Android 网络权限声明，不对外暴露程序化接口。  
-修改指引：典型改动从 `Entry.kt` 的服务器/插件配置或路由入手。
+提供 Web 管理界面与 HTTP 服务，集成前端静态资源并启动 Ktor 嵌入式服务器。
+
+模块通过 build.gradle 构建前端产物并复制到资源目录；Entry.kt 使用 CIO 引擎启动 Ktor 服务，挂载压缩、CORS、SSE 等插件，并将 `/` 路由映射到 `static` 目录实现 SPA 托管。对外暴露 HTTP 端点，依赖 Android 网络权限。核心数据流为客户端请求经 Ktor 分发至静态资源或 SSE 推送。
+
+修改指引：服务端逻辑调整从 `Entry.kt` 入手；前端变更需先构建 web-ui 并重新编译模块。
+
 
 ## 文件摘要
 
@@ -21,14 +24,14 @@ Android 库模块，构建 web-ui 静态资源并集成 Ktor 服务。
 
 ### `web/consumer-rules.pro`
 
-为空 ProGuard 消费者规则文件，无需输出符号。
+```
+- 空 ProGuard 消费者规则文件，无自定义保护条目。
+```
 
 ### `web/proguard-rules.pro`
 
-Android ProGuard混淆规则模板，存放自定义规则。
-- `-keepclassmembers`：保留WebView JS接口（注释示例）
-- `-keepattributes`：保留源文件/行号（注释示例）
-- `-renamesourcefileattribute`：重命名源文件属性（注释示例）
+Android ProGuard 规则配置文件，当前仅含注释及示例未启用规则。  
+- 无活跃规则：所有配置均为注释或示例说明。
 
 ### `web/src/androidTest/java/me/rerere/rikkahub/web/ExampleInstrumentedTest.kt`
 

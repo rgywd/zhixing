@@ -1,33 +1,34 @@
 ---
-source_commit: faa1320682d60db0cf30f821d05ed660197e00ed
+source_commit: 762c37f2ba2c6f3f982c8b1ae5761fadb904b8af
 generated: 2026-07-21
 ---
 
+
 # 模块：_root
 
-项目根模块，集中管理构建配置、多语言文档、许可与 AI 开发指南。
+`_root` 模块是项目入口与元信息中心，负责提供整体规范、许可、构建配置和开发指引。
 
-通过 `settings.gradle.kts` 统筹 11 个子模块，`build.gradle.kts` 声明插件版本，`gradle.properties` 统一构建参数。提供中英文 README、贡献指南与架构说明（AGENTS.md、CLAUDE.md），定义 Assistant、Conversation 等核心概念，支撑全项目导航。构建流程依赖 `gradlew` 脚本，无其他模块依赖。
+项目通过 README 系列阐明功能与特性，AGENTS/CLAUDE 定义 AI 协作核心概念，CONTRIBUTING 和 LICENSE 约束开发流程与使用授权。构建体系由 `settings.gradle.kts` 统一管理 11 个子模块的依赖与插件版本，`build.gradle.kts` 声明全局可用插件，`gradlew` 脚本为各平台提供一致的 Gradle 执行入口。`skills-lock.json` 锁定外部 AI 技能版本，确保辅助能力可复现
 
-修改指引：构建配置调整在 `build.gradle.kts` 和 `gradle.properties`；模块增删改 `settings.gradle.kts`；开发文档更新在 `AGENTS.md` 或 `CLAUDE.md`。
+**修改指引**：新增子模块需在 `settings.gradle.kts` 中加入 `include`；调整全局插件或依赖版本应修改 `build.gradle.kts` 或 `gradle/libs.versions.toml`；更新项目核心概念或规范应同步修改 `AGENTS.md`、`CLAUDE.md` 及相关 README。
+
 
 ## 文件摘要
 
 ### `AGENTS.md`
 
-仓库贡献指南，涵盖构建、Git工作流、命名规范和模块结构。
-- `构建命令`：assembleDebug, test, connectedDebugAndroidTest, lint
-- `Git分支`：main, release/x.y.z, feat/, fix/, chore/, exp/
-- `模块`：app, ai, common, document, highlight, material3, search, speech, web, workspace
-- `核心概念`：Assistant, Conversation, UIMessage, MessageNode, Transformer, Work/Codex Phone-line
+为 AI 与人类贡献者提供项目协作规范、模块导航与核心概念速查，确保一致开发和 Wiki 优先。
 
 ### `CLAUDE.md`
 
-项目Zhixing的AI开发指南与架构说明文档。
-- 模块结构：app、ai、common、document、highlight、material3、search、speech、web、workspace
-- 核心概念：Assistant、Conversation、UIMessage、MessageNode、MessageTransformer
-- 技术栈：Jetpack Compose、Koin、Room、DataStore、OkHttp
-- 开发规范：Material3、Lucide图标、i18n要求
+Zhixing 项目的 AI 编程助手指南，定义架构、核心概念和开发规范。
+
+- `Assistant`：AI 助手配置与隔离环境
+- `Conversation`：持久化对话，支持消息分支
+- `UIMessage`：平台无关的消息抽象
+- `MessageNode`：消息分支节点容器
+- `Message Transformer`：消息预处理与后处理管道
+- `Long-term Profile Memory`：自动用户画像记忆系统
 
 ### `CONTRIBUTING.md`
 
@@ -45,11 +46,7 @@ generated: 2026-07-21
 
 ### `README.md`
 
-项目说明文档，介绍知行个人AI工作台、能力、构建与发布流程。
-- `能力`：原生 Kotlin、Jetpack Compose、Room、多模态、MCP、语音等
-- `本地构建`：JDK 17+、Android SDK、Node.js、pnpm
-- `发布`：推送标签，GitHub Actions 构建签名 APK
-- `验证`：gradlew 单元测试与调试 APK 构建
+介绍知行个人AI工作台的功能、构建与发布流程。
 
 ### `README_ZH_CN.md`
 
@@ -81,10 +78,13 @@ Android 顶层构建文件，声明子项目可用的插件版本。
 
 ### `gradle.properties`
 
-{
-  "path": "gradle.properties",
-  "summary": "定义项目级 Gradle 构建参数，包括 JVM 内存设置、AndroidX 启用、NonTransitiveRClass 及配置缓存，统一团队的构建环境。"
-}
+配置 Gradle 构建环境的全局参数，优化内存与 Android 项目设置。
+
+- `org.gradle.jvmargs`：设置 JVM 堆内存与编码
+- `android.useAndroidX`：启用 AndroidX 库
+- `kotlin.code.style`：指定 Kotlin 代码风格
+- `android.nonTransitiveRClass`：启用非传递 R 类
+- `org.gradle.configuration-cache`：启用配置缓存
 
 ### `gradlew`
 
