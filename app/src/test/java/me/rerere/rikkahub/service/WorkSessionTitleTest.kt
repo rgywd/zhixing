@@ -1,6 +1,8 @@
 package me.rerere.rikkahub.service
 
 import me.rerere.rikkahub.ui.pages.work.fallbackWorkSessionTitle
+import me.rerere.rikkahub.ui.pages.work.phoneWorkSessionViewModelKey
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -27,5 +29,14 @@ class WorkSessionTitleTest {
     @Test
     fun `falls back to repository name for image-only session`() {
         assertEquals("zhixing", fallbackWorkSessionTitle("", "zhixing"))
+    }
+
+    @Test
+    fun `work sessions use different view model keys`() {
+        assertNotEquals(
+            phoneWorkSessionViewModelKey("work-first"),
+            phoneWorkSessionViewModelKey("work-second"),
+        )
+        assertEquals("phone-work-session:new", phoneWorkSessionViewModelKey(""))
     }
 }
