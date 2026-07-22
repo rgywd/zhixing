@@ -56,7 +56,7 @@ import me.rerere.hugeicons.stroke.LeftToRightListBullet
 import me.rerere.hugeicons.stroke.Menu03
 import me.rerere.hugeicons.stroke.MessageAdd01
 import me.rerere.hugeicons.stroke.MoreVertical
-import me.rerere.hugeicons.stroke.Task01
+import me.rerere.hugeicons.stroke.Sun01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findProvider
@@ -642,7 +642,7 @@ private fun TopBar(
                 IconButton(
                     onClick = onOpenAgenda,
                 ) {
-                    Icon(HugeIcons.Task01, "打开事项")
+                    Icon(HugeIcons.Sun01, "打开生活概览")
                 }
 
                 if (showExpandedActions) {
