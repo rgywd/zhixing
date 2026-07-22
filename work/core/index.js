@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WorkStore } from "./store.js";
 import { createWorkServer } from "./server.js";
+import { createQuotaProxy } from "./quota-proxy.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dataFile = resolve(process.env.WORK_CORE_DB ?? `${here}/../data/work-core.sqlite`);
@@ -17,7 +18,12 @@ if (!userToken || !runnerTokens || !Object.keys(runnerTokens).length || !session
 }
 
 const store = new WorkStore({ filename: dataFile, userToken, runnerTokens, sessionSecret });
-const server = createWorkServer({ store });
+const quotaProxy = createQuotaProxy({
+  baseUrl: process.env.CPA_QUOTA_BASE_URL,
+  token: process.env.CPA_QUOTA_TOKEN,
+  cacheFile: process.env.CPA_QUOTA_CACHE ?? resolve(dirname(dataFile), "quota-cache.json"),
+});
+const server = createWorkServer({ store, quotaProxy });
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? "127.0.0.1";
 

@@ -12,13 +12,13 @@ const RUNNER_TOKEN = "runner-test-token";
 const RUNNER_INSTANCE = "runner-instance-1";
 const PROTOCOL = { "x-zhixing-work-protocol": "1" };
 
-async function fixture(t, askTimeoutMs = 150) {
+async function fixture(t, askTimeoutMs = 150, quotaProxy = null) {
   const store = new WorkStore({
     userToken: USER_TOKEN,
     runnerTokens: { "runner-1": RUNNER_TOKEN, "runner-2": "runner-2-token" },
     sessionSecret: "test-session-secret-at-least-32-bytes",
   });
-  const server = createWorkServer({ store, askTimeoutMs });
+  const server = createWorkServer({ store, askTimeoutMs, quotaProxy });
   let port;
   do {
     server.listen(0, "127.0.0.1");
@@ -119,6 +119,25 @@ async function registerAndCreate(baseUrl) {
 function runnerCommandsPath(instanceId = RUNNER_INSTANCE) {
   return `/v1/runner/commands?runnerId=runner-1&instanceId=${encodeURIComponent(instanceId)}`;
 }
+
+test("life quota endpoint uses Work user authentication", async (t) => {
+  const expected = {
+    schema_version: "quota-monitor/v1",
+    generated_at: "2026-07-22T06:40:00Z",
+    stale_after_seconds: 1200,
+    items: [],
+    proxy_stale: false,
+    proxy_error: null,
+  };
+  const { baseUrl } = await fixture(t, 150, { getQuotas: async () => expected });
+
+  const unauthorized = await request(baseUrl, "/v1/life/quotas", { token: "wrong-token" });
+  assert.equal(unauthorized.response.status, 401);
+
+  const result = await request(baseUrl, "/v1/life/quotas");
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(result.payload, expected);
+});
 
 test("full phone-line API flow is durable, ordered and idempotent", async (t) => {
   const { baseUrl } = await fixture(t, 500);
