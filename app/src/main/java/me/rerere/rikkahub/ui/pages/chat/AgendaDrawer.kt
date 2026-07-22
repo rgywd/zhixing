@@ -626,25 +626,21 @@ internal fun Modifier.agendaSwipeGesture(
     awaitEachGesture {
         val down = awaitFirstDown(
             requireUnconsumed = false,
-            pass = PointerEventPass.Main,
+            pass = PointerEventPass.Initial,
         )
         var totalX = 0f
         var totalY = 0f
-        var blockedByChild = false
 
         while (true) {
-            val event = awaitPointerEvent(PointerEventPass.Main)
+            val event = awaitPointerEvent(PointerEventPass.Initial)
             val change = event.changes.firstOrNull { it.id == down.id } ?: break
-            if (change.isConsumed) {
-                blockedByChild = true
-            } else if (!blockedByChild) {
-                val delta = change.positionChange()
-                totalX += delta.x
-                totalY += delta.y
-                if (isAgendaSwipeTriggered(direction, totalX, totalY, threshold)) {
-                    onSwipe()
-                    break
-                }
+            val delta = change.position - change.previousPosition
+            totalX += delta.x
+            totalY += delta.y
+            if (isAgendaSwipeTriggered(direction, totalX, totalY, threshold)) {
+                change.consume()
+                onSwipe()
+                break
             }
             if (!change.pressed) break
         }

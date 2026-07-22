@@ -242,9 +242,9 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
                         bigScreen = false,
                         errors = errors,
                         onOpenAgenda = {
+                            agendaDrawerVisible = true
                             scope.launch {
                                 drawerState.close()
-                                agendaDrawerVisible = true
                             }
                         },
                         onDismissError = { vm.dismissError(it) },
