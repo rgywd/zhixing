@@ -15,7 +15,7 @@ class TTSProviderSettingVolcengineTest {
             "wss://openspeech.bytedance.com/api/v3/plan/tts/unidirectional/stream",
             setting.baseUrl,
         )
-        assertEquals("zh_female_xiaohe_jupiter_bigtts", setting.voice)
+        assertEquals("zh_female_xiaohe_uranus_bigtts", setting.voice)
         assertTrue(TTSProviderSetting.Types.contains(TTSProviderSetting.Volcengine::class))
     }
 

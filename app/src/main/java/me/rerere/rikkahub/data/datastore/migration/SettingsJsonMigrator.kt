@@ -110,6 +110,21 @@ object SettingsJsonMigrator {
                 }
             }
 
+            // V5: 修复火山引擎 Agent Plan 语音默认值；只迁移曾经内置的旧值，
+            // 不覆盖用户自行填写的音色或 WebSocket 地址。
+            root["ttsProviders"]?.let { element ->
+                val migrated = migrateVolcengineTtsProviders(
+                    JsonInstant.encodeToString(element)
+                )
+                root["ttsProviders"] = JsonInstant.parseToJsonElement(migrated)
+            }
+            root["asrProviders"]?.let { element ->
+                val migrated = migrateVolcengineAsrProviders(
+                    JsonInstant.encodeToString(element)
+                )
+                root["asrProviders"] = JsonInstant.parseToJsonElement(migrated)
+            }
+
             JsonInstant.encodeToString(JsonObject(root))
         }.onFailure {
             Log.e(TAG, "migrate: Failed to migrate settings JSON, using original", it)

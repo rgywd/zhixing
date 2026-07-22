@@ -292,7 +292,7 @@ private fun VolcengineASRConfiguration(
             value = setting.websocketUrl,
             onValueChange = { onValueChange(setting.copy(websocketUrl = it)) },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("wss://openspeech.bytedance.com/api/v3/sauc/bigmodel") }
+            placeholder = { Text("wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async") }
         )
     }
 
@@ -304,7 +304,7 @@ private fun VolcengineASRConfiguration(
             value = setting.resourceId,
             onValueChange = { onValueChange(setting.copy(resourceId = it)) },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("volc.bigasr.sauc.duration") }
+            placeholder = { Text("volc.seedasr.sauc.duration") }
         )
     }
 

@@ -18,7 +18,7 @@ class VolcengineTTSProtocolTest {
         val payload = frame.copyOfRange(8, frame.size).decodeToString()
         assertEquals(payloadLength, frame.size - 8)
         assertTrue(payload.contains("你好"))
-        assertTrue(payload.contains("zh_female_xiaohe_jupiter_bigtts"))
+        assertTrue(payload.contains("zh_female_xiaohe_uranus_bigtts"))
         assertTrue(payload.contains("\"sample_rate\":24000"))
     }
 

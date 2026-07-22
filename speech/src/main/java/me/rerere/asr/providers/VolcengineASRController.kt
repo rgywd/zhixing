@@ -97,13 +97,11 @@ class VolcengineASRController private constructor(
             )
         }
 
-        val request = Request.Builder()
-            .url(websocketUrl)
-            .addHeader("X-Api-Key", apiKey)
-            .addHeader("X-Api-Resource-Id", resourceId)
-            .addHeader("X-Api-Request-Id", Uuid.random().toString())
-            .addHeader("X-Api-Sequence", "-1")
-            .build()
+        val request = buildVolcengineAsrWebSocketRequest(
+            websocketUrl = websocketUrl,
+            apiKey = apiKey,
+            resourceId = resourceId,
+        )
 
         webSocket = httpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -366,3 +364,16 @@ class VolcengineASRController private constructor(
         }
     }
 }
+
+internal fun buildVolcengineAsrWebSocketRequest(
+    websocketUrl: String,
+    apiKey: String,
+    resourceId: String,
+): Request = Request.Builder()
+    .url(websocketUrl)
+    .addHeader("X-Api-Key", apiKey)
+    .addHeader("X-Api-Resource-Id", resourceId)
+    .addHeader("X-Api-Request-Id", Uuid.random().toString())
+    .addHeader("X-Api-Connect-Id", Uuid.random().toString())
+    .addHeader("X-Api-Sequence", "-1")
+    .build()
