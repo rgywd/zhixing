@@ -2,6 +2,7 @@ package me.rerere.rikkahub.ui.pages.chat
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -299,6 +301,10 @@ private fun ChatPageContent(
     TTSAutoPlay(vm = vm, setting = setting, conversation = conversation)
 
     NativeChatScaffold(
+        modifier = Modifier.agendaSwipeGesture(
+            direction = AgendaSwipeDirection.OPEN,
+            onSwipe = onOpenAgenda,
+        ),
         background = {
             AssistantBackground(setting = setting, modifier = Modifier.hazeSource(hazeState))
         },
@@ -580,95 +586,114 @@ private fun TopBar(
     }
     var showMoreMenu by remember { mutableStateOf(false) }
 
-    NativeChatTopBar(
-        containerColor = Color.Transparent,
-        navigationIcon = {
-            if (!bigScreen) {
-                IconButton(
-                    onClick = {
-                        scope.launch { drawerState.open() }
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val showExpandedActions = shouldExpandChatTopBarActions(maxWidth)
+
+        NativeChatTopBar(
+            containerColor = Color.Transparent,
+            navigationIcon = {
+                if (!bigScreen) {
+                    IconButton(
+                        onClick = {
+                            scope.launch { drawerState.open() }
+                        }
+                    ) {
+                        Icon(HugeIcons.Menu03, "Messages")
                     }
-                ) {
-                    Icon(HugeIcons.Menu03, "Messages")
                 }
-            }
-        },
-        title = {
-            val editTitleWarning = stringResource(R.string.chat_page_edit_title_warning)
-            Surface(
-                onClick = {
-                    if (conversation.messageNodes.isNotEmpty()) {
-                        titleState.open(conversation.title)
-                    } else {
-                        toaster.show(editTitleWarning, type = ToastType.Warning)
-                    }
-                },
-                color = Color.Transparent,
-            ) {
-                Column {
-                    val assistant = settings.getCurrentAssistant()
-                    val model = settings.getCurrentChatModel()
-                    val provider = model?.findProvider(providers = settings.providers, checkOverwrite = false)
-                    Text(
-                        text = conversation.title.ifBlank { stringResource(R.string.chat_page_new_chat) },
-                        maxLines = 1,
-                        style = MaterialTheme.typography.bodyMedium,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (model != null && provider != null) {
+            },
+            title = {
+                val editTitleWarning = stringResource(R.string.chat_page_edit_title_warning)
+                Surface(
+                    onClick = {
+                        if (conversation.messageNodes.isNotEmpty()) {
+                            titleState.open(conversation.title)
+                        } else {
+                            toaster.show(editTitleWarning, type = ToastType.Warning)
+                        }
+                    },
+                    color = Color.Transparent,
+                ) {
+                    Column {
+                        val assistant = settings.getCurrentAssistant()
+                        val model = settings.getCurrentChatModel()
+                        val provider = model?.findProvider(providers = settings.providers, checkOverwrite = false)
                         Text(
-                            text = "${assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) }} / ${model.displayName} (${provider.name})",
-                            overflow = TextOverflow.Ellipsis,
+                            text = conversation.title.ifBlank { stringResource(R.string.chat_page_new_chat) },
                             maxLines = 1,
-                            color = LocalContentColor.current.copy(0.65f),
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 8.sp,
+                            style = MaterialTheme.typography.bodyMedium,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (model != null && provider != null) {
+                            Text(
+                                text = "${assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) }} / ${model.displayName} (${provider.name})",
+                                overflow = TextOverflow.Ellipsis,
+                                maxLines = 1,
+                                color = LocalContentColor.current.copy(0.65f),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 8.sp,
+                                )
                             )
+                        }
+                    }
+                }
+            },
+            actions = {
+                IconButton(
+                    onClick = onOpenAgenda,
+                ) {
+                    Icon(HugeIcons.Task01, "打开事项")
+                }
+
+                if (showExpandedActions) {
+                    IconButton(onClick = onClickMenu) {
+                        Icon(
+                            imageVector = if (previewMode) HugeIcons.Cancel01 else HugeIcons.LeftToRightListBullet,
+                            contentDescription = if (previewMode) "退出聊天选项" else "聊天选项",
                         )
                     }
-                }
-            }
-        },
-        actions = {
-            IconButton(
-                onClick = onOpenAgenda,
-            ) {
-                Icon(HugeIcons.Task01, "打开事项")
-            }
-
-            androidx.compose.foundation.layout.Box {
-                IconButton(onClick = { showMoreMenu = true }) {
-                    Icon(HugeIcons.MoreVertical, "更多操作")
-                }
-                DropdownMenu(
-                    expanded = showMoreMenu,
-                    onDismissRequest = { showMoreMenu = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(if (previewMode) "退出聊天选项" else "聊天选项") },
-                        leadingIcon = {
-                            Icon(
-                                if (previewMode) HugeIcons.Cancel01 else HugeIcons.LeftToRightListBullet,
-                                contentDescription = null,
+                    IconButton(onClick = onNewChat) {
+                        Icon(
+                            imageVector = HugeIcons.MessageAdd01,
+                            contentDescription = stringResource(R.string.chat_page_new_chat),
+                        )
+                    }
+                } else {
+                    androidx.compose.foundation.layout.Box {
+                        IconButton(onClick = { showMoreMenu = true }) {
+                            Icon(HugeIcons.MoreVertical, "更多操作")
+                        }
+                        DropdownMenu(
+                            expanded = showMoreMenu,
+                            onDismissRequest = { showMoreMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(if (previewMode) "退出聊天选项" else "聊天选项") },
+                                leadingIcon = {
+                                    Icon(
+                                        if (previewMode) HugeIcons.Cancel01 else HugeIcons.LeftToRightListBullet,
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = {
+                                    showMoreMenu = false
+                                    onClickMenu()
+                                },
                             )
-                        },
-                        onClick = {
-                            showMoreMenu = false
-                            onClickMenu()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.chat_page_new_chat)) },
-                        leadingIcon = { Icon(HugeIcons.MessageAdd01, contentDescription = null) },
-                        onClick = {
-                            showMoreMenu = false
-                            onNewChat()
-                        },
-                    )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.chat_page_new_chat)) },
+                                leadingIcon = { Icon(HugeIcons.MessageAdd01, contentDescription = null) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    onNewChat()
+                                },
+                            )
+                        }
+                    }
                 }
-            }
-        },
-    )
+            },
+        )
+    }
     titleState.EditStateContent { title, onUpdate ->
         AlertDialog(
             onDismissRequest = {
@@ -706,3 +731,5 @@ private fun TopBar(
         )
     }
 }
+
+internal fun shouldExpandChatTopBarActions(availableWidth: Dp): Boolean = availableWidth >= 360.dp
