@@ -37,6 +37,7 @@ import me.rerere.rikkahub.data.sync.webdav.WebDavSync
 import me.rerere.search.SearchService
 import me.rerere.rikkahub.data.sync.S3Sync
 import me.rerere.rikkahub.data.work.PhoneWorkApiClient
+import me.rerere.rikkahub.data.quota.QuotaRepository
 import me.rerere.rikkahub.data.work.PhoneWorkCatalogStore
 import me.rerere.rikkahub.data.work.PhoneWorkCredentialStore
 import me.rerere.rikkahub.data.work.PhoneWorkDraftStore
@@ -164,6 +165,7 @@ val dataSourceModule = module {
     single { PhoneWorkCatalogStore(get()) }
     single { PhoneWorkDraftStore(get()) }
     single { PhoneWorkApiClient(get(), get()) }
+    single { QuotaRepository(get(), get()) }
     single { PhoneWorkRepository(get(), get(), get(), get(), get()) }
 
     single {

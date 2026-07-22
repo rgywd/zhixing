@@ -80,13 +80,21 @@ function sanitizeReport(html, title) {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><title>${safeTitle}</title><style>body{font:16px/1.65 system-ui,sans-serif;max-width:760px;margin:auto;padding:24px;color:#202124;background:#fff}pre{white-space:pre-wrap;background:#f4f4f5;padding:12px;border-radius:8px;overflow:auto}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:8px}@media(prefers-color-scheme:dark){body{color:#e8eaed;background:#111318}pre{background:#202124}}</style></head><body>${body}</body></html>`;
 }
 
-export function createWorkServer({ store, askTimeoutMs = 180_000 }) {
+export function createWorkServer({ store, askTimeoutMs = 180_000, quotaProxy = null }) {
   const waitingAsks = new Set();
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url, "http://localhost");
       if (url.pathname === "/healthz") return sendJson(response, 200, { ok: true, protocol: 1 });
       requireProtocol(request);
+
+      if (request.method === "GET" && url.pathname === "/v1/life/quotas") {
+        requireUser(store, request);
+        if (!quotaProxy) {
+          throw Object.assign(new Error("套餐余量服务尚未配置"), { statusCode: 503 });
+        }
+        return sendJson(response, 200, await quotaProxy.getQuotas());
+      }
 
       if (request.method === "POST" && url.pathname === "/v1/runner/register") {
         const input = await readJson(request);
