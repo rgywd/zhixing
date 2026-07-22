@@ -21,6 +21,7 @@
 | 用户画像 | [长期用户画像 V2](./AUTO_PROFILE_MAINTENANCE.md) | V2 已实现；以用户原话证据、纵向观察和每维单摘要为现行契约 |
 | 知识空间 | [知识空间 v0.1](./KNOWLEDGE_SPACE.md) | 已实现；目录、引用和工具边界仍是有效契约 |
 | 火山语音 | [Agent Plan TTS](./VOLCENGINE_TTS.md) | 已实现；记录协议和默认配置 |
+| 待办与弱日历 | [本地待办、系统日历投影与 AI 工具](./AGENDA_AND_CALENDAR.md) | v1 已实现；待办为权威数据，日历为可选时间背景 |
 | 普通聊天 | [消息生成链路](../references/chat-generation-pipeline.md) | 代码参考；修改前需核对 Wiki 的 `source_commit` |
 
 ## 文档生命周期
