@@ -52,8 +52,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.AlarmClock
-import me.rerere.hugeicons.stroke.Calendar03
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.ChartColumn
 import me.rerere.hugeicons.stroke.Clock02
@@ -61,7 +59,6 @@ import me.rerere.hugeicons.stroke.Favourite
 import me.rerere.hugeicons.stroke.MoneyBag02
 import me.rerere.hugeicons.stroke.Rocket01
 import me.rerere.hugeicons.stroke.Sun01
-import me.rerere.hugeicons.stroke.Task01
 import me.rerere.hugeicons.stroke.Time02
 import me.rerere.hugeicons.stroke.Zap
 import me.rerere.rikkahub.data.quota.ProviderQuotaOverview
@@ -169,15 +166,7 @@ private fun LifeOverviewDrawerContent(
                 item(key = "steps") { StepsCard() }
                 item(key = "status-grid") { StatusMetricGrid() }
 
-                item(key = "agenda-title") {
-                    OverviewSectionTitle(
-                        title = "我的事项",
-                        subtitle = "今天 3 项待处理，其中 1 项已逾期",
-                    )
-                }
-                items(agendaOverviewItems, key = { it.id }) { item ->
-                    AgendaOverviewCard(item)
-                }
+                item(key = "agenda") { AgendaOverviewSection() }
 
                 item(key = "quota-title") {
                     OverviewSectionTitle(
@@ -421,47 +410,6 @@ private fun StatusMetricCard(
 }
 
 @Composable
-private fun AgendaOverviewCard(item: AgendaOverviewItem) {
-    val isOverdue = item.kind == AgendaOverviewKind.OVERDUE
-    val containerColor = when (item.kind) {
-        AgendaOverviewKind.OVERDUE -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.62f)
-        AgendaOverviewKind.REMINDER -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.62f)
-        AgendaOverviewKind.EVENT -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-    }
-    val icon = when (item.kind) {
-        AgendaOverviewKind.OVERDUE -> HugeIcons.Task01
-        AgendaOverviewKind.REMINDER -> HugeIcons.AlarmClock
-        AgendaOverviewKind.EVENT -> HugeIcons.Calendar03
-    }
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = containerColor,
-    ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(24.dp))
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                Text(
-                    text = item.detail,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (isOverdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Text(
-                text = item.label,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (isOverdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-            )
-        }
-    }
-}
-
-@Composable
 private fun QuotaOverviewCard(item: ProviderQuotaOverview) {
     val statusColor = when (item.status) {
         ProviderQuotaStatus.LOW, ProviderQuotaStatus.ERROR -> MaterialTheme.colorScheme.error
@@ -589,26 +537,6 @@ private val statusPreviewItems = listOf(
     StatusPreviewItem("运动锻炼", "2 次", "共 58 分钟", HugeIcons.Rocket01),
     StatusPreviewItem("血氧", "97%", "与昨日持平", HugeIcons.Favourite),
     StatusPreviewItem("活动小时", "11/12h", "还差 1 小时", HugeIcons.Time02, 0.92f),
-)
-
-private enum class AgendaOverviewKind {
-    OVERDUE,
-    REMINDER,
-    EVENT,
-}
-
-private data class AgendaOverviewItem(
-    val id: String,
-    val title: String,
-    val detail: String,
-    val label: String,
-    val kind: AgendaOverviewKind,
-)
-
-private val agendaOverviewItems = listOf(
-    AgendaOverviewItem("overdue-report", "提交季度总结", "昨天 18:00 截止", "已逾期", AgendaOverviewKind.OVERDUE),
-    AgendaOverviewItem("review-meeting", "产品评审会议", "14:30–15:30 · 第三会议室", "日历", AgendaOverviewKind.EVENT),
-    AgendaOverviewItem("call-family", "给父母打电话", "今天 20:00 提醒", "待提醒", AgendaOverviewKind.REMINDER),
 )
 
 private val QUOTA_TIME_FORMATTER = DateTimeFormatter.ofPattern("M月d日 HH:mm")

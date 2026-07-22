@@ -6,6 +6,7 @@ import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.github.GitHubIssueClient
 import me.rerere.rikkahub.data.github.GitHubIssueTokenProvider
+import me.rerere.rikkahub.data.repository.AgendaTaskRepository
 import me.rerere.tts.provider.TTSManager
 
 class LocalTools(
@@ -15,6 +16,7 @@ class LocalTools(
     private val settingsStore: SettingsStore,
     private val githubIssueTokenProvider: GitHubIssueTokenProvider,
     private val githubIssueClient: GitHubIssueClient,
+    private val agendaTaskRepository: AgendaTaskRepository,
 ) {
     val javascriptTool by lazy { buildJavascriptTool() }
 
@@ -34,9 +36,11 @@ class LocalTools(
 
     val githubIssueTool by lazy { buildGitHubIssueTool(githubIssueTokenProvider, githubIssueClient) }
 
+    val agendaTaskTools by lazy { buildAgendaTaskTools(agendaTaskRepository) }
+
     fun getTools(options: List<LocalToolOption>): List<Tool> {
         // Product feedback is always available and is submitted only after explicit tool approval.
-        val tools = mutableListOf(githubIssueTool)
+        val tools = mutableListOf(githubIssueTool).apply { addAll(agendaTaskTools) }
         if (options.contains(LocalToolOption.JavascriptEngine)) {
             tools.add(javascriptTool)
         }

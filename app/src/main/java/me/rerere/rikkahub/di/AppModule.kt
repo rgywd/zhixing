@@ -8,6 +8,7 @@ import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.profile.ProfileMaintenanceScheduler
 import me.rerere.rikkahub.data.profile.ProfileMaintenanceService
 import me.rerere.rikkahub.data.profile.ProfileMaintenanceWorker
+import me.rerere.rikkahub.data.agenda.AgendaReminderWorker
 import me.rerere.rikkahub.data.work.PhoneWorkSessionCreator
 import me.rerere.rikkahub.data.work.PhoneWorkSessionGateway
 import me.rerere.rikkahub.data.work.PhoneWorkTitleGenerator
@@ -40,7 +41,7 @@ val appModule = module {
     }
 
     single {
-        LocalTools(get(), get(), get(), get(), get(), get())
+        LocalTools(get(), get(), get(), get(), get(), get(), get())
     }
 
     single { GitHubIssueCredentialStore(get()) }
@@ -72,6 +73,7 @@ val appModule = module {
     single { ProfileMaintenanceService(get(), get(), get(), get()) }
     single { ProfileMaintenanceScheduler(get(), get()) }
     workerOf(::ProfileMaintenanceWorker)
+    workerOf(::AgendaReminderWorker)
 
     // 生成通知与业务解耦：ChatService 只发事件，通知由这里消费；
     // createdAtStart 保证进程启动即订阅，否则后台生成的事件会因无订阅者而丢失

@@ -5,6 +5,9 @@ import me.rerere.rikkahub.data.files.FileFolders
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.files.SkillManager
 import me.rerere.rikkahub.data.repository.ConversationRepository
+import me.rerere.rikkahub.data.repository.AgendaTaskRepository
+import me.rerere.rikkahub.data.agenda.AgendaReminderScheduler
+import me.rerere.rikkahub.data.agenda.DeviceCalendarRepository
 import me.rerere.rikkahub.data.repository.FavoriteRepository
 import me.rerere.rikkahub.data.repository.FolderRepository
 import me.rerere.rikkahub.data.repository.FilesRepository
@@ -20,6 +23,12 @@ import org.koin.dsl.module
 import java.io.File
 
 val repositoryModule = module {
+    single { AgendaReminderScheduler(get()) }
+
+    single { AgendaTaskRepository(get(), get()) }
+
+    single { DeviceCalendarRepository(get()) }
+
     single {
         ConversationRepository(get(), get(), get(), get(), get(), get())
     }
