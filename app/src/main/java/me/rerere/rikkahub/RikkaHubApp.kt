@@ -52,6 +52,7 @@ const val WEB_SERVER_NOTIFICATION_CHANNEL_ID = "web_server"
 const val WORK_TRACKING_NOTIFICATION_CHANNEL_ID = "work_tracking"
 const val WORK_ALERT_NOTIFICATION_CHANNEL_ID = "work_alerts"
 const val WORK_ASK_NOTIFICATION_CHANNEL_ID = "work_questions"
+const val AGENDA_REMINDER_NOTIFICATION_CHANNEL_ID = "agenda_reminders"
 
 class RikkaHubApp : Application() {
     override fun onCreate() {
@@ -248,6 +249,16 @@ class RikkaHubApp : Application() {
             NotificationChannelCompat.Builder(WORK_ASK_NOTIFICATION_CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_HIGH)
                 .setName("Work 等待回答")
                 .setDescription("Codex 需要你做决定时提醒")
+                .setVibrationEnabled(true)
+                .build()
+        )
+        notificationManager.createNotificationChannel(
+            NotificationChannelCompat.Builder(
+                AGENDA_REMINDER_NOTIFICATION_CHANNEL_ID,
+                NotificationManagerCompat.IMPORTANCE_HIGH,
+            )
+                .setName("待办提醒")
+                .setDescription("按你设置的时间提醒待办事项")
                 .setVibrationEnabled(true)
                 .build()
         )
