@@ -39,10 +39,14 @@ Debug APK 位于 `app/build/outputs/apk/debug/`，包名为 `dev.sundby.zhixing.
 
 ## 发布与应用内更新
 
-推送与 `app/build.gradle.kts` 中 `versionName` 一致的 `v*` 标签后，GitHub Actions 会构建签名 APK、创建 Release，并生成应用内更新清单 `latest.json`。仓库需要配置：
+推送与 `app/build.gradle.kts` 中 `versionName` 一致的 `v*` 标签后，私有开发仓的 GitHub Actions 会构建签名 APK，
+并将正式 Release、对应源码归档和应用内更新清单 `latest.json` 发布到公开分发仓
+[`rgywd/zhixing-releases`](https://github.com/rgywd/zhixing-releases/releases)。私有开发仓只保留 tag 与构建记录，
+不得再创建正式 Release。仓库需要配置：
 
 - `KEY_BASE64`：Base64 编码的签名文件。
 - `SIGNING_CONFIG`：包含 `storeFile`、`storePassword`、`keyAlias`、`keyPassword` 的 `local.properties` 内容。
+- `RELEASES_REPO_TOKEN`：仅允许写入公开分发仓 Release 资产的细粒度令牌。
 
 Android 的安全机制仍会要求用户在安装新版本时进行系统确认。
 

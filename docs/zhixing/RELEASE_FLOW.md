@@ -161,6 +161,11 @@ git push origin release/0.3.2
 
 ### 4. 标签与发布
 
+> **B 方案发布边界：** 私有仓 `rgywd/zhixing` 只保留 tag、workflow 和构建日志；正式 Release 页面只能是
+> `rgywd/zhixing-releases/releases`。如果产物出现在私有仓 Release 页面，应立即停止后续发布，先迁移并验证
+> 公开资产，再删除私有 Release 记录且保留 tag。完整规则见
+> [公开安装包分发](./PUBLIC_RELEASE_DISTRIBUTION.md)。
+
 1. 完成发布验证，确认 `release/x.y.z` HEAD 位于 `origin/main` 历史中。
 2. 在该提交上创建且只创建一次 `vX.Y.Z` annotated tag；标签版本必须与 `versionName` 一致。
 3. 推送标签，由私有仓库的 `Release` workflow 回归关键路径、构建签名 APK，并将发行资产发布到公开的
@@ -219,6 +224,7 @@ Android 不支持把较低 `versionCode` 当作升级包，因此回滚必须通
 
 - [ ] 标签版本与 `versionName` 一致，标签提交属于 `origin/main`。
 - [ ] Release workflow 成功。
+- [ ] 正式 Release URL 位于 `rgywd/zhixing-releases`，私有开发仓不存在该版本的 Release 记录。
 - [ ] 唯一的 Universal APK、对应源码归档、`latest.json` 和双 SHA256 已核验。
 - [ ] 未登录状态可以从 `rgywd/zhixing-releases` 下载更新清单、APK 与源码包。
 - [ ] release 与已合并短分支已清理。

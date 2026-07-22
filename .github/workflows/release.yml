@@ -148,6 +148,11 @@ jobs:
           RELEASES_REPOSITORY: ${{ env.RELEASES_REPOSITORY }}
         run: |
           test -n "${GH_TOKEN}" || { echo "Missing RELEASES_REPO_TOKEN secret" >&2; exit 1; }
+          if [[ "${RELEASES_REPOSITORY}" != "rgywd/zhixing-releases" ]] || \
+             [[ "${RELEASES_REPOSITORY}" == "${GITHUB_REPOSITORY}" ]]; then
+            echo "Official releases must target only rgywd/zhixing-releases, never ${GITHUB_REPOSITORY}." >&2
+            exit 1
+          fi
 
           assets=(
             "release/zhixing-${VERSION}-universal.apk"
