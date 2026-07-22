@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "需要重试发布的既有 vX.Y.Z 标签"
+        required: true
+        type: string
 permissions:
   contents: write
 
@@ -17,18 +23,28 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Resolve release version
         id: version
         shell: bash
+        env:
+          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
-          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
-            echo "Run this workflow from a v* tag so the update URL remains immutable." >&2
+          tag="${REQUESTED_TAG}"
+          version="${tag#v}"
+          if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must use strict vX.Y.Z format." >&2
             exit 1
           fi
-          version="${GITHUB_REF_NAME#v}"
-          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Release tag must use strict vX.Y.Z format." >&2
+          git fetch origin main --tags
+          if ! git rev-parse --verify --quiet "refs/tags/${tag}^{commit}" >/dev/null; then
+            echo "Release tag ${tag} does not exist." >&2
+            exit 1
+          fi
+          tagged_sha="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          if [[ "$(git rev-parse HEAD)" != "${tagged_sha}" ]]; then
+            echo "Workflow checkout does not match release tag ${tag}." >&2
             exit 1
           fi
           gradle_version="$(perl -ne 'print "$1\n" if /versionName\s*=\s*"([^"]+)"/' app/build.gradle.kts | head -n 1)"
@@ -36,12 +52,12 @@ jobs:
             echo "Tag version ${version} does not match app version ${gradle_version}." >&2
             exit 1
           fi
-          git fetch origin main
-          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+          if ! git merge-base --is-ancestor "${tagged_sha}" origin/main; then
             echo "Release tag must point to a commit contained in origin/main." >&2
             exit 1
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -82,7 +98,7 @@ jobs:
       - name: Test release-critical paths
         run: |
           ./gradlew :ai:testDebugUnitTest :speech:testDebugUnitTest
-          ./gradlew :app:testDebugUnitTest \
+          ./gradlew :app:testStagingUnitTest \
             --tests me.rerere.rikkahub.AppIdentityTest \
             --tests me.rerere.rikkahub.utils.UpdateCheckerTest \
             --tests me.rerere.rikkahub.data.datastore.DefaultProvidersTest \
@@ -98,6 +114,7 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
           mkdir -p release
           mapfile -t release_apks < <(find app/build/outputs/apk/release -type f -name '*.apk' -print)
@@ -120,7 +137,7 @@ jobs:
             changelog="$(git log -1 --pretty=%B)"
           fi
           published_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          download_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${universal_name}"
+          download_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${universal_name}"
 
           jq -n \
             --arg version "${VERSION}" \
@@ -138,6 +155,7 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
           name: Zhixing v${{ steps.version.outputs.version }}
           body_path: release-notes/${{ steps.version.outputs.version }}.md
           generate_release_notes: true
