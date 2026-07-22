@@ -4,8 +4,17 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "需要重试发布的既有 vX.Y.Z 标签"
+        required: true
+        type: string
 permissions:
-  contents: write
+  contents: read
+
+env:
+  RELEASES_REPOSITORY: rgywd/zhixing-releases
 
 jobs:
   release:
@@ -17,18 +26,28 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Resolve release version
         id: version
         shell: bash
+        env:
+          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
-          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
-            echo "Run this workflow from a v* tag so the update URL remains immutable." >&2
+          tag="${REQUESTED_TAG}"
+          version="${tag#v}"
+          if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must use strict vX.Y.Z format." >&2
             exit 1
           fi
-          version="${GITHUB_REF_NAME#v}"
-          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Release tag must use strict vX.Y.Z format." >&2
+          git fetch origin main --tags
+          if ! git rev-parse --verify --quiet "refs/tags/${tag}^{commit}" >/dev/null; then
+            echo "Release tag ${tag} does not exist." >&2
+            exit 1
+          fi
+          tagged_sha="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          if [[ "$(git rev-parse HEAD)" != "${tagged_sha}" ]]; then
+            echo "Workflow checkout does not match release tag ${tag}." >&2
             exit 1
           fi
           gradle_version="$(perl -ne 'print "$1\n" if /versionName\s*=\s*"([^"]+)"/' app/build.gradle.kts | head -n 1)"
@@ -36,12 +55,13 @@ jobs:
             echo "Tag version ${version} does not match app version ${gradle_version}." >&2
             exit 1
           fi
-          git fetch origin main
-          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+          if ! git merge-base --is-ancestor "${tagged_sha}" origin/main; then
             echo "Release tag must point to a commit contained in origin/main." >&2
             exit 1
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "source_commit=${tagged_sha}" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -82,8 +102,9 @@ jobs:
       - name: Test release-critical paths
         run: |
           ./gradlew :ai:testDebugUnitTest :speech:testDebugUnitTest
-          ./gradlew :app:testDebugUnitTest \
+          ./gradlew :app:testStagingUnitTest \
             --tests me.rerere.rikkahub.AppIdentityTest \
+            --tests me.rerere.rikkahub.DistributionIdentityTest \
             --tests me.rerere.rikkahub.utils.UpdateCheckerTest \
             --tests me.rerere.rikkahub.data.datastore.DefaultProvidersTest \
             --tests me.rerere.rikkahub.data.ai.tools.local.GitHubIssueToolTest \
@@ -93,52 +114,76 @@ jobs:
       - name: Build signed release APKs
         run: ./gradlew :app:assembleRelease
 
+      - name: Load release asset tooling
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOOLING_REF: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref_name }}
+        run: |
+          tooling_path="${RUNNER_TEMP}/prepare-release-assets.sh"
+          gh api \
+            -H "Accept: application/vnd.github.raw+json" \
+            "repos/${GITHUB_REPOSITORY}/contents/.github/scripts/prepare-release-assets.sh?ref=${TOOLING_REF}" \
+            > "${tooling_path}"
+          test -s "${tooling_path}" || { echo "Release asset tooling is empty." >&2; exit 1; }
+          chmod +x "${tooling_path}"
+          echo "RELEASE_ASSET_SCRIPT=${tooling_path}" >> "${GITHUB_ENV}"
+
       - name: Prepare release assets and update manifest
         id: assets
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          TAG_NAME: ${{ steps.version.outputs.tag }}
+          SOURCE_COMMIT: ${{ steps.version.outputs.source_commit }}
+          RELEASES_REPOSITORY: ${{ env.RELEASES_REPOSITORY }}
+        run: bash "${RELEASE_ASSET_SCRIPT}"
+
+      - name: Publish public GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG_NAME: ${{ steps.version.outputs.tag }}
+          RELEASES_REPOSITORY: ${{ env.RELEASES_REPOSITORY }}
         run: |
-          mkdir -p release
-          mapfile -t release_apks < <(find app/build/outputs/apk/release -type f -name '*.apk' -print)
-          if [[ "${#release_apks[@]}" -ne 1 ]]; then
-            echo "Expected exactly one universal release APK, found ${#release_apks[@]}" >&2
-            printf '%s\n' "${release_apks[@]}" >&2
+          test -n "${GH_TOKEN}" || { echo "Missing RELEASES_REPO_TOKEN secret" >&2; exit 1; }
+          if [[ "${RELEASES_REPOSITORY}" != "rgywd/zhixing-releases" ]] || \
+             [[ "${RELEASES_REPOSITORY}" == "${GITHUB_REPOSITORY}" ]]; then
+            echo "Official releases must target only rgywd/zhixing-releases, never ${GITHUB_REPOSITORY}." >&2
             exit 1
           fi
-          universal_source="${release_apks[0]}"
 
-          universal_name="zhixing-${VERSION}-universal.apk"
-          cp "${universal_source}" "release/${universal_name}"
+          assets=(
+            "release/zhixing-${VERSION}-universal.apk"
+            "release/zhixing-${VERSION}-source.tar.gz"
+            "release/latest.json"
+            "release/SHA256SUMS.txt"
+            "release/LICENSE"
+            "release/THIRD_PARTY_NOTICES.md"
+          )
 
-          sha256="$(sha256sum "release/${universal_name}" | cut -d ' ' -f 1)"
-          size_bytes="$(stat -c '%s' "release/${universal_name}")"
-          size="$(numfmt --to=iec-i --suffix=B "${size_bytes}")"
           if [[ -f "release-notes/${VERSION}.md" ]]; then
-            changelog="$(cat "release-notes/${VERSION}.md")"
+            notes_file="release-notes/${VERSION}.md"
           else
-            changelog="$(git log -1 --pretty=%B)"
+            notes_file="${RUNNER_TEMP}/release-notes.md"
+            git log -1 --pretty=%B > "${notes_file}"
           fi
-          published_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          download_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${universal_name}"
 
-          jq -n \
-            --arg version "${VERSION}" \
-            --arg publishedAt "${published_at}" \
-            --arg changelog "${changelog}" \
-            --arg name "${universal_name}" \
-            --arg url "${download_url}" \
-            --arg size "${size}" \
-            --arg sha256 "${sha256}" \
-            '{version: $version, publishedAt: $publishedAt, changelog: $changelog, downloads: [{name: $name, url: $url, size: $size, sha256: $sha256}]}' \
-            > release/latest.json
-
-          sha256sum "release/${universal_name}" > release/SHA256SUMS.txt
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: Zhixing v${{ steps.version.outputs.version }}
-          body_path: release-notes/${{ steps.version.outputs.version }}.md
-          generate_release_notes: true
-          files: release/*
+          if gh release view "${TAG_NAME}" --repo "${RELEASES_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${TAG_NAME}" "${assets[@]}" \
+              --repo "${RELEASES_REPOSITORY}" \
+              --clobber
+            gh release edit "${TAG_NAME}" \
+              --repo "${RELEASES_REPOSITORY}" \
+              --title "Zhixing v${VERSION}" \
+              --notes-file "${notes_file}" \
+              --latest
+          else
+            gh release create "${TAG_NAME}" "${assets[@]}" \
+              --repo "${RELEASES_REPOSITORY}" \
+              --target main \
+              --title "Zhixing v${VERSION}" \
+              --notes-file "${notes_file}" \
+              --latest
+          fi

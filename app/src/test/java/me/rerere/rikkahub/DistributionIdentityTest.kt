@@ -17,7 +17,7 @@ class DistributionIdentityTest {
 
             "production" -> {
                 assertFalse(AppIdentity.stagingTestDriverEnabled)
-                assertTrue(AppIdentity.updateFeedUrl.contains("github.com/rgywd/zhixing/releases"))
+                assertTrue(AppIdentity.updateFeedUrl.contains("github.com/rgywd/zhixing-releases/releases"))
             }
 
             else -> error("Unknown distribution channel: ${AppIdentity.distributionChannel}")
