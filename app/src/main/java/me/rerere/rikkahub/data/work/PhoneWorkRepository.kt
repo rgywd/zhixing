@@ -20,7 +20,7 @@ class PhoneWorkRepository(
     val credentials: PhoneWorkCredentialStore,
     private val catalogStore: PhoneWorkCatalogStore,
     private val context: Context,
-) {
+) : PhoneWorkSessionGateway {
     private val json = Json { ignoreUnknownKeys = true }
     private val mutableCatalog = MutableStateFlow(catalogStore.load())
     val catalog: StateFlow<PhoneWorkCatalog> = mutableCatalog
@@ -80,7 +80,7 @@ class PhoneWorkRepository(
         }
     }
 
-    suspend fun createSession(request: CreateSessionRequest, imageUrls: List<String> = emptyList()): PhoneWorkSession {
+    override suspend fun createSession(request: CreateSessionRequest, imageUrls: List<String>): PhoneWorkSession {
         val attachmentIds = uploadImages(imageUrls)
         val session = api.createSession(request.copy(attachmentIds = attachmentIds))
         dao.upsertSession(session.toEntity())

@@ -17,12 +17,19 @@ import me.rerere.rikkahub.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-class UpdateChecker(private val client: OkHttpClient) {
+class UpdateChecker(
+    private val client: OkHttpClient,
+    private val updateFeedUrl: String = AppIdentity.updateFeedUrl,
+) {
     private val json = Json { ignoreUnknownKeys = true }
 
     fun checkUpdate(): Flow<UiState<UpdateInfo>> = flow<UiState<UpdateInfo>> {
+        if (updateFeedUrl.isBlank()) {
+            emit(UiState.Success(currentVersion()))
+            return@flow
+        }
         val request = Request.Builder()
-            .url(AppIdentity.updateFeedUrl)
+            .url(updateFeedUrl)
             .header("User-Agent", "${AppIdentity.userAgentProduct}/${BuildConfig.VERSION_NAME}")
             .build()
         client.newCall(request).execute().use { response ->

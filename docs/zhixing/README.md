@@ -17,6 +17,7 @@
 | 领域 | 文档 | 状态 |
 | --- | --- | --- |
 | Codex Work | [架构](./CODEX_PHONE_LINE_ARCHITECTURE.md) · [协议](./CODEX_PHONE_LINE_CONTRACT.md) · [实施与验收](./CODEX_PHONE_LINE_IMPLEMENTATION_PLAN.md) | v1 已形成主闭环，仍有发布门验证项 |
+| Staging 测试客户端 | [分发、受限 API 与验收](./STAGING_TEST_CLIENT.md) | 与正式版并存；用于本机机器验证，不进入正式 Release |
 | 用户画像 | [长期用户画像 V2](./AUTO_PROFILE_MAINTENANCE.md) | V2 已实现；以用户原话证据、纵向观察和每维单摘要为现行契约 |
 | 知识空间 | [知识空间 v0.1](./KNOWLEDGE_SPACE.md) | 已实现；目录、引用和工具边界仍是有效契约 |
 | 火山语音 | [Agent Plan TTS](./VOLCENGINE_TTS.md) | 已实现；记录协议和默认配置 |

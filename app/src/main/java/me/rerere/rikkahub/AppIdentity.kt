@@ -17,5 +17,7 @@ object AppIdentity {
     const val licenseUrl = "https://github.com/rgywd/zhixing/blob/main/LICENSE"
     const val thirdPartyNoticesUrl = "https://github.com/rgywd/zhixing/blob/main/THIRD_PARTY_NOTICES.md"
     const val thirdPartyTelemetryEnabled = false
-    const val updateFeedUrl = "https://github.com/rgywd/zhixing/releases/latest/download/latest.json"
+    val distributionChannel: String = BuildConfig.DISTRIBUTION_CHANNEL
+    val updateFeedUrl: String = BuildConfig.UPDATE_FEED_URL
+    val stagingTestDriverEnabled: Boolean = BuildConfig.STAGING_TEST_DRIVER_ENABLED
 }

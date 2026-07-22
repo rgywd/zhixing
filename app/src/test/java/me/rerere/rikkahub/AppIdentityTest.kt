@@ -10,7 +10,12 @@ class AppIdentityTest {
     fun `zhixing identity does not depend on upstream hosted services`() {
         assertEquals("Zhixing", AppIdentity.productName)
         assertFalse(AppIdentity.thirdPartyTelemetryEnabled)
-        assertTrue(AppIdentity.updateFeedUrl.contains("github.com/rgywd/zhixing/releases"))
+        if (AppIdentity.distributionChannel == "production") {
+            assertTrue(AppIdentity.updateFeedUrl.contains("github.com/rgywd/zhixing/releases"))
+        } else {
+            assertEquals("staging", AppIdentity.distributionChannel)
+            assertTrue(AppIdentity.updateFeedUrl.isBlank())
+        }
         assertTrue(AppIdentity.sourceUrl.endsWith("rgywd/zhixing"))
         assertEquals("${AppIdentity.sourceUrl}/issues", AppIdentity.issueTrackerUrl)
     }

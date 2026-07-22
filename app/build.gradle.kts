@@ -15,6 +15,7 @@ plugins {
 android {
     namespace = "me.rerere.rikkahub"
     compileSdk = 37
+    testBuildType = "staging"
 
     defaultConfig {
         applicationId = "dev.sundby.zhixing"
@@ -23,6 +24,14 @@ android {
         versionCode = 25
         versionName = "0.3.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        manifestPlaceholders["appScheme"] = "zhixing"
+        buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"production\"")
+        buildConfigField(
+            "String",
+            "UPDATE_FEED_URL",
+            "\"https://github.com/rgywd/zhixing/releases/latest/download/latest.json\"",
+        )
+        buildConfigField("boolean", "STAGING_TEST_DRIVER_ENABLED", "false")
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
@@ -70,6 +79,16 @@ android {
             applicationIdSuffix = ".debug"
             buildConfigField("String", "VERSION_NAME", "\"${android.defaultConfig.versionName}\"")
             buildConfigField("String", "VERSION_CODE", "\"${android.defaultConfig.versionCode}\"")
+        }
+        create("staging") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".staging"
+            versionNameSuffix = "-staging"
+            matchingFallbacks += listOf("debug")
+            manifestPlaceholders["appScheme"] = "zhixing-staging"
+            buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"staging\"")
+            buildConfigField("String", "UPDATE_FEED_URL", "\"\"")
+            buildConfigField("boolean", "STAGING_TEST_DRIVER_ENABLED", "true")
         }
     }
     compileOptions {

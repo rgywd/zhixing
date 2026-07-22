@@ -1,6 +1,6 @@
 package me.rerere.rikkahub.service
 
-import me.rerere.rikkahub.ui.pages.work.fallbackWorkSessionTitle
+import me.rerere.rikkahub.data.work.fallbackWorkSessionTitle
 import me.rerere.rikkahub.ui.pages.work.phoneWorkSessionViewModelKey
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertEquals
