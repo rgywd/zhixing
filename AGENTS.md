@@ -129,6 +129,11 @@ CommitWiki 更新，或在结论中明确说明版本差异，不能把过期内
   are defined in `docs/zhixing/CODEX_PHONE_LINE_ARCHITECTURE.md` and
   `docs/zhixing/CODEX_PHONE_LINE_CONTRACT.md`.
 
+- **Agenda / Weak Calendar**: A local-first task domain surfaced in the normal chat right drawer. Room tasks are the
+  source of truth; Android system calendar events are an optional read-only projection. Normal chat exposes five task
+  tools, with approval required for every write. The current contract is documented in
+  `docs/zhixing/AGENDA_AND_CALENDAR.md`.
+
 ## Internationalization
 
 - String resources are usually located in `app/src/main/res/values*/strings.xml`; feature modules such as `search`

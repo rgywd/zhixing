@@ -382,6 +382,7 @@ private fun AgendaTaskEditorSheet(
     var note by remember(task?.id) { mutableStateOf(task?.note.orEmpty()) }
     var dueAt by remember(task?.id) { mutableStateOf(task?.dueAt) }
     var reminderEnabled by remember(task?.id) { mutableStateOf(task?.reminderAt != null) }
+    val reminderEligible = dueAt?.let { it > System.currentTimeMillis() } == true
 
     fun pickTime() {
         val initial = dueAt?.let { Instant.ofEpochMilli(it).atZone(zone) } ?: ZonedDateTime.now(zone).plusHours(1)
@@ -451,7 +452,11 @@ private fun AgendaTaskEditorSheet(
                 Column {
                     Text("到点提醒", style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        if (dueAt == null) "设置时间后可开启" else "使用系统通知提醒",
+                        when {
+                            dueAt == null -> "设置时间后可开启"
+                            !reminderEligible -> "提醒时间需要晚于现在"
+                            else -> "使用系统通知提醒"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -459,7 +464,7 @@ private fun AgendaTaskEditorSheet(
                 Switch(
                     checked = reminderEnabled,
                     onCheckedChange = { reminderEnabled = it },
-                    enabled = dueAt != null,
+                    enabled = reminderEligible,
                 )
             }
             Row(
@@ -473,7 +478,7 @@ private fun AgendaTaskEditorSheet(
                     }
                 }
                 Button(
-                    onClick = { onSave(title, note, dueAt, reminderEnabled) },
+                    onClick = { onSave(title, note, dueAt, reminderEnabled && reminderEligible) },
                     modifier = Modifier.weight(1f),
                     enabled = title.isNotBlank(),
                 ) { Text("保存") }
