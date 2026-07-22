@@ -44,4 +44,13 @@ class AgendaDrawerInteractionTest {
         assertFalse(isAgendaSwipeTriggered(AgendaSwipeDirection.OPEN, -48f, 0f, 64f))
         assertFalse(isAgendaSwipeTriggered(AgendaSwipeDirection.OPEN, -80f, 72f, 64f))
     }
+
+    @Test
+    fun `life overview greeting follows the time of day`() {
+        assertTrue(lifeOverviewGreeting(7) == "早上好")
+        assertTrue(lifeOverviewGreeting(12) == "中午好")
+        assertTrue(lifeOverviewGreeting(16) == "下午好")
+        assertTrue(lifeOverviewGreeting(21) == "晚上好")
+        assertTrue(lifeOverviewGreeting(2) == "夜深了")
+    }
 }

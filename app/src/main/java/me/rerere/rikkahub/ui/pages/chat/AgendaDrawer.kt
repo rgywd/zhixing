@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -25,39 +26,42 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.AlarmClock
 import me.rerere.hugeicons.stroke.Calendar03
 import me.rerere.hugeicons.stroke.Cancel01
-import me.rerere.hugeicons.stroke.CheckmarkCircle02
+import me.rerere.hugeicons.stroke.ChartColumn
+import me.rerere.hugeicons.stroke.Clock02
+import me.rerere.hugeicons.stroke.Favourite
+import me.rerere.hugeicons.stroke.MoneyBag02
+import me.rerere.hugeicons.stroke.Rocket01
+import me.rerere.hugeicons.stroke.Sun01
 import me.rerere.hugeicons.stroke.Task01
+import me.rerere.hugeicons.stroke.Time02
+import me.rerere.hugeicons.stroke.Zap
+import java.util.Calendar
 import kotlin.math.abs
 
 @Composable
@@ -78,7 +82,7 @@ fun AgendaDrawerHost(
             exit = fadeOut(animationSpec = tween(160)),
         ) {
             val interactionSource = remember { MutableInteractionSource() }
-            androidx.compose.foundation.layout.Box(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.45f))
@@ -86,7 +90,7 @@ fun AgendaDrawerHost(
                         interactionSource = interactionSource,
                         indication = null,
                         role = Role.Button,
-                        onClickLabel = "关闭事项边栏",
+                        onClickLabel = "关闭生活概览",
                         onClick = onDismissRequest,
                     )
             )
@@ -105,7 +109,7 @@ fun AgendaDrawerHost(
                 animationSpec = tween(200),
             ) + fadeOut(animationSpec = tween(140)),
         ) {
-            AgendaDrawerContent(
+            LifeOverviewDrawerContent(
                 onClose = onDismissRequest,
                 modifier = Modifier.width(drawerWidth),
             )
@@ -114,14 +118,10 @@ fun AgendaDrawerHost(
 }
 
 @Composable
-private fun AgendaDrawerContent(
+private fun LifeOverviewDrawerContent(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var selectedFilter by remember { mutableStateOf(AgendaFilter.TODAY) }
-    var completedIds by remember { mutableStateOf(setOf("completed-plan")) }
-    val items = remember { agendaPreviewItems }
-
     Surface(
         modifier = modifier
             .fillMaxHeight()
@@ -135,34 +135,406 @@ private fun AgendaDrawerContent(
         shadowElevation = 8.dp,
     ) {
         Column(modifier = Modifier.safeDrawingPadding()) {
-            AgendaHeader(onClose = onClose)
-            AgendaSummary()
-            AgendaFilters(
-                selected = selectedFilter,
-                onSelected = { selectedFilter = it },
-            )
+            LifeOverviewHeader(onClose = onClose)
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                item(key = "status-title") {
+                    OverviewSectionTitle(
+                        title = "我的状态",
+                        subtitle = "预览数据 · 等待手表或健康服务接入",
+                    )
+                }
+                item(key = "status-greeting") { StatusGreeting() }
+                item(key = "steps") { StepsCard() }
+                item(key = "status-grid") { StatusMetricGrid() }
 
-            val visibleItems = items.filter { item ->
-                val section = item.section(completedIds)
-                when (selectedFilter) {
-                    AgendaFilter.TODAY -> section == AgendaSection.OVERDUE || section == AgendaSection.TODAY
-                    AgendaFilter.ALL -> true
-                    AgendaFilter.TASKS -> item.kind != AgendaKind.EVENT && section != AgendaSection.COMPLETED
-                    AgendaFilter.CALENDAR -> item.kind == AgendaKind.EVENT
-                    AgendaFilter.COMPLETED -> section == AgendaSection.COMPLETED
+                item(key = "agenda-title") {
+                    OverviewSectionTitle(
+                        title = "我的事项",
+                        subtitle = "今天 3 项待处理，其中 1 项已逾期",
+                    )
+                }
+                items(agendaOverviewItems, key = { it.id }) { item ->
+                    AgendaOverviewCard(item)
+                }
+
+                item(key = "quota-title") {
+                    OverviewSectionTitle(
+                        title = "套餐余量",
+                        subtitle = "统一查看模型服务的可用额度",
+                    )
+                }
+                items(quotaPreviewItems, key = { it.name }) { item ->
+                    QuotaOverviewCard(item)
                 }
             }
+        }
+    }
+}
 
-            AgendaItemList(
-                items = visibleItems,
-                completedIds = completedIds,
-                onToggleCompleted = { id ->
-                    completedIds = if (id in completedIds) completedIds - id else completedIds + id
-                },
+@Composable
+private fun LifeOverviewHeader(onClose: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, top = 12.dp, end = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(
+            modifier = Modifier.size(44.dp),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = HugeIcons.Sun01,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "现在",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "你的生活概览",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = onClose) {
+            Icon(HugeIcons.Cancel01, contentDescription = "关闭生活概览")
+        }
+    }
+}
+
+@Composable
+private fun OverviewSectionTitle(
+    title: String,
+    subtitle: String,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun StatusGreeting() {
+    val now = remember { Calendar.getInstance() }
+    val hour = now.get(Calendar.HOUR_OF_DAY)
+    val weekday = listOf("周日", "周一", "周二", "周三", "周四", "周五", "周六")
+        .getOrElse(now.get(Calendar.DAY_OF_WEEK) - 1) { "" }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Surface(
+            modifier = Modifier.size(36.dp),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(HugeIcons.Sun01, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
+        }
+        Column {
+            Text(
+                text = "${lifeOverviewGreeting(hour)} · ${now.get(Calendar.MONTH) + 1}月${now.get(Calendar.DAY_OF_MONTH)}日 $weekday",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = "设备尚未连接",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
 }
+
+internal fun lifeOverviewGreeting(hour: Int): String = when (hour) {
+    in 0..5 -> "夜深了"
+    in 6..10 -> "早上好"
+    in 11..13 -> "中午好"
+    in 14..17 -> "下午好"
+    else -> "晚上好"
+}
+
+@Composable
+private fun StepsCard() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            Box(
+                modifier = Modifier.size(82.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(
+                    progress = { 0.83f },
+                    modifier = Modifier.fillMaxSize(),
+                    strokeWidth = 8.dp,
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("83%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("预览", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(HugeIcons.ChartColumn, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text("步数", style = MaterialTheme.typography.labelMedium)
+                }
+                Text("8,342", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = "/ 10,000 步 · 较昨日 +17%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusMetricGrid() {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        statusPreviewItems.chunked(2).forEach { rowItems ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                rowItems.forEach { item ->
+                    StatusMetricCard(item = item, modifier = Modifier.weight(1f))
+                }
+                if (rowItems.size == 1) {
+                    Box(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusMetricCard(
+    item: StatusPreviewItem,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Surface(
+                    modifier = Modifier.size(28.dp),
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(item.icon, contentDescription = null, modifier = Modifier.size(15.dp))
+                    }
+                }
+                Text(item.label, style = MaterialTheme.typography.labelMedium)
+            }
+            Text(
+                text = item.value,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = item.detail,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            item.progress?.let { progress ->
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth(),
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgendaOverviewCard(item: AgendaOverviewItem) {
+    val isOverdue = item.kind == AgendaOverviewKind.OVERDUE
+    val containerColor = when (item.kind) {
+        AgendaOverviewKind.OVERDUE -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.62f)
+        AgendaOverviewKind.REMINDER -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.62f)
+        AgendaOverviewKind.EVENT -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+    }
+    val icon = when (item.kind) {
+        AgendaOverviewKind.OVERDUE -> HugeIcons.Task01
+        AgendaOverviewKind.REMINDER -> HugeIcons.AlarmClock
+        AgendaOverviewKind.EVENT -> HugeIcons.Calendar03
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = containerColor,
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(24.dp))
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text(
+                    text = item.detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isOverdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = item.label,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isOverdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuotaOverviewCard(item: QuotaPreviewItem) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Surface(
+                modifier = Modifier.size(36.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(HugeIcons.MoneyBag02, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(item.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text(
+                    text = item.detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            ) {
+                Text(
+                    text = "待接入",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+private data class StatusPreviewItem(
+    val label: String,
+    val value: String,
+    val detail: String,
+    val icon: ImageVector,
+    val progress: Float? = null,
+)
+
+private val statusPreviewItems = listOf(
+    StatusPreviewItem("睡眠", "7h24m", "深睡 1h58m", HugeIcons.Clock02, 0.82f),
+    StatusPreviewItem("心率", "58~76", "bpm · 实时", HugeIcons.Favourite),
+    StatusPreviewItem("卡路里", "486 千卡", "较昨日 13%", HugeIcons.Zap),
+    StatusPreviewItem("运动锻炼", "2 次", "共 58 分钟", HugeIcons.Rocket01),
+    StatusPreviewItem("血氧", "97%", "与昨日持平", HugeIcons.Favourite),
+    StatusPreviewItem("活动小时", "11/12h", "还差 1 小时", HugeIcons.Time02, 0.92f),
+)
+
+private enum class AgendaOverviewKind {
+    OVERDUE,
+    REMINDER,
+    EVENT,
+}
+
+private data class AgendaOverviewItem(
+    val id: String,
+    val title: String,
+    val detail: String,
+    val label: String,
+    val kind: AgendaOverviewKind,
+)
+
+private val agendaOverviewItems = listOf(
+    AgendaOverviewItem("overdue-report", "提交季度总结", "昨天 18:00 截止", "已逾期", AgendaOverviewKind.OVERDUE),
+    AgendaOverviewItem("review-meeting", "产品评审会议", "14:30–15:30 · 第三会议室", "日历", AgendaOverviewKind.EVENT),
+    AgendaOverviewItem("call-family", "给父母打电话", "今天 20:00 提醒", "待提醒", AgendaOverviewKind.REMINDER),
+)
+
+private data class QuotaPreviewItem(
+    val name: String,
+    val detail: String,
+)
+
+private val quotaPreviewItems = listOf(
+    QuotaPreviewItem("Codex", "等待接入套餐余量接口"),
+    QuotaPreviewItem("Kimi", "等待接入套餐余量接口"),
+    QuotaPreviewItem("SuperGrok", "等待接入套餐余量接口"),
+)
 
 internal enum class AgendaSwipeDirection {
     OPEN,
@@ -214,395 +586,3 @@ internal fun isAgendaSwipeTriggered(
     }
     return directionMatches && abs(totalX) >= threshold && abs(totalX) > abs(totalY) * 1.25f
 }
-
-@Composable
-private fun AgendaHeader(onClose: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 20.dp, top = 12.dp, end = 8.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Surface(
-            modifier = Modifier.size(44.dp),
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ) {
-            androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = HugeIcons.Task01,
-                    contentDescription = null,
-                    modifier = Modifier.size(22.dp),
-                )
-            }
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "事项",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = "今天还有 3 项待处理",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        IconButton(onClick = onClose) {
-            Icon(HugeIcons.Cancel01, contentDescription = "关闭事项边栏")
-        }
-    }
-}
-
-@Composable
-private fun AgendaSummary() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        SummaryPill(
-            text = "3 待处理",
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            modifier = Modifier.weight(1f),
-        )
-        SummaryPill(
-            text = "1 待提醒",
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            modifier = Modifier.weight(1f),
-        )
-        SummaryPill(
-            text = "1 已逾期",
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-            modifier = Modifier.weight(1f),
-        )
-    }
-}
-
-@Composable
-private fun SummaryPill(
-    text: String,
-    containerColor: Color,
-    contentColor: Color,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier,
-        shape = MaterialTheme.shapes.medium,
-        color = containerColor,
-        contentColor = contentColor,
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelMedium,
-            maxLines = 1,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        )
-    }
-}
-
-@Composable
-private fun AgendaFilters(
-    selected: AgendaFilter,
-    onSelected: (AgendaFilter) -> Unit,
-) {
-    LazyRow(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(AgendaFilter.entries, key = { it.name }) { filter ->
-            FilterChip(
-                selected = selected == filter,
-                onClick = { onSelected(filter) },
-                label = { Text(filter.label) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun AgendaItemList(
-    items: List<AgendaPreviewItem>,
-    completedIds: Set<String>,
-    onToggleCompleted: (String) -> Unit,
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        AgendaSection.entries.forEach { section ->
-            val sectionItems = items.filter { it.section(completedIds) == section }
-            if (sectionItems.isNotEmpty()) {
-                item(key = "section-${section.name}") {
-                    Text(
-                        text = section.label,
-                        modifier = Modifier.padding(start = 8.dp, top = 10.dp, bottom = 2.dp),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = if (section == AgendaSection.OVERDUE) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                }
-                items(sectionItems, key = { it.id }) { item ->
-                    AgendaItemCard(
-                        item = item,
-                        completed = item.id in completedIds,
-                        onToggleCompleted = { onToggleCompleted(item.id) },
-                    )
-                }
-            }
-        }
-
-        if (items.isEmpty()) {
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 48.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(
-                        imageVector = HugeIcons.Task01,
-                        contentDescription = null,
-                        modifier = Modifier.size(32.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text("这里还没有事项", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        text = "稍后可以在对话中创建提醒、待办或日历事件",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AgendaItemCard(
-    item: AgendaPreviewItem,
-    completed: Boolean,
-    onToggleCompleted: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (item.kind == AgendaKind.TASK) {
-                IconButton(onClick = onToggleCompleted) {
-                    Icon(
-                        imageVector = if (completed) HugeIcons.CheckmarkCircle02 else HugeIcons.Task01,
-                        contentDescription = if (completed) "标记为待处理" else "标记为已完成",
-                        tint = if (completed) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                }
-            } else {
-                Surface(
-                    modifier = Modifier
-                        .padding(4.dp)
-                        .size(40.dp),
-                    shape = CircleShape,
-                    color = item.kind.containerColor(),
-                    contentColor = item.kind.contentColor(),
-                ) {
-                    androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = item.kind.icon(),
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
-            }
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    textDecoration = if (completed) TextDecoration.LineThrough else TextDecoration.None,
-                    color = if (completed) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                )
-                Text(
-                    text = item.time,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (item.section == AgendaSection.OVERDUE && !completed) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                AgendaStatusLabel(item = item, completed = completed)
-            }
-        }
-    }
-}
-
-@Composable
-private fun AgendaStatusLabel(item: AgendaPreviewItem, completed: Boolean) {
-    val label = when {
-        completed -> "已完成"
-        item.section == AgendaSection.OVERDUE -> "已逾期"
-        item.kind == AgendaKind.REMINDER -> "待提醒"
-        item.kind == AgendaKind.EVENT -> "日历"
-        else -> "待处理"
-    }
-    val containerColor = when {
-        completed -> MaterialTheme.colorScheme.secondaryContainer
-        item.section == AgendaSection.OVERDUE -> MaterialTheme.colorScheme.errorContainer
-        item.kind == AgendaKind.REMINDER -> MaterialTheme.colorScheme.tertiaryContainer
-        item.kind == AgendaKind.EVENT -> MaterialTheme.colorScheme.primaryContainer
-        else -> MaterialTheme.colorScheme.surfaceContainerHighest
-    }
-    val contentColor = when {
-        completed -> MaterialTheme.colorScheme.onSecondaryContainer
-        item.section == AgendaSection.OVERDUE -> MaterialTheme.colorScheme.onErrorContainer
-        item.kind == AgendaKind.REMINDER -> MaterialTheme.colorScheme.onTertiaryContainer
-        item.kind == AgendaKind.EVENT -> MaterialTheme.colorScheme.onPrimaryContainer
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-
-    Surface(
-        shape = CircleShape,
-        color = containerColor,
-        contentColor = contentColor,
-    ) {
-        Text(
-            text = label,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            style = MaterialTheme.typography.labelSmall,
-        )
-    }
-}
-
-@Composable
-private fun AgendaKind.icon(): ImageVector = when (this) {
-    AgendaKind.TASK -> HugeIcons.Task01
-    AgendaKind.REMINDER -> HugeIcons.AlarmClock
-    AgendaKind.EVENT -> HugeIcons.Calendar03
-}
-
-@Composable
-private fun AgendaKind.containerColor(): Color = when (this) {
-    AgendaKind.TASK -> MaterialTheme.colorScheme.surfaceContainerHighest
-    AgendaKind.REMINDER -> MaterialTheme.colorScheme.tertiaryContainer
-    AgendaKind.EVENT -> MaterialTheme.colorScheme.primaryContainer
-}
-
-@Composable
-private fun AgendaKind.contentColor(): Color = when (this) {
-    AgendaKind.TASK -> MaterialTheme.colorScheme.onSurfaceVariant
-    AgendaKind.REMINDER -> MaterialTheme.colorScheme.onTertiaryContainer
-    AgendaKind.EVENT -> MaterialTheme.colorScheme.onPrimaryContainer
-}
-
-private enum class AgendaFilter(val label: String) {
-    TODAY("今天"),
-    ALL("全部"),
-    TASKS("待办"),
-    CALENDAR("日历"),
-    COMPLETED("已完成"),
-}
-
-private enum class AgendaSection(val label: String) {
-    OVERDUE("逾期"),
-    TODAY("今天"),
-    UPCOMING("接下来"),
-    COMPLETED("已完成"),
-}
-
-private enum class AgendaKind {
-    TASK,
-    REMINDER,
-    EVENT,
-}
-
-private data class AgendaPreviewItem(
-    val id: String,
-    val title: String,
-    val time: String,
-    val kind: AgendaKind,
-    val section: AgendaSection,
-) {
-    fun section(completedIds: Set<String>): AgendaSection =
-        if (id in completedIds) AgendaSection.COMPLETED else section
-}
-
-private val agendaPreviewItems = listOf(
-    AgendaPreviewItem(
-        id = "overdue-report",
-        title = "提交季度总结",
-        time = "昨天 18:00 截止",
-        kind = AgendaKind.TASK,
-        section = AgendaSection.OVERDUE,
-    ),
-    AgendaPreviewItem(
-        id = "review-meeting",
-        title = "产品评审会议",
-        time = "14:30–15:30 · 第三会议室",
-        kind = AgendaKind.EVENT,
-        section = AgendaSection.TODAY,
-    ),
-    AgendaPreviewItem(
-        id = "call-family",
-        title = "给父母打电话",
-        time = "今天 20:00 提醒",
-        kind = AgendaKind.REMINDER,
-        section = AgendaSection.TODAY,
-    ),
-    AgendaPreviewItem(
-        id = "issue-90-plan",
-        title = "整理 #90 页面方案",
-        time = "今天",
-        kind = AgendaKind.TASK,
-        section = AgendaSection.TODAY,
-    ),
-    AgendaPreviewItem(
-        id = "dentist",
-        title = "预约牙医",
-        time = "明天 10:00",
-        kind = AgendaKind.TASK,
-        section = AgendaSection.UPCOMING,
-    ),
-    AgendaPreviewItem(
-        id = "completed-plan",
-        title = "确认下周安排",
-        time = "今天 09:30 完成",
-        kind = AgendaKind.TASK,
-        section = AgendaSection.TODAY,
-    ),
-)
