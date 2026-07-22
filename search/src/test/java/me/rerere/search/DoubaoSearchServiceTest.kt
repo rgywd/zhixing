@@ -44,35 +44,41 @@ class DoubaoSearchServiceTest {
     }
 
     @Test
-    fun responsePrefersSummaryThenSnippetThenContent() {
+    fun responseParsesOfficialNestedResultAndPrefersSummaryThenSnippetThenContent() {
         val result = parseDoubaoSearchResponse(
             """
                 {
-                  "WebResults": [
-                    {
-                      "Title": "Summary result",
-                      "Url": "https://example.com/summary",
-                      "Summary": "summary text",
-                      "Snippet": "snippet text",
-                      "Content": "content text"
-                    },
-                    {
-                      "Title": "Snippet result",
-                      "Url": "https://example.com/snippet",
-                      "Summary": "",
-                      "Snippet": "snippet fallback",
-                      "Content": "content text"
-                    },
-                    {
-                      "Title": "Content result",
-                      "Url": "https://example.com/content",
-                      "Content": "content fallback"
-                    },
-                    {
-                      "Title": "Invalid result without URL",
-                      "Summary": "ignored"
-                    }
-                  ]
+                  "ResponseMetadata": {
+                    "RequestId": "test-request"
+                  },
+                  "Result": {
+                    "ResultCount": 4,
+                    "WebResults": [
+                      {
+                        "Title": "Summary result",
+                        "Url": "https://example.com/summary",
+                        "Summary": "summary text",
+                        "Snippet": "snippet text",
+                        "Content": "content text"
+                      },
+                      {
+                        "Title": "Snippet result",
+                        "Url": "https://example.com/snippet",
+                        "Summary": "",
+                        "Snippet": "snippet fallback",
+                        "Content": "content text"
+                      },
+                      {
+                        "Title": "Content result",
+                        "Url": "https://example.com/content",
+                        "Content": "content fallback"
+                      },
+                      {
+                        "Title": "Invalid result without URL",
+                        "Summary": "ignored"
+                      }
+                    ]
+                  }
                 }
             """.trimIndent()
         )
@@ -84,12 +90,32 @@ class DoubaoSearchServiceTest {
     }
 
     @Test
+    fun responseStillAcceptsLegacyTopLevelWebResults() {
+        val result = parseDoubaoSearchResponse(
+            """
+                {
+                  "WebResults": [
+                    {
+                      "Title": "Legacy result",
+                      "Url": "https://example.com/legacy",
+                      "Summary": "legacy summary"
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+
+        assertEquals(1, result.items.size)
+        assertEquals("Legacy result", result.items.single().title)
+    }
+
+    @Test
     fun missingWebResultsIsReportedAsAnError() {
         try {
             parseDoubaoSearchResponse("{\"Message\":\"invalid request\"}")
             fail("Expected missing WebResults to fail")
         } catch (error: IllegalStateException) {
-            assertTrue(error.message.orEmpty().contains("WebResults"))
+            assertTrue(error.message.orEmpty().contains("Result.WebResults"))
         }
     }
 
