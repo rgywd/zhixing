@@ -164,7 +164,7 @@ git push origin release/0.3.2
 1. 完成发布验证，确认 `release/x.y.z` HEAD 位于 `origin/main` 历史中。
 2. 在该提交上创建且只创建一次 `vX.Y.Z` annotated tag；标签版本必须与 `versionName` 一致。
 3. 推送标签，由 `Release` workflow 回归关键路径、构建签名 APK、生成哈希和 GitHub Release。
-4. 验证 Release 中的 Universal、ARM64、x86_64 APK、`SHA256SUMS.txt`、`latest.json` 和应用内更新检查。
+4. 验证 Release 中的 Universal APK、`SHA256SUMS.txt`、`latest.json` 和应用内更新检查。
 5. 发布成功后删除本地和远端 `release/x.y.z`，再恢复常规功能合并。
 
 ```bash

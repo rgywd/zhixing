@@ -106,16 +106,6 @@ jobs:
           universal_name="zhixing-${VERSION}-universal.apk"
           cp "${universal_source}" "release/${universal_name}"
 
-          while IFS= read -r apk; do
-            source_name="$(basename "${apk}")"
-            case "${source_name}" in
-              *universal*) continue ;;
-              *arm64-v8a*) target_name="zhixing-${VERSION}-arm64-v8a.apk" ;;
-              *x86_64*) target_name="zhixing-${VERSION}-x86_64.apk" ;;
-              *) continue ;;
-            esac
-            cp "${apk}" "release/${target_name}"
-          done < <(find app/build/outputs/apk/release -type f -name '*.apk')
 
           sha256="$(sha256sum "release/${universal_name}" | cut -d ' ' -f 1)"
           size_bytes="$(stat -c '%s' "release/${universal_name}")"
