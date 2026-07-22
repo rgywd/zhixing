@@ -106,7 +106,6 @@ jobs:
           universal_name="zhixing-${VERSION}-universal.apk"
           cp "${universal_source}" "release/${universal_name}"
 
-
           sha256="$(sha256sum "release/${universal_name}" | cut -d ' ' -f 1)"
           size_bytes="$(stat -c '%s' "release/${universal_name}")"
           size="$(numfmt --to=iec-i --suffix=B "${size_bytes}")"
