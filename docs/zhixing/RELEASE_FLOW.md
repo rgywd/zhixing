@@ -163,8 +163,9 @@ git push origin release/0.3.2
 
 1. 完成发布验证，确认 `release/x.y.z` HEAD 位于 `origin/main` 历史中。
 2. 在该提交上创建且只创建一次 `vX.Y.Z` annotated tag；标签版本必须与 `versionName` 一致。
-3. 推送标签，由 `Release` workflow 回归关键路径、构建签名 APK、生成哈希和 GitHub Release。
-4. 验证 Release 中唯一的 Universal APK、`SHA256SUMS.txt`、`latest.json` 和应用内更新检查。
+3. 推送标签，由私有仓库的 `Release` workflow 回归关键路径、构建签名 APK，并将发行资产发布到公开的
+   [`rgywd/zhixing-releases`](https://github.com/rgywd/zhixing-releases/releases)。
+4. 验证公开 Release 中唯一的 Universal APK、对应源码归档、`SHA256SUMS.txt`、`latest.json` 和应用内更新检查。
 5. 发布成功后删除本地和远端 `release/x.y.z`，再恢复常规功能合并。
 
 ```bash
@@ -196,7 +197,8 @@ Android 不支持把较低 `versionCode` 当作升级包，因此回滚必须通
 
 - `release/x.y.z` 来自已经通过 CI 的 `main`，不能领先于主干承载未合入功能。
 - `vX.Y.Z` 符合严格格式，且标签提交位于 `origin/main` 历史中。
-- `Release` workflow 成功，发布资产和更新清单完成实际下载与哈希核验。
+- `Release` workflow 成功，公开仓库中的 APK、对应源码归档和更新清单完成匿名下载与哈希核验。
+- `latest.json.source.commit` 与私有仓库的正式 tag commit 一致。
 
 ## 操作检查单
 
@@ -217,5 +219,6 @@ Android 不支持把较低 `versionCode` 当作升级包，因此回滚必须通
 
 - [ ] 标签版本与 `versionName` 一致，标签提交属于 `origin/main`。
 - [ ] Release workflow 成功。
-- [ ] 唯一的 Universal APK、`latest.json` 和 SHA256 已核验。
+- [ ] 唯一的 Universal APK、对应源码归档、`latest.json` 和双 SHA256 已核验。
+- [ ] 未登录状态可以从 `rgywd/zhixing-releases` 下载更新清单、APK 与源码包。
 - [ ] release 与已合并短分支已清理。
