@@ -5,13 +5,14 @@ import androidx.work.Data
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import me.rerere.rikkahub.data.model.AgendaTask
+import me.rerere.rikkahub.data.model.AgendaTaskStatus
 import java.util.concurrent.TimeUnit
 
 class AgendaReminderScheduler(private val context: Context) {
     fun sync(task: AgendaTask) {
         cancel(task.id)
         val reminderAt = task.reminderAt ?: return
-        if (task.status.name != "PENDING") return
+        if (task.status != AgendaTaskStatus.PENDING) return
         val delay = reminderAt - System.currentTimeMillis()
         if (delay <= 0) return
 

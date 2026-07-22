@@ -32,8 +32,8 @@ class AgendaTaskRepository(
         conversationId: String? = null,
     ): AgendaTask {
         require(title.isNotBlank()) { "待办标题不能为空" }
-        require(reminderAt == null || reminderAt > 0) { "提醒时间无效" }
         val now = System.currentTimeMillis()
+        require(reminderAt == null || reminderAt > now) { "提醒时间必须晚于当前时间" }
         val task = AgendaTask(
             id = UUID.randomUUID().toString(),
             title = title.trim(),
@@ -60,6 +60,7 @@ class AgendaTaskRepository(
         reminderAt: Long?,
     ): AgendaTask {
         require(title.isNotBlank()) { "待办标题不能为空" }
+        require(reminderAt == null || reminderAt > System.currentTimeMillis()) { "提醒时间必须晚于当前时间" }
         val old = getById(id) ?: error("待办不存在")
         val updated = old.copy(
             title = title.trim(),
@@ -78,6 +79,7 @@ class AgendaTaskRepository(
         val now = System.currentTimeMillis()
         val updated = old.copy(
             status = if (completed) AgendaTaskStatus.COMPLETED else AgendaTaskStatus.PENDING,
+            reminderAt = if (completed) old.reminderAt else old.reminderAt?.takeIf { it > now },
             completedAt = if (completed) now else null,
             updatedAt = now,
         )
