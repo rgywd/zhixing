@@ -1,16 +1,16 @@
 ---
-source_commit: 4e68436185cb505db643c54224ab82d2f2745844
+source_commit: 762c37f2ba2c6f3f982c8b1ae5761fadb904b8af
 generated: 2026-07-21
 ---
 
 
 # 模块：gradle
 
-**gradle** — 集中管理 Gradle 构建环境、依赖版本与 Wrapper，确保构建一致性。
+**Gradle 构建环境与依赖版本配置中心**  
+模块通过 `gradle-wrapper.properties` 锁定 Gradle 9.4.1 版本，确保团队统一构建；`libs.versions.toml` 集中声明所有模块共用的版本、库与插件，提供单一可信源；`gradle-daemon-jvm.properties` 指定守护进程工具链（JetBrains JDK 21），保障构建一致性。其他模块均通过该目录的版本目录引用依赖，无需四处硬编码。  
 
-模块通过 `gradle-wrapper.properties` 锁定 Gradle 9.4.1 版本及下载源；`gradle-daemon-jvm.properties` 为守护进程指定 JetBrains 提供的 JDK 21 工具链；`libs.versions.toml` 作为版本目录，统一声明所有依赖库与插件的版本坐标。核心数据流：Wrapper 下载对应 Gradle 启动构建，构建过程使用指定的 JDK 21，各子模块通过引用 `libs.versions.toml` 获取依赖版本。无外部模块依赖，以配置形式向上层物资提供版本与工具链信息。
+**修改指引**：升级 Gradle 版本编辑 `gradle-wrapper.properties`，更新依赖版本修改 `libs.versions.toml`，调整构建 JDK 修改 `gradle-daemon-jvm.properties`。
 
-**修改指引**：典型改动从 `libs.versions.toml` 的 `[versions]` 表开始，升级 Gradle 则修改 `gradle-wrapper.properties` 中的 `distributionUrl`，更换 JDK 调整 `gradle-daemon-jvm.properties` 的 `toolchainVersion` 与下载地址。
 
 ## 文件摘要
 

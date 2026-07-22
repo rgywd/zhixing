@@ -243,10 +243,8 @@ private fun VolcengineTTSConfiguration(
     var voiceExpanded by remember { mutableStateOf(false) }
     val voices = remember {
         listOf(
-            "zh_female_xiaohe_jupiter_bigtts" to "小何 2.0",
-            "zh_female_vv_jupiter_bigtts" to "Vivi",
-            "zh_male_yunzhou_jupiter_bigtts" to "云舟",
-            "zh_male_xiaotian_jupiter_bigtts" to "小天",
+            "zh_female_xiaohe_uranus_bigtts" to "小何 2.0",
+            "zh_female_vv_uranus_bigtts" to "Vivi 2.0",
         )
     }
     FormItem(

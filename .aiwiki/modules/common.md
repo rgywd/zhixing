@@ -1,16 +1,21 @@
 ---
-source_commit: 4e68436185cb505db643c54224ab82d2f2745844
+source_commit: 762c37f2ba2c6f3f982c8b1ae5761fadb904b8af
 generated: 2026-07-21
 ---
 
 
 # 模块：common
 
-公共基础库，提供缓存、网络请求、日志、上下文工具等通用能力。
+**模块职责**：为 Android 应用提供通用基础设施，包括缓存、HTTP 网络、日志记录与 JS 引擎注入。
 
-模块按功能分包：cache 子包提供多级缓存存储（单文件/每键文件）与 LRU 驱逐策略，http 子包封装 OkHttp 请求、SSE 流、JSON 解析与表达式，js 子包为 QuickJS 注入同步 fetch，android 子包提供 Context 目录工具与内存日志。核心数据流以 CacheStore 接口统一持久化，通过 LruCache 管理内存缓存；网络请求经 Call.await 挂起或 sseFlow 流式处理。对外暴露 CacheStore 实现、LruCache、HTTP 工具、SSE 事件流、日志记录等。依赖 OkHttp、kotlinx.serialization、QuickJS 等库。
+**组织与数据流**：按功能分包，`cache` 提供可持久化、多后端的 LRU 缓存（`CacheEntry` → `CacheStore` 实现 → `LruCache` 统一入口）；`http` 封装 OkHttp 请求挂起扩展、SSE 流、Accept-Lang 构建与 JSON 表达式解析；`android` 负责日志管理与上下文工具；`js` 为 QuickJS 注入同步 fetch。核心控制流为：调用方通过 `LruCache` 存取数据，网络层通过 `Call.await()` 或 `sseFlow` 获取响应，日志由 `Logging` 单例集中管理。
 
-修改指引：新增缓存存储实现需扩展 CacheStore 接口，新增 HTTP 工具应在 http 包下添加扩展函数。
+**对外接口**：`CacheStore<K,V>` 接口、`LruCache` 类、`Call.await()`、`sseFlow`、`Logging` 单例、`QuickJSContext.injectFetch`。
+
+**关键依赖**：OkHttp、Kotlinx 序列化/协程/DateTime、QuickJS、FloatingX、Apache Commons Text。
+
+**修改指引**：增改缓存策略从 `cache/LruCache.kt` 入手，扩展网络能力从 `http/Request.kt` 或 `http/SSE.kt` 入手。
+
 
 ## 文件摘要
 
@@ -25,12 +30,14 @@ Android 公共库模块构建脚本，配置 SDK 37、Kotlin 编译选项及依�
 
 ### `common/consumer-rules.pro`
 
-空文件，未定义任何混淆规则。
+```
+- 空 ProGuard 消费者规则文件，无自定义保护条目。
+```
 
 ### `common/proguard-rules.pro`
 
-- 文件职责：Android ProGuard 混淆规则模板，当前无自定义规则。
-- 关键条目：无实际规则，所有行均为注释与示例说明。
+Android ProGuard 规则配置文件，当前仅含注释及示例未启用规则。  
+- 无活跃规则：所有配置均为注释或示例说明。
 
 ### `common/src/androidTest/java/me/rerere/common/ExampleInstrumentedTest.kt`
 
@@ -40,7 +47,8 @@ Android 设备上的示例仪器化测试。
 
 ### `common/src/main/AndroidManifest.xml`
 
-Android 清单文件，目前为空。
+Android 应用清单文件，当前为空，未定义任何组件或权限。  
+- 无关键条目。
 
 ### `common/src/main/java/me/rerere/common/android/ContextUtil.kt`
 
@@ -148,6 +156,8 @@ Android 清单文件，目前为空。
 - `evaluateJsonExpr`：在 JSON 对象上执行表达式返回字符串
 - `Expr`：表达式 AST 接口
 - `Value`：求值结果（字符串或数字）
+
+> 符号导航：[files/common/src/main/java/me/rerere/common/http/JsonExpression.kt.md](../files/common/src/main/java/me/rerere/common/http/JsonExpression.kt.md)
 
 ### `common/src/main/java/me/rerere/common/http/Request.kt`
 

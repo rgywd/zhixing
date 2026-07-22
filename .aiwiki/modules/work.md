@@ -1,27 +1,28 @@
 ---
-source_commit: 4e68436185cb505db643c54224ab82d2f2745844
-generated: 2026-07-21
+source_commit: 253b9107c5c4fbf3dd5e5e0ea8ecfd9fe6443132
+generated: 2026-07-22
 ---
 
 
 # 模块：work
 
-**work** 模块是分布式工作调度与执行系统，负责创建会话、下发命令、驱动 Codex 执行并双向同步手机端。
+**实现 AI 与手机端异步协作的电话线服务，管理会话、报告与指令分发。**
 
-模块分为两层：`core` 提供 HTTP API 与 SQLite 存储，管理会话、命令、事件和提问；`runner` 轮询命令，启动 Codex 子进程，通过 MCP 工具向手机端发送报告/提问/HTML 报告。Runner 与 Core 之间通过 `CoreClient` 通信，认证依赖 token 哈希。核心数据流：Runner 注册 → 获取命令 → 执行 Codex → 解析 JSONL 事件 → 上报 Core，Core 持久化并转发给手机端。手机端可通过 `ask` 回答回传。
+核心模块`core`为 Node.js HTTPS 服务，使用 SQLite 持久化 Runner、会话、命令与事件，通过 Token 认证 Runner/用户；`runner`模块在 Windows 中运行，拉取命令、启动 Codex CLI 代理，并通过 MCP 工具（`report`/`ask`/`report_html`）向手机端推送消息。数据流：Runner 注册与心跳 → Core 创建会话并派发命令 → Runner 启 Codex 子进程 → 输出经 MCP 回调 Core → 用户通过手机应答提问。对外接口为 Core REST API 及 MCP 协议；依赖 `@modelcontextprotocol/sdk`、SQLite。
 
-修改指引：调整 API 或会话逻辑从 `core/server.js` 和 `core/store.js` 入手；修改 Runner 执行流程或状态管理从 `runner/runner.js` 和 `runner/state.js` 入手。
+**修改指引**：会话生命周期与命令派发在 `core/store.js` 和 `core/server.js`，Codex 集成与 MCP 消息在 `runner/runner.js` 和 `runner/mcp-server.js`。
+
 
 ## 文件摘要
 
 ### `work/README.md`
 
-项目部署指南，说明 Core 和 Windows Runner 的配置与验证。
-- `deploy/.env`：Core 环境变量，需生成随机值
-- `docker compose up -d --build`：启动 Core 服务
-- `runner/work-runner.json`：Runner 配置（token 与白名单）
-- `start-runner.ps1`：前台运行 Runner
-- `npm --prefix work test`：模拟协议测试
+描述 Zhixing Work Phone-line 项目整体架构、部署与验证流程，让 AI agent 快速了解运行时环境。
+
+- `Core` 部署：Docker 启动 HTTPS 服务，使用 SQLite 存储
+- `Windows Runner` 配置：安装 Node.js、Codex，设置白名单仓库
+- `repoRoots` 发现：自动扫描项目目录，支持多种项目标记
+- `验证`：`npm test` 使用假 Codex 覆盖 MCP 协议与 e2e 测试
 
 ### `work/core/index.js`
 
@@ -43,26 +44,37 @@ HTTP 服务器实现 API 路由，处理 Runner/Work/MCP 认证与请求解析�
 - `waitForAnswer` / `streamEvents`：实时事件与轮询
 - `PROTOCOL_VERSION` / `MAX_IMAGE_BYTES` / `IMAGE_TYPES`：协议与限制常量
 
+> 符号导航：[files/work/core/server.js.md](../files/work/core/server.js.md)
+
 ### `work/core/server.test.js`
 
-Work server 集成测试，验证会话、命令、附件、询答等。
-- `fixture`：创建测试环境
-- `request`：HTTP 请求助手
-- `uploadImage`：上传附件
-- `registerAndCreate`：注册并创建会话
-- `runnerCommandsPath`：命令路径构建
+集成测试套件，验证 Work 服务器的电话线闭环、用户交互、Runner 协议及状态持久化。
+
+- `fixture`：启动测试服务器与 Store
+- `request`：封装认证 HTTP 请求
+- `registerAndCreate`：注册 Runner 并创建会话
+- `uploadImage`：上传图片附件
+- `runnerCommandsPath`：构建 Runner 命令 URL
+- `"full phone-line API flow..."`：测试核心 API 幂等与顺序
+- `"ask creation rolls back..."`：测试事务回滚
+- `"Core restart times out..."`：测试重启恢复
+
+> 符号导航：[files/work/core/server.test.js.md](../files/work/core/server.test.js.md)
 
 ### `work/core/store.js`
 
-工作会话存储与状态管理，基于 SQLite 实现会话、命令、事件、提问等核心数据操作。
+核心存储层，管理工作流运行器、会话、事件、命令及附件。
 
-- `WorkStore`：核心类，封装会话/命令/事件/附件/提问等 CRUD 与业务逻辑
-- `tokenHash`/`safeHashEquals`：安全哈希与常量时间比较
-- `SESSION_TERMINAL`/`SESSION_ACTIVE`：会话状态常量集
-- `createSession`/`appendEvent`/`createCommand`：创建会话、追加事件、创建命令
-- `createAsk`/`answerAsk`：提问与回答流程
-- `report`/`reportHtml`：报告处理
-- `validateQuestions`/`validateAnswers`：提问与答案校验
+- `WorkStore`：封装 SQLite 存储与认证逻辑。
+- `createSession`：新建会话并派发启动命令。
+- `postUserMessage`：追加用户消息并触发命令。
+- `listCommands`：获取待处理的运行器命令。
+- `ackCommand`：确认命令状态（索取/完成/失败）。
+- `appendRunnerEvent`：记录助手消息事件。
+- `createAsk`：生成问题集等待用户回答。
+- `answerAsk`：处理用户回答并恢复会话。
+
+> 符号导航：[files/work/core/store.js.md](../files/work/core/store.js.md)
 
 ### `work/deploy/Dockerfile`
 
@@ -100,19 +112,32 @@ Work Phone-line 真实 Codex 端到端验收脚本，验证会话全流程。
 
 ### `work/runner/codex-process.js`
 
-封装 Codex CLI 进程的启动、参数构建与 JSONL 事件解析。
-- `mcpConfigArgs`：生成 MCP 服务器配置 CLI 参数
-- `buildCodexArgs`：构建 exec/resume 命令参数
-- `parseCodexSessionId`：从事件提取会话 ID
-- `parseCodexAssistantMessage`：解析 agent 消息
-- `runCodex`：启动子进程并逐行派发 JSON 事件
-- `resolveCodexCommand`：Windows 下解析 codex.exe 路径
+封装 Codex CLI 进程的启动、参数构建、事件解析与终止逻辑。
+- `mcpConfigArgs`：生成 MCP 服务器配置参数
+- `buildCodexArgs`：构建 Codex exec 命令参数
+- `parseCodexSessionId`：从事件中提取会话 ID
+- `parseCodexAssistantMessage`：提取助手消息文本
+- `parseCodexTurnOutcome`：解析回合完成/失败状态
+- `terminateProcessTree`：跨平台终止进程树
+- `runCodex`：启动 Codex 子进程并返回控制
+- `resolveCodexCommand`：解析 Codex 可执行文件路径
 
 ### `work/runner/core-client.js`
 
-Core 服务的 HTTP 客户端封装，负责 runner 注册、心跳、命令/附件获取与确认。
-- `CoreClient`：HTTP 客户端类，封装请求与 runner 生命周期 API
-- `PROTOCOL_HEADERS`：协议标识头常量
+为 Runner 提供与后端核心服务的 HTTP 通信客户端，封装注册、心跳、指令拉取等操作。
+
+- `CoreClient`：封装基础 URL、令牌与实例 ID
+- `request`：通用请求方法，自动处理超时与错误
+- `register`：注册 Runner 及其仓库信息
+- `heartbeat`：发送心跳保活会话
+- `commands`：拉取待执行的命令列表
+- `downloadAttachment`：下载附件（支持重试）
+- `ack`：确认命令执行结果（支持重试）
+- `updateState`：更新会话状态
+
+### `work/runner/core-client.test.js`
+
+测试 CoreClient 在遇到 503 错误时自动重试下载附件。
 
 ### `work/runner/index.js`
 
@@ -153,22 +178,39 @@ MCP 服务器，注册 report/ask/report_html 工具，向手机端发送消息�
 - 环境变量：`ZHIXING_WORK_HOOK_OUTBOX`（输出目录），`ZHIXING_WORK_SESSION_ID`（会话 ID）
 - 输入字段：`hook_event_name`(== "Stop")、`session_id`、`turn_id`
 
+### `work/runner/repo-catalog.js`
+
+仓库目录的构建与校验，整合显式配置及自动发现，生成仓库表与指纹。
+
+- `buildRepositoryCatalog`：从配置组装仓库列表
+- `validateRepositoryConfig`：校验配置完整性
+- `repositoryCatalogFingerprint`：生成仓库列表指纹
+- `expandPath`：展开路径中的环境变量和~别名
+
+### `work/runner/repo-catalog.test.js`
+
+测试 `repo-catalog.js` 的仓库发现、验证、指纹和刷新功能。
+
 ### `work/runner/runner.js`
 
-工作会话运行器，轮询命令并管理 Codex 子进程生命周期。
-- `WorkRunner`：启停子进程，处理 START/STOP/RESUME/COMPLETE，维护状态与发件箱。
-- `isolatedCodexEnv`：构造隔离环境变量。
-- `PHONE_DEVELOPER_INSTRUCTIONS`：手机端提示指令。
+作为核心服务与 Codex 进程之间的桥梁，管理会话、附件和状态同步。
+
+- `WorkRunner`：核心类，管理 Codex 会话生命周期
+- `isolatedCodexEnv`：为 Codex 子进程构建隔离的环境变量
+- `PHONE_DEVELOPER_INSTRUCTIONS`：手机端开发者指令常量
+- `start()`：启动轮询和心跳，确保目录就绪
+- `startCommand`：启动 Codex 进程并处理附件
+- `monitorCommand`：监控进程退出并提交最终状态
+- `downloadAttachments`：下载并校验附件文件
+- `stopCommand`：终止运行中的 Codex 进程
+
+> 符号导航：[files/work/runner/runner.js.md](../files/work/runner/runner.js.md)
 
 ### `work/runner/runner.test.js`
 
-验证 WorkRunner 与 Codex 集成、状态持久化与恢复。
-- `buildCodexArgs` 参数构造
-- `parseCodexAssistantMessage` 消息筛选
-- `WorkRunner` 启动/停止/恢复
-- `RunnerState` 状态持久化
-- `ensurePhoneHookProfile` 配置生成
-- `resolveCodexCommand` 可执行文件解析
+测试 WorkRunner 与 Codex CLI 集成、会话恢复、重试及进程清理的完整生命周期。
+
+> 符号导航：[files/work/runner/runner.test.js.md](../files/work/runner/runner.test.js.md)
 
 ### `work/runner/start-runner.ps1`
 
@@ -195,13 +237,4 @@ MCP 服务器，注册 report/ask/report_html 工具，向手机端发送消息�
 
 ### `work/runner/work-runner.example.json`
 
-工作运行器示例配置，定义核心连接、轮询策略与仓库列表。
-- `id`：运行器标识
-- `name`：运行器名称
-- `version`：版本号
-- `coreUrl`：核心服务地址
-- `token`：认证令牌
-- `stateFile`：状态文件路径
-- `pollIntervalMs`：轮询间隔
-- `codexCommand`：Codex命令
-- `repos`：仓库列表，含路径、模型与推理强度
+Work Runner 的示例配置文件，定义连接核心服务、挂载仓库及模型参数。

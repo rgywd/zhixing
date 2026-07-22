@@ -134,7 +134,7 @@ sealed class TTSProviderSetting {
         val apiKey: String = "",
         val baseUrl: String = "wss://openspeech.bytedance.com/api/v3/plan/tts/unidirectional/stream",
         val model: String = "seed-tts-2.0",
-        val voice: String = "zh_female_xiaohe_jupiter_bigtts",
+        val voice: String = "zh_female_xiaohe_uranus_bigtts",
         val format: String = "mp3",
         val sampleRate: Int = 24000,
         val speechRate: Int = 0,

@@ -7,7 +7,7 @@
 
 - API：`wss://openspeech.bytedance.com/api/v3/plan/tts/unidirectional/stream`
 - Resource ID / 模型：`seed-tts-2.0`
-- 音色：小何 2.0（`zh_female_xiaohe_jupiter_bigtts`）
+- 音色：小何 2.0（`zh_female_xiaohe_uranus_bigtts`）
 - 音频：MP3、24 kHz、正常语速和响度
 
 用户需要填写火山方舟 Agent Plan API Key。客户端通过 `X-Api-Key`、`X-Api-Resource-Id` 和
