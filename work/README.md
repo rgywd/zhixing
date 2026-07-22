@@ -18,6 +18,20 @@ curl http://127.0.0.1:8787/healthz
 SQLite 数据位于 Docker volume `work-core-data`。备份时先停止容器，再复制 volume 中的
 `work-core.sqlite`；恢复时使用相同协议版本启动后再开放 HTTPS 入口。
 
+### 套餐余量代理
+
+右侧生活概览通过 Work Core 的 `GET /v1/life/quotas` 读取套餐余量。Core 使用
+`CPA_QUOTA_BASE_URL` 和 `CPA_QUOTA_TOKEN` 访问 CPA 额度监控，Android 安装包不会包含监控 token，
+也不会直接访问明文监控地址。该接口沿用 Work 用户 Bearer 鉴权和 `X-Zhixing-Work-Protocol: 1`。
+
+Core 会在 SQLite 同目录持久化最后一次通过 `quota-monitor/v1` 校验的响应。上游超时、返回错误或
+数据不符合契约时，已有快照会以 `proxy_stale=true` 返回；没有可用快照时返回 5xx。未知数字仍为
+`null`，不会被改写为 0。普通页面只查询 `/v1/quotas`，不会触发 CPA 的立即刷新接口。
+
+`CPA_QUOTA_BASE_URL` 必须指向 HTTPS 入口或仅在服务器内部可达的加密隧道端点，不要让 Core 使用
+携带 Bearer Token 的公网明文 HTTP。当前单机部署可用受限 SSH 本地转发连接监控服务的 loopback
+端口，再把该隧道地址填入 Core 环境变量。
+
 ## Windows Runner
 
 1. 安装 Node.js 22.5+、Git 和 Codex CLI。Runner 使用独立 `codexHome`，先为该目录完成一次登录：

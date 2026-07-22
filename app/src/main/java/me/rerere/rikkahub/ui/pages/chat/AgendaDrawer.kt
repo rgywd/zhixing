@@ -37,6 +37,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +50,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.AlarmClock
 import me.rerere.hugeicons.stroke.Calendar03
@@ -61,8 +64,18 @@ import me.rerere.hugeicons.stroke.Sun01
 import me.rerere.hugeicons.stroke.Task01
 import me.rerere.hugeicons.stroke.Time02
 import me.rerere.hugeicons.stroke.Zap
+import me.rerere.rikkahub.data.quota.ProviderQuotaOverview
+import me.rerere.rikkahub.data.quota.ProviderQuotaStatus
+import me.rerere.rikkahub.data.quota.QuotaRepository
+import me.rerere.rikkahub.data.quota.QuotaRepositoryState
+import me.rerere.rikkahub.data.quota.buildQuotaOverviews
+import org.koin.compose.koinInject
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 @Composable
 fun AgendaDrawerHost(
@@ -122,6 +135,11 @@ private fun LifeOverviewDrawerContent(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val quotaRepository: QuotaRepository = koinInject()
+    val quotaState by quotaRepository.state.collectAsStateWithLifecycle()
+    val quotaItems = remember(quotaState.envelope) { buildQuotaOverviews(quotaState.envelope) }
+    LaunchedEffect(quotaRepository) { quotaRepository.refresh() }
+
     Surface(
         modifier = modifier
             .fillMaxHeight()
@@ -164,10 +182,10 @@ private fun LifeOverviewDrawerContent(
                 item(key = "quota-title") {
                     OverviewSectionTitle(
                         title = "套餐余量",
-                        subtitle = "统一查看模型服务的可用额度",
+                        subtitle = quotaSectionSubtitle(quotaState),
                     )
                 }
-                items(quotaPreviewItems, key = { it.name }) { item ->
+                items(quotaItems, key = { it.provider }) { item ->
                     QuotaOverviewCard(item)
                 }
             }
@@ -444,49 +462,117 @@ private fun AgendaOverviewCard(item: AgendaOverviewItem) {
 }
 
 @Composable
-private fun QuotaOverviewCard(item: QuotaPreviewItem) {
+private fun QuotaOverviewCard(item: ProviderQuotaOverview) {
+    val statusColor = when (item.status) {
+        ProviderQuotaStatus.LOW, ProviderQuotaStatus.ERROR -> MaterialTheme.colorScheme.error
+        ProviderQuotaStatus.PARTIAL, ProviderQuotaStatus.STALE, ProviderQuotaStatus.UNAVAILABLE ->
+            MaterialTheme.colorScheme.tertiary
+        ProviderQuotaStatus.OK -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Surface(
-                modifier = Modifier.size(36.dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(HugeIcons.MoneyBag02, contentDescription = null, modifier = Modifier.size(18.dp))
+                Surface(
+                    modifier = Modifier.size(36.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(HugeIcons.MoneyBag02, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(item.displayName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                    Text(
+                        text = quotaDetail(item),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Surface(
+                    shape = CircleShape,
+                    color = statusColor.copy(alpha = 0.12f),
+                ) {
+                    Text(
+                        text = quotaBadge(item),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = statusColor,
+                    )
                 }
             }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(item.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                Text(
-                    text = item.detail,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            ) {
-                Text(
-                    text = "待接入",
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            item.remainingPercent?.let { remaining ->
+                LinearProgressIndicator(
+                    progress = { (remaining / 100.0).toFloat() },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = statusColor,
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 )
             }
         }
     }
 }
+
+private fun quotaSectionSubtitle(state: QuotaRepositoryState): String = when {
+    state.envelope == null && state.refreshing -> "正在同步套餐余量"
+    state.envelope == null && state.errorMessage != null -> "同步失败 · ${state.errorMessage}"
+    state.errorMessage != null -> "显示上次结果 · 本次同步失败"
+    state.envelope?.proxyStale == true || state.fromDeviceCache -> "显示上次成功结果 · 数据可能已过期"
+    state.refreshing -> "正在后台更新 · 当前显示上次结果"
+    state.envelope != null -> "更新于 ${formatQuotaTime(state.envelope.generatedAt)}"
+    else -> "统一查看模型服务的可用额度"
+}
+
+private fun quotaDetail(item: ProviderQuotaOverview): String = when {
+    item.accountCount == 0 -> "暂无已接入凭据"
+    item.remainingPercent != null -> buildString {
+        append("${item.usableAccountCount}/${item.accountCount} 个账户可用")
+        item.windowLabel?.let { append(" · $it") }
+        item.resetAt?.let { append(" · ${formatQuotaTime(it)} 重置") }
+    }
+    item.status == ProviderQuotaStatus.DISABLED -> "${item.accountCount} 个账户 · 已禁用"
+    item.status == ProviderQuotaStatus.UNAVAILABLE -> "${item.accountCount} 个账户 · 暂不可用，余量未知"
+    item.status == ProviderQuotaStatus.UNSUPPORTED -> "${item.accountCount} 个账户 · 暂不支持额度查询"
+    item.status == ProviderQuotaStatus.ERROR -> "${item.accountCount} 个账户 · 采集失败，余量未知"
+    else -> "${item.accountCount} 个账户 · 暂无可计算额度"
+}
+
+private fun quotaBadge(item: ProviderQuotaOverview): String = item.remainingPercent?.let(::formatPercent)
+    ?: when (item.status) {
+        ProviderQuotaStatus.MISSING -> "未接入"
+        ProviderQuotaStatus.DISABLED -> "已禁用"
+        ProviderQuotaStatus.UNAVAILABLE -> "暂不可用"
+        ProviderQuotaStatus.UNSUPPORTED -> "不支持"
+        ProviderQuotaStatus.ERROR -> "采集失败"
+        ProviderQuotaStatus.PARTIAL -> "部分异常"
+        ProviderQuotaStatus.STALE -> "旧数据"
+        ProviderQuotaStatus.LOW -> "余量偏低"
+        ProviderQuotaStatus.OK -> "未知"
+    }
+
+private fun formatPercent(value: Double): String = if (value % 1.0 == 0.0) {
+    "${value.roundToInt()}%"
+} else {
+    String.format("%.1f%%", value)
+}
+
+private fun formatQuotaTime(value: String): String = runCatching {
+    QUOTA_TIME_FORMATTER.format(Instant.parse(value).atZone(ZoneId.systemDefault()))
+}.getOrDefault("未知时间")
 
 private data class StatusPreviewItem(
     val label: String,
@@ -525,16 +611,7 @@ private val agendaOverviewItems = listOf(
     AgendaOverviewItem("call-family", "给父母打电话", "今天 20:00 提醒", "待提醒", AgendaOverviewKind.REMINDER),
 )
 
-private data class QuotaPreviewItem(
-    val name: String,
-    val detail: String,
-)
-
-private val quotaPreviewItems = listOf(
-    QuotaPreviewItem("Codex", "等待接入套餐余量接口"),
-    QuotaPreviewItem("Kimi", "等待接入套餐余量接口"),
-    QuotaPreviewItem("SuperGrok", "等待接入套餐余量接口"),
-)
+private val QUOTA_TIME_FORMATTER = DateTimeFormatter.ofPattern("M月d日 HH:mm")
 
 internal enum class AgendaSwipeDirection {
     OPEN,

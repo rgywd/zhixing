@@ -11,6 +11,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import me.rerere.rikkahub.data.quota.QuotaEnvelope
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -40,6 +41,8 @@ class PhoneWorkApiClient(
 
     suspend fun sessions(archived: Boolean = false): List<PhoneWorkSession> =
         get<SessionsResponse>("/v1/work/sessions${if (archived) "?archived=true" else ""}").sessions
+
+    suspend fun quotas(): QuotaEnvelope = get("/v1/life/quotas")
 
     suspend fun events(sessionId: String, afterSeq: Long): List<PhoneWorkEvent> =
         get<EventsResponse>("/v1/work/sessions/${sessionId.urlEncode()}/events?afterSeq=$afterSeq").events
