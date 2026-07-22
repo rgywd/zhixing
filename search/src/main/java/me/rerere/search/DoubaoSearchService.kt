@@ -111,7 +111,9 @@ internal fun buildDoubaoSearchRequest(
 
 internal fun parseDoubaoSearchResponse(rawBody: String): SearchResult {
     val response = json.decodeFromString<DoubaoSearchResponse>(rawBody)
-    val webResults = response.webResults ?: error("Doubao response does not contain WebResults")
+    val webResults = response.result?.webResults
+        ?: response.webResults
+        ?: error("Doubao response does not contain Result.WebResults or WebResults")
     return SearchResult(
         items = webResults.mapNotNull { item ->
             val url = item.url.takeIf(String::isNotBlank) ?: return@mapNotNull null
@@ -129,6 +131,14 @@ private fun firstNotBlank(vararg values: String?): String =
 
 @Serializable
 internal data class DoubaoSearchResponse(
+    @SerialName("Result")
+    val result: DoubaoSearchResult? = null,
+    @SerialName("WebResults")
+    val webResults: List<DoubaoWebResult>? = null,
+)
+
+@Serializable
+internal data class DoubaoSearchResult(
     @SerialName("WebResults")
     val webResults: List<DoubaoWebResult>? = null,
 )
