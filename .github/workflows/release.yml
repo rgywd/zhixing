@@ -100,22 +100,16 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir -p release
-          universal_source="$(find app/build/outputs/apk/release -type f -name '*universal*release*.apk' -print -quit)"
-          test -n "${universal_source}" || { echo "Universal release APK was not produced" >&2; exit 1; }
+          mapfile -t release_apks < <(find app/build/outputs/apk/release -type f -name '*.apk' -print)
+          if [[ "${#release_apks[@]}" -ne 1 ]]; then
+            echo "Expected exactly one universal release APK, found ${#release_apks[@]}" >&2
+            printf '%s\n' "${release_apks[@]}" >&2
+            exit 1
+          fi
+          universal_source="${release_apks[0]}"
 
           universal_name="zhixing-${VERSION}-universal.apk"
           cp "${universal_source}" "release/${universal_name}"
-
-          while IFS= read -r apk; do
-            source_name="$(basename "${apk}")"
-            case "${source_name}" in
-              *universal*) continue ;;
-              *arm64-v8a*) target_name="zhixing-${VERSION}-arm64-v8a.apk" ;;
-              *x86_64*) target_name="zhixing-${VERSION}-x86_64.apk" ;;
-              *) continue ;;
-            esac
-            cp "${apk}" "release/${target_name}"
-          done < <(find app/build/outputs/apk/release -type f -name '*.apk')
 
           sha256="$(sha256sum "release/${universal_name}" | cut -d ' ' -f 1)"
           size_bytes="$(stat -c '%s' "release/${universal_name}")"
@@ -139,7 +133,7 @@ jobs:
             '{version: $version, publishedAt: $publishedAt, changelog: $changelog, downloads: [{name: $name, url: $url, size: $size, sha256: $sha256}]}' \
             > release/latest.json
 
-          sha256sum release/*.apk > release/SHA256SUMS.txt
+          sha256sum "release/${universal_name}" > release/SHA256SUMS.txt
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
