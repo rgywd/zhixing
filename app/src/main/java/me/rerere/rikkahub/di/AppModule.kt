@@ -5,6 +5,7 @@ import me.rerere.highlight.Highlighter
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbe
 import me.rerere.rikkahub.data.profile.ProfileMaintenanceScheduler
 import me.rerere.rikkahub.data.profile.ProfileMaintenanceService
 import me.rerere.rikkahub.data.profile.ProfileMaintenanceWorker
@@ -39,6 +40,8 @@ val appModule = module {
     single {
         AppEventBus()
     }
+
+    single { LenovoWatchProbe(get()) }
 
     single {
         LocalTools(get(), get(), get(), get(), get(), get(), get())
