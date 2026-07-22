@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import me.rerere.rikkahub.data.work.CreateSessionRequest
 import me.rerere.rikkahub.data.work.PhoneWorkAnswer
 import me.rerere.rikkahub.data.work.PhoneWorkCatalog
 import me.rerere.rikkahub.data.work.PhoneWorkEvent
@@ -21,13 +20,13 @@ import me.rerere.rikkahub.data.work.PhoneWorkDraftStore
 import me.rerere.rikkahub.data.work.PhoneWorkRepo
 import me.rerere.rikkahub.data.work.PhoneWorkRepository
 import me.rerere.rikkahub.data.work.PhoneWorkSession
-import me.rerere.rikkahub.service.ChatService
+import me.rerere.rikkahub.data.work.PhoneWorkSessionCreator
 
 class PhoneWorkSessionVM(
     initialSessionId: String,
     private val repository: PhoneWorkRepository,
     private val draftStore: PhoneWorkDraftStore,
-    private val chatService: ChatService,
+    private val sessionCreator: PhoneWorkSessionCreator,
 ) : ViewModel() {
     private val sessionId = MutableStateFlow(initialSessionId.takeIf { it.isNotBlank() })
     val session: StateFlow<PhoneWorkSession?> = sessionId.flatMapLatest { id ->
@@ -120,18 +119,12 @@ class PhoneWorkSessionVM(
                 val id = sessionId.value
                 if (id == null) {
                     val repo = selectedRepo.value ?: error("开发机还没有可用仓库")
-                    val title = chatService.generateWorkTitle(text)
-                        ?: fallbackWorkSessionTitle(text, repo.name)
-                    repository.createSession(
-                        CreateSessionRequest(
-                            runnerId = repo.runnerId,
-                            repoId = repo.id,
-                            title = title,
-                            model = selectedModel.value,
-                            reasoningEffort = selectedEffort.value,
-                            message = text,
-                        ),
-                        imageUrls,
+                    sessionCreator.create(
+                        repo = repo,
+                        model = selectedModel.value,
+                        reasoningEffort = selectedEffort.value,
+                        message = text,
+                        imageUrls = imageUrls,
                     ).also {
                         sessionId.value = it.id
                         onAccepted(it.id)
@@ -204,14 +197,3 @@ class PhoneWorkSessionVM(
         val DEFAULT_EFFORTS = listOf("medium", "high", "xhigh", "max")
     }
 }
-
-internal fun fallbackWorkSessionTitle(message: String, repoName: String): String = message
-    .lineSequence()
-    .map(String::trim)
-    .firstOrNull(String::isNotBlank)
-    ?.trimStart('#', '-', '*', ' ')
-    ?.replace(Regex("\\s+"), " ")
-    ?.take(40)
-    ?.trim()
-    ?.takeIf(String::isNotBlank)
-    ?: repoName

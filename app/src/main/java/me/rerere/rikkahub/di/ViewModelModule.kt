@@ -86,7 +86,7 @@ val viewModelModule = module {
             initialSessionId = params.get(),
             repository = get(),
             draftStore = get(),
-            chatService = get(),
+            sessionCreator = get(),
         )
     }
 }

@@ -8,6 +8,9 @@ import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.profile.ProfileMaintenanceScheduler
 import me.rerere.rikkahub.data.profile.ProfileMaintenanceService
 import me.rerere.rikkahub.data.profile.ProfileMaintenanceWorker
+import me.rerere.rikkahub.data.work.PhoneWorkSessionCreator
+import me.rerere.rikkahub.data.work.PhoneWorkSessionGateway
+import me.rerere.rikkahub.data.work.PhoneWorkTitleGenerator
 import me.rerere.rikkahub.data.github.GitHubIssueClient
 import me.rerere.rikkahub.data.github.GitHubIssueCredentialStore
 import me.rerere.rikkahub.data.github.GitHubIssueTokenProvider
@@ -101,6 +104,13 @@ val appModule = module {
             folderRepository = get()
         )
     }
+
+    single<PhoneWorkSessionGateway> { get<me.rerere.rikkahub.data.work.PhoneWorkRepository>() }
+    single<PhoneWorkTitleGenerator> {
+        val chatService = get<ChatService>()
+        PhoneWorkTitleGenerator(chatService::generateWorkTitle)
+    }
+    single { PhoneWorkSessionCreator(get(), get()) }
 
     single {
         WebServerManager(

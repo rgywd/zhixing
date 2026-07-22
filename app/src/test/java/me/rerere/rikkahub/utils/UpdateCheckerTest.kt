@@ -40,7 +40,7 @@ class UpdateCheckerTest {
             }
             .build()
 
-        val state = UpdateChecker(client).checkUpdate().first() as UiState.Success<UpdateInfo>
+        val state = UpdateChecker(client, PRODUCTION_FEED).checkUpdate().first() as UiState.Success<UpdateInfo>
 
         assertEquals("0.2.0", state.data.version)
         assertEquals("abc123", state.data.downloads.single().sha256)
@@ -61,9 +61,14 @@ class UpdateCheckerTest {
             }
             .build()
 
-        val state = UpdateChecker(client).checkUpdate().first()
+        val state = UpdateChecker(client, PRODUCTION_FEED).checkUpdate().first()
 
         assertTrue(state is UiState.Success)
         assertTrue((state as UiState.Success<UpdateInfo>).data.downloads.isEmpty())
+    }
+
+    private companion object {
+        const val PRODUCTION_FEED =
+            "https://github.com/rgywd/zhixing/releases/latest/download/latest.json"
     }
 }
