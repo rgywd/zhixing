@@ -109,6 +109,8 @@ jobs:
             --tests me.rerere.rikkahub.data.datastore.DefaultProvidersTest \
             --tests me.rerere.rikkahub.data.ai.tools.local.GitHubIssueToolTest \
             --tests me.rerere.rikkahub.data.github.GitHubIssueClientTest \
+            --tests me.rerere.rikkahub.data.agenda.AgendaTaskPolicyTest \
+            --tests me.rerere.rikkahub.data.agenda.AgendaTimeParserTest \
             --tests me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigureConvertToTest
 
       - name: Build signed release APKs
