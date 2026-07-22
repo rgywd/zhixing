@@ -114,6 +114,21 @@ jobs:
       - name: Build signed release APKs
         run: ./gradlew :app:assembleRelease
 
+      - name: Load release asset tooling
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOOLING_REF: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref_name }}
+        run: |
+          tooling_path="${RUNNER_TEMP}/prepare-release-assets.sh"
+          gh api \
+            -H "Accept: application/vnd.github.raw+json" \
+            "repos/${GITHUB_REPOSITORY}/contents/.github/scripts/prepare-release-assets.sh?ref=${TOOLING_REF}" \
+            > "${tooling_path}"
+          test -s "${tooling_path}" || { echo "Release asset tooling is empty." >&2; exit 1; }
+          chmod +x "${tooling_path}"
+          echo "RELEASE_ASSET_SCRIPT=${tooling_path}" >> "${GITHUB_ENV}"
+
       - name: Prepare release assets and update manifest
         id: assets
         shell: bash
@@ -122,7 +137,7 @@ jobs:
           TAG_NAME: ${{ steps.version.outputs.tag }}
           SOURCE_COMMIT: ${{ steps.version.outputs.source_commit }}
           RELEASES_REPOSITORY: ${{ env.RELEASES_REPOSITORY }}
-        run: bash .github/scripts/prepare-release-assets.sh
+        run: bash "${RELEASE_ASSET_SCRIPT}"
 
       - name: Publish public GitHub Release
         shell: bash
