@@ -96,11 +96,7 @@ It is built with Jetpack Compose and Kotlin and follows Material Design 3 princi
   Russian(ru) are supported.
 - When localization is needed, use the `locale-tui-localization` skill for managing string resources.
 
-<!-- commitwiki:start -->
-## 项目 Wiki（AI 导航 · commitwiki 自动生成，勿手改此区块）
+## Documentation and Code Navigation
 
-了解本项目前，先读 `.aiwiki/INDEX.md`（模块路由表），按需打开 `.aiwiki/modules/*.md`；
-大文件内部的类/函数与行号见 `.aiwiki/files/*.md` 符号导航页；最近开发进展见 `.aiwiki/STATUS.md`。
-页面 frontmatter 的 `source_commit` 表示 wiki 对应的代码版本。
-不要为"了解项目结构"而通读源码——先查 wiki。
-<!-- commitwiki:end -->
+Use `docs/zhixing/README.md` as the entry point for current product, architecture, and delivery contracts. Use source
+search and symbols for implementation details; code and tests are the source of truth for current behavior.
