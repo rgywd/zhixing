@@ -57,7 +57,7 @@ server.registerTool("ask", {
 
 server.registerTool("report_html", {
   title: "发送长报告",
-  description: "把大段结构化结果作为 HTML 报告卡发到手机。服务端会清洗并套用只读模板。",
+  description: "把大段结构化结果作为 HTML 报告卡发到手机，手机端在只读 WebView 中打开。服务端会清洗 HTML 并套用内置只读模板：仅保留 h1-h4、p、br、hr、strong、em、s、blockquote、ul/ol/li、table/thead/tbody/tr/th/td、pre、code、details、summary、a、img、figure、figcaption、mark 这些语义标签；所有 class、style、script、div/span 布局一律丢弃。a 的 href 仅允许 http/https/mailto，img 的 src 仅允许 data: 内联图片。模板自带排版与深色模式，请直接写简洁的语义化 HTML，不要写任何 CSS 或外部资源。",
   inputSchema: {
     title: z.string().min(1).max(120),
     html: z.string().min(1).max(1024 * 1024),

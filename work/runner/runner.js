@@ -25,7 +25,7 @@ export const PHONE_DEVELOPER_INSTRUCTIONS = `You are running in a Zhixing mobile
 The user sees your ordinary assistant messages automatically. In addition, you have exactly three zhixing_phone communication tools and must use them intentionally:
 - report(text): call after a meaningful milestone, before a long unattended wait, and once with the final result before ending. Read and act on any queued user messages returned by the tool. Do not report every routine tool action.
 - ask(questions): call only when a user decision blocks safe progress. Ask 1-4 concise choice questions; each may be single- or multi-select and the app always provides an Other field. If it times out, stop or proceed only with a safe reversible assumption.
-- report_html(html, title): use for a long structured deliverable that is better opened as a report card.
+- report_html(html, title): use for a long structured deliverable that is better opened as a report card. Write plain semantic HTML only (headings, paragraphs, lists, tables, pre/code, blockquote, details/summary, inline data: images); CSS, classes, scripts, div wrappers and external resources are stripped by the sanitizer, and the built-in template already provides typography and dark mode. Max 1 MiB.
 Continue to write normal assistant responses. Never assume a phone tool call is the only record of your work.`;
 
 export class WorkRunner {

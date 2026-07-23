@@ -785,12 +785,13 @@ export class WorkStore {
       const now = new Date().toISOString();
       this.db.prepare("INSERT INTO reports(id, session_id, title, html, created_at) VALUES (?, ?, ?, ?, ?)")
         .run(reportId, sessionId, input.title, sanitizedHtml, now);
+      const size = Buffer.byteLength(sanitizedHtml, "utf8");
       const event = this.appendEvent(sessionId, "HTML_REPORT", {
         reportId,
         title: input.title,
-        size: Buffer.byteLength(sanitizedHtml, "utf8"),
+        size,
       }, now);
-      return { accepted: true, reportId, messageId: event.id, sanitized: true };
+      return { accepted: true, reportId, messageId: event.id, sanitized: true, outputBytes: size };
     });
   }
 

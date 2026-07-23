@@ -66,18 +66,60 @@ function requireSession(store, request, sessionId) {
   if (!store.verifySessionToken(bearer(request), sessionId)) throw Object.assign(new Error("Unauthorized"), { statusCode: 401 });
 }
 
+const REPORT_STYLE = `
+:root{color-scheme:light dark}
+body{font:16px/1.7 system-ui,-apple-system,"Segoe UI",sans-serif;max-width:760px;margin:auto;padding:20px 16px 48px;color:#1f2328;background:#fff;overflow-wrap:break-word}
+h1{font-size:1.5em}h2{font-size:1.25em;margin-top:1.6em;border-bottom:1px solid #e3e6ea;padding-bottom:.3em}h3{font-size:1.1em}h4{font-size:1em}
+h1,h2,h3,h4{line-height:1.35}
+a{color:#0969da;text-decoration:none}
+blockquote{margin:1em 0;padding:.4em 1em;border-left:4px solid #d0d7de;color:#57606a}
+pre{white-space:pre-wrap;word-break:break-word;background:#f4f4f5;padding:12px;border-radius:8px;overflow:auto;font-size:.88em}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em}
+p code,li code,td code{background:#eff1f3;padding:.15em .35em;border-radius:4px}
+table{border-collapse:collapse;margin:1em 0;font-size:.92em}
+thead th{background:#f4f4f5}
+td,th{border:1px solid #d8dce1;padding:6px 10px;text-align:left}
+details{margin:1em 0;border:1px solid #d8dce1;border-radius:8px;padding:8px 12px}
+summary{font-weight:600;cursor:pointer}
+hr{border:none;border-top:1px solid #d8dce1;margin:2em 0}
+img{max-width:100%;height:auto;border-radius:8px}
+figure{margin:1em 0}
+figcaption{font-size:.85em;color:#57606a;text-align:center}
+mark{background:#fff3bf;padding:0 .2em;border-radius:2px}
+@media(max-width:600px){table{display:block;overflow-x:auto}}
+@media(prefers-color-scheme:dark){
+body{color:#e6e8eb;background:#111318}
+a{color:#58a6ff}
+blockquote{border-left-color:#3d434b;color:#9aa1a9}
+pre{background:#1c1f24}
+p code,li code,td code{background:#26292f}
+thead th{background:#1c1f24}
+td,th{border-color:#31363d}
+h2{border-bottom-color:#2b2f35}
+details{border-color:#31363d}
+hr{border-top-color:#31363d}
+figcaption{color:#9aa1a9}
+mark{background:#5a4a12;color:#e6e8eb}
+}`;
+
 function sanitizeReport(html, title) {
   const body = sanitizeHtml(html, {
     allowedTags: [
       "h1", "h2", "h3", "h4", "p", "br", "hr", "strong", "em", "s", "blockquote",
       "ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td", "pre", "code", "details", "summary",
+      "a", "img", "figure", "figcaption", "mark",
     ],
-    allowedAttributes: {},
+    allowedAttributes: {
+      a: ["href"],
+      img: ["src", "alt", "title"],
+    },
+    allowedSchemes: ["https", "http", "mailto"],
+    allowedSchemesByTag: { img: ["data"] },
     disallowedTagsMode: "discard",
     enforceHtmlBoundary: true,
   });
   const safeTitle = sanitizeHtml(title, { allowedTags: [], allowedAttributes: {} });
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><title>${safeTitle}</title><style>body{font:16px/1.65 system-ui,sans-serif;max-width:760px;margin:auto;padding:24px;color:#202124;background:#fff}pre{white-space:pre-wrap;background:#f4f4f5;padding:12px;border-radius:8px;overflow:auto}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:8px}@media(prefers-color-scheme:dark){body{color:#e8eaed;background:#111318}pre{background:#202124}}</style></head><body>${body}</body></html>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><title>${safeTitle}</title><style>${REPORT_STYLE}</style></head><body>${body}</body></html>`;
 }
 
 export function createWorkServer({ store, askTimeoutMs = 180_000, quotaProxy = null }) {

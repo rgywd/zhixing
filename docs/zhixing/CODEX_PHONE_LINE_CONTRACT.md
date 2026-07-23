@@ -125,10 +125,13 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
 返回：
 
 ```json
-{ "accepted": true, "reportId": "report_...", "messageId": "msg_...", "sanitized": true }
+{ "accepted": true, "reportId": "report_...", "messageId": "msg_...", "sanitized": true, "outputBytes": 12345 }
 ```
 
 约束：title 1–120 字符，html 最大 1 MiB。Core 只持久化清洗并由固定模板封装后的版本，不保存原始 HTML。
+清洗白名单：`h1-h4`、`p`、`br`、`hr`、`strong`、`em`、`s`、`blockquote`、`ul/ol/li`、`table/thead/tbody/tr/th/td`、
+`pre`、`code`、`details`、`summary`、`a`（href 仅 http/https/mailto）、`img`（src 仅 data:）、`figure`、`figcaption`、`mark`；
+所有 class、style、script 与 div/span 布局一律丢弃。固定模板自带排版与深色模式，标题由 App 原生顶栏展示。
 报告消息只含标题、摘要、大小和 report ID。
 
 ## 3. 最小 HTTP API
