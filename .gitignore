@@ -24,3 +24,4 @@ app/app.key
 /work/runner/work-runner.json
 /work/deploy/.env
 /work/.env
+.gstack/
