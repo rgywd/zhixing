@@ -35,6 +35,7 @@ import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +61,7 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.BubbleChatQuestion
 import me.rerere.hugeicons.stroke.Cancel01
+import me.rerere.hugeicons.stroke.Search01
 import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.components.message.tools.ToolUIContext
@@ -71,6 +73,60 @@ import me.rerere.rikkahub.ui.modifier.shimmer
 import me.rerere.rikkahub.utils.JsonInstant
 
 private const val ASK_USER_TOOL_NAME = "ask_user"
+
+@Composable
+fun ChainOfThoughtScope.ChatMessageResearchPurposeStep(
+    purpose: String,
+    tools: List<UIMessagePart.Tool>,
+    loading: Boolean = false,
+    onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
+    onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
+    onToolCancel: ((toolCallId: String) -> Unit)? = null,
+) {
+    var expanded by remember(purpose) { mutableStateOf(false) }
+    val groupLoading = loading && tools.any { !it.isExecuted }
+
+    ControlledChainOfThoughtStep(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        icon = {
+            if (groupLoading) {
+                DotLoading(size = 10.dp)
+            } else {
+                Icon(
+                    imageVector = HugeIcons.Search01,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = LocalContentColor.current.copy(alpha = 0.7f),
+                )
+            }
+        },
+        label = {
+            Text(
+                text = purpose,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.secondary,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        content = {
+            Column {
+                tools.forEach { tool ->
+                    key(tool.toolCallId.ifBlank { tool.hashCode().toString() }) {
+                        ChatMessageToolStep(
+                            tool = tool,
+                            loading = loading && !tool.isExecuted,
+                            onToolApproval = onToolApproval,
+                            onToolAnswer = onToolAnswer,
+                            onToolCancel = onToolCancel,
+                        )
+                    }
+                }
+            }
+        },
+    )
+}
 
 @Composable
 fun ChainOfThoughtScope.ChatMessageToolStep(

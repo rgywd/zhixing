@@ -5,7 +5,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import me.rerere.ai.core.InputSchema
+import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.search.SearchCommonOptions
 import me.rerere.search.SearchResult
 import me.rerere.search.SearchServiceOptions
@@ -19,6 +22,38 @@ class SearchToolsTest {
     private val first = SearchServiceOptions.BingLocalOptions()
     private val second = SearchServiceOptions.DoubaoOptions(apiKey = "test")
     private val params = buildJsonObject { put("query", "multi source") }
+
+    @Test
+    fun `search and scrape schemas require a user-visible purpose`() {
+        val jina = SearchServiceOptions.JinaOptions()
+        val settings = Settings(
+            searchServices = listOf(jina),
+            searchServiceSelectedIds = setOf(jina.id),
+        )
+        val tools = createSearchTools(settings)
+
+        mapOf(
+            "search_web" to "query",
+            "scrape_web" to "url",
+        ).forEach { (toolName, providerParameter) ->
+            val schema = tools.single { it.name == toolName }.parameters() as InputSchema.Obj
+            assertTrue(schema.properties.containsKey("purpose"))
+            assertTrue(schema.required.orEmpty().contains("purpose"))
+            assertTrue(schema.properties.containsKey(providerParameter))
+            assertTrue(schema.required.orEmpty().contains(providerParameter))
+        }
+    }
+
+    @Test
+    fun `purpose is removed before provider execution`() {
+        val providerParams = buildJsonObject {
+            put("query", "campus")
+            put("purpose", "Confirm the campus")
+        }.withoutResearchPurpose()
+
+        assertEquals(setOf("query"), providerParams.keys)
+        assertEquals("campus", providerParams["query"]?.jsonPrimitive?.content)
+    }
 
     @Test
     fun `selected providers start concurrently`() = runBlocking {

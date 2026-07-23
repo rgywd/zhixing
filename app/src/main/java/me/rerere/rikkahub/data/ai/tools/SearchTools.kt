@@ -26,6 +26,17 @@ import java.time.LocalDate
 import java.util.Locale
 import kotlin.uuid.Uuid
 
+private const val RESEARCH_PURPOSE_PARAMETER = "purpose"
+
+private val RESEARCH_PURPOSE_SCHEMA = buildJsonObject {
+    put("type", "string")
+    put("maxLength", 120)
+    put(
+        "description",
+        "Short user-visible research goal. Reuse verbatim for related search_web and scrape_web calls."
+    )
+}
+
 private val MULTI_SEARCH_PARAMETERS = InputSchema.Obj(
     properties = buildJsonObject {
         put("query", buildJsonObject {
@@ -78,11 +89,11 @@ fun createSearchTools(settings: Settings): Set<Tool> {
                         SearchService.getService(options).parameters(options)
                     } else {
                         MULTI_SEARCH_PARAMETERS
-                    }
+                    }.withResearchPurposeParameter()
                 },
                 execute = { arguments ->
                     val result = executeMultiSearch(
-                        params = arguments.jsonObject,
+                        params = arguments.jsonObject.withoutResearchPurpose(),
                         commonOptions = settings.searchCommonOptions,
                         options = selectedOptions,
                     )
@@ -101,10 +112,12 @@ fun createSearchTools(settings: Settings): Set<Tool> {
                         Use this when the user requests content from a specific page or when search snippets are insufficient.
                         Avoid using it for common questions unless the user asks.
                         """.trimIndent(),
-                    parameters = { scraper.service.scrapingParameters(scraper.options) },
+                    parameters = {
+                        scraper.service.scrapingParameters(scraper.options).withResearchPurposeParameter()
+                    },
                     execute = { arguments ->
                         val result = scraper.service.scrape(
-                            params = arguments.jsonObject,
+                            params = arguments.jsonObject.withoutResearchPurpose(),
                             commonOptions = settings.searchCommonOptions,
                             serviceOptions = scraper.options,
                         )
@@ -116,6 +129,20 @@ fun createSearchTools(settings: Settings): Set<Tool> {
         }
     }
 }
+
+internal fun InputSchema?.withResearchPurposeParameter(): InputSchema.Obj {
+    val base = this as? InputSchema.Obj
+    return InputSchema.Obj(
+        properties = buildJsonObject {
+            base?.properties?.forEach { (name, schema) -> put(name, schema) }
+            put(RESEARCH_PURPOSE_PARAMETER, RESEARCH_PURPOSE_SCHEMA)
+        },
+        required = (base?.required.orEmpty() + RESEARCH_PURPOSE_PARAMETER).distinct(),
+    )
+}
+
+internal fun JsonObject.withoutResearchPurpose(): JsonObject =
+    JsonObject(filterKeys { it != RESEARCH_PURPOSE_PARAMETER })
 
 internal fun Settings.selectedSearchServices(): List<SearchServiceOptions> {
     val selected = searchServices.filter { it.id in searchServiceSelectedIds }
