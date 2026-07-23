@@ -57,11 +57,15 @@ git push -u origin feat/123-doubao-search
 合并前必须：
 
 - 相关测试通过，工作区没有意外文件；
-- PR 指向 `main`，`Branch policy` 与 `Build and test` 通过；
+- PR 指向 `main`，`Branch policy`、`Plan CI` 与该改动对应的并行检查通过；纯版本号和发布说明改动允许
+  通过 `Release metadata` 快线；
 - 分支基于最新 `main`；
 - 需要保留独立回退边界时使用 rebase merge，否则可 squash。
 
 `exp/*` 不能直接作为发布来源；验证成功后整理成正式短分支和可审查提交。
+
+绿色 PR 合并后的 `main` push 只核对关联 PR 与检查结果；直接 push、来源不明或检查不完整时自动回退
+全量 CI。具体门禁和 Gradle 缓存规则见 [`CI_PIPELINE.md`](./CI_PIPELINE.md)。
 
 存在并行开发时，必须从干净的 `origin/main` 创建独立 worktree。不得把其他工作树中的未提交文件
 静默复制进来，也不得为腾位置而 stash、reset 或覆盖它们；交付合入永久分支后再清理完成的 worktree。
@@ -72,12 +76,12 @@ git push -u origin feat/123-doubao-search
 阶段即停止，不得自行推断发布授权。
 
 1. 将功能、修复、版本号、递增的 `versionCode` 和 `release-notes/x.y.z.md` 全部通过 PR 合入 `main`。
-2. 等合并后的 `main` CI 通过并暂停本版本范围外的功能合并。
+2. 等合并后的 `main` 来源校验或兜底全量 CI 通过，并暂停本版本范围外的功能合并。
 3. 从最新 `origin/main` 创建并推送 `release/x.y.z`；确认版本、说明和起点一致。
 4. 在 release 上执行构建、升级、安装和关键路径验证。发现问题时，从 `main` 切 `fix/*` 修复并合入，
    再对 release 执行 `git merge --ff-only origin/main`。
 5. 验证通过后在 release HEAD 创建一次 annotated `vX.Y.Z` 标签并推送。
-6. 私有仓 Release workflow 构建签名 APK，并把发行资产发布到公开
+6. 私有仓 Release workflow 并行执行关键测试与签名 APK 构建；两者都通过后，把发行资产发布到公开
    [`rgywd/zhixing-releases`](https://github.com/rgywd/zhixing-releases/releases)。
 7. 核对公开 Release、Universal APK、源码归档、`SHA256SUMS.txt`、`latest.json` 和应用内更新，再删除
    release 与已合并短分支。

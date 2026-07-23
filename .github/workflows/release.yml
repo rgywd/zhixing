@@ -10,6 +10,7 @@ on:
         description: "需要重试发布的既有 vX.Y.Z 标签"
         required: true
         type: string
+
 permissions:
   contents: read
 
@@ -17,9 +18,13 @@ env:
   RELEASES_REPOSITORY: rgywd/zhixing-releases
 
 jobs:
-  release:
+  resolve:
+    name: Resolve release
     runs-on: ubuntu-latest
-
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      source_commit: ${{ steps.version.outputs.source_commit }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -63,6 +68,17 @@ jobs:
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "source_commit=${tagged_sha}" >> "$GITHUB_OUTPUT"
 
+  release-tests:
+    name: Release tests
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ needs.resolve.outputs.tag }}
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
@@ -87,17 +103,8 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Prepare signing configuration
-        shell: bash
-        env:
-          KEY_BASE64: ${{ secrets.KEY_BASE64 }}
-          SIGNING_CONFIG: ${{ secrets.SIGNING_CONFIG }}
-        run: |
-          test -n "${KEY_BASE64}" || { echo "Missing KEY_BASE64 secret" >&2; exit 1; }
-          test -n "${SIGNING_CONFIG}" || { echo "Missing SIGNING_CONFIG secret" >&2; exit 1; }
-          printf '%s' "${KEY_BASE64}" | base64 --decode > app/app.key
-          printf '%s\n' "${SIGNING_CONFIG}" > local.properties
+        with:
+          cache-read-only: false
 
       - name: Test release-critical paths
         run: |
@@ -112,14 +119,92 @@ jobs:
             --tests me.rerere.rikkahub.data.agenda.AgendaTimeParserTest \
             --tests me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigureConvertToTest
 
+  release-apk:
+    name: Signed release APK
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ needs.resolve.outputs.tag }}
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web-ui/pnpm-lock.yaml
+
+      - name: Install web dependencies
+        working-directory: web-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: Prepare signing configuration
+        shell: bash
+        env:
+          KEY_BASE64: ${{ secrets.KEY_BASE64 }}
+          SIGNING_CONFIG: ${{ secrets.SIGNING_CONFIG }}
+        run: |
+          test -n "${KEY_BASE64}" || { echo "Missing KEY_BASE64 secret" >&2; exit 1; }
+          test -n "${SIGNING_CONFIG}" || { echo "Missing SIGNING_CONFIG secret" >&2; exit 1; }
+          printf '%s' "${KEY_BASE64}" | base64 --decode > app/app.key
+          printf '%s\n' "${SIGNING_CONFIG}" > local.properties
+
       - name: Build signed release APKs
         run: ./gradlew :app:assembleRelease
+
+      - name: Upload signed release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-release-${{ needs.resolve.outputs.tag }}
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish public release
+    needs:
+      - resolve
+      - release-tests
+      - release-apk
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          ref: ${{ needs.resolve.outputs.tag }}
+
+      - name: Download signed release APK
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-release-${{ needs.resolve.outputs.tag }}
+          path: app/build/outputs/apk/release
 
       - name: Load release asset tooling
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TOOLING_REF: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref_name }}
+          TOOLING_REF: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.resolve.outputs.tag }}
         run: |
           tooling_path="${RUNNER_TEMP}/prepare-release-assets.sh"
           gh api \
@@ -134,9 +219,9 @@ jobs:
         id: assets
         shell: bash
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          TAG_NAME: ${{ steps.version.outputs.tag }}
-          SOURCE_COMMIT: ${{ steps.version.outputs.source_commit }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          TAG_NAME: ${{ needs.resolve.outputs.tag }}
+          SOURCE_COMMIT: ${{ needs.resolve.outputs.source_commit }}
           RELEASES_REPOSITORY: ${{ env.RELEASES_REPOSITORY }}
         run: bash "${RELEASE_ASSET_SCRIPT}"
 
@@ -144,8 +229,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
-          VERSION: ${{ steps.version.outputs.version }}
-          TAG_NAME: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          TAG_NAME: ${{ needs.resolve.outputs.tag }}
           RELEASES_REPOSITORY: ${{ env.RELEASES_REPOSITORY }}
         run: |
           test -n "${GH_TOKEN}" || { echo "Missing RELEASES_REPO_TOKEN secret" >&2; exit 1; }
