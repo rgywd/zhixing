@@ -1,6 +1,7 @@
 package me.rerere.workspace
 
 import java.io.File
+import java.util.UUID
 
 data class WorkspaceBindMount(
     val source: File,
@@ -16,49 +17,93 @@ class ProotShellRunner(
     private val extraBindMounts: List<WorkspaceBindMount> = emptyList(),
     private val patcher: RootfsPatcher = RootfsPatcher(),
 ) : WorkspaceShellRunner {
-    override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
-        if (!context.linuxDir.hasUsableRootfs()) {
-            return WorkspaceCommandResult(
-                exitCode = 127,
-                stdout = "",
-                stderr = "Rootfs is not installed",
-            )
+    override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult = executeInRootfs(
+        linuxDir = context.linuxDir,
+        filesDir = context.filesDir,
+        tempDir = context.tempDir,
+        timeoutMillis = context.timeoutMillis,
+        stdin = context.stdin,
+        workingDirectory = context.prootCwd(),
+        command = baseEnvironment() + listOf(
+            "/bin/bash",
+            "-l",
+            "-c",
+            // 命令通过位置参数传入, 避免任何转义; eval "$2" 对命令文本只求值一次, 等价于 bash -c "$cmd"
+            "cd -- \"\$1\" && eval \"\$2\"",
+            "zhixing",
+            context.prootCwd(),
+            context.command,
+        ),
+    )
+
+    override fun executeProgram(context: WorkspaceProgramContext): WorkspaceCommandResult {
+        val relay = relayProgramEnvironment(context.environment)
+        return executeInRootfs(
+            linuxDir = context.linuxDir,
+            filesDir = context.filesDir,
+            tempDir = context.tempDir,
+            timeoutMillis = context.timeoutMillis,
+            stdin = context.stdin,
+            workingDirectory = context.prootCwd(),
+            command = listOf(
+                "/bin/bash",
+                "-c",
+                PROGRAM_EXEC_SCRIPT,
+                "zhixing-program",
+                context.program,
+                relay.names.size.toString(),
+            ) + relay.names.flatMap { listOf(it.target, it.relay) } + context.arguments,
+            processEnvironment = relay.processEnvironment,
+            clearProcessEnvironment = true,
+        )
+    }
+
+    private fun executeInRootfs(
+        linuxDir: File,
+        filesDir: File,
+        tempDir: File,
+        timeoutMillis: Long,
+        stdin: ByteArray?,
+        workingDirectory: String,
+        command: List<String>,
+        processEnvironment: Map<String, String> = emptyMap(),
+        clearProcessEnvironment: Boolean = false,
+    ): WorkspaceCommandResult {
+        if (!linuxDir.hasUsableRootfs()) {
+            return WorkspaceCommandResult(127, "", "Rootfs is not installed")
         }
 
         val proot = File(nativeLibraryDir, PROOT_EXEC)
         val loader = File(nativeLibraryDir, PROOT_LOADER)
         if (!proot.isFile) {
-            return WorkspaceCommandResult(
-                exitCode = 127,
-                stdout = "",
-                stderr = "proot executable not found: ${proot.absolutePath}",
-            )
+            return WorkspaceCommandResult(127, "", "proot executable not found: ${proot.absolutePath}")
         }
         if (!loader.isFile) {
-            return WorkspaceCommandResult(
-                exitCode = 127,
-                stdout = "",
-                stderr = "proot loader not found: ${loader.absolutePath}",
-            )
+            return WorkspaceCommandResult(127, "", "proot loader not found: ${loader.absolutePath}")
         }
 
-        context.tempDir.mkdirs()
-        patcher.patch(context.linuxDir)
-        val process = ProcessBuilder(buildCommand(context, proot))
-            .directory(context.filesDir)
+        tempDir.mkdirs()
+        patcher.patch(linuxDir)
+        val process = ProcessBuilder(
+            buildProotCommand(linuxDir, filesDir, workingDirectory, proot) + command
+        )
+            .directory(filesDir)
             .redirectErrorStream(false)
             .apply {
+                if (clearProcessEnvironment) environment().clear()
+                environment().putAll(processEnvironment)
                 environment()["PROOT_LOADER"] = loader.absolutePath
-                environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
-                environment()["TMPDIR"] = context.tempDir.absolutePath
+                environment()["PROOT_TMP_DIR"] = tempDir.absolutePath
+                environment()["TMPDIR"] = tempDir.absolutePath
             }
             .start()
-
-        return process.readResult(context.timeoutMillis, context.stdin)
+        return process.readResult(timeoutMillis, stdin)
     }
 
-    private fun buildCommand(
-        context: WorkspaceShellContext,
+    private fun buildProotCommand(
+        linuxDir: File,
+        filesDir: File,
+        workingDirectory: String,
         proot: File,
     ): List<String> {
         val command = mutableListOf(
@@ -67,11 +112,11 @@ class ProotShellRunner(
             "--link2symlink",
             "--kill-on-exit",
             "-r",
-            context.linuxDir.absolutePath,
+            linuxDir.absolutePath,
             "-w",
-            context.prootCwd(),
+            workingDirectory,
             "-b",
-            "${context.filesDir.absolutePath}:$WORKSPACE_DIR",
+            "${filesDir.absolutePath}:$WORKSPACE_DIR",
         )
 
         extraBindMounts.forEach { mount ->
@@ -88,24 +133,17 @@ class ProotShellRunner(
             }
         }
 
-        command += listOf(
-            "/usr/bin/env",
-            "-i",
-            "HOME=/root",
-            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-            "TERM=xterm-256color",
-            "LANG=C.UTF-8",
-            "LC_ALL=C.UTF-8",
-            "/bin/bash",
-            "-l",
-            "-c",
-            // 命令通过位置参数传入, 避免任何转义; eval "$2" 对命令文本只求值一次, 等价于 bash -c "$cmd"
-            "cd -- \"\$1\" && eval \"\$2\"",
-            "zhixing",
-            context.prootCwd(),
-            context.command,
-        )
         return command
+    }
+
+    private fun baseEnvironment(): List<String> = buildList {
+        add("/usr/bin/env")
+        add("-i")
+        add("HOME=/root")
+        add("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+        add("TERM=xterm-256color")
+        add("LANG=C.UTF-8")
+        add("LC_ALL=C.UTF-8")
     }
 
     private fun WorkspaceShellContext.prootCwd(): String {
@@ -117,6 +155,11 @@ class ProotShellRunner(
         }
     }
 
+    private fun WorkspaceProgramContext.prootCwd(): String {
+        val normalized = cwd.trim().trim('/')
+        return if (normalized.isBlank()) WORKSPACE_DIR else "$WORKSPACE_DIR/$normalized"
+    }
+
     private fun File.hasUsableRootfs(): Boolean =
         isDirectory && File(this, "bin/sh").isFile
 
@@ -124,5 +167,47 @@ class ProotShellRunner(
         private const val PROOT_EXEC = "libproot_exec.so"
         private const val PROOT_LOADER = "libproot_loader.so"
         private const val WORKSPACE_DIR = "/workspace"
+        private val PROGRAM_EXEC_SCRIPT = """
+            program="${'$'}1"
+            shift
+            relay_count="${'$'}1"
+            shift
+            forwarded=()
+            for ((i = 0; i < relay_count; i++)); do
+              target="${'$'}1"
+              relay="${'$'}2"
+              shift 2
+              forwarded+=("${'$'}target=${'$'}{!relay}")
+            done
+            exec /usr/bin/env -i \
+              HOME=/root \
+              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              TERM=xterm-256color \
+              LANG=C.UTF-8 \
+              LC_ALL=C.UTF-8 \
+              "${'$'}{forwarded[@]}" \
+              "${'$'}program" "${'$'}@"
+        """.trimIndent()
     }
+}
+
+internal data class RelayedEnvironmentName(
+    val target: String,
+    val relay: String,
+)
+
+internal data class RelayedProgramEnvironment(
+    val names: List<RelayedEnvironmentName>,
+    val processEnvironment: Map<String, String>,
+)
+
+internal fun relayProgramEnvironment(
+    environment: Map<String, String>,
+    relayName: () -> String = { "ZHIXING_PRIVATE_${UUID.randomUUID().toString().replace("-", "")}" },
+): RelayedProgramEnvironment {
+    val names = environment.keys.map { target -> RelayedEnvironmentName(target, relayName()) }
+    return RelayedProgramEnvironment(
+        names = names,
+        processEnvironment = names.associate { name -> name.relay to environment.getValue(name.target) },
+    )
 }

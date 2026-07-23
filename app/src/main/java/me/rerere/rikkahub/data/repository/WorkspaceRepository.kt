@@ -318,6 +318,30 @@ class WorkspaceRepository(
         }
     }
 
+    suspend fun executeProgram(
+        id: String,
+        program: String,
+        arguments: List<String>,
+        environment: Map<String, String> = emptyMap(),
+        cwd: String = "",
+        timeoutMillis: Long = WorkspaceManager.DEFAULT_COMMAND_TIMEOUT_MS,
+        stdin: ByteArray? = null,
+    ): WorkspaceCommandResult {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        return runInterruptible(Dispatchers.IO) {
+            manager.ensureWorkspace(workspace.root)
+            manager.executeProgram(
+                root = workspace.root,
+                program = program,
+                arguments = arguments,
+                environment = environment,
+                cwd = cwd,
+                timeoutMillis = timeoutMillis,
+                stdin = stdin,
+            )
+        }
+    }
+
     suspend fun delete(id: String): Boolean {
         val workspace = dao.getById(id) ?: return false
         dao.deleteById(id)

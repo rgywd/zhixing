@@ -100,6 +100,7 @@ object ToolUIRegistry {
         CalendarQueryToolUI,
         CalendarCreateToolUI,
         GitHubIssueToolUI,
+        GitHubCliToolUI,
         UseSkillToolUI,
         RecentChatsToolUI,
         ConversationSearchToolUI,
