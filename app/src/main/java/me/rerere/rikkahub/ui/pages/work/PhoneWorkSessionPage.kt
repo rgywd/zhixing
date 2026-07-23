@@ -4,19 +4,24 @@ import android.content.ClipData
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -53,11 +58,13 @@ import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chrisbanes.haze.rememberHazeState
 import java.time.Instant
+import java.time.ZoneId
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -202,6 +209,15 @@ fun PhoneWorkSessionPage(sessionId: String) {
         bottomBar = {
             if (canCompose) {
                 Column {
+                    if (draft) {
+                        Text(
+                            "仓库、模型和思考深度在会话创建后固定",
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     sendError?.let { message ->
                         WorkSendErrorBar(
                             message = message,
@@ -470,21 +486,16 @@ private fun WorkEventList(
     onMessageActions: (String, Boolean) -> Unit,
     onOpenReport: (String) -> Unit,
 ) {
-    val visibleEvents = remember(events) {
-        events.filterIndexed { index, event ->
-            val previous = events.getOrNull(index - 1)
-            event.type != "RUN_STATE" || previous?.type != "RUN_STATE" || previous.payload != event.payload
-        }
-    }
-    val answeredAskIds = remember(visibleEvents) {
-        visibleEvents.filter { it.type == "ASK_ANSWERED" }.mapNotNull { it.payload.jsonObject["askId"]?.jsonPrimitive?.content }.toSet()
+    val timelineItems = remember(events) { buildWorkTimeline(events) }
+    val answeredAskIds = remember(events) {
+        events.filter { it.type == "ASK_ANSWERED" }.mapNotNull { it.payload.jsonObject["askId"]?.jsonPrimitive?.content }.toSet()
     }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var hasPositionedInitialContent by remember { mutableStateOf(false) }
     var previousItemCount by remember { mutableIntStateOf(0) }
     var unseenCount by remember { mutableIntStateOf(0) }
-    val itemCount = visibleEvents.size + if (error != null) 1 else 0
+    val itemCount = timelineItems.size + if (error != null) 1 else 0
     LaunchedEffect(itemCount) {
         if (itemCount == 0) {
             hasPositionedInitialContent = false
@@ -537,69 +548,23 @@ private fun WorkEventList(
                         Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
                     }
                 }
-                items(visibleEvents, key = { it.id }) { event ->
-                    when (event.type) {
-                        "USER_MESSAGE" -> {
-                            val message = workJson.decodeFromJsonElement<PhoneWorkUserMessagePayload>(event.payload)
-                            WorkUserMessageBubble(message, onLongClick = {
-                                message.text.takeIf(String::isNotBlank)?.let { onMessageActions(it, true) }
-                            })
-                        }
-                        "REPORT" -> {
-                            val text = workJson.decodeFromJsonElement<PhoneWorkReportPayload>(event.payload).text
-                            WorkMarkdownBubble(text, user = false, onLongClick = { onMessageActions(text, false) })
-                        }
-                        "ASSISTANT_MESSAGE" -> {
-                            val text = workJson.decodeFromJsonElement<PhoneWorkAssistantMessagePayload>(event.payload).text
-                            WorkMarkdownBubble(text, user = false, onLongClick = { onMessageActions(text, false) })
-                        }
-                        "ASK" -> {
-                            val ask = workJson.decodeFromJsonElement<PhoneWorkAskPayload>(event.payload)
-                            PhoneWorkAskCard(ask, ask.askId in answeredAskIds, onAnswer)
-                        }
-                        "HTML_REPORT" -> {
-                            val report = workJson.decodeFromJsonElement<PhoneWorkHtmlReportPayload>(event.payload)
-                            Card(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                                    .clickable { onOpenReport(report.reportId) },
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Icon(HugeIcons.Book03, null)
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            report.title,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        Text(
-                                            listOfNotNull(
-                                                formatWorkReportSize(report.size),
-                                                formatWorkCardTimestamp(event.createdAt),
-                                            ).joinToString(" · "),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                    Icon(
-                                        HugeIcons.ArrowRight01,
-                                        null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
-                        "RUN_STATE" -> {
-                            val state = workJson.decodeFromJsonElement<PhoneWorkRunStatePayload>(event.payload)
-                            WorkRunStateTimelineMarker(
-                                label = workRunStateTimelineLabel(state.status, state.detail, event.createdAt),
-                                status = state.status,
-                            )
-                        }
+                items(timelineItems, key = { it.itemKey }) { item ->
+                    when (item) {
+                        is WorkTimelineItem.DayHeader -> Text(
+                            item.label,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        is WorkTimelineItem.Entry -> WorkEventEntry(
+                            event = item.event,
+                            answeredAskIds = answeredAskIds,
+                            onAnswer = onAnswer,
+                            onMessageActions = onMessageActions,
+                            onOpenReport = onOpenReport,
+                        )
                     }
                 }
             }
@@ -627,24 +592,30 @@ private fun WorkEventList(
 
 @Composable
 private fun WorkSessionStatusBar(presentation: WorkSessionStatusPresentation) {
-    val containerColor = when (presentation.kind) {
-        WorkSessionStatusKind.ACTIVE -> MaterialTheme.colorScheme.primaryContainer
-        WorkSessionStatusKind.WAITING -> MaterialTheme.colorScheme.tertiaryContainer
-        WorkSessionStatusKind.IDLE -> MaterialTheme.colorScheme.secondaryContainer
-        WorkSessionStatusKind.TERMINAL -> MaterialTheme.colorScheme.surfaceContainer
-        WorkSessionStatusKind.FAILURE,
-        WorkSessionStatusKind.ATTENTION,
-        -> MaterialTheme.colorScheme.errorContainer
-    }
-    val contentColor = when (presentation.kind) {
-        WorkSessionStatusKind.ACTIVE -> MaterialTheme.colorScheme.onPrimaryContainer
-        WorkSessionStatusKind.WAITING -> MaterialTheme.colorScheme.onTertiaryContainer
-        WorkSessionStatusKind.IDLE -> MaterialTheme.colorScheme.onSecondaryContainer
-        WorkSessionStatusKind.TERMINAL -> MaterialTheme.colorScheme.onSurfaceVariant
-        WorkSessionStatusKind.FAILURE,
-        WorkSessionStatusKind.ATTENTION,
-        -> MaterialTheme.colorScheme.onErrorContainer
-    }
+    val containerColor by animateColorAsState(
+        targetValue = when (presentation.kind) {
+            WorkSessionStatusKind.ACTIVE -> MaterialTheme.colorScheme.primaryContainer
+            WorkSessionStatusKind.WAITING -> MaterialTheme.colorScheme.tertiaryContainer
+            WorkSessionStatusKind.IDLE -> MaterialTheme.colorScheme.secondaryContainer
+            WorkSessionStatusKind.TERMINAL -> MaterialTheme.colorScheme.surfaceContainer
+            WorkSessionStatusKind.FAILURE,
+            WorkSessionStatusKind.ATTENTION,
+            -> MaterialTheme.colorScheme.errorContainer
+        },
+        label = "work-status-bar-container",
+    )
+    val contentColor by animateColorAsState(
+        targetValue = when (presentation.kind) {
+            WorkSessionStatusKind.ACTIVE -> MaterialTheme.colorScheme.onPrimaryContainer
+            WorkSessionStatusKind.WAITING -> MaterialTheme.colorScheme.onTertiaryContainer
+            WorkSessionStatusKind.IDLE -> MaterialTheme.colorScheme.onSecondaryContainer
+            WorkSessionStatusKind.TERMINAL -> MaterialTheme.colorScheme.onSurfaceVariant
+            WorkSessionStatusKind.FAILURE,
+            WorkSessionStatusKind.ATTENTION,
+            -> MaterialTheme.colorScheme.onErrorContainer
+        },
+        label = "work-status-bar-content",
+    )
     Surface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         color = containerColor,
@@ -656,10 +627,9 @@ private fun WorkSessionStatusBar(presentation: WorkSessionStatusPresentation) {
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .background(contentColor, CircleShape),
+            WorkPulsingDot(
+                color = contentColor,
+                pulse = presentation.kind == WorkSessionStatusKind.ACTIVE,
             )
             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(presentation.headline, style = MaterialTheme.typography.labelLarge)
@@ -675,48 +645,217 @@ private fun WorkSessionStatusBar(presentation: WorkSessionStatusPresentation) {
 
 @Composable
 private fun WorkRunStateTimelineMarker(label: String, status: String) {
-    val color = when (status) {
-        "RUNNING" -> MaterialTheme.colorScheme.primary
-        "WAITING_FOR_USER" -> MaterialTheme.colorScheme.tertiary
-        "FAILED" -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
-        Text(label, color = color, style = MaterialTheme.typography.labelMedium)
+        Text(label, color = workStatusColor(status), style = MaterialTheme.typography.labelSmall)
         HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 
+internal sealed interface WorkTimelineItem {
+    val itemKey: String
+
+    data class DayHeader(val label: String, override val itemKey: String) : WorkTimelineItem
+
+    data class Entry(val event: PhoneWorkEvent) : WorkTimelineItem {
+        override val itemKey: String get() = event.id
+    }
+}
+
+internal fun workDayLabel(
+    createdAt: String,
+    now: Instant = Instant.now(),
+    zoneId: ZoneId = ZoneId.systemDefault(),
+): String? {
+    val instant = runCatching { Instant.parse(createdAt) }.getOrNull() ?: return null
+    val date = instant.atZone(zoneId).toLocalDate()
+    val today = now.atZone(zoneId).toLocalDate()
+    return when (date) {
+        today -> "今天"
+        today.minusDays(1) -> "昨天"
+        else -> "${date.monthValue}月${date.dayOfMonth}日"
+    }
+}
+
+internal fun buildWorkTimeline(
+    events: List<PhoneWorkEvent>,
+    now: Instant = Instant.now(),
+    zoneId: ZoneId = ZoneId.systemDefault(),
+): List<WorkTimelineItem> {
+    val visible = events.filterIndexed { index, event ->
+        val previous = events.getOrNull(index - 1)
+        event.type != "RUN_STATE" || previous?.type != "RUN_STATE" || previous.payload != event.payload
+    }
+    val items = mutableListOf<WorkTimelineItem>()
+    var lastDayLabel: String? = null
+    visible.forEach { event ->
+        val dayLabel = workDayLabel(event.createdAt, now, zoneId)
+        if (dayLabel != null && dayLabel != lastDayLabel) {
+            items += WorkTimelineItem.DayHeader(dayLabel, "day:${event.id}")
+            lastDayLabel = dayLabel
+        }
+        items += WorkTimelineItem.Entry(event)
+    }
+    return items
+}
+
 @Composable
-private fun WorkMarkdownBubble(text: String, user: Boolean, onLongClick: () -> Unit) {
+private fun WorkEventEntry(
+    event: PhoneWorkEvent,
+    answeredAskIds: Set<String>,
+    onAnswer: (String, List<PhoneWorkAnswer>) -> Unit,
+    onMessageActions: (String, Boolean) -> Unit,
+    onOpenReport: (String) -> Unit,
+) {
+    when (event.type) {
+        "USER_MESSAGE" -> {
+            val message = workJson.decodeFromJsonElement<PhoneWorkUserMessagePayload>(event.payload)
+            WorkUserMessageBubble(message, onLongClick = {
+                message.text.takeIf(String::isNotBlank)?.let { onMessageActions(it, true) }
+            })
+        }
+        "REPORT" -> {
+            val text = workJson.decodeFromJsonElement<PhoneWorkReportPayload>(event.payload).text
+            WorkReportBubble(text, onLongClick = { onMessageActions(text, false) })
+        }
+        "ASSISTANT_MESSAGE" -> {
+            val text = workJson.decodeFromJsonElement<PhoneWorkAssistantMessagePayload>(event.payload).text
+            WorkAssistantMessage(text, onLongClick = { onMessageActions(text, false) })
+        }
+        "ASK" -> {
+            val ask = workJson.decodeFromJsonElement<PhoneWorkAskPayload>(event.payload)
+            PhoneWorkAskCard(ask, ask.askId in answeredAskIds, onAnswer)
+        }
+        "HTML_REPORT" -> {
+            val report = workJson.decodeFromJsonElement<PhoneWorkHtmlReportPayload>(event.payload)
+            WorkHtmlReportCard(
+                report = report,
+                createdAt = event.createdAt,
+                onClick = { onOpenReport(report.reportId) },
+            )
+        }
+        "RUN_STATE" -> {
+            val state = workJson.decodeFromJsonElement<PhoneWorkRunStatePayload>(event.payload)
+            WorkRunStateTimelineMarker(
+                label = workRunStateTimelineLabel(state.status, state.detail, event.createdAt),
+                status = state.status,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WorkAssistantMessage(text: String, onLongClick: () -> Unit) {
     val haptic = LocalHapticFeedback.current
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        horizontalAlignment = if (user) Alignment.End else Alignment.Start,
-    ) {
-        Surface(
-            color = if (user) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-            shape = MaterialTheme.shapes.large,
+    SelectionContainer {
+        Box(
             modifier = Modifier
-                .fillMaxWidth(if (user) 0.84f else 1f)
+                .fillMaxWidth()
                 .combinedClickable(
                     onClick = {},
                     onLongClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onLongClick()
                     },
-                ),
+                )
+                .padding(horizontal = 20.dp, vertical = 2.dp),
         ) {
-            SelectionContainer {
-                Box(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                    if (user) Text(text) else MarkdownBlock(text)
+            MarkdownBlock(text)
+        }
+    }
+}
+
+@Composable
+private fun WorkReportBubble(text: String, onLongClick: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .combinedClickable(
+                onClick = {},
+                onLongClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongClick()
+                },
+            ),
+    ) {
+        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(3.dp)
+                    .background(MaterialTheme.colorScheme.primary),
+            )
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    "汇报",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                SelectionContainer {
+                    MarkdownBlock(text)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun WorkHtmlReportCard(
+    report: PhoneWorkHtmlReportPayload,
+    createdAt: String,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.shapes.medium),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    HugeIcons.Book03,
+                    null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    report.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    listOfNotNull(
+                        formatWorkReportSize(report.size),
+                        formatWorkCardTimestamp(createdAt),
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                HugeIcons.ArrowRight01,
+                null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -868,35 +1007,54 @@ private fun PhoneWorkAskCard(
     var selections by remember(ask.askId) { mutableStateOf<Map<String, Set<String>>>(emptyMap()) }
     var other by remember(ask.askId) { mutableStateOf<Map<String, String>>(emptyMap()) }
     Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (answered) {
-                Text("已回答", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-            } else {
-                ask.questions.forEach { question ->
-                    QuestionEditor(
-                        question = question,
-                        selected = selections[question.id].orEmpty(),
-                        otherText = other[question.id].orEmpty(),
-                        onSelected = { selections = selections + (question.id to it) },
-                        onOther = { other = other + (question.id to it) },
+        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(3.dp)
+                    .background(
+                        if (answered) {
+                            MaterialTheme.colorScheme.outlineVariant
+                        } else {
+                            MaterialTheme.colorScheme.tertiary
+                        },
+                    ),
+            )
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (answered) {
+                    Text("已回答", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
+                } else {
+                    Text(
+                        "需要你回答",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
                     )
-                }
-                val valid = ask.questions.all { selections[it.id].orEmpty().isNotEmpty() || other[it.id].orEmpty().isNotBlank() }
-                Button(
-                    onClick = {
-                        onAnswer(
-                            ask.askId,
-                            ask.questions.map { question ->
-                                PhoneWorkAnswer(
-                                    questionId = question.id,
-                                    selectedOptionIds = selections[question.id].orEmpty().toList(),
-                                    otherText = other[question.id]?.takeIf(String::isNotBlank),
-                                )
-                            },
+                    ask.questions.forEach { question ->
+                        QuestionEditor(
+                            question = question,
+                            selected = selections[question.id].orEmpty(),
+                            otherText = other[question.id].orEmpty(),
+                            onSelected = { selections = selections + (question.id to it) },
+                            onOther = { other = other + (question.id to it) },
                         )
-                    },
-                    enabled = valid,
-                ) { Text("提交回答") }
+                    }
+                    val valid = ask.questions.all { selections[it.id].orEmpty().isNotEmpty() || other[it.id].orEmpty().isNotBlank() }
+                    Button(
+                        onClick = {
+                            onAnswer(
+                                ask.askId,
+                                ask.questions.map { question ->
+                                    PhoneWorkAnswer(
+                                        questionId = question.id,
+                                        selectedOptionIds = selections[question.id].orEmpty().toList(),
+                                        otherText = other[question.id]?.takeIf(String::isNotBlank),
+                                    )
+                                },
+                            )
+                        },
+                        enabled = valid,
+                    ) { Text("提交回答") }
+                }
             }
         }
     }
