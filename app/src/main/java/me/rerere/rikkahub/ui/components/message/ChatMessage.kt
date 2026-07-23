@@ -351,6 +351,23 @@ internal fun MessagePartsBlock(
                                     )
                                 }
                             }
+
+                            is ThinkingStep.ResearchPurposeStep -> {
+                                key(
+                                    step.tools.firstOrNull()?.toolCallId
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?: "research-purpose-${step.purpose}"
+                                ) {
+                                    ChatMessageResearchPurposeStep(
+                                        purpose = step.purpose,
+                                        tools = step.tools,
+                                        loading = loading,
+                                        onToolApproval = onToolApproval,
+                                        onToolAnswer = onToolAnswer,
+                                        onToolCancel = onToolCancel,
+                                    )
+                                }
+                            }
                         }
                     }
                 }

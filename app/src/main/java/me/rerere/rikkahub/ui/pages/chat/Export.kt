@@ -572,6 +572,10 @@ private fun ExportedChatMessage(
                                             tool = step.tool
                                         )
                                     }
+
+                                    is ThinkingStep.ResearchPurposeStep -> {
+                                        ExportedResearchPurposeStep(step)
+                                    }
                                 }
                             }
                         }
@@ -707,6 +711,41 @@ private fun ChainOfThoughtScope.ExportedReasoningStep(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+    )
+}
+
+@Composable
+private fun ChainOfThoughtScope.ExportedResearchPurposeStep(
+    step: ThinkingStep.ResearchPurposeStep,
+) {
+    ControlledChainOfThoughtStep(
+        expanded = true,
+        onExpandedChange = {},
+        icon = {
+            Icon(
+                imageVector = HugeIcons.Search01,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.secondary,
+            )
+        },
+        label = {
+            Text(
+                text = step.purpose,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.secondary,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        contentVisible = true,
+        content = {
+            Column {
+                step.tools.forEach { tool ->
+                    ExportedToolStep(tool)
+                }
+            }
+        },
     )
 }
 
