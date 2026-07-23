@@ -179,18 +179,47 @@ class RootfsInstaller(
 
     private fun createSymlink(root: File, target: File, linkName: String) {
         if (linkName.isBlank()) return
-        val linkTarget = if (File(linkName).isAbsolute) {
-            File(linkName)
+        val unixAbsoluteLinkTarget = linkName.startsWith('/')
+        val absoluteLinkTarget = unixAbsoluteLinkTarget || File(linkName).isAbsolute
+        val materializedSource = if (absoluteLinkTarget) {
+            root.safeResolve(linkName)
         } else {
             val resolved = File(target.parentFile ?: root, linkName).canonicalFile
             val rootFile = root.canonicalFile
             require(resolved.path == rootFile.path || resolved.path.startsWith(rootFile.path + File.separator)) {
                 "Symlink escapes rootfs: ${target.name}"
             }
-            (target.parentFile ?: root).toPath().relativize(resolved.toPath()).toFile()
+            resolved
+        }
+        val linkTarget = if (unixAbsoluteLinkTarget && File.separatorChar == '\\') {
+            (target.parentFile ?: root).toPath()
+                .relativize(materializedSource.toPath())
+                .toFile()
+        } else if (absoluteLinkTarget) {
+            File(linkName)
+        } else {
+            (target.parentFile ?: root).toPath()
+                .relativize(materializedSource.toPath())
+                .toFile()
         }
         target.delete()
-        Files.createSymbolicLink(target.toPath(), linkTarget.toPath())
+        runCatching {
+            Files.createSymbolicLink(target.toPath(), linkTarget.toPath())
+        }.recoverCatching { error ->
+            if (error !is IOException &&
+                error !is UnsupportedOperationException &&
+                error !is SecurityException
+            ) {
+                throw error
+            }
+            if (!materializedSource.isFile) {
+                throw error
+            }
+            materializedSource.copyTo(target, overwrite = true)
+            target.setReadable(materializedSource.canRead(), false)
+            target.setWritable(materializedSource.canWrite(), true)
+            target.setExecutable(materializedSource.canExecute(), false)
+        }.getOrThrow()
     }
 
     private fun createHardLink(root: File, target: File, linkName: String) {

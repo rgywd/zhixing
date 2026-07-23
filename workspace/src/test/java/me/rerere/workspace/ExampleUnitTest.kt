@@ -66,6 +66,7 @@ class ExampleUnitTest {
             TarTestEntry("bin/", type = '5'),
             TarTestEntry("bin/hello", content = "echo hello\n".toByteArray(), mode = 493),
             TarTestEntry("usr/bin/hello-link", type = '2', linkName = "../../bin/hello"),
+            TarTestEntry("usr/bin/hello-absolute", type = '2', linkName = "/bin/hello"),
         )
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/rootfs.tar.gz") { exchange ->
@@ -80,7 +81,12 @@ class ExampleUnitTest {
             val linuxDir = manager.linuxDir(root)
             assertEquals("echo hello\n", File(linuxDir, "bin/hello").readText())
             assertTrue(File(linuxDir, "bin/hello").canExecute())
-            assertTrue(Files.isSymbolicLink(File(linuxDir, "usr/bin/hello-link").toPath()))
+            val helloLink = File(linuxDir, "usr/bin/hello-link")
+            assertTrue(helloLink.exists())
+            assertEquals("echo hello\n", helloLink.readText())
+            val absoluteHelloLink = File(linuxDir, "usr/bin/hello-absolute")
+            assertTrue(absoluteHelloLink.exists())
+            assertEquals("echo hello\n", absoluteHelloLink.readText())
         } finally {
             server.stop(0)
         }
@@ -200,14 +206,18 @@ class ExampleUnitTest {
         val manager = WorkspaceManager(baseDir)
         val root = "test-workspace"
         manager.ensureWorkspace(root)
+        File(manager.filesDir(root), "large-output.txt").writeText("a".repeat(300_000))
 
         val result = manager.executeCommand(
             root,
-            "awk 'BEGIN { for (i = 0; i < 300000; i++) printf \"a\" }'",
+            "cat large-output.txt",
         )
 
         assertEquals(0, result.exitCode)
-        assertTrue(result.truncated)
+        assertTrue(
+            "Expected truncated output, actual length=${result.stdout.length}",
+            result.truncated,
+        )
         assertEquals(MAX_OUTPUT_CHARS, result.stdout.length)
     }
 

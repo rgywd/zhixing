@@ -58,8 +58,44 @@ class HostShellRunner : WorkspaceShellRunner {
         return process.readResult(context.timeoutMillis, context.stdin)
     }
 
-    private fun defaultShell(): String =
-        if (File("/system/bin/sh").exists()) "/system/bin/sh" else "/bin/sh"
+    private fun defaultShell(): String {
+        listOf("/system/bin/sh", "/bin/sh")
+            .firstOrNull { File(it).isFile }
+            ?.let { return it }
+
+        if (!System.getProperty("os.name").orEmpty().contains("Windows", ignoreCase = true)) {
+            return "/bin/sh"
+        }
+
+        val environment = System.getenv()
+        val path = environment.entries
+            .firstOrNull { (key, _) -> key.equals("PATH", ignoreCase = true) }
+            ?.value
+            .orEmpty()
+        val programFiles = environment.entries
+            .firstOrNull { (key, _) -> key.equals("ProgramFiles", ignoreCase = true) }
+            ?.value
+        val localAppData = environment.entries
+            .firstOrNull { (key, _) -> key.equals("LOCALAPPDATA", ignoreCase = true) }
+            ?.value
+
+        val candidates = buildList {
+            path.split(File.pathSeparatorChar)
+                .filter { it.isNotBlank() }
+                .mapTo(this) { directory -> File(directory, "sh.exe") }
+            programFiles?.let { directory ->
+                add(File(directory, "Git/bin/sh.exe"))
+                add(File(directory, "Git/usr/bin/sh.exe"))
+            }
+            localAppData?.let { directory ->
+                add(File(directory, "Programs/Git/bin/sh.exe"))
+            }
+        }
+        return candidates.firstOrNull(File::isFile)?.absolutePath
+            ?: throw IOException(
+                "No POSIX shell found. Install Git for Windows or configure sh.exe on PATH."
+            )
+    }
 }
 
 // 单个流保留的最大字符数, 防止命令疯狂输出导致 OOM 或撑爆 LLM 上下文
