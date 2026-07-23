@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.service
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -14,6 +15,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import java.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -102,7 +104,9 @@ class PhoneWorkTrackingService : Service() {
     private suspend fun ensureNotificationCursor(sessionId: String) {
         val key = cursorKey(sessionId)
         if (!trackingState.contains(key)) {
-            trackingState.edit().putLong(key, repository.maxEventSeq(sessionId)).commit()
+            trackingState.edit(commit = true) {
+                putLong(key, repository.maxEventSeq(sessionId))
+            }
         }
     }
 
@@ -113,7 +117,9 @@ class PhoneWorkTrackingService : Service() {
         repository.cachedEventsAfter(session.id, cursor).forEach { event ->
             notifyEvent(session, event)?.let { latestMilestone = it }
             cursor = event.seq
-            trackingState.edit().putLong(key, cursor).commit()
+            trackingState.edit(commit = true) {
+                putLong(key, cursor)
+            }
         }
         return latestMilestone
     }
@@ -122,11 +128,15 @@ class PhoneWorkTrackingService : Service() {
         trackingState.getStringSet(KEY_TRACKED_SESSIONS, emptySet()).orEmpty().toSet()
 
     private fun rememberTracked(sessionId: String) {
-        trackingState.edit().putStringSet(KEY_TRACKED_SESSIONS, trackedSessionIds() + sessionId).commit()
+        trackingState.edit(commit = true) {
+            putStringSet(KEY_TRACKED_SESSIONS, trackedSessionIds() + sessionId)
+        }
     }
 
     private fun forgetTracked(sessionId: String) {
-        trackingState.edit().putStringSet(KEY_TRACKED_SESSIONS, trackedSessionIds() - sessionId).commit()
+        trackingState.edit(commit = true) {
+            putStringSet(KEY_TRACKED_SESSIONS, trackedSessionIds() - sessionId)
+        }
     }
 
     private fun cursorKey(sessionId: String) = "notified_seq_$sessionId"
@@ -188,9 +198,7 @@ class PhoneWorkTrackingService : Service() {
             }
             else -> return null
         }
-        if (hasNotificationPermission()) {
-            NotificationManagerCompat.from(this).notify(event.id.hashCode(), notification)
-        }
+        notifyWithId(event.id.hashCode(), notification)
         return milestoneStatus?.let {
             WorkTrackingMilestone(
                 sessionId = session.id,
@@ -228,6 +236,7 @@ class PhoneWorkTrackingService : Service() {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun notifyWithId(id: Int, notification: Notification) {
         if (hasNotificationPermission()) NotificationManagerCompat.from(this).notify(id, notification)
     }
@@ -240,12 +249,12 @@ class PhoneWorkTrackingService : Service() {
     }
 
     private fun rememberMilestone(milestone: WorkTrackingMilestone) {
-        trackingState.edit()
-            .putString(KEY_MILESTONE_SESSION_ID, milestone.sessionId)
-            .putString(KEY_MILESTONE_REPO_NAME, milestone.repoName)
-            .putString(KEY_MILESTONE_STATUS, milestone.status.name)
-            .putLong(KEY_MILESTONE_OBSERVED_AT, milestone.observedAtMillis)
-            .commit()
+        trackingState.edit(commit = true) {
+            putString(KEY_MILESTONE_SESSION_ID, milestone.sessionId)
+            putString(KEY_MILESTONE_REPO_NAME, milestone.repoName)
+            putString(KEY_MILESTONE_STATUS, milestone.status.name)
+            putLong(KEY_MILESTONE_OBSERVED_AT, milestone.observedAtMillis)
+        }
     }
 
     private fun trackedMilestone(nowMillis: Long): WorkTrackingMilestone? {
@@ -268,12 +277,12 @@ class PhoneWorkTrackingService : Service() {
     }
 
     private fun clearMilestone() {
-        trackingState.edit()
-            .remove(KEY_MILESTONE_SESSION_ID)
-            .remove(KEY_MILESTONE_REPO_NAME)
-            .remove(KEY_MILESTONE_STATUS)
-            .remove(KEY_MILESTONE_OBSERVED_AT)
-            .apply()
+        trackingState.edit {
+            remove(KEY_MILESTONE_SESSION_ID)
+            remove(KEY_MILESTONE_REPO_NAME)
+            remove(KEY_MILESTONE_STATUS)
+            remove(KEY_MILESTONE_OBSERVED_AT)
+        }
     }
 
     private fun alertBuilder(channel: String, title: String, text: String, sessionId: String) =
@@ -365,7 +374,9 @@ class PhoneWorkTrackingService : Service() {
         fun stop(context: Context) {
             context.stopService(Intent(context, PhoneWorkTrackingService::class.java))
             NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
-            context.getSharedPreferences(TRACKING_PREFERENCES, Context.MODE_PRIVATE).edit().clear().apply()
+            context.getSharedPreferences(TRACKING_PREFERENCES, Context.MODE_PRIVATE).edit {
+                clear()
+            }
         }
     }
 }
