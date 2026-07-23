@@ -102,6 +102,7 @@ class SettingsStore(
         val OCR_PROMPT = stringPreferencesKey("ocr_prompt")
         val COMPRESS_MODEL = stringPreferencesKey("compress_model")
         val COMPRESS_PROMPT = stringPreferencesKey("compress_prompt")
+        val ALLOW_AI_HEALTH_DATA = booleanPreferencesKey("allow_ai_health_data")
 
         // 提供商
         val PROVIDERS = stringPreferencesKey("providers")
@@ -203,6 +204,7 @@ class SettingsStore(
                 ocrPrompt = preferences[OCR_PROMPT] ?: DEFAULT_OCR_PROMPT,
                 compressModelId = preferences[COMPRESS_MODEL]?.let { Uuid.parse(it) } ?: DEFAULT_AUTO_MODEL_ID,
                 compressPrompt = preferences[COMPRESS_PROMPT] ?: DEFAULT_COMPRESS_PROMPT,
+                allowAiHealthData = preferences[ALLOW_AI_HEALTH_DATA] == true,
                 assistantId = preferences[SELECT_ASSISTANT]?.let { Uuid.parse(it) }
                     ?: DEFAULT_ASSISTANT_ID,
                 assistantTags = preferences[ASSISTANT_TAGS]?.let {
@@ -405,6 +407,7 @@ class SettingsStore(
             preferences[OCR_PROMPT] = settings.ocrPrompt
             preferences[COMPRESS_MODEL] = settings.compressModelId.toString()
             preferences[COMPRESS_PROMPT] = settings.compressPrompt
+            preferences[ALLOW_AI_HEALTH_DATA] = settings.allowAiHealthData
 
             preferences[PROVIDERS] = JsonInstant.encodeToString(settings.providers)
 
@@ -565,6 +568,7 @@ data class Settings(
     val ocrPrompt: String = DEFAULT_OCR_PROMPT,
     val compressModelId: Uuid = Uuid.random(),
     val compressPrompt: String = DEFAULT_COMPRESS_PROMPT,
+    val allowAiHealthData: Boolean = false,
     val assistantId: Uuid = DEFAULT_ASSISTANT_ID,
     val providers: List<ProviderSetting> = DEFAULT_PROVIDERS,
     val assistants: List<Assistant> = DEFAULT_ASSISTANTS,

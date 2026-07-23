@@ -12,6 +12,21 @@ import me.rerere.rikkahub.data.profile.ProfileMaintenanceService
 import me.rerere.rikkahub.data.profile.ProfileMaintenanceWorker
 import me.rerere.rikkahub.data.agenda.AgendaReminderWorker
 import me.rerere.rikkahub.data.agenda.AgendaPlanStageReminderWorker
+import me.rerere.rikkahub.data.status.AndroidCoarseLocationProvider
+import me.rerere.rikkahub.data.status.CachingWeatherProvider
+import me.rerere.rikkahub.data.status.FastModelStatusGenerator
+import me.rerere.rikkahub.data.status.LenovoWatchBodyStatusSource
+import me.rerere.rikkahub.data.status.LocalAgendaStatusSource
+import me.rerere.rikkahub.data.status.MyStatusAgendaSource
+import me.rerere.rikkahub.data.status.MyStatusBodySource
+import me.rerere.rikkahub.data.status.MyStatusClock
+import me.rerere.rikkahub.data.status.MyStatusContextAssembler
+import me.rerere.rikkahub.data.status.MyStatusCoordinator
+import me.rerere.rikkahub.data.status.MyStatusLocationProvider
+import me.rerere.rikkahub.data.status.MyStatusSnapshotStore
+import me.rerere.rikkahub.data.status.MyStatusTextGenerator
+import me.rerere.rikkahub.data.status.OpenMeteoWeatherProvider
+import me.rerere.rikkahub.data.status.WeatherProvider
 import me.rerere.rikkahub.data.work.PhoneWorkSessionCreator
 import me.rerere.rikkahub.data.work.PhoneWorkSessionGateway
 import me.rerere.rikkahub.data.work.PhoneWorkTitleGenerator
@@ -46,6 +61,32 @@ val appModule = module {
 
     single { LenovoWatchProbe(get()) }
     single { LenovoWatchConnectionManager(get(), get()) }
+    single<MyStatusClock> { MyStatusClock(System::currentTimeMillis) }
+    single<MyStatusLocationProvider> { AndroidCoarseLocationProvider(get(), get()) }
+    single<WeatherProvider> {
+        CachingWeatherProvider(
+            delegate = OpenMeteoWeatherProvider(clock = get()),
+            clock = get(),
+        )
+    }
+    single<MyStatusBodySource> { LenovoWatchBodyStatusSource(get(), get()) }
+    single<MyStatusAgendaSource> { LocalAgendaStatusSource(get(), get(), get()) }
+    single { MyStatusContextAssembler(get(), get(), get(), get(), get()) }
+    single<MyStatusTextGenerator> { FastModelStatusGenerator(get(), get()) }
+    single { MyStatusSnapshotStore(get()) }
+    single(createdAtStart = true) {
+        MyStatusCoordinator(
+            appScope = get(),
+            settingsStore = get(),
+            contextAssembler = get(),
+            textGenerator = get(),
+            snapshotStore = get(),
+            watchProbe = get(),
+            agendaTaskRepository = get(),
+            agendaPlanRepository = get(),
+            clock = get(),
+        ).also(MyStatusCoordinator::start)
+    }
 
     single {
         LocalTools(get(), get(), get(), get(), get(), get())

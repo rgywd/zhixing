@@ -135,9 +135,7 @@ private fun LifeOverviewDrawerContent(
     modifier: Modifier = Modifier,
 ) {
     val quotaRepository: QuotaRepository = koinInject()
-    val watchProbe: LenovoWatchProbe = koinInject()
     val quotaState by quotaRepository.state.collectAsStateWithLifecycle()
-    val watchState by watchProbe.state.collectAsStateWithLifecycle()
     val quotaItems = remember(quotaState.envelope) { buildQuotaOverviews(quotaState.envelope) }
     LaunchedEffect(quotaRepository) { quotaRepository.refresh() }
 
@@ -163,12 +161,10 @@ private fun LifeOverviewDrawerContent(
                 item(key = "status-title") {
                     OverviewSectionTitle(
                         title = "我的状态",
-                        subtitle = healthDataSubtitle(watchState.lastSuccessfulSyncAt),
+                        subtitle = "理解身体、环境与安排中最值得注意的部分",
                     )
                 }
-                item(key = "status-greeting") { StatusGreeting() }
-                item(key = "steps") { StepsCard(watchState) }
-                item(key = "status-grid") { StatusMetricGrid(watchState) }
+                item(key = "my-status") { MyStatusCard() }
 
                 item(key = "agenda") { AgendaOverviewSection() }
 
