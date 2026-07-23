@@ -686,12 +686,13 @@ export class WorkStore {
     return { inbox, nextInboxCursor: inbox.at(-1)?.seq ?? Number(afterSeq) };
   }
 
-  createAsk(sessionId, input) {
+  createAsk(sessionId, input, timeoutMs = null) {
     validateQuestions(input.questions);
     const existing = this.db.prepare("SELECT * FROM asks WHERE session_id=? AND client_call_id=?").get(sessionId, input.clientCallId);
     if (existing) return this.toAsk(existing);
     const askId = id("ask");
     const now = new Date().toISOString();
+    const deadlineAt = Number.isFinite(timeoutMs) ? new Date(Date.now() + timeoutMs).toISOString() : null;
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const concurrent = this.db.prepare("SELECT * FROM asks WHERE session_id=? AND client_call_id=?").get(sessionId, input.clientCallId);
@@ -703,7 +704,7 @@ export class WorkStore {
         INSERT INTO asks(id, session_id, client_call_id, questions_json, status, created_at)
         VALUES (?, ?, ?, ?, 'PENDING', ?)
       `).run(askId, sessionId, input.clientCallId, json(input.questions), now);
-      this.appendEvent(sessionId, "ASK", { askId, questions: input.questions }, now);
+      this.appendEvent(sessionId, "ASK", { askId, questions: input.questions, deadlineAt }, now);
       this.db.prepare("UPDATE sessions SET status='WAITING_FOR_USER', updated_at=? WHERE id=?").run(now, sessionId);
       this.db.exec("COMMIT");
     } catch (error) {
@@ -718,16 +719,18 @@ export class WorkStore {
     return row ? this.toAsk(row) : null;
   }
 
-  timeoutAsk(askId) {
+  timeoutAsk(askId, nextSessionStatus = "IDLE") {
     const ask = this.getAsk(askId);
     if (!ask || ask.status !== "PENDING") return ask;
+    const answers = defaultAnswers(ask.questions);
     const now = new Date().toISOString();
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      this.db.prepare("UPDATE asks SET status='TIMED_OUT' WHERE id=? AND status='PENDING'").run(askId);
-      this.appendEvent(ask.sessionId, "ASK_TIMED_OUT", { askId }, now);
-      this.db.prepare("UPDATE sessions SET status='IDLE', updated_at=? WHERE id=? AND status='WAITING_FOR_USER'")
-        .run(now, ask.sessionId);
+      this.db.prepare("UPDATE asks SET status='ANSWERED', answers_json=?, answered_at=? WHERE id=? AND status='PENDING'")
+        .run(json(answers), now, askId);
+      this.appendEvent(ask.sessionId, "ASK_ANSWERED", { askId, answers, source: "timeout_default" }, now);
+      this.db.prepare("UPDATE sessions SET status=?, updated_at=? WHERE id=? AND status='WAITING_FOR_USER'")
+        .run(nextSessionStatus, now, ask.sessionId);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -749,7 +752,7 @@ export class WorkStore {
     };
   }
 
-  answerAsk(sessionId, askId, input, idempotencyKey, shouldResume = true) {
+  answerAsk(sessionId, askId, input, idempotencyKey) {
     return this.withIdempotency(`answer:${askId}`, idempotencyKey, () => {
       const ask = this.getAsk(askId);
       if (!ask || ask.sessionId !== sessionId) throw Object.assign(new Error("Question set not found"), { statusCode: 404 });
@@ -758,18 +761,8 @@ export class WorkStore {
       const now = new Date().toISOString();
       this.db.prepare("UPDATE asks SET status='ANSWERED', answers_json=?, answered_at=? WHERE id=?")
         .run(json(input.answers), now, askId);
-      this.appendEvent(sessionId, "ASK_ANSWERED", { askId, answers: input.answers }, now);
-      const session = this.getSession(sessionId);
-      if (shouldResume) {
-        this.createCommand(session.runnerId, sessionId, "RESUME", {
-          message: formatLateAnswer(ask.questions, input.answers),
-          askId,
-          inboxCursor: this.getSession(sessionId).lastSeq,
-          sessionToken: this.createSessionToken(sessionId),
-        }, now);
-      } else {
-        this.db.prepare("UPDATE sessions SET status='RUNNING', updated_at=? WHERE id=?").run(now, sessionId);
-      }
+      this.appendEvent(sessionId, "ASK_ANSWERED", { askId, answers: input.answers, source: "user" }, now);
+      this.db.prepare("UPDATE sessions SET status='RUNNING', updated_at=? WHERE id=? AND status='WAITING_FOR_USER'").run(now, sessionId);
       return this.getAsk(askId);
     });
   }
@@ -852,7 +845,25 @@ function validateQuestions(questions) {
       }
       optionIds.add(option.id);
     }
+    const recommended = question.recommendedOptionIds;
+    if (!Array.isArray(recommended) || recommended.length < 1) {
+      throw Object.assign(new Error("Each question needs recommendedOptionIds for the timeout fallback"), { statusCode: 400 });
+    }
+    if (!question.multiSelect && recommended.length !== 1) {
+      throw Object.assign(new Error("Single-select question needs exactly one recommended option"), { statusCode: 400 });
+    }
+    if (recommended.some((optionId) => !optionIds.has(optionId))) {
+      throw Object.assign(new Error("recommendedOptionIds must reference existing options"), { statusCode: 400 });
+    }
   }
+}
+
+function defaultAnswers(questions) {
+  return questions.map((question) => ({
+    questionId: question.id,
+    selectedOptionIds: [...question.recommendedOptionIds],
+    otherText: null,
+  }));
 }
 
 function validateAnswers(questions, answers) {
@@ -873,17 +884,4 @@ function validateAnswers(questions, answers) {
       throw Object.assign(new Error("Each answer needs a selected option or other text"), { statusCode: 400 });
     }
   }
-}
-
-function formatLateAnswer(questions, answers) {
-  const questionById = new Map(questions.map((question) => [question.id, question]));
-  const lines = ["用户已回答之前的问题："];
-  for (const answer of answers) {
-    const question = questionById.get(answer.questionId);
-    const optionById = new Map(question.options.map((option) => [option.id, option.label]));
-    const values = (answer.selectedOptionIds ?? []).map((optionId) => optionById.get(optionId));
-    if (answer.otherText) values.push(`其他：${answer.otherText}`);
-    lines.push(`- ${question.question} ${values.join("、")}`);
-  }
-  return lines.join("\n");
 }

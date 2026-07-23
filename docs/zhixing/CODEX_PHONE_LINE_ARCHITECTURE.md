@@ -95,7 +95,7 @@ Core 可以部署在 VPS，但不持有 OpenAI 登录态、Codex 凭据、仓库
 ### Phone-line MCP
 
 - 与当前 Work session 绑定；不能列出或访问其他会话。
-- 工具调用写入 Core 后尽快返回；`ask` 例外，可短挂最多 180 秒。
+- 工具调用写入 Core 后尽快返回；`ask` 例外，可短挂最多 180 秒，超时自动采用模型给出的推荐答案返回。
 - `report` 返回从上次 inbox cursor 之后积压的手机消息，使 Codex 必然读到补充内容。
 - 本地日志只记录请求 ID、状态码和耗时，不记录消息正文或 token。
 
@@ -104,7 +104,8 @@ Core 可以部署在 VPS，但不持有 OpenAI 登录态、Codex 凭据、仓库
 - Runner 在每次手机 START/RESUME 的命令行中显式注入 `developer_instructions`，让 Codex 知道三个工具以及调用时机；
   该指令不写入普通 `~/.codex`，电脑端会话不会继承。
 - `report` 至少用于有意义的阶段完成、准备进入较长无人值守等待，以及本轮结束前的最终结果；不能退化为逐工具刷屏。
-- `ask` 只用于确实阻断安全推进的用户选择，保持 1–4 个简短选择题；`report_html` 只承载适合独立阅读的长结构化交付物。
+- `ask` 用于用户偏好会改变做法的决策点，保持 1–4 个简短选择题，每题必须给诚实推荐的默认选项，提问永远不会
+  卡住流程；`report_html` 只承载适合独立阅读的长结构化交付物。
 - 工具结果中的 inbox 是模型可见输入，Codex 必须阅读并响应；普通 assistant 输出仍然保留，不能把工具调用当成唯一记录。
 - 自动 JSONL 消息桥是可靠性兜底，不依赖模型是否遵守工具指令；MCP 负责主动沟通语义，JSONL 负责避免正常回复丢失。
 
@@ -142,7 +143,7 @@ CREATED -> QUEUED -> RUNNING -> WAITING_FOR_USER -> RUNNING
 
 - `CREATED/QUEUED`：Core 已接收，等待 Runner。
 - `RUNNING`：Codex 本轮尚未产生语义终态；不能仅因 CLI 进程仍存活就继续显示运行中。
-- `WAITING_FOR_USER`：存在尚未回答的 `ask`；180 秒超时后进入 `IDLE`，不宣告失败。
+- `WAITING_FOR_USER`：存在尚未回答的 `ask`；180 秒超时后按推荐答案落定并回到 `RUNNING`，不宣告失败。
 - `IDLE`：本轮 Codex 已退出，但会话可用下一条手机消息 resume。
 - `COMPLETED`：用户主动结束；不可再发送。
 - `FAILED`：启动或 resume 失败，可重试；已有消息与报告仍可读。
@@ -164,7 +165,8 @@ Runner 离线是连接状态，不改写会话状态。手机允许排队发送�
 
 - Core 不可达：Android 展示本地缓存并允许草稿，不伪装成已发送；Runner 指数退避重连。
 - Runner 离线：消息耐久排队；上线后顺序处理，同一会话同时最多一个 Codex 进程。
-- `ask` 超时：工具返回明确 timeout；用户之后回答会形成 inbox 消息并触发一次 resume。
+- `ask` 超时：Core 把该题的推荐答案落定（`ASK_ANSWERED`，`source=timeout_default`）并返回 `auto_answered`，
+  Codex 按推荐方案继续；迟到回答被幂等忽略，用户改主意直接发普通消息。
 - Codex 未调用 `report`：Runner 自动转发公开 JSONL 中的普通 `agent_message`；`turn.completed` / `turn.failed`
   到达时提交终态，子进程退出仅作为兼容兜底，手机不会因模型忘记调用 MCP 而空白或无限显示“运行中”。
 - SSE 丢失：客户端用 `afterSeq` 补拉；catalog/仓库刷新失败只 toast，不禁用已有缓存选项。

@@ -42,9 +42,9 @@ Core 耐久保存图片，但只有该会话所属 Runner 能下载；Runner 校
 ## 2. 三个 MCP 工具
 
 Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `developer_instructions`：说明三个工具的用途，要求在
-有意义的阶段完成和本轮结束前调用 `report`，仅在阻断决策时调用 `ask`，长结构化产物使用 `report_html`。该约定不写入
-用户全局配置或仓库配置，普通电脑 Codex 会话不得加载。自动 `ASSISTANT_MESSAGE` 桥接独立存在，不能以模型未调用工具为由
-丢弃正常回复。
+有意义的阶段完成和本轮结束前调用 `report`，在用户偏好会改变做法的决策点调用 `ask`（每题必须给推荐答案，超时
+自动采用推荐继续，提问永远不会卡住流程），长结构化产物使用 `report_html`。该约定不写入用户全局配置或仓库配置，
+普通电脑 Codex 会话不得加载。自动 `ASSISTANT_MESSAGE` 桥接独立存在，不能以模型未调用工具为由丢弃正常回复。
 
 ### `report(text)`
 
@@ -85,13 +85,16 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
       "options": [
         { "id": "cpa", "label": "CPA", "description": "复用现有运维环境" },
         { "id": "vps", "label": "myVPS", "description": "与开发服务隔离" }
-      ]
+      ],
+      "recommendedOptionIds": ["cpa"]
     }
   ]
 }
 ```
 
 规则：每次 1–4 题；每题 1–8 个选项；题目可单选或多选；客户端永远附带“其他”自由输入，不由模型声明关闭。
+每题必须携带 `recommendedOptionIds`（模型诚实判断的最优选项；单选恰好 1 个，多选 1 个或多个，且必须引用已有
+选项）。ASK 事件 payload 额外携带 `deadlineAt`（回答截止时刻，由 Core 按等待上限生成）。
 
 180 秒内回答：
 
@@ -106,13 +109,22 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
 }
 ```
 
-超时：
+超时自动采用推荐答案落定：
 
 ```json
-{ "status": "timeout", "questionSetId": "ask_...", "message": "No answer within 180 seconds; stop or continue with safe assumptions." }
+{
+  "status": "auto_answered",
+  "answers": [
+    { "questionId": "deployTarget", "selectedOptionIds": ["cpa"], "otherText": null }
+  ],
+  "answeredAt": "...",
+  "message": "No answer within 180 seconds; the recommended options were applied. ..."
+}
 ```
 
-超时后答案仍可提交一次。Core 把迟到答案转换为高优先级 inbox 消息并排队 resume。
+超时不会丢失决策：Core 把推荐答案写入 answers、发出 `ASK_ANSWERED`（payload `source` 为 `timeout_default`，
+用户回答为 `user`），会话回到 RUNNING，Codex 继续执行。落定后迟到回答被幂等忽略；用户想改主意直接发普通
+消息。Core 重启时对仍 PENDING 的 ask 同样按推荐答案落定，会话恢复 IDLE。
 
 ### `report_html(html, title)`
 
@@ -192,7 +204,9 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 - `USER_MESSAGE`：右侧普通消息气泡。
 - `REPORT`：左侧 Markdown 消息；不展示“工具调用 report”。
 - `ASSISTANT_MESSAGE`：左侧普通 Markdown 消息；与正常聊天回复使用相同视觉，不显示 JSONL/Hook 来源。
-- `ASK`：左侧原生问题卡，回答后折叠为结果摘要。
+- `ASK`：左侧原生问题卡。推荐选项带“推荐”标记并预填为默认选择，用户可一键提交、改选或填“其他”；有
+  `deadlineAt` 时显示“X 秒后自动采用推荐方案”倒计时。落定后折叠为结果摘要：`source=user` 显示“已回答”，
+  `source=timeout_default` 显示“已超时，采用推荐方案”。
 - `HTML_REPORT`：左侧报告卡，点击进入只读 WebView。
 - `RUN_STATE`：轻量行内状态或页头状态，不伪装成 AI 文本。
 - `SYSTEM_ERROR`：可恢复错误条，保留重试动作与已有消息。
@@ -218,7 +232,9 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 - 常驻通知使用低优先级通道，默认显示仓库、当前状态和活跃数量；当某个任务进入 `IDLE/COMPLETED/FAILED`
   且仍有其他活跃任务时，镜像最近一次关键结果 60 秒并保留剩余活跃数量，随后恢复默认汇总。点击镜像结果进入对应会话；
   不得包含 token、路径或消息正文。
-- 新增 `ASK` 时发高优先级提醒；新增 `REPORT/HTML_REPORT`、进入 `IDLE/COMPLETED/FAILED` 时发普通关键事件提醒。
+- 新增 `ASK` 时发高优先级提醒，正文注明距自动采用推荐方案的分钟数；提醒按 `askId` 键控，`ASK_ANSWERED`
+  （用户回答或超时落定）到达时取消对应通知。有 `deadlineAt` 时在截止前约 1 分钟追加一次临期提醒（服务重启后
+  未补发，属于可接受的尽力而为）。新增 `REPORT/HTML_REPORT`、进入 `IDLE/COMPLETED/FAILED` 时发普通关键事件提醒。
 - 提醒使用独立于消息缓存的确认游标：先发通知再确认 `(sessionId, seq)`；进程中断时允许极少量重复，不能静默漏掉 `ASK`。
 - Android 13 以上未授权通知时不阻断任务创建或消息发送，只在界面提示用户无法后台提醒。
 - 保存 Core 配置后立即接管已有活跃会话；断开 Core 时停止跟踪服务并移除常驻通知。

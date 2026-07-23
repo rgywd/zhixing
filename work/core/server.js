@@ -123,7 +123,6 @@ function sanitizeReport(html, title) {
 }
 
 export function createWorkServer({ store, askTimeoutMs = 180_000, quotaProxy = null }) {
-  const waitingAsks = new Set();
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url, "http://localhost");
@@ -261,7 +260,6 @@ export function createWorkServer({ store, askTimeoutMs = 180_000, quotaProxy = n
           match[2],
           await readJson(request),
           request.headers["idempotency-key"],
-          !waitingAsks.has(match[2]),
         ));
       }
       match = url.pathname.match(/^\/v1\/work\/sessions\/([^/]+)\/(stop|complete)$/);
@@ -302,16 +300,15 @@ export function createWorkServer({ store, askTimeoutMs = 180_000, quotaProxy = n
       if (request.method === "POST" && match) {
         requireSession(store, request, match[1]);
         const input = await readJson(request);
-        const ask = store.createAsk(match[1], input);
-        waitingAsks.add(ask.id);
+        const ask = store.createAsk(match[1], input, askTimeoutMs);
         const answer = await waitForAnswer(store, ask.id, askTimeoutMs, request.signal);
-        waitingAsks.delete(ask.id);
         if (!answer) {
-          store.timeoutAsk(ask.id);
+          const settled = store.timeoutAsk(ask.id, "RUNNING");
           return sendJson(response, 200, {
-            status: "timeout",
-            questionSetId: ask.id,
-            message: `No answer within ${Math.round(askTimeoutMs / 1000)} seconds; stop or continue with safe assumptions.`,
+            status: "auto_answered",
+            answers: settled.answers,
+            answeredAt: settled.answeredAt,
+            message: `No answer within ${Math.round(askTimeoutMs / 1000)} seconds; the recommended options were applied. Mention that the user did not explicitly confirm if it matters.`,
             ...store.readInbox(match[1], input.inboxAfter ?? 0),
           });
         }

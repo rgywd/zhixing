@@ -198,6 +198,7 @@ test("full phone-line API flow is durable, ordered and idempotent", async (t) =>
         question: "要覆盖升级测试吗？",
         multiSelect: false,
         options: [{ id: "yes", label: "覆盖" }, { id: "no", label: "不覆盖" }],
+        recommendedOptionIds: ["yes"],
       }],
     },
   });
@@ -422,7 +423,7 @@ test("image attachments are durable, scoped to their runner and included in Code
   assert.equal(crossRunner.status, 404);
 });
 
-test("ask returns a bounded timeout and a late answer queues resume", async (t) => {
+test("ask timeout settles with the recommended options and a late answer is ignored", async (t) => {
   const { baseUrl } = await fixture(t, 40);
   const { session, sessionToken } = await registerAndCreate(baseUrl);
   const timedOut = await request(baseUrl, `/v1/mcp/sessions/${session.id}/ask`, {
@@ -435,24 +436,59 @@ test("ask returns a bounded timeout and a late answer queues resume", async (t) 
         header: "选择",
         question: "继续吗？",
         multiSelect: false,
-        options: [{ id: "yes", label: "继续" }],
+        options: [{ id: "yes", label: "继续" }, { id: "no", label: "停止" }],
+        recommendedOptionIds: ["yes"],
       }],
     },
   });
-  assert.equal(timedOut.payload.status, "timeout");
+  assert.equal(timedOut.payload.status, "auto_answered");
+  assert.deepEqual(timedOut.payload.answers, [{ questionId: "choice", selectedOptionIds: ["yes"], otherText: null }]);
   const afterTimeout = await request(baseUrl, `/v1/work/sessions/${session.id}/events?afterSeq=0`);
-  assert.ok(afterTimeout.payload.events.some((event) => event.type === "ASK_TIMED_OUT"));
+  const settled = afterTimeout.payload.events.find((event) => event.type === "ASK_ANSWERED");
+  assert.equal(settled.payload.source, "timeout_default");
   const timedOutSession = (await request(baseUrl, "/v1/work/sessions")).payload.sessions.find((item) => item.id === session.id);
-  assert.equal(timedOutSession.status, "IDLE");
+  assert.equal(timedOutSession.status, "RUNNING");
 
-  const answer = await request(baseUrl, `/v1/work/sessions/${session.id}/asks/${timedOut.payload.questionSetId}/answer`, {
+  const askId = settled.payload.askId;
+  const answer = await request(baseUrl, `/v1/work/sessions/${session.id}/asks/${askId}/answer`, {
     method: "POST",
     idempotencyKey: "late-answer",
     body: { answers: [{ questionId: "choice", selectedOptionIds: [], otherText: "先补测试" }] },
   });
   assert.equal(answer.payload.status, "ANSWERED");
+  assert.deepEqual(answer.payload.answers, [{ questionId: "choice", selectedOptionIds: ["yes"], otherText: null }]);
   const commands = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
-  assert.equal(commands.payload.commands.filter((command) => command.kind === "RESUME").length, 1);
+  assert.equal(commands.payload.commands.filter((command) => command.kind === "RESUME").length, 0);
+});
+
+test("ask requires honest recommended options for the timeout fallback", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const { session, sessionToken } = await registerAndCreate(baseUrl);
+  const base = {
+    id: "choice",
+    header: "选择",
+    question: "继续吗？",
+    multiSelect: false,
+    options: [{ id: "yes", label: "继续" }, { id: "no", label: "停止" }],
+  };
+  const missing = await request(baseUrl, `/v1/mcp/sessions/${session.id}/ask`, {
+    token: sessionToken,
+    method: "POST",
+    body: { clientCallId: "ask-no-default", questions: [base] },
+  });
+  assert.equal(missing.response.status, 400);
+  const unknown = await request(baseUrl, `/v1/mcp/sessions/${session.id}/ask`, {
+    token: sessionToken,
+    method: "POST",
+    body: { clientCallId: "ask-bad-default", questions: [{ ...base, recommendedOptionIds: ["maybe"] }] },
+  });
+  assert.equal(unknown.response.status, 400);
+  const ambiguous = await request(baseUrl, `/v1/mcp/sessions/${session.id}/ask`, {
+    token: sessionToken,
+    method: "POST",
+    body: { clientCallId: "ask-two-defaults", questions: [{ ...base, recommendedOptionIds: ["yes", "no"] }] },
+  });
+  assert.equal(ambiguous.response.status, 400);
 });
 
 test("ask creation rolls back completely when event persistence fails", async (t) => {
@@ -470,6 +506,7 @@ test("ask creation rolls back completely when event persistence fails", async (t
       question: "继续吗？",
       multiSelect: false,
       options: [{ id: "yes", label: "继续" }],
+      recommendedOptionIds: ["yes"],
     }],
   };
   const failed = await request(baseUrl, `/v1/mcp/sessions/${session.id}/ask`, {
@@ -597,7 +634,7 @@ test("a restarted runner reclaims the previous process command before its lease 
   assert.equal(staleHeartbeat.response.status, 409);
 });
 
-test("Core restart times out an interrupted ask and restores the session to idle", () => {
+test("Core restart settles an interrupted ask with its recommended options and restores the session to idle", () => {
   const directory = mkdtempSync(join(tmpdir(), "zhixing-core-restart-"));
   const filename = join(directory, "core.sqlite");
   const options = {
@@ -635,15 +672,19 @@ test("Core restart times out an interrupted ask and restores the session to idle
       question: "继续吗？",
       multiSelect: false,
       options: [{ id: "yes", label: "继续" }],
+      recommendedOptionIds: ["yes"],
     }],
   });
   store.close();
 
   store = new WorkStore(options);
   try {
-    assert.equal(store.getAsk(ask.id).status, "TIMED_OUT");
+    const recovered = store.getAsk(ask.id);
+    assert.equal(recovered.status, "ANSWERED");
+    assert.deepEqual(recovered.answers, [{ questionId: "continue", selectedOptionIds: ["yes"], otherText: null }]);
     assert.equal(store.getSession(session.id).status, "IDLE");
-    assert.ok(store.getEvents(session.id).some((event) => event.type === "ASK_TIMED_OUT"));
+    const settled = store.getEvents(session.id).find((event) => event.type === "ASK_ANSWERED");
+    assert.equal(settled.payload.source, "timeout_default");
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });
