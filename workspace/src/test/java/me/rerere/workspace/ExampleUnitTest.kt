@@ -85,8 +85,12 @@ class ExampleUnitTest {
             assertTrue(helloLink.exists())
             assertEquals("echo hello\n", helloLink.readText())
             val absoluteHelloLink = File(linuxDir, "usr/bin/hello-absolute")
-            assertTrue(absoluteHelloLink.exists())
-            assertEquals("echo hello\n", absoluteHelloLink.readText())
+            if (Files.isSymbolicLink(absoluteHelloLink.toPath())) {
+                assertEquals("/bin/hello", Files.readSymbolicLink(absoluteHelloLink.toPath()).toString())
+            } else {
+                assertTrue(absoluteHelloLink.isFile)
+                assertEquals("echo hello\n", absoluteHelloLink.readText())
+            }
         } finally {
             server.stop(0)
         }
