@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.device.lenovo
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -14,7 +15,7 @@ internal class LenovoWatchSyncStore(context: Context) {
         preferences.getBoolean(KEY_REMEMBERED_DEVICE, false) || preferences.contains(KEY_LAST_SYNC)
 
     fun rememberDevice() {
-        preferences.edit().putBoolean(KEY_REMEMBERED_DEVICE, true).apply()
+        preferences.edit { putBoolean(KEY_REMEMBERED_DEVICE, true) }
     }
 
     fun lastSuccessfulSync(): LocalDateTime? {
@@ -54,11 +55,11 @@ internal class LenovoWatchSyncStore(context: Context) {
         completedAt: Instant,
         snapshot: LenovoWatchHealthSnapshot,
     ) {
-        preferences.edit()
-            .putSnapshot(snapshot)
-            .putLong(KEY_LAST_SYNC, startedAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
-            .putLong(KEY_LAST_SYNC_COMPLETED_AT, completedAt.toEpochMilli())
-            .apply()
+        preferences.edit {
+            putSnapshot(snapshot)
+            putLong(KEY_LAST_SYNC, startedAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
+            putLong(KEY_LAST_SYNC_COMPLETED_AT, completedAt.toEpochMilli())
+        }
     }
 
     /**
@@ -67,9 +68,7 @@ internal class LenovoWatchSyncStore(context: Context) {
      * immediately and safely replay the same history again.
      */
     fun saveCheckpoint(snapshot: LenovoWatchHealthSnapshot) {
-        preferences.edit()
-            .putSnapshot(snapshot)
-            .apply()
+        preferences.edit { putSnapshot(snapshot) }
     }
 
     private fun SharedPreferences.Editor.putSnapshot(snapshot: LenovoWatchHealthSnapshot): SharedPreferences.Editor =

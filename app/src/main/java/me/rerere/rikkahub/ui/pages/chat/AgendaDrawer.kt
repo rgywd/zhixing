@@ -81,6 +81,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -391,7 +392,7 @@ private fun StatusMetricGrid(state: LenovoWatchProbeState) {
         ),
         StatusPreviewItem(
             label = "体温",
-            value = health.temperatureCelsius?.let { String.format("%.1f℃", it) } ?: "--",
+            value = health.temperatureCelsius?.let { String.format(Locale.CHINA, "%.1f℃", it) } ?: "--",
             detail = health.immunity?.let { "免疫力 $it" } ?: "最近一次有效测量",
             icon = HugeIcons.Time02,
         ),
@@ -758,7 +759,7 @@ private fun quotaSectionSubtitle(state: QuotaRepositoryState): String = when {
 private fun formatPercent(value: Double): String = if (value % 1.0 == 0.0) {
     "${value.roundToInt()}%"
 } else {
-    String.format("%.1f%%", value)
+    String.format(Locale.CHINA, "%.1f%%", value)
 }
 
 private fun formatQuotaTime(value: String): String = runCatching {
@@ -777,7 +778,7 @@ private data class StatusPreviewItem(
     val progress: Float? = null,
 )
 
-private fun formatCount(value: Int): String = String.format("%,d", value)
+private fun formatCount(value: Int): String = String.format(Locale.CHINA, "%,d", value)
 
 private fun formatMinutes(value: Int): String = when {
     value <= 0 -> "0 分钟"

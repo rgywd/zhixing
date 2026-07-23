@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.status
 
 import android.content.Context
+import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
@@ -41,9 +42,9 @@ internal class MyStatusSnapshotStore(context: Context) {
     }
 
     fun save(snapshot: MyStatusSnapshot) {
-        preferences.edit()
-            .putString(KEY_SNAPSHOT, JsonInstant.encodeToString(snapshot))
-            .apply()
+        preferences.edit {
+            putString(KEY_SNAPSHOT, JsonInstant.encodeToString(snapshot))
+        }
     }
 
     private companion object {

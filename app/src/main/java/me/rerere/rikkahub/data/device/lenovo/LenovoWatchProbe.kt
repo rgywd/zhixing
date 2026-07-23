@@ -199,6 +199,7 @@ internal class LenovoWatchProbe(private val context: Context) {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
@@ -399,6 +400,7 @@ internal class LenovoWatchProbe(private val context: Context) {
         disconnect(resetState = true)
     }
 
+    @SuppressLint("MissingPermission")
     private fun disconnect(resetState: Boolean) {
         stopScan()
         mainHandler.removeCallbacks(syncQuietTimeout)
@@ -658,6 +660,7 @@ internal class LenovoWatchProbe(private val context: Context) {
         _state.update { it.copy(stage = LenovoWatchProbeStage.ERROR, statusText = "连接失败", error = message) }
     }
 
+    @SuppressLint("MissingPermission")
     private fun failAndDisconnect(message: String, target: BluetoothGatt? = gatt) {
         fail(message)
         stopScan()
