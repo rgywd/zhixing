@@ -156,6 +156,21 @@ private fun relativeWorkUpdateLabel(value: String, now: Instant, zoneId: ZoneId)
 private fun formatWorkTimestamp(value: String, zoneId: ZoneId): String? =
     parseWorkInstant(value)?.let { WORK_TIME_FORMATTER.withZone(zoneId).format(it) }
 
+internal fun relativeWorkTimeLabel(
+    value: String,
+    now: Instant = Instant.now(),
+    zoneId: ZoneId = ZoneId.systemDefault(),
+): String? {
+    val instant = parseWorkInstant(value) ?: return null
+    val age = Duration.between(instant, now).coerceAtLeast(Duration.ZERO)
+    return when {
+        age.seconds < 60 -> "刚刚"
+        age.toMinutes() < 60 -> "${age.toMinutes()} 分钟前"
+        age.toHours() < 24 -> "${age.toHours()} 小时前"
+        else -> WORK_MONTH_DAY_TIME_FORMATTER.withZone(zoneId).format(instant)
+    }
+}
+
 internal fun formatWorkCardTimestamp(value: String, zoneId: ZoneId = ZoneId.systemDefault()): String? =
     parseWorkInstant(value)?.let { WORK_MONTH_DAY_TIME_FORMATTER.withZone(zoneId).format(it) }
 
