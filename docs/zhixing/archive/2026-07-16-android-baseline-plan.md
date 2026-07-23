@@ -79,8 +79,9 @@
 ## Phase 4：Work Phone-line v1
 
 目标：让手机创建的 Codex 会话通过三条 MCP 电话线完成可靠的异步沟通，不复制 Codex Desktop，不恢复旧
-Happy/App Server/Relay 链路。完整架构、协议和阶段验收见
-[`CODEX_PHONE_LINE_IMPLEMENTATION_PLAN.md`](../CODEX_PHONE_LINE_IMPLEMENTATION_PLAN.md)。
+Happy/App Server/Relay 链路。现行架构与协议见
+[`CODEX_PHONE_LINE_ARCHITECTURE.md`](../CODEX_PHONE_LINE_ARCHITECTURE.md) 和
+[`CODEX_PHONE_LINE_CONTRACT.md`](../CODEX_PHONE_LINE_CONTRACT.md)。
 
 - [x] 下架旧 Work/Happy/Relay/App Server/Agent 运行时并通过回归构建。
 - [x] 冻结 Phone-line 产品、架构、协议和安全边界。

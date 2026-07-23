@@ -17,20 +17,21 @@
 
 | 领域 | 文档 | 状态 |
 | --- | --- | --- |
-| Codex Work | [架构](./CODEX_PHONE_LINE_ARCHITECTURE.md) · [协议](./CODEX_PHONE_LINE_CONTRACT.md) · [实施与验收](./CODEX_PHONE_LINE_IMPLEMENTATION_PLAN.md) | v1 已形成主闭环，仍有发布门验证项 |
+| Codex Work | [架构](./CODEX_PHONE_LINE_ARCHITECTURE.md) · [协议](./CODEX_PHONE_LINE_CONTRACT.md) | v1 已实现；手机会话、三条电话线、图片、后台跟踪与归档均以这两份契约为准 |
 | Staging 测试客户端 | [分发、受限 API 与验收](./STAGING_TEST_CLIENT.md) | 与正式版并存；用于本机机器验证，不进入正式 Release |
 | 用户画像 | [长期用户画像 V2](./AUTO_PROFILE_MAINTENANCE.md) | V2 已实现；以用户原话证据、纵向观察和每维单摘要为现行契约 |
 | 知识空间 | [知识空间 v0.1](./KNOWLEDGE_SPACE.md) | 已实现；目录、引用和工具边界仍是有效契约 |
-| 火山语音 | [Agent Plan TTS](./VOLCENGINE_TTS.md) | 已实现；记录协议和默认配置 |
+| 火山语音 | [Agent Plan TTS](./VOLCENGINE_TTS.md) · [Agent Plan ASR](./VOLCENGINE_ASR.md) | 已实现；记录协议、接口和默认配置 |
 | 待办与弱日历 | [本地待办、系统日历投影与 AI 工具](./AGENDA_AND_CALENDAR.md) | v1 已实现；待办为权威数据，日历为可选时间背景 |
 | GitHub CLI | [受控 `gh issue` 工具](./GITHUB_CLI_TOOL.md) | v1 已实现；复用 App Token 入口并按 Workspace 自动配置 Rootfs |
-| 普通聊天 | [消息生成链路](../references/chat-generation-pipeline.md) | 代码参考；修改前需核对 Wiki 的 `source_commit` |
+| Lenovo Watch Pro | [协议基线](./LENOVO_WATCH_PRO_PROTOCOL.md) | 只读 BLE 探针已实现并完成真机同步验证 |
+| 普通聊天 | [消息生成链路](../references/chat-generation-pipeline.md) | 代码参考；修改前需与当前源码和测试核对 |
 
 ## 文档生命周期
 
 - **愿景**回答“为什么做、最终要变成什么”，不记录逐文件施工步骤。
 - **契约**回答“现在必须如何工作”，即使功能已经实现也继续保留并随代码更新。
-- **实施与验收**只保留仍有未完成项的计划；全部完成后移入 `archive/`。
+- **实施与验收**只保留正在驱动当前工作的计划；交付完成或已被后续实现取代后移入 `archive/`。
 - **Release Notes**位于根目录 `release-notes/`，是每个公开版本的交付记录，不移入本文档目录。
 - **归档**见 [`archive/README.md`](./archive/README.md)，仅保存历史决策和验证证据，不再作为当前开发依据。
 

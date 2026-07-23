@@ -2,17 +2,10 @@
 
 本文档面向贡献者，概述本仓库的模块结构、开发流程，便于快速上手并保持一致的协作质量。
 
-## Wiki First（必须）
+## Documentation and Code Navigation
 
-开始定位或修改代码前，必须优先查阅项目 Wiki：
-
-1. 先读 `.aiwiki/INDEX.md`，通过模块路由确定目标模块。
-2. 再读 `.aiwiki/STATUS.md`，了解最近提交与当前开发进展。
-3. 按需打开 `.aiwiki/modules/<模块>.md`，确认职责、数据流和修改入口。
-4. 只有 Wiki 信息不足、需要核对精确实现或验证时，才继续搜索和阅读源码。
-
-各 Wiki 页面的 `source_commit` 表示其对应的代码版本；若落后于当前 `HEAD`，应先运行
-CommitWiki 更新，或在结论中明确说明版本差异，不能把过期内容当作当前事实。
+产品、架构与交付契约统一从 [`docs/zhixing/README.md`](docs/zhixing/README.md) 进入。实现定位使用
+`rg --files`、`rg` 和源码符号；文档用于解释边界与决策，源码和测试是当前实现的事实来源。
 
 ## Build, Test, and Development Commands
 
@@ -147,12 +140,3 @@ CommitWiki 更新，或在结论中明确说明版本差异，不能把过期内
 - If the user does not explicitly request localization, prioritize implementing functionality without considering
   localization. (e.g `Text("Hello world")`)
 - For `locale-tui` operations, use the `locale-tui-localization` skill.
-
-<!-- commitwiki:start -->
-## 项目 Wiki（AI 导航 · commitwiki 自动生成，勿手改此区块）
-
-了解本项目前，先读 `.aiwiki/INDEX.md`（模块路由表），按需打开 `.aiwiki/modules/*.md`；
-大文件内部的类/函数与行号见 `.aiwiki/files/*.md` 符号导航页；最近开发进展见 `.aiwiki/STATUS.md`。
-页面 frontmatter 的 `source_commit` 表示 wiki 对应的代码版本。
-不要为"了解项目结构"而通读源码——先查 wiki。
-<!-- commitwiki:end -->

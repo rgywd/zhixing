@@ -1,6 +1,6 @@
 # Work Phone-line v1：协议契约
 
-状态：v1 草案（2026-07-20）
+状态：v1 现行协议契约（2026-07-24 核对）
 
 所有 JSON 字段使用 camelCase，时间使用 UTC RFC 3339，ID 使用不可预测的 UUID/ULID。所有写操作带
 `Idempotency-Key`；成功重试返回第一次创建的对象。
