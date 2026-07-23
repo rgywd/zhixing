@@ -222,15 +222,25 @@ test("full phone-line API flow is durable, ordered and idempotent", async (t) =>
     method: "POST",
     body: {
       title: "验收报告",
-      html: "<h2>通过</h2><script>alert('xss')</script><p>完成</p>",
+      html: '<h2>通过</h2><script>alert(\'xss\')</script><p>完成</p>'
+        + '<img src="data:image/png;base64,iVBORw0KGgo=" alt="图表">'
+        + '<img src="https://evil.example/x.png">'
+        + '<a href="https://example.com/spec">规范</a>'
+        + '<a href="javascript:alert(1)">坏链接</a>',
       clientCallId: "html-1",
     },
   });
   assert.equal(html.response.status, 200);
+  assert.ok(html.payload.outputBytes > 0);
   const reportPage = await request(baseUrl, `/v1/work/reports/${html.payload.reportId}`);
   assert.equal(reportPage.response.status, 200);
   assert.match(reportPage.payload, /<h2>通过<\/h2>/);
   assert.doesNotMatch(reportPage.payload, /<script>/);
+  assert.match(reportPage.payload, /<title>验收报告<\/title>/);
+  assert.match(reportPage.payload, /<img src="data:image\/png;base64,iVBORw0KGgo=" alt="图表" ?\/>/);
+  assert.doesNotMatch(reportPage.payload, /evil\.example/);
+  assert.match(reportPage.payload, /<a href="https:\/\/example\.com\/spec">规范<\/a>/);
+  assert.doesNotMatch(reportPage.payload, /javascript:/);
   assert.match(reportPage.response.headers.get("content-security-policy"), /default-src 'none'/);
 
   const events = await request(baseUrl, `/v1/work/sessions/${session.id}/events?afterSeq=0`);

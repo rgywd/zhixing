@@ -156,6 +156,9 @@ private fun relativeWorkUpdateLabel(value: String, now: Instant, zoneId: ZoneId)
 private fun formatWorkTimestamp(value: String, zoneId: ZoneId): String? =
     parseWorkInstant(value)?.let { WORK_TIME_FORMATTER.withZone(zoneId).format(it) }
 
+internal fun formatWorkCardTimestamp(value: String, zoneId: ZoneId = ZoneId.systemDefault()): String? =
+    parseWorkInstant(value)?.let { WORK_MONTH_DAY_TIME_FORMATTER.withZone(zoneId).format(it) }
+
 private fun parseWorkInstant(value: String): Instant? = runCatching { Instant.parse(value) }.getOrNull()
 
 private val KNOWN_WORK_STATUSES = setOf("QUEUED", "RUNNING", "WAITING_FOR_USER", "IDLE", "COMPLETED", "FAILED")

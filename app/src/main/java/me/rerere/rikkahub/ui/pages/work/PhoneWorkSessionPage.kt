@@ -70,6 +70,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.AiMagic
 import me.rerere.hugeicons.stroke.ArrowDown01
+import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Folder01
@@ -292,6 +293,13 @@ fun PhoneWorkSessionPage(sessionId: String) {
 
 internal fun phoneWorkSessionViewModelKey(sessionId: String): String =
     "phone-work-session:${sessionId.ifBlank { "new" }}"
+
+private fun formatWorkReportSize(size: Long): String? = when {
+    size <= 0 -> null
+    size < 1024 -> "$size B"
+    size < 1024 * 1024 -> "${size / 1024} KB"
+    else -> "%.1f MB".format(size / 1024.0 / 1024.0)
+}
 
 @Composable
 private fun RepoTitleSelector(
@@ -561,10 +569,27 @@ private fun WorkEventList(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Icon(HugeIcons.Book03, null)
-                                    Column {
-                                        Text(report.title, style = MaterialTheme.typography.titleMedium)
-                                        Text("打开完整报告", style = MaterialTheme.typography.bodySmall)
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            report.title,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            listOfNotNull(
+                                                formatWorkReportSize(report.size),
+                                                formatWorkCardTimestamp(event.createdAt),
+                                            ).joinToString(" · "),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
                                     }
+                                    Icon(
+                                        HugeIcons.ArrowRight01,
+                                        null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
                             }
                         }
