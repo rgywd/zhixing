@@ -1,108 +1,71 @@
 # 知行运行时与数据契约
 
-状态：实施基线（2026-07-16）
+状态：实施基线（2026-07-23）
 
-## 1. 架构选择
+## 总体架构
 
-新知行采用本地优先单体 Android 运行时：
+知行采用本地优先的 Android 单体运行时：
 
 ```text
 Compose UI
   -> ViewModel / ChatService
   -> GenerationHandler + Transformer Pipeline + Tools
-  -> ProviderManager
-  -> 用户配置的模型 API
+  -> ProviderManager -> 用户配置的模型 API
 
-ChatService
-  -> Room repositories（会话、消息节点、文件夹、记忆、工作区）
-SettingsStore
-  -> DataStore（供应商、模型、助手、外观和功能开关）
+ChatService -> Room repositories
+SettingsStore -> DataStore
 ```
 
-旧实现的 `Compose -> 知行 Ktor -> 模型供应商` 不再是主链。未来服务端如重新引入，只能通过明确接口提供同步、备份、发布或受控代理能力，不能成为本地会话读取的单点依赖。
+旧的“App -> 知行 Ktor -> 模型供应商”不是普通聊天主链。未来服务端只能通过明确接口承担同步、备份、
+发布或受控代理，不能成为本地会话读取的单点依赖。
 
-## 2. 核心领域对象
+## 唯一事实来源
 
-### Conversation
+| 数据 | 事实来源 |
+| --- | --- |
+| 会话、消息分支、文件夹、记忆、工作区元数据、待办 | Room |
+| Provider、模型、助手、外观和功能开关 | DataStore |
+| 附件与 Workspace 用户原文 | 应用管理的文件目录 |
+| RootFS、缓存、OCR/检索索引 | 可重建派生数据 |
 
-- `id`: 本地稳定 UUID。
-- `assistantId`: 本轮使用的助手。
-- `title`: 可由用户或模型生成。
-- `messageNodes`: 按时间排列的消息节点。
-- `folderId`, `isPinned`, `createAt`, `updateAt`: 列表和组织信息。
-- `workspaceCwd`: 可选工作区上下文。
+覆盖升级、迁移、备份与恢复遵守
+[`DATA_SAFETY_AND_BACKUP.md`](./DATA_SAFETY_AND_BACKUP.md)。
 
-### MessageNode
+## 核心不变量
 
-一个对话位置可以保存多个候选 `UIMessage`，`selectIndex` 指向当前分支。编辑、重试和重新生成追加候选，不破坏兄弟分支。
+- `Conversation` 持有稳定 ID、助手、标题、消息节点、组织信息和可选 Workspace。
+- `MessageNode` 保存同一位置的候选消息；编辑、重试和重新生成不得破坏兄弟分支。
+- `UIMessage` 保留文本、推理、图片、音频、文件、工具调用/结果等结构化 parts；流式更新按身份合并。
+- `Assistant` 聚合模型、系统提示、参数、记忆、MCP、工具和 Workspace 策略；每轮生成解析出不可变快照。
+- 用户明确记忆与自动画像分开；自动画像遵守
+  [`AUTO_PROFILE_MAINTENANCE.md`](./AUTO_PROFILE_MAINTENANCE.md)。
+- UI 订阅仓库与 job 状态，不维护第二份会话真相。
 
-### UIMessage
+## 生成生命周期
 
-消息由结构化 parts 组成，而不是只有 `role + content` 字符串。文本、推理、图片、音频、视频、文件、工具调用和工具结果必须保持类型信息，流式更新按 message/part 身份合并。
+1. 用户输入转换为结构化消息并写入当前会话。
+2. ChatService 固定助手、模型、Provider 和当前消息分支快照。
+3. 输入 Transformer 注入时间、提示、文档/OCR、记忆与 Workspace 上下文。
+4. ProviderManager 发起流式生成，GenerationHandler 合并文本、推理和工具增量。
+5. 需要授权的工具进入等待；工具结果回到同一生成循环。
+6. 输出 Transformer 完成显示与持久化处理。
+7. 完成、停止、失败和可恢复进度都写回仓库，已有部分结果不得丢失。
 
-### Assistant
+## 扩展边界
 
-助手聚合默认模型、系统提示、请求参数、记忆、MCP、本地工具、技能、提示注入和工作区策略。会话引用助手 ID，但生成时必须解析出一次明确的运行快照，避免设置在请求中途变化。
+- Provider 统一暴露能力与生成方法，供应商特例不得泄漏到聊天 UI。
+- MCP、搜索、语音和设备连接均为可选能力；失败只降级对应入口。
+- Knowledge Space 复用 Workspace，原文与派生索引边界见
+  [`KNOWLEDGE_SPACE.md`](./KNOWLEDGE_SPACE.md)。
+- Agenda 以本地待办为事实来源，系统日历只读投影见
+  [`AGENDA_AND_CALENDAR.md`](./AGENDA_AND_CALENDAR.md)。
+- Codex Work 是独立的手机创建会话域，不读取桌面历史、不复用普通 Provider 生成链路；见
+  [`CODEX_PHONE_LINE_ARCHITECTURE.md`](./CODEX_PHONE_LINE_ARCHITECTURE.md)。
+- 若重新引入同步服务，客户端持有稳定对象 ID、版本与删除标记；协议必须版本化、幂等并有契约测试。
 
-### Memory
+## 隐私与兼容
 
-- `CONTEXT` 保存用户明确要求记住的通用情境，可按全局或助手范围读取。
-- 自动长期画像遵守 [`AUTO_PROFILE_MAINTENANCE.md`](./AUTO_PROFILE_MAINTENANCE.md)：只从用户消息精确原话建立
-  内部 `OBSERVATION`，通过独立对话数、时间跨度和本地确定性评分后，才生成每个内置维度最多一条的
-  `PROFILE` 摘要。
-- 内部观察不进入聊天提示；只有 `ACTIVE PROFILE` 可以注入。用户编辑、确认或归档自动画像后，后台维护不得覆盖。
-- 助手在普通聊天中只能按用户明确要求写入手动记忆，不能用 `memory_tool` 绕过纵向画像管线固化推断。
-
-## 3. 生成生命周期
-
-1. UI 把用户输入转换为结构化 `UIMessage` 并立即写入当前会话状态。
-2. ChatService 获取助手、模型、供应商和当前分支快照。
-3. 输入 transformer 依次注入时间、提示词、占位符、文档/OCR 和工作区上下文。
-4. ProviderManager 选择具体 Provider 发起流式请求。
-5. GenerationHandler 合并文本、推理和工具增量；需要授权的工具进入等待状态。
-6. 工具结果回到同一生成循环；输出 transformer 处理 think 标签、本地文件和正则规则。
-7. 每个可恢复进度写入会话仓库；完成、停止或失败都保留已有部分结果。
-8. UI 仅订阅会话、job、处理状态和错误流，不自行拼接第二份会话真相。
-
-## 4. 持久化边界
-
-- Room 是会话、消息节点、文件夹、记忆和工作区元数据的事实来源。
-- DataStore 是配置的事实来源，不存大段会话正文。
-- 附件复制到应用管理的文件目录，数据库只保存稳定 URI/元数据。
-- Workspace 的 `files` 目录保存用户文件与未来知识库原文；RootFS、缓存和派生索引不是事实来源。
-- 项目知识空间复用 Workspace，目录、导入、检索、来源引用与工具边界遵守 [`KNOWLEDGE_SPACE.md`](./KNOWLEDGE_SPACE.md)。知识检索必须在未安装 RootFS 时仍可用。
-- API key 使用 Android 安全存储策略保护；日志、崩溃报告和导出文件不得包含明文密钥。
-- 删除会话时同步清理无引用的托管附件；用户外部文件不得被连带删除。
-- 覆盖升级、数据迁移、定时备份和恢复必须遵守 [`DATA_SAFETY_AND_BACKUP.md`](./DATA_SAFETY_AND_BACKUP.md)。
-
-## 5. 外部边界
-
-### 模型 Provider
-
-统一由 Provider 接口暴露模型列表、能力与生成方法。OpenAI-compatible、Claude、Google 等实现不得把供应商特例泄漏到聊天 UI。
-
-### MCP、搜索与语音
-
-均为可选能力。不可用时只禁用对应入口并提供可恢复错误，不能阻断本地会话浏览与设置访问。
-
-### 可选知行服务端（后续）
-
-如需要服务端，首选新增独立 `SyncGateway` 边界：
-
-- 客户端生成并持有稳定对象 ID、版本和删除标记。
-- 同步请求幂等，冲突可观测且不静默覆盖。
-- 服务端不可要求上传 API key；模型代理必须由用户单独启用。
-- 任何协议都先版本化并写契约测试，再接 UI。
-
-旧 `/v1/chat/stream`、session、provider、notebook API 不作为新客户端兼容目标。
-
-## 6. 隐私与可观测性
-
-- 移除对上游 Firebase 项目的构建和运行依赖。
 - 默认不启用第三方分析、远程配置或崩溃上传。
-- 本地日志使用类别和错误 ID，敏感请求体仅在用户主动导出的诊断包中脱敏出现。
-- “关于”页保留上游来源、AGPL/商业许可说明和本项目源码入口。
-
-## 7. 兼容政策
-
-旧 `zhixing-assistant` 与其他历史应用不提供就地升级保证。知行 Android `v0.1.0` 已作为首个公开稳定包发布；从该版本起冻结 `dev.sundby.zhixing`、发布签名和数据库逻辑名称，所有后续版本都必须提供可验证的覆盖升级路径，不得要求稳定版用户卸载、清空数据或静默重建数据库。
+- API Key 不进入日志、崩溃报告或普通导出；敏感上下文遵守最小必要原则。
+- `dev.sundby.zhixing`、正式签名和数据库逻辑名称 `zhixing` 是稳定升级身份。
+- 从首个公开稳定包起，后续版本必须支持可验证的覆盖升级，不得要求用户卸载、清数据或静默重建数据库。
