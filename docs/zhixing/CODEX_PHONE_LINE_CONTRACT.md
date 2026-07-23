@@ -194,6 +194,14 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 - `RUN_STATE`：轻量行内状态或页头状态，不伪装成 AI 文本。
 - `SYSTEM_ERROR`：可恢复错误条，保留重试动作与已有消息。
 
+会话页必须把 `session.status`、对应 Runner 的 `online/leaseUntil` 和最后事件时间合成为可信状态，而不是
+只展示服务端最后一次写入的状态字符串：
+
+- `RUNNING` 且 Runner 租约有效时展示“运行中 · 开发机在线”，同时显示本轮开始和最近更新时间。
+- `RUNNING` 但 Runner 缺失、离线或租约过期时展示“连接中断 · 任务状态待确认”，不得继续声称任务正在运行。
+- `RUN_STATE` 事件使用带 `HH:mm` 的时间线节点；`IDLE` 明确展示“本轮完成 · 可继续”，不误写为会话结束。
+- 活跃会话页除 SSE/事件补拉外，还要周期刷新 Runner catalog；刷新失败保留缓存和聊天能力，不锁死输入控件。
+
 消息交互遵守以下客户端契约：
 
 - `USER_MESSAGE`、`REPORT` 与 `ASSISTANT_MESSAGE` 正文都支持选择文字、复制全文和引用；Markdown 代码块继续提供独立复制。

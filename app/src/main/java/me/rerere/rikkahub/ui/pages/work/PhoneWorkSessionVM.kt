@@ -76,16 +76,21 @@ class PhoneWorkSessionVM(
             chooseDefaults(catalog.value)
             while (isActive) {
                 val id = sessionId.value
+                val catalogResult = runCatching { repository.refreshCatalog() }
                 if (id == null) {
-                    runCatching { repository.refreshCatalog() }
+                    catalogResult
                         .onSuccess {
                             chooseDefaults(it)
                             error.value = null
                         }
                         .onFailure { error.value = it.message ?: "无法刷新开发机目录，正在重试" }
                 } else {
-                    runCatching { repository.refreshEvents(id) }
-                        .onFailure { error.value = it.message ?: "同步失败，正在重试" }
+                    val eventResult = runCatching { repository.refreshEvents(id) }
+                    error.value = when {
+                        eventResult.isFailure -> eventResult.exceptionOrNull()?.message ?: "消息同步失败，正在重试"
+                        catalogResult.isFailure -> "开发机状态刷新失败，消息仍会继续同步"
+                        else -> null
+                    }
                 }
                 delay(10_000)
             }
