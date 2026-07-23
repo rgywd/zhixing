@@ -13,20 +13,18 @@ import androidx.work.WorkerParameters
 import me.rerere.rikkahub.AGENDA_REMINDER_NOTIFICATION_CHANNEL_ID
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.RouteActivity
-import me.rerere.rikkahub.data.model.AgendaTaskStatus
-import me.rerere.rikkahub.data.repository.AgendaTaskRepository
+import me.rerere.rikkahub.data.repository.AgendaPlanRepository
 
-class AgendaReminderWorker(
+class AgendaPlanStageReminderWorker(
     appContext: Context,
     params: WorkerParameters,
-    private val repository: AgendaTaskRepository,
+    private val repository: AgendaPlanRepository,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
-        val taskId = inputData.getString(KEY_TASK_ID) ?: return Result.failure()
+        val stageId = inputData.getString(KEY_STAGE_ID) ?: return Result.failure()
         val expectedReminderAt = inputData.getLong(KEY_EXPECTED_REMINDER_AT, Long.MIN_VALUE)
         if (expectedReminderAt == Long.MIN_VALUE) return Result.failure()
-        val task = repository.getById(taskId) ?: return Result.success()
-        if (task.status != AgendaTaskStatus.PENDING || task.reminderAt != expectedReminderAt) return Result.success()
+        val payload = repository.reminderPayload(stageId, expectedReminderAt) ?: return Result.success()
         if (
             android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) !=
@@ -34,34 +32,32 @@ class AgendaReminderWorker(
         ) {
             return Result.success()
         }
-        val title = task.title.ifBlank { "待办提醒" }
-        val note = task.note
         val launchIntent = Intent(applicationContext, RouteActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            .putExtra(EXTRA_OPEN_AGENDA, true)
+            .putExtra(EXTRA_AGENDA_PLAN_ID, payload.planId)
         val pendingIntent = PendingIntent.getActivity(
             applicationContext,
-            taskId.hashCode(),
+            stageId.hashCode(),
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(applicationContext, AGENDA_REMINDER_NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.small_icon)
-            .setContentTitle(title)
-            .setContentText(note.ifBlank { "该处理这件事了" })
-            .setStyle(NotificationCompat.BigTextStyle().bigText(note.ifBlank { "该处理这件事了" }))
+            .setContentTitle(payload.title)
+            .setContentText(payload.note)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(payload.note))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
-        NotificationManagerCompat.from(applicationContext).notify(taskId.hashCode(), notification)
+        NotificationManagerCompat.from(applicationContext).notify(stageId.hashCode(), notification)
         return Result.success()
     }
 
     companion object {
-        const val KEY_TASK_ID = "task_id"
+        const val KEY_STAGE_ID = "stage_id"
         const val KEY_EXPECTED_REMINDER_AT = "expected_reminder_at"
-        const val EXTRA_OPEN_AGENDA = "openAgenda"
+        const val EXTRA_AGENDA_PLAN_ID = "agendaPlanId"
     }
 }

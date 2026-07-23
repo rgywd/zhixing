@@ -6,8 +6,9 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import me.rerere.ai.core.TokenUsage
-import me.rerere.rikkahub.data.db.dao.ConversationDAO
+import me.rerere.rikkahub.data.db.dao.AgendaPlanDAO
 import me.rerere.rikkahub.data.db.dao.AgendaTaskDAO
+import me.rerere.rikkahub.data.db.dao.ConversationDAO
 import me.rerere.rikkahub.data.db.dao.FavoriteDAO
 import me.rerere.rikkahub.data.db.dao.FolderDAO
 import me.rerere.rikkahub.data.db.dao.GenMediaDAO
@@ -16,8 +17,10 @@ import me.rerere.rikkahub.data.db.dao.MemoryDAO
 import me.rerere.rikkahub.data.db.dao.MessageNodeDAO
 import me.rerere.rikkahub.data.db.dao.PhoneWorkDAO
 import me.rerere.rikkahub.data.db.dao.WorkspaceDAO
-import me.rerere.rikkahub.data.db.entity.ConversationEntity
+import me.rerere.rikkahub.data.db.entity.AgendaPlanEntity
+import me.rerere.rikkahub.data.db.entity.AgendaPlanStageEntity
 import me.rerere.rikkahub.data.db.entity.AgendaTaskEntity
+import me.rerere.rikkahub.data.db.entity.ConversationEntity
 import me.rerere.rikkahub.data.db.entity.FavoriteEntity
 import me.rerere.rikkahub.data.db.entity.FolderEntity
 import me.rerere.rikkahub.data.db.entity.GenMediaEntity
@@ -46,8 +49,10 @@ import me.rerere.rikkahub.utils.JsonInstant
         PhoneWorkSessionEntity::class,
         PhoneWorkEventEntity::class,
         AgendaTaskEntity::class,
+        AgendaPlanEntity::class,
+        AgendaPlanStageEntity::class,
     ],
-    version = 38,
+    version = 39,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -101,6 +106,7 @@ abstract class AppDatabase : RoomDatabase() {
 
     abstract fun agendaTaskDao(): AgendaTaskDAO
 
+    abstract fun agendaPlanDao(): AgendaPlanDAO
 }
 
 object TokenUsageConverter {

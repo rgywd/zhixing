@@ -79,6 +79,8 @@ import me.rerere.rikkahub.ui.hooks.readStringPreference
 import me.rerere.rikkahub.ui.hooks.rememberCustomAsrState
 import me.rerere.rikkahub.ui.hooks.rememberCustomTtsState
 import me.rerere.rikkahub.ui.pages.assistant.AssistantPage
+import me.rerere.rikkahub.ui.pages.agenda.AgendaPage
+import me.rerere.rikkahub.ui.pages.agenda.AgendaPlanDetailPage
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantBasicPage
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantDetailPage
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantExtensionsPage
@@ -242,6 +244,14 @@ class RouteActivity : ComponentActivity() {
             navStack?.add(if (id.isBlank()) Screen.PhoneWorkHome else Screen.PhoneWorkSession(id))
             intent.removeExtra("workSessionId")
         }
+        intent.getStringExtra("agendaPlanId")?.let { id ->
+            navStack?.add(Screen.AgendaPlanDetail(id))
+            intent.removeExtra("agendaPlanId")
+        }
+        if (intent.getBooleanExtra("openAgenda", false)) {
+            navStack?.add(Screen.Agenda)
+            intent.removeExtra("openAgenda")
+        }
     }
 
     @OptIn(ExperimentalComposeUiApi::class)
@@ -286,6 +296,14 @@ class RouteActivity : ComponentActivity() {
                 val id = intent.getStringExtra("workSessionId").orEmpty()
                 backStack.add(if (id.isBlank()) Screen.PhoneWorkHome else Screen.PhoneWorkSession(id))
                 intent.removeExtra("workSessionId")
+            }
+            intent.getStringExtra("agendaPlanId")?.let { id ->
+                backStack.add(Screen.AgendaPlanDetail(id))
+                intent.removeExtra("agendaPlanId")
+            }
+            if (intent.getBooleanExtra("openAgenda", false)) {
+                backStack.add(Screen.Agenda)
+                intent.removeExtra("openAgenda")
             }
         }
 
@@ -364,6 +382,14 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.Favorite> {
                                 FavoritePage()
+                            }
+
+                            entry<Screen.Agenda> {
+                                AgendaPage()
+                            }
+
+                            entry<Screen.AgendaPlanDetail> { key ->
+                                AgendaPlanDetailPage(key.id)
                             }
 
                             entry<Screen.Assistant> {
@@ -626,6 +652,12 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object Favorite : Screen
+
+    @Serializable
+    data object Agenda : Screen
+
+    @Serializable
+    data class AgendaPlanDetail(val id: String) : Screen
 
     @Serializable
     data object Assistant : Screen

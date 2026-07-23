@@ -18,8 +18,7 @@ class AgendaReminderScheduler(private val context: Context) {
 
         val input = Data.Builder()
             .putString(AgendaReminderWorker.KEY_TASK_ID, task.id)
-            .putString(AgendaReminderWorker.KEY_TITLE, task.title)
-            .putString(AgendaReminderWorker.KEY_NOTE, task.note)
+            .putLong(AgendaReminderWorker.KEY_EXPECTED_REMINDER_AT, reminderAt)
             .build()
         val request = OneTimeWorkRequestBuilder<AgendaReminderWorker>()
             .setInitialDelay(delay, TimeUnit.MILLISECONDS)

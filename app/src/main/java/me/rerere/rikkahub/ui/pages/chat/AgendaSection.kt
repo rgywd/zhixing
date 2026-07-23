@@ -55,12 +55,19 @@ import me.rerere.hugeicons.stroke.Task01
 import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.rikkahub.data.agenda.DeviceCalendarEvent
 import me.rerere.rikkahub.data.agenda.DeviceCalendarRepository
+import me.rerere.rikkahub.data.agenda.AgendaAction
 import me.rerere.rikkahub.data.agenda.AgendaTaskBucket
 import me.rerere.rikkahub.data.agenda.agendaTaskBucket
+import me.rerere.rikkahub.data.agenda.buildAgendaProjection
 import me.rerere.rikkahub.data.agenda.parseAgendaQuickInput
+import me.rerere.rikkahub.data.model.AgendaPlanStageStatus
+import me.rerere.rikkahub.data.model.AgendaPlanWithStages
 import me.rerere.rikkahub.data.model.AgendaTask
 import me.rerere.rikkahub.data.model.AgendaTaskStatus
+import me.rerere.rikkahub.data.repository.AgendaPlanRepository
 import me.rerere.rikkahub.data.repository.AgendaTaskRepository
+import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.ui.context.LocalNavController
 import org.koin.compose.koinInject
 import java.time.Instant
 import java.time.LocalDate
@@ -71,41 +78,23 @@ import java.time.format.DateTimeFormatter
 @Composable
 internal fun AgendaOverviewSection() {
     val repository: AgendaTaskRepository = koinInject()
-    val calendarRepository: DeviceCalendarRepository = koinInject()
+    val planRepository: AgendaPlanRepository = koinInject()
+    val navigator = LocalNavController.current
     val tasks by repository.observeVisibleTasks().collectAsStateWithLifecycle(emptyList())
+    val plans by planRepository.observeVisiblePlans().collectAsStateWithLifecycle(emptyList())
     val scope = rememberCoroutineScope()
     var editorTask by remember { mutableStateOf<AgendaTask?>(null) }
     var editorOpen by rememberSaveable { mutableStateOf(false) }
-    var calendarAllowed by remember { mutableStateOf(calendarRepository.canRead()) }
-    var calendarEvents by remember { mutableStateOf<List<DeviceCalendarEvent>>(emptyList()) }
-    var calendarLoading by remember { mutableStateOf(false) }
-    var completedExpanded by rememberSaveable { mutableStateOf(false) }
-
-    val calendarPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted -> calendarAllowed = granted || calendarRepository.canRead() }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { }
 
-    LaunchedEffect(calendarAllowed) {
-        if (!calendarAllowed) {
-            calendarEvents = emptyList()
-            return@LaunchedEffect
-        }
-        calendarLoading = true
-        val zone = ZoneId.systemDefault()
-        val begin = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
-        val end = LocalDate.now(zone).plusDays(8).atStartOfDay(zone).toInstant().toEpochMilli()
-        calendarEvents = calendarRepository.getEvents(begin, end)
-        calendarLoading = false
+    val projection = remember(tasks, plans) { buildAgendaProjection(tasks, plans) }
+    val previewPlan = remember(projection) {
+        (projection.waitingPlans + projection.upcomingPlans).minByOrNull { it.nextAt ?: Long.MAX_VALUE }
     }
 
-    val groups = remember(tasks, calendarEvents) { buildAgendaGroups(tasks, calendarEvents) }
-    val pendingCount = tasks.count { it.status == AgendaTaskStatus.PENDING }
-    val overdueCount = groups.firstOrNull { it.kind == AgendaGroupKind.OVERDUE }?.entries?.size ?: 0
-
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -114,11 +103,7 @@ internal fun AgendaOverviewSection() {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("我的事项", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    text = when {
-                        overdueCount > 0 -> "$pendingCount 项待处理 · $overdueCount 项已逾期"
-                        pendingCount > 0 -> "$pendingCount 项待处理"
-                        else -> "今天没有待处理事项"
-                    },
+                    text = "${projection.actions.size} 项需处理 · ${projection.upcomingPlanCount} 个计划即将到来",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -131,53 +116,51 @@ internal fun AgendaOverviewSection() {
             }
         }
 
-        groups.filter { it.kind != AgendaGroupKind.COMPLETED }.forEach { group ->
-            AgendaGroupBlock(
-                group = group,
-                onTaskClick = {
-                    editorTask = it
-                    editorOpen = true
+        projection.actions.take(2).forEach { action ->
+            CompactAgendaActionCard(
+                action = action,
+                onOpen = {
+                    when (action) {
+                        is AgendaAction.Task -> {
+                            editorTask = action.task
+                            editorOpen = true
+                        }
+                        is AgendaAction.PlanStage ->
+                            navigator.navigate(Screen.AgendaPlanDetail(action.planWithStages.plan.id))
+                    }
                 },
-                onToggleTask = { task ->
-                    scope.launch { repository.setCompleted(task.id, task.status != AgendaTaskStatus.COMPLETED) }
+                onComplete = {
+                    scope.launch {
+                        when (action) {
+                            is AgendaAction.Task -> repository.setCompleted(action.task.id, true)
+                            is AgendaAction.PlanStage -> planRepository.setStageCompleted(action.stage.id, true)
+                        }
+                    }
                 },
-                onCalendarClick = { calendarRepository.openEvent(it.id) },
             )
         }
 
-        val completed = groups.firstOrNull { it.kind == AgendaGroupKind.COMPLETED }
-        if (completed != null && completed.entries.isNotEmpty()) {
-            TextButton(onClick = { completedExpanded = !completedExpanded }) {
-                Icon(HugeIcons.ArrowDown01, contentDescription = null, modifier = Modifier.size(16.dp))
-                Text(if (completedExpanded) "收起已完成" else "已完成 ${completed.entries.size} 项")
-            }
-            if (completedExpanded) {
-                AgendaGroupBlock(
-                    group = completed,
-                    onTaskClick = {
-                        editorTask = it
-                        editorOpen = true
-                    },
-                    onToggleTask = { task -> scope.launch { repository.setCompleted(task.id, false) } },
-                    onCalendarClick = {},
-                )
-            }
+        if (previewPlan != null) {
+            CompactAgendaPlanCard(
+                plan = previewPlan.value,
+                onClick = { navigator.navigate(Screen.AgendaPlanDetail(previewPlan.value.plan.id)) },
+            )
         }
 
-        if (tasks.isEmpty() && calendarEvents.isEmpty()) {
-            EmptyAgendaCard()
-        }
-
-        if (!calendarAllowed) {
-            CalendarPermissionCard(onConnect = {
-                calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
-            })
-        } else if (calendarLoading) {
+        if (projection.actions.isEmpty() && previewPlan == null) {
             Text(
-                "正在读取系统日历…",
+                "当前没有需要处理的事项",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 2.dp, vertical = 4.dp),
             )
+        }
+
+        TextButton(
+            onClick = { navigator.navigate(Screen.Agenda) },
+            modifier = Modifier.align(Alignment.End),
+        ) {
+            Text("查看全部")
         }
     }
 
@@ -214,6 +197,110 @@ internal fun AgendaOverviewSection() {
             },
         )
     }
+}
+
+@Composable
+private fun CompactAgendaActionCard(
+    action: AgendaAction,
+    onOpen: () -> Unit,
+    onComplete: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            IconButton(onClick = onComplete, modifier = Modifier.size(34.dp)) {
+                Surface(
+                    modifier = Modifier.size(24.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                ) {}
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    action.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    compactActionLabel(action),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (action.dueAt != null && action.dueAt!! < System.currentTimeMillis()) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactAgendaPlanCard(
+    plan: AgendaPlanWithStages,
+    onClick: () -> Unit,
+) {
+    val current = plan.stages.firstOrNull { it.status == AgendaPlanStageStatus.PENDING }
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Icon(HugeIcons.Calendar03, contentDescription = null, modifier = Modifier.size(20.dp))
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    plan.plan.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    buildString {
+                        plan.plan.eventAt?.let { append(formatTaskDateTime(it)) }
+                        current?.let {
+                            if (isNotEmpty()) append(" · ")
+                            append("下一步：${it.title}")
+                        }
+                    }.ifBlank { "等待下一节点" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                "${plan.stages.count { it.status == AgendaPlanStageStatus.COMPLETED }}/${plan.stages.size}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+private fun compactActionLabel(action: AgendaAction): String = buildString {
+    action.context?.let { append(it) }
+    action.actionAt?.let {
+        if (isNotEmpty()) append(" · ")
+        append(formatTaskDateTime(it))
+    }
+    if (isEmpty()) append("随时可处理")
 }
 
 @Composable
@@ -370,7 +457,7 @@ private fun CalendarPermissionCard(onConnect: () -> Unit) {
 }
 
 @Composable
-private fun AgendaTaskEditorSheet(
+internal fun AgendaTaskEditorSheet(
     task: AgendaTask?,
     onDismiss: () -> Unit,
     onSave: (title: String, note: String, dueAt: Long?, reminderEnabled: Boolean) -> Unit,
