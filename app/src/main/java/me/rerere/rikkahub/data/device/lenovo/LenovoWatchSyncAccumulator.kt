@@ -108,21 +108,18 @@ internal class LenovoWatchSyncAccumulator(initial: LenovoWatchHealthSnapshot) {
     private fun acceptSleep(event: LenovoWatchEvent.SleepSegment) {
         if (event.durationMinutes !in 1 until MAX_SLEEP_SEGMENT_MINUTES) return
         if (event.rawType !in KNOWN_SLEEP_TYPES) return
+        // Type 17 is rendered as a nap by the official app. Keep it out of the overnight
+        // dashboard until naps have their own product surface.
+        if (event.rawType == SLEEP_TYPE_RAP) return
 
         val sleepDay = event.startedAt.toLocalDate().let { date ->
             if (event.startedAt.hour >= SLEEP_DAY_BOUNDARY_HOUR) date.plusDays(1) else date
         }
         val totals = sleepByDay.getOrPut(sleepDay) { SleepTotals() }
         when (event.rawType) {
-            SLEEP_TYPE_SHALLOW -> {
-                totals.shallowMinutes += event.durationMinutes
-                totals.totalMinutes += event.durationMinutes
-            }
-            SLEEP_TYPE_DEEP -> {
-                totals.deepMinutes += event.durationMinutes
-                totals.totalMinutes += event.durationMinutes
-            }
-            SLEEP_TYPE_REM, SLEEP_TYPE_RAP -> totals.totalMinutes += event.durationMinutes
+            SLEEP_TYPE_SHALLOW -> totals.typeOneMinutes += event.durationMinutes
+            SLEEP_TYPE_DEEP -> totals.deepMinutes += event.durationMinutes
+            SLEEP_TYPE_REM -> totals.remMinutes += event.durationMinutes
             SLEEP_TYPE_AWAKE -> totals.awakeCount += 1
         }
 
@@ -135,9 +132,23 @@ internal class LenovoWatchSyncAccumulator(initial: LenovoWatchHealthSnapshot) {
 
     private fun publishLatestSleep() {
         val totals = latestSleepDay?.let(sleepByDay::get) ?: return
+        // Lenovo's newer sleep replay includes REM records and reports type 1 as the night's
+        // total asleep time; deep and REM are breakdowns of that total. Older replays contain
+        // no REM and use type 1 as shallow sleep, so retain the legacy additive interpretation.
+        val hasNewSleepBreakdown = totals.remMinutes > 0
+        val totalSleepMinutes = if (hasNewSleepBreakdown) {
+            totals.typeOneMinutes
+        } else {
+            totals.typeOneMinutes + totals.deepMinutes
+        }
+        val shallowSleepMinutes = if (hasNewSleepBreakdown) {
+            (totalSleepMinutes - totals.deepMinutes - totals.remMinutes).coerceAtLeast(0)
+        } else {
+            totals.typeOneMinutes
+        }
         snapshot = snapshot.copy(
-            totalSleepMinutes = totals.totalMinutes,
-            shallowSleepMinutes = totals.shallowMinutes,
+            totalSleepMinutes = totalSleepMinutes,
+            shallowSleepMinutes = shallowSleepMinutes,
             deepSleepMinutes = totals.deepMinutes,
             awakeCount = totals.awakeCount,
         )
@@ -162,9 +173,9 @@ internal class LenovoWatchSyncAccumulator(initial: LenovoWatchHealthSnapshot) {
     }
 
     private data class SleepTotals(
-        var totalMinutes: Int = 0,
-        var shallowMinutes: Int = 0,
+        var typeOneMinutes: Int = 0,
         var deepMinutes: Int = 0,
+        var remMinutes: Int = 0,
         var awakeCount: Int = 0,
     )
 

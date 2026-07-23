@@ -46,20 +46,35 @@ class LenovoWatchSyncAccumulatorTest {
     }
 
     @Test
-    fun latestSleepDayIncludesRemAndRapButExcludesAwakeDuration() {
+    fun newSleepReplayUsesReportedTotalAndDerivesShallowBreakdown() {
         val accumulator = LenovoWatchSyncAccumulator(LenovoWatchHealthSnapshot())
 
-        accumulator.accept(sleepSegment(LocalDate.of(2026, 7, 22), 23, type = 1, duration = 120))
-        accumulator.accept(sleepSegment(LocalDate.of(2026, 7, 23), 1, type = 2, duration = 90))
-        accumulator.accept(sleepSegment(LocalDate.of(2026, 7, 23), 3, type = 3, duration = 40))
+        accumulator.accept(sleepSegment(LocalDate.of(2026, 7, 22), 23, type = 1, duration = 388))
+        accumulator.accept(sleepSegment(LocalDate.of(2026, 7, 23), 1, type = 2, duration = 57))
+        accumulator.accept(sleepSegment(LocalDate.of(2026, 7, 23), 3, type = 3, duration = 30))
         accumulator.accept(sleepSegment(LocalDate.of(2026, 7, 23), 4, type = 17, duration = 20))
-        accumulator.accept(sleepSegment(LocalDate.of(2026, 7, 23), 5, type = 4, duration = 12))
+        accumulator.accept(sleepSegment(LocalDate.of(2026, 7, 23), 5, type = 4, duration = 5))
 
         val result = accumulator.result()
-        assertEquals(270, result.totalSleepMinutes)
-        assertEquals(120, result.shallowSleepMinutes)
-        assertEquals(90, result.deepSleepMinutes)
+        assertEquals(388, result.totalSleepMinutes)
+        assertEquals(301, result.shallowSleepMinutes)
+        assertEquals(57, result.deepSleepMinutes)
         assertEquals(1, result.awakeCount)
+    }
+
+    @Test
+    fun napDoesNotReplaceLatestOvernightSleep() {
+        val accumulator = LenovoWatchSyncAccumulator(LenovoWatchHealthSnapshot())
+
+        accumulator.accept(sleepSegment(LocalDate.of(2026, 7, 22), 23, type = 1, duration = 388))
+        accumulator.accept(sleepSegment(LocalDate.of(2026, 7, 23), 1, type = 2, duration = 57))
+        accumulator.accept(sleepSegment(LocalDate.of(2026, 7, 23), 3, type = 3, duration = 30))
+        accumulator.accept(sleepSegment(LocalDate.of(2026, 7, 23), 14, type = 17, duration = 20))
+
+        val result = accumulator.result()
+        assertEquals(388, result.totalSleepMinutes)
+        assertEquals(301, result.shallowSleepMinutes)
+        assertEquals(57, result.deepSleepMinutes)
     }
 
     @Test
