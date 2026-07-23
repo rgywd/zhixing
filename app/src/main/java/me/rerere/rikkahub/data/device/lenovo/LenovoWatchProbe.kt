@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -73,6 +74,7 @@ internal data class LenovoWatchProbeState(
     val processedRecords: Int = 0,
     val lastEvent: String? = null,
     val lastFrameHex: String? = null,
+    val lastSuccessfulSyncAt: Instant? = null,
     val health: LenovoWatchHealthSnapshot = LenovoWatchHealthSnapshot(),
 ) {
     val isConnected: Boolean
@@ -100,6 +102,7 @@ internal class LenovoWatchProbe(private val context: Context) {
     private val _state = MutableStateFlow(
         LenovoWatchProbeState(
             remembered = syncStore.isRememberedDevice(),
+            lastSuccessfulSyncAt = storedLastSuccessfulSyncAt(),
             health = syncStore.cachedSnapshot(),
         ),
     )
@@ -331,6 +334,7 @@ internal class LenovoWatchProbe(private val context: Context) {
                 address = TARGET_ADDRESS,
                 deviceName = "Lenovo Watch Pro",
                 statusText = "正在恢复已保存的手表连接",
+                lastSuccessfulSyncAt = storedLastSuccessfulSyncAt(),
                 health = syncStore.cachedSnapshot(),
             )
             val device = runCatching { adapter.getRemoteDevice(TARGET_ADDRESS) }.getOrElse {
@@ -344,6 +348,7 @@ internal class LenovoWatchProbe(private val context: Context) {
             stage = LenovoWatchProbeStage.SCANNING,
             remembered = false,
             statusText = "正在首次发现 Lenovo Watch Pro",
+            lastSuccessfulSyncAt = storedLastSuccessfulSyncAt(),
             health = syncStore.cachedSnapshot(),
         )
         val scanner = adapter.bluetoothLeScanner
@@ -518,9 +523,10 @@ internal class LenovoWatchProbe(private val context: Context) {
     private fun completeSync() {
         val accumulator = syncAccumulator ?: return
         val startedAt = syncStartedAt ?: return
+        val completedAt = Instant.now()
         val snapshot = accumulator.result()
         val records = accumulator.processedRecords
-        syncStore.saveSuccessfulSync(startedAt, snapshot)
+        syncStore.saveSuccessfulSync(startedAt, completedAt, snapshot)
         syncAccumulator = null
         syncStartedAt = null
         _state.update {
@@ -528,6 +534,7 @@ internal class LenovoWatchProbe(private val context: Context) {
                 stage = LenovoWatchProbeStage.READY,
                 statusText = "同步完成 · 已处理 $records 条记录",
                 processedRecords = records,
+                lastSuccessfulSyncAt = completedAt,
                 health = snapshot,
             )
         }
@@ -640,8 +647,12 @@ internal class LenovoWatchProbe(private val context: Context) {
         address = TARGET_ADDRESS.takeIf { syncStore.isRememberedDevice() },
         deviceName = "Lenovo Watch Pro".takeIf { syncStore.isRememberedDevice() },
         statusText = statusText,
+        lastSuccessfulSyncAt = storedLastSuccessfulSyncAt(),
         health = syncStore.cachedSnapshot(),
     )
+
+    private fun storedLastSuccessfulSyncAt(): Instant? =
+        syncStore.lastSuccessfulSyncCompletedAt()
 
     private fun fail(message: String) {
         _state.update { it.copy(stage = LenovoWatchProbeStage.ERROR, statusText = "连接失败", error = message) }

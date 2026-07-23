@@ -30,6 +30,7 @@ import me.rerere.rikkahub.di.repositoryModule
 import me.rerere.rikkahub.di.viewModelModule
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.device.lenovo.LenovoWatchConnectionManager
 import me.rerere.rikkahub.service.WebServerService
 import me.rerere.rikkahub.utils.CrashHandler
 import me.rerere.rikkahub.utils.DatabaseUtil
@@ -93,6 +94,7 @@ class RikkaHubApp : Application() {
         startWebServerIfEnabled()
         startWorkTrackingIfConfigured()
         scheduleProfileMaintenance()
+        startDeviceConnections()
 
         // Increment launch count
         incrementLaunchCount()
@@ -280,6 +282,11 @@ class RikkaHubApp : Application() {
             runCatching { get<ProfileMaintenanceScheduler>().sync() }
                 .onFailure { Log.w(TAG, "Unable to schedule profile maintenance", it) }
         }
+    }
+
+    private fun startDeviceConnections() {
+        runCatching { get<LenovoWatchConnectionManager>().start() }
+            .onFailure { Log.w(TAG, "Unable to start device connections", it) }
     }
 
     override fun onTerminate() {

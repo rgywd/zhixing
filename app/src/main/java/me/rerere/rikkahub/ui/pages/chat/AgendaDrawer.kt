@@ -1,11 +1,5 @@
 package me.rerere.rikkahub.ui.pages.chat
 
-import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -36,12 +30,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,7 +43,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -60,7 +51,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.core.content.ContextCompat
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.ChartColumn
@@ -77,7 +67,6 @@ import me.rerere.rikkahub.data.quota.QuotaRepository
 import me.rerere.rikkahub.data.quota.QuotaRepositoryState
 import me.rerere.rikkahub.data.quota.buildQuotaOverviews
 import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbe
-import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbeStage
 import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbeState
 import org.koin.compose.koinInject
 import java.time.Instant
@@ -174,11 +163,10 @@ private fun LifeOverviewDrawerContent(
                 item(key = "status-title") {
                     OverviewSectionTitle(
                         title = "我的状态",
-                        subtitle = watchState.statusText,
+                        subtitle = healthDataSubtitle(watchState.lastSuccessfulSyncAt),
                     )
                 }
-                item(key = "watch-probe") { WatchProbeCard(watchProbe, watchState) }
-                item(key = "status-greeting") { StatusGreeting(watchState.statusText) }
+                item(key = "status-greeting") { StatusGreeting() }
                 item(key = "steps") { StepsCard(watchState) }
                 item(key = "status-grid") { StatusMetricGrid(watchState) }
 
@@ -259,11 +247,12 @@ private fun OverviewSectionTitle(
 }
 
 @Composable
-private fun StatusGreeting(deviceStatus: String) {
+private fun StatusGreeting() {
     val now = remember { Calendar.getInstance() }
     val hour = now.get(Calendar.HOUR_OF_DAY)
     val weekday = listOf("周日", "周一", "周二", "周三", "周四", "周五", "周六")
         .getOrElse(now.get(Calendar.DAY_OF_WEEK) - 1) { "" }
+    val monthDay = "${now.get(Calendar.MONTH) + 1}月${now.get(Calendar.DAY_OF_MONTH)}日"
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -281,141 +270,12 @@ private fun StatusGreeting(deviceStatus: String) {
         }
         Column {
             Text(
-                text = "${lifeOverviewGreeting(hour)} · ${now.get(Calendar.MONTH) + 1}月${now.get(Calendar.DAY_OF_MONTH)}日 $weekday",
+                text = "${lifeOverviewGreeting(hour)} · $monthDay $weekday",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
             )
-            Text(
-                text = deviceStatus,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
-}
-
-@Composable
-private fun WatchProbeCard(
-    watchProbe: LenovoWatchProbe,
-    state: LenovoWatchProbeState,
-) {
-    val context = LocalContext.current
-    val permissions = remember { requiredWatchPermissions() }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions(),
-    ) {
-        if (hasWatchPermissions(context, permissions)) watchProbe.start()
-    }
-    LaunchedEffect(watchProbe) {
-        if (
-            state.remembered &&
-            state.autoReconnectEnabled &&
-            state.stage in setOf(LenovoWatchProbeStage.IDLE, LenovoWatchProbeStage.ERROR) &&
-            hasWatchPermissions(context, permissions)
-        ) {
-            watchProbe.start()
-        }
-    }
-    val active = state.stage !in setOf(LenovoWatchProbeStage.IDLE, LenovoWatchProbeStage.ERROR)
-
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Lenovo Watch Pro", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        text = if (state.remembered) {
-                            "${state.address ?: "已知设备"} · 配对已保存，断连后自动恢复"
-                        } else {
-                            state.address ?: "首次连接后永久保存配对，不再依赖官方 App"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (state.stage in setOf(
-                        LenovoWatchProbeStage.SCANNING,
-                        LenovoWatchProbeStage.CONNECTING,
-                        LenovoWatchProbeStage.DISCOVERING,
-                        LenovoWatchProbeStage.ENABLING_NOTIFICATIONS,
-                        LenovoWatchProbeStage.HANDSHAKING,
-                        LenovoWatchProbeStage.SYNCING,
-                    )
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                }
-            }
-
-            Text(
-                text = state.error ?: state.statusText,
-                style = MaterialTheme.typography.bodySmall,
-                color = if (state.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            state.lastEvent?.let {
-                Text(
-                    text = if (state.stage == LenovoWatchProbeStage.SYNCING) {
-                        "已处理 ${state.processedRecords} 条历史记录 · 完成后统一刷新"
-                    } else {
-                        it
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = {
-                        if (active) {
-                            watchProbe.disconnect()
-                        } else if (hasWatchPermissions(context, permissions)) {
-                            watchProbe.start()
-                        } else {
-                            permissionLauncher.launch(permissions)
-                        }
-                    },
-                ) {
-                    Text(
-                        if (active) {
-                            "暂时断开"
-                        } else if (state.stage == LenovoWatchProbeStage.ERROR) {
-                            "重试"
-                        } else if (state.remembered) {
-                            "重新连接"
-                        } else {
-                            "连接手表"
-                        },
-                    )
-                }
-                if (state.canSync) {
-                    OutlinedButton(onClick = watchProbe::sync) {
-                        Text("同步健康数据")
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun requiredWatchPermissions(): Array<String> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-    arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
-} else {
-    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-}
-
-private fun hasWatchPermissions(context: Context, permissions: Array<String>): Boolean = permissions.all {
-    ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
 }
 
 internal fun lifeOverviewGreeting(hour: Int): String = when (hour) {
@@ -476,7 +336,7 @@ private fun StepsCard(state: LenovoWatchProbeState) {
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = if (steps == null) "连接手表并同步后显示" else "/ ${formatCount(DAILY_STEP_GOAL)} 步",
+                    text = if (steps == null) "暂无健康数据" else "/ ${formatCount(DAILY_STEP_GOAL)} 步",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -717,6 +577,10 @@ private fun formatQuotaTime(value: String): String = runCatching {
     QUOTA_TIME_FORMATTER.format(Instant.parse(value).atZone(ZoneId.systemDefault()))
 }.getOrDefault("未知时间")
 
+private fun healthDataSubtitle(value: Instant?): String = value?.let {
+    "健康数据更新于 ${STATUS_TIME_FORMATTER.format(it.atZone(ZoneId.systemDefault()))}"
+} ?: "健康数据尚未更新"
+
 private data class StatusPreviewItem(
     val label: String,
     val value: String,
@@ -735,6 +599,7 @@ private fun formatMinutes(value: Int): String = when {
 }
 
 private val QUOTA_TIME_FORMATTER = DateTimeFormatter.ofPattern("M月d日 HH:mm")
+private val STATUS_TIME_FORMATTER = DateTimeFormatter.ofPattern("M月d日 HH:mm")
 private const val DAILY_STEP_GOAL = 10_000
 
 internal enum class AgendaSwipeDirection {

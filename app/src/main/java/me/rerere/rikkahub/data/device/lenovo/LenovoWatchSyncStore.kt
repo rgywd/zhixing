@@ -23,6 +23,15 @@ internal class LenovoWatchSyncStore(context: Context) {
         return LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), ZoneId.systemDefault())
     }
 
+    fun lastSuccessfulSyncCompletedAt(): Instant? {
+        val epochMillis = preferences.getLong(
+            KEY_LAST_SYNC_COMPLETED_AT,
+            preferences.getLong(KEY_LAST_SYNC, NO_TIMESTAMP),
+        )
+        if (epochMillis == NO_TIMESTAMP) return null
+        return Instant.ofEpochMilli(epochMillis)
+    }
+
     fun cachedSnapshot(): LenovoWatchHealthSnapshot = LenovoWatchHealthSnapshot(
         steps = preferences.nullableInt(KEY_STEPS),
         calories = preferences.nullableInt(KEY_CALORIES),
@@ -40,10 +49,15 @@ internal class LenovoWatchSyncStore(context: Context) {
         immunity = preferences.nullableInt(KEY_IMMUNITY),
     )
 
-    fun saveSuccessfulSync(startedAt: LocalDateTime, snapshot: LenovoWatchHealthSnapshot) {
+    fun saveSuccessfulSync(
+        startedAt: LocalDateTime,
+        completedAt: Instant,
+        snapshot: LenovoWatchHealthSnapshot,
+    ) {
         preferences.edit()
             .putSnapshot(snapshot)
             .putLong(KEY_LAST_SYNC, startedAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
+            .putLong(KEY_LAST_SYNC_COMPLETED_AT, completedAt.toEpochMilli())
             .apply()
     }
 
@@ -90,6 +104,7 @@ internal class LenovoWatchSyncStore(context: Context) {
         const val NO_TIMESTAMP = Long.MIN_VALUE
         const val KEY_REMEMBERED_DEVICE = "remembered_device"
         const val KEY_LAST_SYNC = "last_successful_sync"
+        const val KEY_LAST_SYNC_COMPLETED_AT = "last_successful_sync_completed_at"
         const val KEY_STEPS = "steps"
         const val KEY_CALORIES = "calories"
         const val KEY_TOTAL_SLEEP = "total_sleep_minutes"

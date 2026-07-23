@@ -109,6 +109,7 @@ import me.rerere.rikkahub.ui.pages.imggen.ImageGenPage
 import me.rerere.rikkahub.ui.pages.log.LogPage
 import me.rerere.rikkahub.ui.pages.search.SearchPage
 import me.rerere.rikkahub.ui.pages.setting.SettingAboutPage
+import me.rerere.rikkahub.ui.pages.setting.SettingDevicesPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesThemePage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesNotificationPage
@@ -474,6 +475,10 @@ class RouteActivity : ComponentActivity() {
                                 SettingAboutPage()
                             }
 
+                            entry<Screen.SettingDevices> {
+                                SettingDevicesPage()
+                            }
+
                             entry<Screen.SettingSearch> {
                                 SettingSearchPage()
                             }
@@ -702,6 +707,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object SettingAbout : Screen
+
+    @Serializable
+    data object SettingDevices : Screen
 
     @Serializable
     data object SettingSearch : Screen

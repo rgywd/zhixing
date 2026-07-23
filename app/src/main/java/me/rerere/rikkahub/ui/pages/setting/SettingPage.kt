@@ -59,6 +59,7 @@ import me.rerere.hugeicons.stroke.Package
 import me.rerere.hugeicons.stroke.ServerStack01
 import me.rerere.hugeicons.stroke.Settings03
 import me.rerere.hugeicons.stroke.Share04
+import me.rerere.hugeicons.stroke.SmartPhone01
 import me.rerere.hugeicons.stroke.Sun01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
@@ -213,6 +214,20 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         leadingContent = { Icon(HugeIcons.ServerStack01, null) },
                         supportingContent = { Text(stringResource(R.string.setting_page_web_server_desc)) },
                         headlineContent = { Text(stringResource(R.string.setting_page_web_server)) },
+                    )
+                }
+            }
+
+            item("connections") {
+                CardGroup(
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                    title = { Text("连接") },
+                ) {
+                    item(
+                        onClick = { navController.navigate(Screen.SettingDevices) },
+                        leadingContent = { Icon(HugeIcons.SmartPhone01, null) },
+                        supportingContent = { Text("管理已支持设备、连接状态与自动同步") },
+                        headlineContent = { Text("我的设备") },
                     )
                 }
             }
