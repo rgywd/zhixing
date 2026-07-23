@@ -79,6 +79,8 @@ import me.rerere.rikkahub.ui.hooks.readStringPreference
 import me.rerere.rikkahub.ui.hooks.rememberCustomAsrState
 import me.rerere.rikkahub.ui.hooks.rememberCustomTtsState
 import me.rerere.rikkahub.ui.pages.assistant.AssistantPage
+import me.rerere.rikkahub.ui.pages.agenda.AgendaPage
+import me.rerere.rikkahub.ui.pages.agenda.AgendaPlanDetailPage
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantBasicPage
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantDetailPage
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantExtensionsPage
@@ -109,6 +111,7 @@ import me.rerere.rikkahub.ui.pages.imggen.ImageGenPage
 import me.rerere.rikkahub.ui.pages.log.LogPage
 import me.rerere.rikkahub.ui.pages.search.SearchPage
 import me.rerere.rikkahub.ui.pages.setting.SettingAboutPage
+import me.rerere.rikkahub.ui.pages.setting.SettingDevicesPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesThemePage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesNotificationPage
@@ -241,6 +244,14 @@ class RouteActivity : ComponentActivity() {
             navStack?.add(if (id.isBlank()) Screen.PhoneWorkHome else Screen.PhoneWorkSession(id))
             intent.removeExtra("workSessionId")
         }
+        intent.getStringExtra("agendaPlanId")?.let { id ->
+            navStack?.add(Screen.AgendaPlanDetail(id))
+            intent.removeExtra("agendaPlanId")
+        }
+        if (intent.getBooleanExtra("openAgenda", false)) {
+            navStack?.add(Screen.Agenda)
+            intent.removeExtra("openAgenda")
+        }
     }
 
     @OptIn(ExperimentalComposeUiApi::class)
@@ -264,8 +275,10 @@ class RouteActivity : ComponentActivity() {
         }
         val migrationState by DatabaseMigrationTracker.state.collectAsStateWithLifecycle()
 
+        val requestedConversationId = intent.getStringExtra("conversationId")
+            ?.takeIf { runCatching { Uuid.parse(it) }.isSuccess }
         val startScreen: NavKey = Screen.Chat(
-            id = if (readBooleanPreference("create_new_conversation_on_start", true)) {
+            id = requestedConversationId ?: if (readBooleanPreference("create_new_conversation_on_start", true)) {
                 Uuid.random().toString()
             } else {
                 readStringPreference(
@@ -283,6 +296,14 @@ class RouteActivity : ComponentActivity() {
                 val id = intent.getStringExtra("workSessionId").orEmpty()
                 backStack.add(if (id.isBlank()) Screen.PhoneWorkHome else Screen.PhoneWorkSession(id))
                 intent.removeExtra("workSessionId")
+            }
+            intent.getStringExtra("agendaPlanId")?.let { id ->
+                backStack.add(Screen.AgendaPlanDetail(id))
+                intent.removeExtra("agendaPlanId")
+            }
+            if (intent.getBooleanExtra("openAgenda", false)) {
+                backStack.add(Screen.Agenda)
+                intent.removeExtra("openAgenda")
             }
         }
 
@@ -361,6 +382,14 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.Favorite> {
                                 FavoritePage()
+                            }
+
+                            entry<Screen.Agenda> {
+                                AgendaPage()
+                            }
+
+                            entry<Screen.AgendaPlanDetail> { key ->
+                                AgendaPlanDetailPage(key.id)
                             }
 
                             entry<Screen.Assistant> {
@@ -470,6 +499,10 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.SettingAbout> {
                                 SettingAboutPage()
+                            }
+
+                            entry<Screen.SettingDevices> {
+                                SettingDevicesPage()
                             }
 
                             entry<Screen.SettingSearch> {
@@ -621,6 +654,12 @@ sealed interface Screen : NavKey {
     data object Favorite : Screen
 
     @Serializable
+    data object Agenda : Screen
+
+    @Serializable
+    data class AgendaPlanDetail(val id: String) : Screen
+
+    @Serializable
     data object Assistant : Screen
 
     @Serializable
@@ -700,6 +739,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object SettingAbout : Screen
+
+    @Serializable
+    data object SettingDevices : Screen
 
     @Serializable
     data object SettingSearch : Screen

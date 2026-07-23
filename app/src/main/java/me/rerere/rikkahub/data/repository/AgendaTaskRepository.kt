@@ -92,4 +92,8 @@ class AgendaTaskRepository(
         dao.delete(id)
         reminderScheduler.cancel(id)
     }
+
+    suspend fun reconcileReminders() {
+        getVisibleTasks().forEach(reminderScheduler::sync)
+    }
 }

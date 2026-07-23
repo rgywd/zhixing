@@ -67,6 +67,28 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
+                CardGroup(
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                    title = { Text("我的状态") },
+                ) {
+                    item(
+                        headlineContent = { Text("允许 AI 使用身体数据") },
+                        supportingContent = {
+                            Text("开启后，快速模型可使用当前睡眠、心率、血氧、步数、卡路里和运动次数")
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = settings.allowAiHealthData,
+                                onCheckedChange = {
+                                    vm.updateSettings(settings.copy(allowAiHealthData = it))
+                                },
+                            )
+                        },
+                    )
+                }
+            }
+
+            item {
                 var createNewConversationOnStart by rememberSharedPreferenceBoolean(
                     "create_new_conversation_on_start",
                     true

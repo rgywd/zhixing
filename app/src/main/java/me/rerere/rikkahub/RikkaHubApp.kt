@@ -30,10 +30,13 @@ import me.rerere.rikkahub.di.repositoryModule
 import me.rerere.rikkahub.di.viewModelModule
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.device.lenovo.LenovoWatchConnectionManager
 import me.rerere.rikkahub.service.WebServerService
 import me.rerere.rikkahub.utils.CrashHandler
 import me.rerere.rikkahub.utils.DatabaseUtil
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.repository.AgendaPlanRepository
+import me.rerere.rikkahub.data.repository.AgendaTaskRepository
 import me.rerere.rikkahub.data.work.PhoneWorkCredentialStore
 import me.rerere.rikkahub.data.profile.ProfileMaintenanceScheduler
 import me.rerere.rikkahub.service.PhoneWorkTrackingService
@@ -93,6 +96,8 @@ class RikkaHubApp : Application() {
         startWebServerIfEnabled()
         startWorkTrackingIfConfigured()
         scheduleProfileMaintenance()
+        startDeviceConnections()
+        reconcileAgendaReminders()
 
         // Increment launch count
         incrementLaunchCount()
@@ -279,6 +284,20 @@ class RikkaHubApp : Application() {
         get<AppScope>().launch(Dispatchers.IO) {
             runCatching { get<ProfileMaintenanceScheduler>().sync() }
                 .onFailure { Log.w(TAG, "Unable to schedule profile maintenance", it) }
+        }
+    }
+
+    private fun startDeviceConnections() {
+        runCatching { get<LenovoWatchConnectionManager>().start() }
+            .onFailure { Log.w(TAG, "Unable to start device connections", it) }
+    }
+
+    private fun reconcileAgendaReminders() {
+        get<AppScope>().launch(Dispatchers.IO) {
+            runCatching { get<AgendaPlanRepository>().reconcileReminders() }
+                .onFailure { Log.w(TAG, "Unable to reconcile agenda reminders", it) }
+            runCatching { get<AgendaTaskRepository>().reconcileReminders() }
+                .onFailure { Log.w(TAG, "Unable to reconcile task reminders", it) }
         }
     }
 

@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.device.lenovo
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -14,13 +15,22 @@ internal class LenovoWatchSyncStore(context: Context) {
         preferences.getBoolean(KEY_REMEMBERED_DEVICE, false) || preferences.contains(KEY_LAST_SYNC)
 
     fun rememberDevice() {
-        preferences.edit().putBoolean(KEY_REMEMBERED_DEVICE, true).apply()
+        preferences.edit { putBoolean(KEY_REMEMBERED_DEVICE, true) }
     }
 
     fun lastSuccessfulSync(): LocalDateTime? {
         val epochMillis = preferences.getLong(KEY_LAST_SYNC, NO_TIMESTAMP)
         if (epochMillis == NO_TIMESTAMP) return null
         return LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), ZoneId.systemDefault())
+    }
+
+    fun lastSuccessfulSyncCompletedAt(): Instant? {
+        val epochMillis = preferences.getLong(
+            KEY_LAST_SYNC_COMPLETED_AT,
+            preferences.getLong(KEY_LAST_SYNC, NO_TIMESTAMP),
+        )
+        if (epochMillis == NO_TIMESTAMP) return null
+        return Instant.ofEpochMilli(epochMillis)
     }
 
     fun cachedSnapshot(): LenovoWatchHealthSnapshot = LenovoWatchHealthSnapshot(
@@ -40,11 +50,16 @@ internal class LenovoWatchSyncStore(context: Context) {
         immunity = preferences.nullableInt(KEY_IMMUNITY),
     )
 
-    fun saveSuccessfulSync(startedAt: LocalDateTime, snapshot: LenovoWatchHealthSnapshot) {
-        preferences.edit()
-            .putSnapshot(snapshot)
-            .putLong(KEY_LAST_SYNC, startedAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
-            .apply()
+    fun saveSuccessfulSync(
+        startedAt: LocalDateTime,
+        completedAt: Instant,
+        snapshot: LenovoWatchHealthSnapshot,
+    ) {
+        preferences.edit {
+            putSnapshot(snapshot)
+            putLong(KEY_LAST_SYNC, startedAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
+            putLong(KEY_LAST_SYNC_COMPLETED_AT, completedAt.toEpochMilli())
+        }
     }
 
     /**
@@ -53,9 +68,7 @@ internal class LenovoWatchSyncStore(context: Context) {
      * immediately and safely replay the same history again.
      */
     fun saveCheckpoint(snapshot: LenovoWatchHealthSnapshot) {
-        preferences.edit()
-            .putSnapshot(snapshot)
-            .apply()
+        preferences.edit { putSnapshot(snapshot) }
     }
 
     private fun SharedPreferences.Editor.putSnapshot(snapshot: LenovoWatchHealthSnapshot): SharedPreferences.Editor =
@@ -90,6 +103,7 @@ internal class LenovoWatchSyncStore(context: Context) {
         const val NO_TIMESTAMP = Long.MIN_VALUE
         const val KEY_REMEMBERED_DEVICE = "remembered_device"
         const val KEY_LAST_SYNC = "last_successful_sync"
+        const val KEY_LAST_SYNC_COMPLETED_AT = "last_successful_sync_completed_at"
         const val KEY_STEPS = "steps"
         const val KEY_CALORIES = "calories"
         const val KEY_TOTAL_SLEEP = "total_sleep_minutes"

@@ -13,12 +13,20 @@ import androidx.work.WorkerParameters
 import me.rerere.rikkahub.AGENDA_REMINDER_NOTIFICATION_CHANNEL_ID
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.RouteActivity
+import me.rerere.rikkahub.data.model.AgendaTaskStatus
+import me.rerere.rikkahub.data.repository.AgendaTaskRepository
 
 class AgendaReminderWorker(
     appContext: Context,
     params: WorkerParameters,
+    private val repository: AgendaTaskRepository,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
+        val taskId = inputData.getString(KEY_TASK_ID) ?: return Result.failure()
+        val expectedReminderAt = inputData.getLong(KEY_EXPECTED_REMINDER_AT, Long.MIN_VALUE)
+        if (expectedReminderAt == Long.MIN_VALUE) return Result.failure()
+        val task = repository.getById(taskId) ?: return Result.success()
+        if (task.status != AgendaTaskStatus.PENDING || task.reminderAt != expectedReminderAt) return Result.success()
         if (
             android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) !=
@@ -26,11 +34,11 @@ class AgendaReminderWorker(
         ) {
             return Result.success()
         }
-        val taskId = inputData.getString(KEY_TASK_ID) ?: return Result.failure()
-        val title = inputData.getString(KEY_TITLE).orEmpty().ifBlank { "待办提醒" }
-        val note = inputData.getString(KEY_NOTE).orEmpty()
+        val title = task.title.ifBlank { "待办提醒" }
+        val note = task.note
         val launchIntent = Intent(applicationContext, RouteActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra(EXTRA_OPEN_AGENDA, true)
         val pendingIntent = PendingIntent.getActivity(
             applicationContext,
             taskId.hashCode(),
@@ -53,7 +61,7 @@ class AgendaReminderWorker(
 
     companion object {
         const val KEY_TASK_ID = "task_id"
-        const val KEY_TITLE = "title"
-        const val KEY_NOTE = "note"
+        const val KEY_EXPECTED_REMINDER_AT = "expected_reminder_at"
+        const val EXTRA_OPEN_AGENDA = "openAgenda"
     }
 }

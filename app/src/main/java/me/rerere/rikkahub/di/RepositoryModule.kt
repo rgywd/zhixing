@@ -6,6 +6,9 @@ import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.files.SkillManager
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.AgendaTaskRepository
+import me.rerere.rikkahub.data.repository.AgendaPlanRepository
+import me.rerere.rikkahub.data.agenda.AgendaPlanReminderGateway
+import me.rerere.rikkahub.data.agenda.AgendaPlanReminderScheduler
 import me.rerere.rikkahub.data.agenda.AgendaReminderScheduler
 import me.rerere.rikkahub.data.agenda.DeviceCalendarRepository
 import me.rerere.rikkahub.data.repository.FavoriteRepository
@@ -26,6 +29,10 @@ val repositoryModule = module {
     single { AgendaReminderScheduler(get()) }
 
     single { AgendaTaskRepository(get(), get()) }
+
+    single<AgendaPlanReminderGateway> { AgendaPlanReminderScheduler(get()) }
+
+    single { AgendaPlanRepository(get(), get()) }
 
     single { DeviceCalendarRepository(get()) }
 

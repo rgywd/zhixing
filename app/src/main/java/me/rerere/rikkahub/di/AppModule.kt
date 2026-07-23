@@ -5,17 +5,35 @@ import me.rerere.highlight.Highlighter
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.device.lenovo.LenovoWatchConnectionManager
 import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbe
 import me.rerere.rikkahub.data.profile.ProfileMaintenanceScheduler
 import me.rerere.rikkahub.data.profile.ProfileMaintenanceService
 import me.rerere.rikkahub.data.profile.ProfileMaintenanceWorker
 import me.rerere.rikkahub.data.agenda.AgendaReminderWorker
+import me.rerere.rikkahub.data.agenda.AgendaPlanStageReminderWorker
+import me.rerere.rikkahub.data.status.AndroidCoarseLocationProvider
+import me.rerere.rikkahub.data.status.CachingWeatherProvider
+import me.rerere.rikkahub.data.status.FastModelStatusGenerator
+import me.rerere.rikkahub.data.status.LenovoWatchBodyStatusSource
+import me.rerere.rikkahub.data.status.LocalAgendaStatusSource
+import me.rerere.rikkahub.data.status.MyStatusAgendaSource
+import me.rerere.rikkahub.data.status.MyStatusBodySource
+import me.rerere.rikkahub.data.status.MyStatusClock
+import me.rerere.rikkahub.data.status.MyStatusContextAssembler
+import me.rerere.rikkahub.data.status.MyStatusCoordinator
+import me.rerere.rikkahub.data.status.MyStatusLocationProvider
+import me.rerere.rikkahub.data.status.MyStatusSnapshotStore
+import me.rerere.rikkahub.data.status.MyStatusTextGenerator
+import me.rerere.rikkahub.data.status.OpenMeteoWeatherProvider
+import me.rerere.rikkahub.data.status.WeatherProvider
 import me.rerere.rikkahub.data.work.PhoneWorkSessionCreator
 import me.rerere.rikkahub.data.work.PhoneWorkSessionGateway
 import me.rerere.rikkahub.data.work.PhoneWorkTitleGenerator
 import me.rerere.rikkahub.data.github.GitHubCliRunner
 import me.rerere.rikkahub.data.github.GitHubIssueCredentialStore
 import me.rerere.rikkahub.data.github.GitHubIssueTokenProvider
+import me.rerere.rikkahub.service.ChatGenerationForegroundController
 import me.rerere.rikkahub.service.ChatNotificationManager
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.telemetry.AppTelemetry
@@ -42,9 +60,36 @@ val appModule = module {
     }
 
     single { LenovoWatchProbe(get()) }
+    single { LenovoWatchConnectionManager(get(), get()) }
+    single<MyStatusClock> { MyStatusClock(System::currentTimeMillis) }
+    single<MyStatusLocationProvider> { AndroidCoarseLocationProvider(get(), get()) }
+    single<WeatherProvider> {
+        CachingWeatherProvider(
+            delegate = OpenMeteoWeatherProvider(clock = get()),
+            clock = get(),
+        )
+    }
+    single<MyStatusBodySource> { LenovoWatchBodyStatusSource(get(), get()) }
+    single<MyStatusAgendaSource> { LocalAgendaStatusSource(get(), get(), get()) }
+    single { MyStatusContextAssembler(get(), get(), get(), get(), get()) }
+    single<MyStatusTextGenerator> { FastModelStatusGenerator(get(), get()) }
+    single { MyStatusSnapshotStore(get()) }
+    single(createdAtStart = true) {
+        MyStatusCoordinator(
+            appScope = get(),
+            settingsStore = get(),
+            contextAssembler = get(),
+            textGenerator = get(),
+            snapshotStore = get(),
+            watchProbe = get(),
+            agendaTaskRepository = get(),
+            agendaPlanRepository = get(),
+            clock = get(),
+        ).also(MyStatusCoordinator::start)
+    }
 
     single {
-        LocalTools(get(), get(), get(), get(), get())
+        LocalTools(get(), get(), get(), get(), get(), get())
     }
 
     single { GitHubIssueCredentialStore(get()) }
@@ -77,6 +122,7 @@ val appModule = module {
     single { ProfileMaintenanceScheduler(get(), get()) }
     workerOf(::ProfileMaintenanceWorker)
     workerOf(::AgendaReminderWorker)
+    workerOf(::AgendaPlanStageReminderWorker)
 
     // 生成通知与业务解耦：ChatService 只发事件，通知由这里消费；
     // createdAtStart 保证进程启动即订阅，否则后台生成的事件会因无订阅者而丢失
@@ -89,10 +135,13 @@ val appModule = module {
         )
     }
 
+    single { ChatGenerationForegroundController(get()) }
+
     single {
         ChatService(
             context = get(),
             appScope = get(),
+            generationForegroundController = get(),
             appEventBus = get(),
             settingsStore = get(),
             conversationRepo = get(),

@@ -33,6 +33,7 @@ import me.rerere.rikkahub.data.db.migrations.Migration_32_33
 import me.rerere.rikkahub.data.db.migrations.Migration_33_34
 import me.rerere.rikkahub.data.db.migrations.Migration_36_37
 import me.rerere.rikkahub.data.db.migrations.Migration_37_38
+import me.rerere.rikkahub.data.db.migrations.Migration_38_39
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.sync.webdav.WebDavSync
 import me.rerere.search.SearchService
@@ -68,6 +69,7 @@ val dataSourceModule = module {
                 Migration_33_34,
                 Migration_36_37,
                 Migration_37_38,
+                Migration_38_39,
             )
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: SupportSQLiteDatabase) {
@@ -164,6 +166,7 @@ val dataSourceModule = module {
 
     single { get<AppDatabase>().phoneWorkDao() }
     single { get<AppDatabase>().agendaTaskDao() }
+    single { get<AppDatabase>().agendaPlanDao() }
     single { PhoneWorkCredentialStore(get()) }
     single { PhoneWorkCatalogStore(get()) }
     single { PhoneWorkDraftStore(get()) }
