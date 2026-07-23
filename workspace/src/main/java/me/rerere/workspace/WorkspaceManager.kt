@@ -163,6 +163,41 @@ class WorkspaceManager(
         )
     }
 
+    fun executeProgram(
+        root: String,
+        program: String,
+        arguments: List<String>,
+        environment: Map<String, String> = emptyMap(),
+        cwd: String = "",
+        timeoutMillis: Long = DEFAULT_COMMAND_TIMEOUT_MS,
+        stdin: ByteArray? = null,
+    ): WorkspaceCommandResult {
+        require(program.isNotBlank()) { "Program is required" }
+        require(program.none { it == '\u0000' }) { "Program contains invalid characters" }
+        require(arguments.none { it.contains('\u0000') }) { "Program arguments contain invalid characters" }
+        require(environment.keys.all(ENVIRONMENT_NAME_REGEX::matches)) { "Invalid environment variable name" }
+        require(environment.values.none { it.contains('\u0000') }) { "Environment contains invalid characters" }
+        val workingDir = fileSystem.resolve(filesDir(root), cwd)
+        require(workingDir.exists()) { "Working directory does not exist: $cwd" }
+        require(workingDir.isDirectory) { "Working path is not a directory: $cwd" }
+
+        return shellRunner.executeProgram(
+            WorkspaceProgramContext(
+                root = root,
+                program = program,
+                arguments = arguments,
+                environment = environment,
+                cwd = cwd,
+                filesDir = filesDir(root),
+                linuxDir = linuxDir(root),
+                tempDir = tempDir(root),
+                workingDir = workingDir,
+                timeoutMillis = timeoutMillis,
+                stdin = stdin,
+            )
+        )
+    }
+
     private fun requireValidRoot(root: String) {
         require(root.matches(ROOT_NAME_REGEX)) {
             "Invalid workspace root name: $root"
@@ -193,5 +228,6 @@ class WorkspaceManager(
         private const val TEMP_DIR = "tmp"
         const val DEFAULT_COMMAND_TIMEOUT_MS = 30_000L
         private val ROOT_NAME_REGEX = Regex("[A-Za-z0-9._-]+")
+        private val ENVIRONMENT_NAME_REGEX = Regex("[A-Za-z_][A-Za-z0-9_]*")
     }
 }

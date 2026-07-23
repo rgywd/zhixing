@@ -13,7 +13,7 @@ import me.rerere.rikkahub.data.agenda.AgendaReminderWorker
 import me.rerere.rikkahub.data.work.PhoneWorkSessionCreator
 import me.rerere.rikkahub.data.work.PhoneWorkSessionGateway
 import me.rerere.rikkahub.data.work.PhoneWorkTitleGenerator
-import me.rerere.rikkahub.data.github.GitHubIssueClient
+import me.rerere.rikkahub.data.github.GitHubCliRunner
 import me.rerere.rikkahub.data.github.GitHubIssueCredentialStore
 import me.rerere.rikkahub.data.github.GitHubIssueTokenProvider
 import me.rerere.rikkahub.service.ChatNotificationManager
@@ -44,12 +44,12 @@ val appModule = module {
     single { LenovoWatchProbe(get()) }
 
     single {
-        LocalTools(get(), get(), get(), get(), get(), get(), get())
+        LocalTools(get(), get(), get(), get(), get())
     }
 
     single { GitHubIssueCredentialStore(get()) }
     single<GitHubIssueTokenProvider> { get<GitHubIssueCredentialStore>() }
-    single { GitHubIssueClient() }
+    single { GitHubCliRunner(get(), get()) }
 
     single {
         UpdateChecker(get())
@@ -105,6 +105,7 @@ val appModule = module {
             filesManager = get(),
             skillManager = get(),
             workspaceRepository = get(),
+            githubCliRunner = get(),
             knowledgeSpaceService = get(),
             folderRepository = get()
         )

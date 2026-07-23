@@ -7,6 +7,8 @@ import java.util.concurrent.TimeUnit
 
 interface WorkspaceShellRunner {
     fun execute(context: WorkspaceShellContext): WorkspaceCommandResult
+
+    fun executeProgram(context: WorkspaceProgramContext): WorkspaceCommandResult
 }
 
 data class WorkspaceShellContext(
@@ -21,11 +23,37 @@ data class WorkspaceShellContext(
     val stdin: ByteArray? = null,
 )
 
+data class WorkspaceProgramContext(
+    val root: String,
+    val program: String,
+    val arguments: List<String>,
+    val environment: Map<String, String>,
+    val cwd: String,
+    val filesDir: File,
+    val linuxDir: File,
+    val tempDir: File,
+    val workingDir: File,
+    val timeoutMillis: Long,
+    val stdin: ByteArray? = null,
+)
+
 class HostShellRunner : WorkspaceShellRunner {
     override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
         val process = ProcessBuilder(defaultShell(), "-c", context.command)
             .directory(context.workingDir)
             .redirectErrorStream(false)
+            .start()
+        return process.readResult(context.timeoutMillis, context.stdin)
+    }
+
+    override fun executeProgram(context: WorkspaceProgramContext): WorkspaceCommandResult {
+        val process = ProcessBuilder(listOf(context.program) + context.arguments)
+            .directory(context.workingDir)
+            .redirectErrorStream(false)
+            .apply {
+                environment().clear()
+                environment().putAll(context.environment)
+            }
             .start()
         return process.readResult(context.timeoutMillis, context.stdin)
     }

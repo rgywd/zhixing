@@ -8,6 +8,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
+import me.rerere.common.http.jsonObjectOrNull
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Bug01
 import me.rerere.rikkahub.R
@@ -46,6 +50,42 @@ object GitHubIssueToolUI : ToolUIRenderer {
             },
             style = MaterialTheme.typography.bodySmall,
             color = if (status == "CREATED") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+        )
+    }
+}
+
+object GitHubCliToolUI : ToolUIRenderer {
+    override val toolName: String = "gh"
+
+    override fun icon(context: ToolUIContext): ImageVector = HugeIcons.Bug01
+
+    @Composable
+    override fun title(context: ToolUIContext): String {
+        val arguments = context.arguments.jsonObjectOrNull
+            ?.get("args")
+            ?.runCatching { jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull } }
+            ?.getOrNull()
+            .orEmpty()
+        return (listOf("gh") + arguments).joinToString(" ")
+    }
+
+    override fun hasSummary(context: ToolUIContext): Boolean = context.content != null
+
+    @Composable
+    override fun Summary(context: ToolUIContext) {
+        val status = context.content.getStringContent("status")
+        val stdout = context.content.getStringContent("stdout").orEmpty()
+        val stderr = context.content.getStringContent("stderr").orEmpty()
+        val message = context.content.getStringContent("message").orEmpty()
+        val summary = stdout.ifBlank { stderr }.ifBlank { message }
+        Text(
+            text = summary.ifBlank { status.orEmpty() },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (status == "COMPLETED") {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.error
+            },
         )
     }
 }

@@ -118,6 +118,27 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun programReceivesArgumentsAndPrivateEnvironmentWithoutShellQuoting() {
+        val baseDir = Files.createTempDirectory("workspace-program-test").toFile()
+        val runner = RecordingProgramRunner()
+        val manager = WorkspaceManager(baseDir, shellRunner = runner)
+        val root = "test-workspace"
+        manager.ensureWorkspace(root)
+
+        val result = manager.executeProgram(
+            root = root,
+            program = "/usr/bin/gh",
+            arguments = listOf("issue", "view", "42", "hello world"),
+            environment = mapOf("GH_TOKEN" to "test-token"),
+        )
+
+        assertEquals(0, result.exitCode)
+        assertEquals("/usr/bin/gh", runner.context.program)
+        assertEquals(listOf("issue", "view", "42", "hello world"), runner.context.arguments)
+        assertEquals("test-token", runner.context.environment["GH_TOKEN"])
+    }
+
+    @Test
     fun prootRunnerRequiresRootfs() {
         val baseDir = Files.createTempDirectory("workspace-proot-test").toFile()
         val manager = WorkspaceManager(
@@ -131,6 +152,46 @@ class ExampleUnitTest {
 
         assertEquals(127, result.exitCode)
         assertEquals("Rootfs is not installed", result.stderr)
+    }
+
+    @Test
+    fun prootProgramRunnerRequiresRootfs() {
+        val baseDir = Files.createTempDirectory("workspace-proot-program-test").toFile()
+        val manager = WorkspaceManager(
+            baseDir = baseDir,
+            shellRunner = ProotShellRunner(File(baseDir, "native"))
+        )
+        val root = "test-workspace"
+        manager.ensureWorkspace(root)
+
+        val result = manager.executeProgram(root, "/usr/bin/gh", listOf("--version"))
+
+        assertEquals(127, result.exitCode)
+        assertEquals("Rootfs is not installed", result.stderr)
+    }
+
+    @Test
+    fun programEnvironmentUsesOpaqueRelayNamesWithoutPuttingSecretsInArguments() {
+        val relay = relayProgramEnvironment(
+            environment = mapOf("GH_TOKEN" to "private-token"),
+            relayName = { "ZHIXING_PRIVATE_TEST" },
+        )
+
+        assertEquals(listOf(RelayedEnvironmentName("GH_TOKEN", "ZHIXING_PRIVATE_TEST")), relay.names)
+        assertEquals(mapOf("ZHIXING_PRIVATE_TEST" to "private-token"), relay.processEnvironment)
+        assertFalse(relay.names.flatMap { listOf(it.target, it.relay) }.contains("private-token"))
+    }
+
+    private class RecordingProgramRunner : WorkspaceShellRunner {
+        lateinit var context: WorkspaceProgramContext
+
+        override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult =
+            error("Shell execution was not expected")
+
+        override fun executeProgram(context: WorkspaceProgramContext): WorkspaceCommandResult {
+            this.context = context
+            return WorkspaceCommandResult(exitCode = 0, stdout = "ok", stderr = "")
+        }
     }
 
     @Test

@@ -49,6 +49,7 @@ internal fun buildWorkspacePrompt(
         appendLine("- A sandboxed Linux Rootfs is ready. The persistent files area is mounted at `/workspace`.")
         appendLine("- Workspace tool paths must be absolute inside the Rootfs, for example `/workspace/notes.md`.")
         appendLine("- Use `workspace_read_file`, `workspace_write_file`, `workspace_edit_file`, and `workspace_shell` for project execution.")
+        appendLine("- Use the dedicated `gh` tool for GitHub Issues; do not handle GitHub credentials in the shell.")
         appendLine("- The skills directory is mounted at `/skills`; read a skill's `SKILL.md` before using it.")
         appendLine("- `/upload` is read-only. Copy a file to `/workspace` before changing it.")
         if (!cwd.isNullOrBlank()) {

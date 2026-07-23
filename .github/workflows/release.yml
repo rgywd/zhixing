@@ -101,14 +101,13 @@ jobs:
 
       - name: Test release-critical paths
         run: |
-          ./gradlew :ai:testDebugUnitTest :speech:testDebugUnitTest
+          ./gradlew :ai:testDebugUnitTest :speech:testDebugUnitTest :workspace:testDebugUnitTest
           ./gradlew :app:testStagingUnitTest \
             --tests me.rerere.rikkahub.AppIdentityTest \
             --tests me.rerere.rikkahub.DistributionIdentityTest \
             --tests me.rerere.rikkahub.utils.UpdateCheckerTest \
             --tests me.rerere.rikkahub.data.datastore.DefaultProvidersTest \
-            --tests me.rerere.rikkahub.data.ai.tools.local.GitHubIssueToolTest \
-            --tests me.rerere.rikkahub.data.github.GitHubIssueClientTest \
+            --tests me.rerere.rikkahub.data.ai.tools.GitHubCliToolTest \
             --tests me.rerere.rikkahub.data.agenda.AgendaTaskPolicyTest \
             --tests me.rerere.rikkahub.data.agenda.AgendaTimeParserTest \
             --tests me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigureConvertToTest
