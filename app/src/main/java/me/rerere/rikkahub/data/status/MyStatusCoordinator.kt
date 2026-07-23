@@ -18,9 +18,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbe
 import me.rerere.rikkahub.data.repository.AgendaPlanRepository
 import me.rerere.rikkahub.data.repository.AgendaTaskRepository
+import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.utils.JsonInstant
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -30,6 +32,7 @@ internal enum class MyStatusRefreshTrigger {
     LOCATION_PERMISSION,
     BODY_CHANGED,
     AGENDA_CHANGED,
+    PROFILE_CHANGED,
     SETTINGS_CHANGED,
     HOURLY,
 }
@@ -63,6 +66,7 @@ internal class MyStatusCoordinator(
     private val watchProbe: LenovoWatchProbe,
     private val agendaTaskRepository: AgendaTaskRepository,
     private val agendaPlanRepository: AgendaPlanRepository,
+    private val memoryRepository: MemoryRepository,
     private val clock: MyStatusClock = MyStatusClock(System::currentTimeMillis),
 ) {
     private val started = AtomicBoolean(false)
@@ -78,7 +82,7 @@ internal class MyStatusCoordinator(
     private var lastFingerprint: String? = null
     private var lastAttemptAtEpochMillis: Long? = null
     private var lastSuccessfulAtEpochMillis: Long? = _state.value.snapshot?.generatedAtEpochMillis
-    private var lastAllowBodyInAiContext: Boolean? = null
+    private var lastContextPolicyKey: String? = null
 
     fun start() {
         if (!started.compareAndSet(false, true)) return
@@ -140,11 +144,29 @@ internal class MyStatusCoordinator(
         }
         appScope.launch {
             settingsStore.settingsFlowRaw
-                .map { it.allowAiHealthData }
+                .map { settings ->
+                    val assistant = settings.getCurrentAssistant()
+                    listOf(
+                        settings.allowAiHealthData,
+                        assistant.id,
+                        assistant.enableMemory,
+                        assistant.useGlobalMemory,
+                    ).joinToString(":")
+                }
                 .distinctUntilChanged()
                 .drop(1)
                 .collect {
                     refresh(MyStatusRefreshTrigger.SETTINGS_CHANGED, force = true)
+                }
+        }
+        appScope.launch {
+            memoryRepository.getGlobalMemoriesFlow()
+                .map { memories -> memories.map { "${it.id}:${it.kind}:${it.state}:${it.updatedAt}:${it.content}" } }
+                .distinctUntilChanged()
+                .drop(1)
+                .debounce(SOURCE_CHANGE_DEBOUNCE_MS)
+                .collect {
+                    refresh(MyStatusRefreshTrigger.PROFILE_CHANGED)
                 }
         }
     }
@@ -171,10 +193,23 @@ internal class MyStatusCoordinator(
         val settings = settingsStore.settingsFlowRaw.first()
         val facts = contextAssembler.collect()
         val now = clock.nowEpochMillis()
-        val fingerprint = significantStatusFingerprint(facts, settings.allowAiHealthData)
+        val assistant = settings.getCurrentAssistant()
+        val allowPersonalContext = assistant.enableMemory
+        val personalContext = if (allowPersonalContext) {
+            buildMyStatusPersonalContext(memoryRepository.getGlobalMemories())
+        } else {
+            emptyList()
+        }
+        val interventionPolicy = buildMyStatusInterventionPolicy(facts)
+        val fingerprint = significantStatusFingerprint(
+            facts = facts,
+            allowBodyInAiContext = settings.allowAiHealthData,
+            personalContext = personalContext,
+        )
+        val previousFingerprint = lastFingerprint
         if (
             !shouldRefreshMyStatus(
-                previousFingerprint = lastFingerprint,
+                previousFingerprint = previousFingerprint,
                 currentFingerprint = fingerprint,
                 lastAttemptAtEpochMillis = lastAttemptAtEpochMillis,
                 lastSuccessfulAtEpochMillis = lastSuccessfulAtEpochMillis,
@@ -188,9 +223,12 @@ internal class MyStatusCoordinator(
             return@withLock
         }
 
-        val contextPolicyChanged = lastAllowBodyInAiContext != null &&
-            lastAllowBodyInAiContext != settings.allowAiHealthData
-        lastAllowBodyInAiContext = settings.allowAiHealthData
+        val contextPolicyKey =
+            "${settings.allowAiHealthData}:$allowPersonalContext:${assistant.id}"
+        val contextPolicyChanged = lastContextPolicyKey != null &&
+            lastContextPolicyKey != contextPolicyKey
+        val factsChanged = previousFingerprint != null && previousFingerprint != fingerprint
+        lastContextPolicyKey = contextPolicyKey
         lastFingerprint = fingerprint
         lastAttemptAtEpochMillis = now
         _state.value = _state.value.copy(
@@ -202,19 +240,31 @@ internal class MyStatusCoordinator(
         val modelInput = buildMyStatusModelInput(
             facts = facts,
             allowBodyInAiContext = settings.allowAiHealthData,
+            personalContext = personalContext,
+            interventionPolicy = interventionPolicy,
         )
-        val generated = textGenerator.generate(encodeMyStatusModelInput(modelInput))
-            ?.let { raw ->
-                parseGeneratedMyStatus(
-                    raw = raw,
-                    availableEvidence = facts.evidence,
-                    nowEpochMillis = now,
-                    locationArea = facts.location?.area,
-                )
-            }
+        val modelPolicy = modelInput.interventionPolicy
+        val generated = if (modelPolicy.shouldGenerateInterpretation) {
+            textGenerator.generate(encodeMyStatusModelInput(modelInput))
+                ?.let { raw ->
+                    parseGeneratedMyStatus(
+                        raw = raw,
+                        availableEvidence = modelInput.evidence,
+                        nowEpochMillis = now,
+                        locationArea = facts.location?.area,
+                    )
+                }
+                ?.let { snapshot ->
+                    enforceMyStatusInterventionPolicy(snapshot, modelPolicy)
+                }
+        } else {
+            null
+        }
         val previous = _state.value.snapshot
         val preservePrevious = generated == null &&
+            modelPolicy.shouldGenerateInterpretation &&
             !contextPolicyChanged &&
+            !factsChanged &&
             previous != null &&
             previous.validUntilEpochMillis > now
         val resolved = when {
@@ -234,6 +284,7 @@ internal class MyStatusCoordinator(
             statusMessage = when {
                 facts.weatherUnavailable -> "天气暂不可用，其他状态已更新"
                 preservePrevious -> "快速模型暂不可用，显示上次状态"
+                !modelPolicy.shouldGenerateInterpretation -> null
                 generated == null -> "快速模型未就绪，使用本地判断"
                 trigger == MyStatusRefreshTrigger.LOCATION_PERMISSION && facts.location == null ->
                     "暂时无法取得位置"

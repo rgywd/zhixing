@@ -84,6 +84,7 @@ val appModule = module {
             watchProbe = get(),
             agendaTaskRepository = get(),
             agendaPlanRepository = get(),
+            memoryRepository = get(),
             clock = get(),
         ).also(MyStatusCoordinator::start)
     }
