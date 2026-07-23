@@ -10,6 +10,7 @@
 | [AI 助手产品愿景](./AI_ASSISTANT_VISION.md) | 判断产品方向、能力优先级和明确非目标 |
 | [运行时与数据契约](./RUNTIME_CONTRACT.md) | 修改普通聊天、Provider、工具、持久化或外部边界 |
 | [Git 分支、提交与发布流程](./RELEASE_FLOW.md) | 创建分支、提交、合并、冻结版本或发布 |
+| [CI 与构建流水线](./CI_PIPELINE.md) | 修改 GitHub Actions、Gradle 缓存或发布构建 |
 | [数据安全、升级与备份](./DATA_SAFETY_AND_BACKUP.md) | 修改数据库、文件、备份、恢复或覆盖升级 |
 
 ## 现行能力契约
