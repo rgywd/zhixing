@@ -81,6 +81,7 @@ data class PhoneWorkQuestion(
     val question: String,
     val multiSelect: Boolean = false,
     val options: List<PhoneWorkQuestionOption>,
+    val recommendedOptionIds: List<String> = emptyList(),
 )
 
 @Serializable
@@ -94,6 +95,13 @@ data class PhoneWorkAnswer(
 data class PhoneWorkAskPayload(
     val askId: String,
     val questions: List<PhoneWorkQuestion>,
+    val deadlineAt: String? = null,
+)
+
+@Serializable
+data class PhoneWorkAskAnsweredPayload(
+    val askId: String,
+    val source: String? = null,
 )
 
 @Serializable

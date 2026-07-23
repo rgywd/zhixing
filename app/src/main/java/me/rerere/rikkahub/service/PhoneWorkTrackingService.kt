@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import java.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -40,6 +41,7 @@ class PhoneWorkTrackingService : Service() {
     private val repository: PhoneWorkRepository by inject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var trackingJob: Job? = null
+    private val askReminderJobs = mutableMapOf<String, Job>()
     private val trackingState by lazy { getSharedPreferences(TRACKING_PREFERENCES, Context.MODE_PRIVATE) }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -133,12 +135,31 @@ class PhoneWorkTrackingService : Service() {
         val payload = event.payload.jsonObject
         var milestoneStatus: WorkTrackingMilestoneStatus? = null
         val notification = when (event.type) {
-            "ASK" -> alertBuilder(
-                WORK_ASK_NOTIFICATION_CHANNEL_ID,
-                "${session.repoName} 需要你的回答",
-                payload["questions"]?.let { "Codex 遇到需要你决定的问题" } ?: "Codex 正在等待你的回答",
-                session.id,
-            ).setCategory(NotificationCompat.CATEGORY_CALL).setPriority(NotificationCompat.PRIORITY_HIGH).build()
+            "ASK" -> {
+                val askId = payload["askId"]?.jsonPrimitive?.content ?: return null
+                val deadlineAt = payload["deadlineAt"]?.jsonPrimitive?.content
+                scheduleAskReminder(session, event, askId, deadlineAt)
+                val minutes = deadlineAt?.let { deadlineMinutesAway(it) }
+                alertBuilder(
+                    WORK_ASK_NOTIFICATION_CHANNEL_ID,
+                    "${session.repoName} 需要你的回答",
+                    if (minutes != null) {
+                        "Codex 遇到需要你决定的问题，${minutes} 分钟未回答将采用推荐方案"
+                    } else {
+                        "Codex 遇到需要你决定的问题"
+                    },
+                    session.id,
+                ).setCategory(NotificationCompat.CATEGORY_CALL).setPriority(NotificationCompat.PRIORITY_HIGH).build()
+                    .also { notifyWithId(askNotificationId(askId), it) }
+                return null
+            }
+            "ASK_ANSWERED" -> {
+                payload["askId"]?.jsonPrimitive?.content?.let { askId ->
+                    askReminderJobs.remove(askId)?.cancel()
+                    NotificationManagerCompat.from(this).cancel(askNotificationId(askId))
+                }
+                return null
+            }
             "REPORT" -> alertBuilder(
                 WORK_ALERT_NOTIFICATION_CHANNEL_ID,
                 session.repoName,
@@ -178,6 +199,44 @@ class PhoneWorkTrackingService : Service() {
                 observedAtMillis = System.currentTimeMillis(),
             )
         }
+    }
+
+    private fun scheduleAskReminder(session: PhoneWorkSession, event: PhoneWorkEvent, askId: String, deadlineAt: String?) {
+        val deadlineMillis = deadlineAt
+            ?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+            ?: return
+        val delayMs = deadlineMillis - ASK_REMINDER_LEAD_MS - System.currentTimeMillis()
+        if (delayMs <= 0) return
+        askReminderJobs.remove(askId)?.cancel()
+        askReminderJobs[askId] = scope.launch {
+            delay(delayMs)
+            askReminderJobs.remove(askId)
+            val answered = repository.cachedEventsAfter(session.id, event.seq).any {
+                it.type == "ASK_ANSWERED" && it.payload.jsonObject["askId"]?.jsonPrimitive?.content == askId
+            }
+            if (!answered) {
+                notifyWithId(
+                    askNotificationId(askId),
+                    alertBuilder(
+                        WORK_ASK_NOTIFICATION_CHANNEL_ID,
+                        "${session.repoName} 仍在等你的回答",
+                        "1 分钟后将采用推荐方案，点按立即决定",
+                        session.id,
+                    ).setCategory(NotificationCompat.CATEGORY_CALL).setPriority(NotificationCompat.PRIORITY_HIGH).build(),
+                )
+            }
+        }
+    }
+
+    private fun notifyWithId(id: Int, notification: Notification) {
+        if (hasNotificationPermission()) NotificationManagerCompat.from(this).notify(id, notification)
+    }
+
+    private fun deadlineMinutesAway(deadlineAt: String): Int? {
+        val millis = runCatching { Instant.parse(deadlineAt).toEpochMilli() }.getOrNull() ?: return null
+        val remaining = millis - System.currentTimeMillis()
+        if (remaining <= 0) return null
+        return ((remaining + 59_999) / 60_000).toInt()
     }
 
     private fun rememberMilestone(milestone: WorkTrackingMilestone) {
@@ -288,6 +347,7 @@ class PhoneWorkTrackingService : Service() {
         const val EXTRA_WORK_SESSION_ID = "workSessionId"
         private const val NOTIFICATION_ID = 2401
         private const val POLL_INTERVAL_MS = 10_000L
+        private const val ASK_REMINDER_LEAD_MS = 60_000L
         private const val TRACKING_PREFERENCES = "phone_work_tracking"
         private const val KEY_TRACKED_SESSIONS = "tracked_session_ids"
         private const val KEY_MILESTONE_SESSION_ID = "milestone_session_id"
@@ -295,6 +355,8 @@ class PhoneWorkTrackingService : Service() {
         private const val KEY_MILESTONE_STATUS = "milestone_status"
         private const val KEY_MILESTONE_OBSERVED_AT = "milestone_observed_at"
         private val ACTIVE_STATES = setOf("QUEUED", "RUNNING", "WAITING_FOR_USER")
+
+        private fun askNotificationId(askId: String) = "zhixing-work-ask:$askId".hashCode()
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, PhoneWorkTrackingService::class.java))

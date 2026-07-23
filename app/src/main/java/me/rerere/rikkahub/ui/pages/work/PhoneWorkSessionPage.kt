@@ -84,6 +84,7 @@ import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.hugeicons.stroke.Book03
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.work.PhoneWorkAnswer
+import me.rerere.rikkahub.data.work.PhoneWorkAskAnsweredPayload
 import me.rerere.rikkahub.data.work.PhoneWorkAskPayload
 import me.rerere.rikkahub.data.work.PhoneWorkAssistantMessagePayload
 import me.rerere.rikkahub.data.work.PhoneWorkEvent
@@ -487,8 +488,11 @@ private fun WorkEventList(
     onOpenReport: (String) -> Unit,
 ) {
     val timelineItems = remember(events) { buildWorkTimeline(events) }
-    val answeredAskIds = remember(events) {
-        events.filter { it.type == "ASK_ANSWERED" }.mapNotNull { it.payload.jsonObject["askId"]?.jsonPrimitive?.content }.toSet()
+    val answeredAskSources = remember(events) {
+        events.filter { it.type == "ASK_ANSWERED" }.mapNotNull { event ->
+            runCatching { workJson.decodeFromJsonElement<PhoneWorkAskAnsweredPayload>(event.payload) }.getOrNull()
+                ?.let { it.askId to it.source }
+        }.toMap()
     }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -560,7 +564,7 @@ private fun WorkEventList(
 
                         is WorkTimelineItem.Entry -> WorkEventEntry(
                             event = item.event,
-                            answeredAskIds = answeredAskIds,
+                            answeredAskSources = answeredAskSources,
                             onAnswer = onAnswer,
                             onMessageActions = onMessageActions,
                             onOpenReport = onOpenReport,
@@ -706,7 +710,7 @@ internal fun buildWorkTimeline(
 @Composable
 private fun WorkEventEntry(
     event: PhoneWorkEvent,
-    answeredAskIds: Set<String>,
+    answeredAskSources: Map<String, String?>,
     onAnswer: (String, List<PhoneWorkAnswer>) -> Unit,
     onMessageActions: (String, Boolean) -> Unit,
     onOpenReport: (String) -> Unit,
@@ -728,7 +732,7 @@ private fun WorkEventEntry(
         }
         "ASK" -> {
             val ask = workJson.decodeFromJsonElement<PhoneWorkAskPayload>(event.payload)
-            PhoneWorkAskCard(ask, ask.askId in answeredAskIds, onAnswer)
+            PhoneWorkAskCard(ask, answeredAskSources[ask.askId], answeredAskSources.containsKey(ask.askId), onAnswer)
         }
         "HTML_REPORT" -> {
             val report = workJson.decodeFromJsonElement<PhoneWorkHtmlReportPayload>(event.payload)
@@ -1001,10 +1005,13 @@ internal fun mergeWorkQuote(current: String, quoted: String): String = buildStri
 @Composable
 private fun PhoneWorkAskCard(
     ask: PhoneWorkAskPayload,
+    answeredSource: String?,
     answered: Boolean,
     onAnswer: (String, List<PhoneWorkAnswer>) -> Unit,
 ) {
-    var selections by remember(ask.askId) { mutableStateOf<Map<String, Set<String>>>(emptyMap()) }
+    var selections by remember(ask.askId) {
+        mutableStateOf(ask.questions.associate { it.id to it.recommendedOptionIds.toSet() })
+    }
     var other by remember(ask.askId) { mutableStateOf<Map<String, String>>(emptyMap()) }
     Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Row(modifier = Modifier.height(IntrinsicSize.Min)) {
@@ -1022,13 +1029,18 @@ private fun PhoneWorkAskCard(
             )
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (answered) {
-                    Text("已回答", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        if (answeredSource == "timeout_default") "已超时，采用推荐方案" else "已回答",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelLarge,
+                    )
                 } else {
                     Text(
                         "需要你回答",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.tertiary,
                     )
+                    AskDeadlineCountdown(deadlineAt = ask.deadlineAt)
                     ask.questions.forEach { question ->
                         QuestionEditor(
                             question = question,
@@ -1061,6 +1073,32 @@ private fun PhoneWorkAskCard(
 }
 
 @Composable
+private fun AskDeadlineCountdown(deadlineAt: String?) {
+    val deadlineMillis = remember(deadlineAt) {
+        deadlineAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+    } ?: return
+    var remainingSeconds by remember(deadlineMillis) {
+        mutableLongStateOf((deadlineMillis - System.currentTimeMillis()) / 1000)
+    }
+    LaunchedEffect(deadlineMillis) {
+        while (isActive) {
+            remainingSeconds = (deadlineMillis - System.currentTimeMillis()) / 1000
+            if (remainingSeconds <= 0) break
+            delay(1_000)
+        }
+    }
+    Text(
+        if (remainingSeconds > 0) {
+            "%d:%02d 后自动采用推荐方案".format(remainingSeconds / 60, remainingSeconds % 60)
+        } else {
+            "正在采用推荐方案…"
+        },
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
 private fun QuestionEditor(
     question: PhoneWorkQuestion,
     selected: Set<String>,
@@ -1073,6 +1111,7 @@ private fun QuestionEditor(
         Text(question.question, style = MaterialTheme.typography.titleMedium)
         question.options.forEach { option ->
             val active = option.id in selected
+            val recommended = option.id in question.recommendedOptionIds
             Surface(
                 modifier = Modifier.fillMaxWidth().clickable {
                     onSelected(
@@ -1085,7 +1124,25 @@ private fun QuestionEditor(
                 shape = MaterialTheme.shapes.medium,
             ) {
                 Column(Modifier.padding(12.dp)) {
-                    Text(option.label)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(option.label)
+                        if (recommended) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.tertiaryContainer,
+                                shape = MaterialTheme.shapes.small,
+                            ) {
+                                Text(
+                                    "推荐",
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                )
+                            }
+                        }
+                    }
                     option.description?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
             }

@@ -25,6 +25,8 @@ const questionSchema = z.object({
     label: z.string().min(1).max(80),
     description: z.string().max(240).optional(),
   })).min(1).max(8),
+  recommendedOptionIds: z.array(z.string().min(1)).min(1)
+    .describe("你真诚判断的最优选项（单选恰好 1 个，多选 1 个或多个）。手机端预填为可一键确认的默认选择；3 分钟未回答时自动采用并继续。"),
 });
 
 const server = new McpServer({ name: "zhixing-phone-line", version: "1.0.0" });
@@ -46,7 +48,7 @@ server.registerTool("report", {
 
 server.registerTool("ask", {
   title: "向用户提问",
-  description: "在关键决策点向手机发 1-4 道结构化选择题，短挂最多三分钟等待回答。每题客户端都提供其他自由输入。",
+  description: "在用户的偏好会改变你做法的决策点，向手机发 1-4 道结构化选择题。每题必须带 recommendedOptionIds（你真诚判断的最优选项），手机端预填推荐、可一键确认或改选，每题也提供其他自由输入。最多等待 3 分钟；未回答时自动采用推荐答案返回（status=auto_answered），你永远不会被卡住。能自己安全决定的事不要问。",
   inputSchema: { questions: z.array(questionSchema).min(1).max(4) },
 }, async ({ questions }) => {
   acknowledgePendingCursor();
