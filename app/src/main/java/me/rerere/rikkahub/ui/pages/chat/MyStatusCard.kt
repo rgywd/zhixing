@@ -76,7 +76,7 @@ internal fun MyStatusCard(
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text(
-                        "综合状态",
+                        "现在最值得注意",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -94,12 +94,12 @@ internal fun MyStatusCard(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        "建议",
+                        "此刻",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                     )
                     Text(
-                        snapshot.recommendation?.text ?: "当前无需额外调整。",
+                        snapshot.recommendation?.text ?: "当前没有需要介入的事情，按自己的节奏即可。",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
@@ -158,7 +158,12 @@ private fun StatusContextLine(
     val location = snapshot?.locationArea
         ?: if (locationPermissionRequired) "位置未授权" else "位置暂不可用"
     Text(
-        text = "${lifeOverviewGreeting(now.hour)} · ${now.monthValue}月${now.dayOfMonth}日 $weekday · $location",
+        text = buildString {
+            append(lifeOverviewGreeting(now.hour))
+            append(" · ${now.monthValue}月${now.dayOfMonth}日 $weekday ")
+            append(STATUS_TIME_FORMATTER.format(now))
+            append(" · $location")
+        },
         style = MaterialTheme.typography.bodyMedium,
         fontWeight = FontWeight.Medium,
     )

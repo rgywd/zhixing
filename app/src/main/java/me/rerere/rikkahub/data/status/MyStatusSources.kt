@@ -210,7 +210,15 @@ private fun buildEvidence(
             add(bodyEvidence("body.bloodOxygen", "血氧", "$value%", it.observedAt, nowEpochMillis))
         }
         it.steps?.let { value ->
-            add(bodyEvidence("body.steps", "步数", String.format(Locale.CHINA, "%,d 步", value), it.observedAt, nowEpochMillis))
+            add(
+                bodyEvidence(
+                    id = "body.steps",
+                    label = "步数",
+                    value = String.format(Locale.CHINA, "%,d 步", value),
+                    observedAt = it.observedAt,
+                    nowEpochMillis = nowEpochMillis,
+                )
+            )
         }
         it.caloriesKcal?.let { value ->
             add(bodyEvidence("body.calories", "卡路里", "$value 千卡", it.observedAt, nowEpochMillis))
@@ -224,7 +232,7 @@ private fun buildEvidence(
             MyStatusEvidence(
                 id = "agenda.pending",
                 kind = MyStatusInsightKind.AGENDA,
-                label = "待处理",
+                label = "未完成安排",
                 value = "${it.pendingCount} 项",
                 observedAt = it.observedAt,
                 freshness = freshness(it.observedAt, nowEpochMillis),
@@ -237,6 +245,24 @@ private fun buildEvidence(
                     kind = MyStatusInsightKind.AGENDA,
                     label = "已逾期",
                     value = "${it.overdueCount} 项",
+                    observedAt = it.observedAt,
+                    freshness = freshness(it.observedAt, nowEpochMillis),
+                )
+            )
+        }
+        it.nextItems.forEach { item ->
+            add(
+                MyStatusEvidence(
+                    id = item.evidenceId,
+                    kind = MyStatusInsightKind.AGENDA,
+                    label = when (item.timing) {
+                        MyStatusAgendaTiming.UNDATED -> "事项 · 无截止时间"
+                        MyStatusAgendaTiming.OVERDUE -> "事项 · 已逾期"
+                        MyStatusAgendaTiming.DUE_SOON -> "事项 · 即将到期"
+                        MyStatusAgendaTiming.TODAY -> "事项 · 今天"
+                        MyStatusAgendaTiming.UPCOMING -> "事项 · 接下来"
+                    },
+                    value = item.title,
                     observedAt = it.observedAt,
                     freshness = freshness(it.observedAt, nowEpochMillis),
                 )

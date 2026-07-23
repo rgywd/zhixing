@@ -10,6 +10,7 @@ import me.rerere.rikkahub.data.model.AgendaPlanWithStages
 import me.rerere.rikkahub.data.model.AgendaTask
 import me.rerere.rikkahub.data.repository.AgendaPlanRepository
 import me.rerere.rikkahub.data.repository.AgendaTaskRepository
+import java.time.Instant
 import java.time.ZoneId
 
 internal class LenovoWatchBodyStatusSource(
@@ -67,16 +68,25 @@ internal fun buildMyStatusAgendaFacts(
         projection.actions.forEach { action ->
             add(
                 MyStatusAgendaCandidate(
+                    stableId = action.stableId,
                     title = when (action) {
                         is AgendaAction.Task -> action.title
                         is AgendaAction.PlanStage -> "${action.context} · ${action.title}"
                     },
                     at = action.actionAt ?: action.dueAt,
+                    overdue = action.dueAt?.let { it < nowEpochMillis } == true,
                 )
             )
         }
         projection.futureTasks.forEach { task ->
-            add(MyStatusAgendaCandidate(title = task.title, at = task.dueAt))
+            add(
+                MyStatusAgendaCandidate(
+                    stableId = "task:${task.id}",
+                    title = task.title,
+                    at = task.dueAt,
+                    overdue = false,
+                )
+            )
         }
         (projection.upcomingPlans + projection.waitingPlans).forEach { plan ->
             add(plan.toMyStatusCandidate())
@@ -87,8 +97,10 @@ internal fun buildMyStatusAgendaFacts(
         .take(3)
         .map { item ->
             MyStatusAgendaItem(
+                evidenceId = "agenda.item.${item.stableId}",
                 title = item.title.take(MAX_AGENDA_TITLE_LENGTH),
                 dueAt = item.at?.let(::formatInstant),
+                timing = agendaTiming(item, nowEpochMillis),
             )
         }
     return MyStatusAgendaFacts(
@@ -107,14 +119,32 @@ internal fun buildMyStatusAgendaFacts(
 private fun AgendaPlanProjection.toMyStatusCandidate(): MyStatusAgendaCandidate {
     val stage = currentStage
     return MyStatusAgendaCandidate(
+        stableId = "plan:${value.plan.id}",
         title = stage?.let { "${value.plan.title} · ${it.title}" } ?: value.plan.title,
         at = nextAt ?: value.plan.eventAt,
+        overdue = false,
     )
 }
 
 private data class MyStatusAgendaCandidate(
+    val stableId: String,
     val title: String,
     val at: Long?,
+    val overdue: Boolean,
 )
 
+private fun agendaTiming(
+    item: MyStatusAgendaCandidate,
+    nowEpochMillis: Long,
+    zoneId: ZoneId = ZoneId.systemDefault(),
+): MyStatusAgendaTiming {
+    if (item.overdue) return MyStatusAgendaTiming.OVERDUE
+    val at = item.at ?: return MyStatusAgendaTiming.UNDATED
+    if (at <= nowEpochMillis + DUE_SOON_WINDOW_MS) return MyStatusAgendaTiming.DUE_SOON
+    val dueDate = Instant.ofEpochMilli(at).atZone(zoneId).toLocalDate()
+    val today = Instant.ofEpochMilli(nowEpochMillis).atZone(zoneId).toLocalDate()
+    return if (dueDate == today) MyStatusAgendaTiming.TODAY else MyStatusAgendaTiming.UPCOMING
+}
+
 private const val MAX_AGENDA_TITLE_LENGTH = 80
+private const val DUE_SOON_WINDOW_MS = 2 * 60 * 60 * 1_000L

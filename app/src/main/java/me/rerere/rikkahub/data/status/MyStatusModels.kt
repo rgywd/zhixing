@@ -3,6 +3,10 @@ package me.rerere.rikkahub.data.status
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import me.rerere.rikkahub.data.model.AssistantMemory
+import me.rerere.rikkahub.data.model.MemoryKind
+import me.rerere.rikkahub.data.model.MemoryState
+import me.rerere.rikkahub.data.repository.MemoryRepository
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -125,19 +129,49 @@ internal data class MyStatusAgendaFacts(
 )
 
 @Serializable
+internal enum class MyStatusAgendaTiming {
+    UNDATED,
+    OVERDUE,
+    DUE_SOON,
+    TODAY,
+    UPCOMING,
+}
+
+@Serializable
 internal data class MyStatusAgendaItem(
+    val evidenceId: String,
     val title: String,
     val dueAt: String? = null,
+    val timing: MyStatusAgendaTiming,
+)
+
+@Serializable
+internal data class MyStatusPersonalContext(
+    val dimensionId: String,
+    val content: String,
+)
+
+@Serializable
+internal data class MyStatusInterventionPolicy(
+    val quietHours: Boolean,
+    val shouldGenerateInterpretation: Boolean,
+    val recommendationAllowed: Boolean,
+    val allowedInsightEvidenceIds: List<String>,
+    val allowedRecommendationEvidenceIds: List<String>,
 )
 
 @Serializable
 internal data class MyStatusModelInput(
     val observedAt: String,
+    val localDateTime: String,
+    val timeZoneId: String,
     val timePeriod: String,
     val location: MyStatusLocationContext? = null,
     val weather: MyStatusWeatherFacts? = null,
     val body: MyStatusBodyFacts? = null,
     val agenda: MyStatusAgendaFacts? = null,
+    val personalContext: List<MyStatusPersonalContext> = emptyList(),
+    val interventionPolicy: MyStatusInterventionPolicy,
     val evidence: List<MyStatusEvidence> = emptyList(),
 )
 
@@ -160,26 +194,146 @@ internal fun buildMyStatusModelInput(
     facts: CollectedMyStatusFacts,
     allowBodyInAiContext: Boolean,
     zoneId: ZoneId = ZoneId.systemDefault(),
+    personalContext: List<MyStatusPersonalContext> = emptyList(),
+    interventionPolicy: MyStatusInterventionPolicy = buildMyStatusInterventionPolicy(facts, zoneId),
 ): MyStatusModelInput {
     val body = facts.body.takeIf { allowBodyInAiContext && it?.hasData() == true }
     val modelEvidence = facts.evidence.filterNot { evidence ->
         !allowBodyInAiContext && evidence.kind == MyStatusInsightKind.BODY
     }
+    val localTime = ZonedDateTime.ofInstant(Instant.ofEpochMilli(facts.observedAtEpochMillis), zoneId)
+    val modelInsightEvidenceIds = interventionPolicy.allowedInsightEvidenceIds
+        .filter { id -> modelEvidence.any { it.id == id } }
+    val modelRecommendationEvidenceIds = interventionPolicy.allowedRecommendationEvidenceIds
+        .filter { id -> modelEvidence.any { it.id == id } }
     return MyStatusModelInput(
         observedAt = formatInstant(facts.observedAtEpochMillis),
-        timePeriod = timePeriod(
-            ZonedDateTime.ofInstant(Instant.ofEpochMilli(facts.observedAtEpochMillis), zoneId).hour
-        ),
+        localDateTime = DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(localTime),
+        timeZoneId = zoneId.id,
+        timePeriod = timePeriod(localTime.hour),
         location = facts.location,
         weather = facts.weather,
         body = body,
         agenda = facts.agenda,
+        personalContext = personalContext,
+        interventionPolicy = interventionPolicy.copy(
+            shouldGenerateInterpretation = modelInsightEvidenceIds.isNotEmpty(),
+            recommendationAllowed = modelRecommendationEvidenceIds.isNotEmpty(),
+            allowedInsightEvidenceIds = modelInsightEvidenceIds,
+            allowedRecommendationEvidenceIds = modelRecommendationEvidenceIds,
+        ),
         evidence = modelEvidence,
     )
 }
 
 internal fun encodeMyStatusModelInput(input: MyStatusModelInput): String =
     modelInputJson.encodeToString(input)
+
+internal fun buildMyStatusPersonalContext(
+    memories: List<AssistantMemory>,
+): List<MyStatusPersonalContext> = memories
+    .asSequence()
+    .filter { it.kind == MemoryKind.PROFILE && it.state == MemoryState.ACTIVE }
+    .filter { it.dimensionId.isNotBlank() && it.content.isNotBlank() }
+    .distinctBy(AssistantMemory::dimensionId)
+    .take(MemoryRepository.PROFILE_PROMPT_LIMIT)
+    .map {
+        MyStatusPersonalContext(
+            dimensionId = it.dimensionId,
+            content = it.content.trim().take(MAX_PERSONAL_CONTEXT_LENGTH),
+        )
+    }
+    .toList()
+
+internal fun buildMyStatusInterventionPolicy(
+    facts: CollectedMyStatusFacts,
+    zoneId: ZoneId = ZoneId.systemDefault(),
+): MyStatusInterventionPolicy {
+    val hour = ZonedDateTime.ofInstant(
+        Instant.ofEpochMilli(facts.observedAtEpochMillis),
+        zoneId,
+    ).hour
+    val quietHours = hour in QUIET_HOURS
+    val insightIds = linkedSetOf<String>()
+    val recommendationIds = linkedSetOf<String>()
+
+    facts.agenda?.let { agenda ->
+        agenda.nextItems.forEach { item ->
+            when (item.timing) {
+                MyStatusAgendaTiming.OVERDUE,
+                MyStatusAgendaTiming.DUE_SOON,
+                -> insightIds += item.evidenceId
+
+                MyStatusAgendaTiming.UNDATED,
+                MyStatusAgendaTiming.TODAY,
+                MyStatusAgendaTiming.UPCOMING,
+                -> Unit
+            }
+            if (!quietHours && item.timing in ACTIONABLE_AGENDA_TIMINGS) {
+                recommendationIds += item.evidenceId
+            }
+            if (quietHours && item.timing == MyStatusAgendaTiming.DUE_SOON) {
+                recommendationIds += item.evidenceId
+            }
+        }
+        if (agenda.overdueCount > 0) {
+            insightIds += "agenda.overdue"
+            if (!quietHours) recommendationIds += "agenda.overdue"
+        }
+    }
+
+    facts.body?.let { body ->
+        if (body.sleepMinutes != null && body.sleepMinutes < 360) {
+            insightIds += "body.sleep"
+            if (!quietHours) recommendationIds += "body.sleep"
+        }
+        if (body.bloodOxygenPercent != null && body.bloodOxygenPercent < 95) {
+            insightIds += "body.bloodOxygen"
+            recommendationIds += "body.bloodOxygen"
+        }
+        if (body.steps != null && hour >= 18 && body.steps < 3_000) {
+            insightIds += "body.steps"
+            if (!quietHours) recommendationIds += "body.steps"
+        }
+    }
+
+    facts.weather?.let { weather ->
+        if (weather.apparentTemperatureCelsius >= 32.0) {
+            insightIds += "weather.apparentTemperature"
+            if (!quietHours) recommendationIds += "weather.apparentTemperature"
+        }
+        if (weather.precipitationMillimeters >= 0.2) {
+            insightIds += "weather.precipitation"
+            if (!quietHours) recommendationIds += "weather.precipitation"
+        }
+    }
+
+    return MyStatusInterventionPolicy(
+        quietHours = quietHours,
+        shouldGenerateInterpretation = insightIds.isNotEmpty(),
+        recommendationAllowed = recommendationIds.isNotEmpty(),
+        allowedInsightEvidenceIds = insightIds.toList(),
+        allowedRecommendationEvidenceIds = recommendationIds.toList(),
+    )
+}
+
+internal fun enforceMyStatusInterventionPolicy(
+    snapshot: MyStatusSnapshot,
+    policy: MyStatusInterventionPolicy,
+): MyStatusSnapshot {
+    val allowedInsights = policy.allowedInsightEvidenceIds.toHashSet()
+    val allowedRecommendations = policy.allowedRecommendationEvidenceIds.toHashSet()
+    return snapshot.copy(
+        insights = snapshot.insights.filter { insight ->
+            insight.evidenceIds.isNotEmpty() && insight.evidenceIds.all(allowedInsights::contains)
+        },
+        recommendation = snapshot.recommendation?.takeIf { recommendation ->
+            policy.recommendationAllowed &&
+                recommendation.evidenceIds.isNotEmpty() &&
+                recommendation.evidenceIds.all(allowedRecommendations::contains)
+        },
+    )
+}
 
 /**
  * Only semantically meaningful buckets participate in the fingerprint. Sensor jitter and tiny
@@ -188,6 +342,7 @@ internal fun encodeMyStatusModelInput(input: MyStatusModelInput): String =
 internal fun significantStatusFingerprint(
     facts: CollectedMyStatusFacts,
     allowBodyInAiContext: Boolean,
+    personalContext: List<MyStatusPersonalContext> = emptyList(),
 ): String = buildString {
     append(facts.observedAtEpochMillis / MY_STATUS_VALIDITY_MS)
     append('|')
@@ -223,7 +378,15 @@ internal fun significantStatusFingerprint(
     append('|')
     facts.agenda?.let { agenda ->
         append("${agenda.pendingCount}:${agenda.overdueCount}:")
-        append(agenda.nextItems.joinToString(";") { "${it.title}:${it.dueAt.orEmpty()}" })
+        append(
+            agenda.nextItems.joinToString(";") {
+                "${it.evidenceId}:${it.title}:${it.dueAt.orEmpty()}:${it.timing}"
+            }
+        )
+    }
+    append('|')
+    personalContext.forEach {
+        append("${it.dimensionId}:${it.content.normalizedStatusText()};")
     }
 }
 
@@ -349,6 +512,7 @@ internal fun buildLocalMyStatusFallback(
     )
 
     val candidates = mutableListOf<Candidate>()
+    val interventionPolicy = buildMyStatusInterventionPolicy(facts, zoneId)
     val agenda = facts.agenda
     if (agenda != null && agenda.overdueCount > 0) {
         candidates += Candidate(
@@ -356,8 +520,16 @@ internal fun buildLocalMyStatusFallback(
             kind = MyStatusInsightKind.AGENDA,
             text = "有 ${agenda.overdueCount} 项安排已经逾期。",
             evidenceIds = listOf("agenda.overdue"),
-            summary = "当前最值得注意的是逾期事项，先收口一件会更轻松。",
-            recommendation = "先处理最短的一项逾期安排。",
+            summary = if (interventionPolicy.quietHours) {
+                "有逾期事项需要留意，但此刻不必默认开始工作。"
+            } else {
+                "当前最值得注意的是逾期事项，先收口一件会更轻松。"
+            },
+            recommendation = if (interventionPolicy.quietHours) {
+                null
+            } else {
+                "先处理最短的一项逾期安排。"
+            },
         )
     }
 
@@ -415,39 +587,14 @@ internal fun buildLocalMyStatusFallback(
         )
     }
 
-    if (agenda != null && agenda.pendingCount > 0 && agenda.overdueCount == 0) {
-        candidates += Candidate(
-            priority = 50,
-            kind = MyStatusInsightKind.AGENDA,
-            text = "目前有 ${agenda.pendingCount} 项待处理安排。",
-            evidenceIds = listOf("agenda.pending"),
-        )
-    }
-    if (weather != null && candidates.none { it.kind == MyStatusInsightKind.ENVIRONMENT }) {
-        candidates += Candidate(
-            priority = 30,
-            kind = MyStatusInsightKind.ENVIRONMENT,
-            text = "当前${weather.condition}，体感 ${weather.apparentTemperatureCelsius.formatOneDecimal()}℃。",
-            evidenceIds = listOf("weather.condition", "weather.apparentTemperature"),
-        )
-    }
-    if (body?.sleepMinutes != null && candidates.none { it.kind == MyStatusInsightKind.BODY }) {
-        candidates += Candidate(
-            priority = 25,
-            kind = MyStatusInsightKind.BODY,
-            text = "昨晚记录到 ${formatMinutes(body.sleepMinutes)} 睡眠。",
-            evidenceIds = listOf("body.sleep"),
-        )
-    }
-
     val selected = candidates.sortedByDescending(Candidate::priority).take(2)
     val primary = selected.firstOrNull()
-    return MyStatusSnapshot(
+    val snapshot = MyStatusSnapshot(
         summary = primary?.summary
             ?: if (facts.evidence.isEmpty()) {
-                "目前可用信息还不够，先按原计划推进即可。"
+                "目前没有足够信息需要打扰你，先按自己的节奏即可。"
             } else {
-                "目前没有明显需要调整的信号，可以按原计划推进。"
+                "目前没有明显需要调整的信号，可以按自己的节奏安排。"
             },
         insights = selected.map {
             MyStatusInsight(it.kind, it.text, it.evidenceIds)
@@ -461,6 +608,10 @@ internal fun buildLocalMyStatusFallback(
         confidence = if (facts.evidence.isEmpty()) MyStatusConfidence.LOW else MyStatusConfidence.MEDIUM,
         locationArea = facts.location?.area,
         source = MyStatusSource.LOCAL,
+    )
+    return enforceMyStatusInterventionPolicy(
+        snapshot = snapshot,
+        policy = interventionPolicy,
     )
 }
 
@@ -500,14 +651,6 @@ private fun String.validatedStatusText(maxLength: Int): String {
 
 private fun String.normalizedStatusText(): String = trim().replace(Regex("\\s+"), " ")
 
-private fun Double.formatOneDecimal(): String = String.format(Locale.CHINA, "%.1f", this)
-
-private fun formatMinutes(value: Int): String = when {
-    value < 60 -> "${value}分钟"
-    value % 60 == 0 -> "${value / 60}小时"
-    else -> "${value / 60}小时${value % 60}分"
-}
-
 private val FORBIDDEN_MEDICAL_TERMS = listOf(
     "诊断",
     "确诊",
@@ -517,3 +660,11 @@ private val FORBIDDEN_MEDICAL_TERMS = listOf(
     "用药",
     "diagnos",
 )
+
+private val QUIET_HOURS = 0..5
+private val ACTIONABLE_AGENDA_TIMINGS = setOf(
+    MyStatusAgendaTiming.OVERDUE,
+    MyStatusAgendaTiming.DUE_SOON,
+    MyStatusAgendaTiming.TODAY,
+)
+private const val MAX_PERSONAL_CONTEXT_LENGTH = 600
