@@ -160,6 +160,14 @@
         android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
         android:value="track user-started remote development tasks and urgent questions" />
     </service>
+    <service
+      android:name=".service.ChatGenerationForegroundService"
+      android:exported="false"
+      android:foregroundServiceType="specialUse">
+      <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="continue user-initiated AI response generation and local tool execution" />
+    </service>
 
     <provider
       android:name="androidx.core.content.FileProvider"

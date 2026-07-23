@@ -264,8 +264,10 @@ class RouteActivity : ComponentActivity() {
         }
         val migrationState by DatabaseMigrationTracker.state.collectAsStateWithLifecycle()
 
+        val requestedConversationId = intent.getStringExtra("conversationId")
+            ?.takeIf { runCatching { Uuid.parse(it) }.isSuccess }
         val startScreen: NavKey = Screen.Chat(
-            id = if (readBooleanPreference("create_new_conversation_on_start", true)) {
+            id = requestedConversationId ?: if (readBooleanPreference("create_new_conversation_on_start", true)) {
                 Uuid.random().toString()
             } else {
                 readStringPreference(

@@ -7,6 +7,7 @@ import androidx.core.net.toUri
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.jsonObject
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
@@ -138,6 +140,7 @@ private val outputTransformers by lazy {
 class ChatService(
     private val context: Application,
     private val appScope: AppScope,
+    private val generationForegroundController: ChatGenerationForegroundController,
     private val appEventBus: AppEventBus,
     private val settingsStore: SettingsStore,
     private val conversationRepo: ConversationRepository,
@@ -249,6 +252,26 @@ class ChatService(
         }
     }
 
+    private fun launchGeneration(
+        conversationId: Uuid,
+        protectInBackground: Boolean = true,
+        block: suspend () -> Unit,
+    ): Job {
+        val generationId = Uuid.random()
+        if (protectInBackground) {
+            generationForegroundController.acquire(generationId, conversationId)
+        }
+        return appScope.launch {
+            try {
+                block()
+            } finally {
+                if (protectInBackground) {
+                    generationForegroundController.release(generationId)
+                }
+            }
+        }
+    }
+
     // ---- 对话状态访问 ----
 
     fun getConversationFlow(conversationId: Uuid): StateFlow<Conversation> {
@@ -310,7 +333,10 @@ class ChatService(
         val previousJob = session.getJob()
         previousJob?.cancel()
 
-        val job = appScope.launch {
+        val job = launchGeneration(
+            conversationId = conversationId,
+            protectInBackground = answer,
+        ) {
             try {
                 runCatching { previousJob?.join() }
                 finishInterruptedPendingTools(conversationId)
@@ -370,10 +396,16 @@ class ChatService(
         regenerateAssistantMsg: Boolean = true
     ) {
         val session = getOrCreateSession(conversationId)
-        session.getJob()?.cancel()
+        val previousJob = session.getJob()
+        previousJob?.cancel()
 
-        val job = appScope.launch {
+        val job = launchGeneration(
+            conversationId = conversationId,
+            protectInBackground = message.role == MessageRole.USER || regenerateAssistantMsg,
+        ) {
             try {
+                runCatching { previousJob?.join() }
+                finishInterruptedPendingTools(conversationId)
                 val conversation = session.state.value
 
                 if (message.role == MessageRole.USER) {
@@ -414,10 +446,12 @@ class ChatService(
         answer: String? = null,
     ) {
         val session = getOrCreateSession(conversationId)
-        session.getJob()?.cancel()
+        val previousJob = session.getJob()
+        previousJob?.cancel()
 
-        val job = appScope.launch {
+        val job = launchGeneration(conversationId) {
             try {
+                runCatching { previousJob?.join() }
                 val conversation = session.state.value
                 val newApprovalState = when {
                     answer != null -> ToolApprovalState.Answered(answer)
@@ -588,23 +622,31 @@ class ChatService(
                 },
             ).onCompletion {
                 // 可能被取消了，或者意外结束，兜底更新
-                val updatedConversation = getConversationFlow(conversationId).value.copy(
-                    messageNodes = getConversationFlow(conversationId).value.messageNodes.map { node ->
-                        node.copy(messages = node.messages.map { it.finishReasoning() })
-                    },
-                    updateAt = Instant.now()
-                )
-                updateConversation(conversationId, updatedConversation)
-
-                // 生成结束：取消 Live Update 通知，后台时发送完成通知
-                appEventBus.emit(
-                    AppEvent.ChatGenerationEnded(
-                        conversationId = conversationId,
-                        senderName = senderName,
-                        contentPreview = updatedConversation.currentMessages.lastOrNull()
-                            ?.toText()?.take(50)?.trim() ?: "",
+                withContext(NonCancellable) {
+                    val currentConversation = getConversationFlow(conversationId).value
+                    val updatedConversation = currentConversation.copy(
+                        messageNodes = currentConversation.messageNodes.map { node ->
+                            node.copy(messages = node.messages.map { it.finishReasoning() })
+                        },
+                        updateAt = Instant.now()
                     )
-                )
+                    updateConversation(conversationId, updatedConversation)
+                    runCatching {
+                        saveConversation(conversationId, updatedConversation)
+                    }.onFailure {
+                        Log.e(TAG, "Unable to persist partial generation for $conversationId", it)
+                    }
+
+                    // 生成结束：取消 Live Update 通知，后台时发送完成通知
+                    appEventBus.tryEmit(
+                        AppEvent.ChatGenerationEnded(
+                            conversationId = conversationId,
+                            senderName = senderName,
+                            contentPreview = updatedConversation.currentMessages.lastOrNull()
+                                ?.toText()?.take(50)?.trim() ?: "",
+                        )
+                    )
+                }
             }.collect { chunk ->
                 when (chunk) {
                     is GenerationChunk.Messages -> {
@@ -632,7 +674,6 @@ class ChatService(
             Logging.log(TAG, it.stackTraceToString())
         }.onSuccess {
             val finalConversation = getConversationFlow(conversationId).value
-            saveConversation(conversationId, finalConversation)
 
             launchWithConversationReference(conversationId) {
                 generateTitle(conversationId, finalConversation)

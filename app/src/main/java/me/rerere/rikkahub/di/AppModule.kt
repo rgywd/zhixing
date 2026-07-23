@@ -16,6 +16,7 @@ import me.rerere.rikkahub.data.work.PhoneWorkTitleGenerator
 import me.rerere.rikkahub.data.github.GitHubCliRunner
 import me.rerere.rikkahub.data.github.GitHubIssueCredentialStore
 import me.rerere.rikkahub.data.github.GitHubIssueTokenProvider
+import me.rerere.rikkahub.service.ChatGenerationForegroundController
 import me.rerere.rikkahub.service.ChatNotificationManager
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.telemetry.AppTelemetry
@@ -89,10 +90,13 @@ val appModule = module {
         )
     }
 
+    single { ChatGenerationForegroundController(get()) }
+
     single {
         ChatService(
             context = get(),
             appScope = get(),
+            generationForegroundController = get(),
             appEventBus = get(),
             settingsStore = get(),
             conversationRepo = get(),

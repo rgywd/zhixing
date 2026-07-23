@@ -8,6 +8,8 @@
 |----------------------------|-----------------------------|
 | `ChatService`              | 入口与编排层，管理所有会话，对外暴露操作接口      |
 | `ConversationSession`      | 单个会话的状态容器（引用计数、生成 Job、处理状态） |
+| `ChatGenerationForegroundController` | 按生成运行持有前台服务租约，避免旧任务释放替换任务的保护 |
+| `ChatGenerationForegroundService` | 普通 Chat 后台存活、进行中通知和取消入口 |
 | `GenerationHandler`        | 核心生成逻辑，驱动 Step 循环与工具调用      |
 | `InputMessageTransformer`  | 发送给 API 前对消息列表的变换管道         |
 | `OutputMessageTransformer` | 接收到流式 chunk 后对消息列表的变换管道     |
@@ -21,6 +23,7 @@
     │
     ▼
 ChatService.sendMessage()
+    ├── 同步取得 generation lease 并启动前台服务
     ├── 取消上一个 Job（cancel + join）
     ├── finishInterruptedPendingTools()  // 补全上次被打断的 Tool 输出
     ├── preprocessUserInputParts()       // 对用户文本执行助手 regex 替换
@@ -68,13 +71,17 @@ ChatService.sendMessage()
 onCompletion（Flow 结束或取消）
     ├── cancelLiveUpdateNotification()
     ├── 对所有消息 finishReasoning()（兜底）
+    ├── 在 NonCancellable 上下文保存最终或局部回复
     └── 若 App 不在前台 → sendGenerationDoneNotification()
 
     ▼
 onSuccess
-    ├── saveConversation()
     ├── generateTitle()    （异步，使用 titleModel）
     └── generateSuggestion()（异步，使用 suggestionModel）
+
+    ▼
+Job finally
+    └── 释放本次 generation lease；最后一个租约释放时停止前台服务
 ```
 
 ---
@@ -188,18 +195,23 @@ Pending ──── 用户操作 ────► Approved → 执行工具
 
 ---
 
-## 阶段六：后台通知
+## 阶段六：后台执行与通知
 
-| 通知类型                 | 触发条件           | Channel                                    |
-|----------------------|----------------|--------------------------------------------|
-| Live Update（ongoing） | 生成过程中且 App 在后台 | `CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID` |
-| 生成完成                 | 生成结束且 App 在后台  | `CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID`   |
+| 类型 | 触发条件 | Channel |
+| --- | --- | --- |
+| 生成前台服务（ongoing） | 任一普通 Chat 回复正在运行 | `CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID` |
+| Live Update | 用户已开启实时进度、生成过程中且 App 在后台 | `CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID` |
+| 生成完成 | 用户已开启完成通知、生成结束且 App 在后台 | `CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID` |
 
 Live Update 通知内容根据当前生成状态动态更新：
 
 - 工具执行中 → 显示工具名与输入预览
 - 推理中（Reasoning）→ 显示推理内容片段
 - 写回复中 → 显示文本内容片段
+
+前台服务租约在发送、重新生成和工具审批恢复入口中同步取得，早于异步 Job 调度。通知提供返回目标会话和取消
+当前目标会话生成的入口；多个会话并行时，结束一个会话不会停止其余生成。用户未授权普通通知时，Android 仍可
+在系统的前台服务任务界面展示该服务，但可选的实时内容通知和完成通知保持原设置语义。
 
 ---
 
@@ -209,6 +221,9 @@ Live Update 通知内容根据当前生成状态动态更新：
 app/src/main/java/me/rerere/rikkahub/
 ├── service/
 │   ├── ChatService.kt              # 编排入口
+│   ├── ChatGenerationForegroundController.kt # 生成租约与服务启停
+│   ├── ChatGenerationForegroundService.kt # 后台执行前台服务
+│   ├── ChatGenerationLeaseRegistry.kt # 并发租约状态
 │   └── ConversationSession.kt      # 会话状态容器
 └── data/ai/
     ├── GenerationHandler.kt        # 核心生成逻辑
