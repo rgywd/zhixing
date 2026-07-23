@@ -13,7 +13,10 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
@@ -24,6 +27,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
 import java.util.ArrayDeque
 import java.util.UUID
 
@@ -42,6 +47,7 @@ internal enum class LenovoWatchProbeStage {
 internal data class LenovoWatchHealthSnapshot(
     val steps: Int? = null,
     val calories: Int? = null,
+    val totalSleepMinutes: Int? = null,
     val shallowSleepMinutes: Int? = null,
     val deepSleepMinutes: Int? = null,
     val awakeCount: Int? = null,
@@ -57,11 +63,14 @@ internal data class LenovoWatchHealthSnapshot(
 
 internal data class LenovoWatchProbeState(
     val stage: LenovoWatchProbeStage = LenovoWatchProbeStage.IDLE,
+    val remembered: Boolean = false,
+    val autoReconnectEnabled: Boolean = true,
     val address: String? = null,
     val deviceName: String? = null,
     val statusText: String = "尚未连接",
     val error: String? = null,
     val receivedFrames: Int = 0,
+    val processedRecords: Int = 0,
     val lastEvent: String? = null,
     val lastFrameHex: String? = null,
     val health: LenovoWatchHealthSnapshot = LenovoWatchHealthSnapshot(),
@@ -79,14 +88,21 @@ internal data class LenovoWatchProbeState(
 }
 
 /**
- * Explicit, foreground-only BLE probe. It never scans automatically and does not expose any
- * disconnect/unbind protocol command; [disconnect] only closes Android's local GATT connection.
+ * BLE connection owned by Zhixing. A successful protocol pairing is retained in app-private
+ * storage and subsequent sessions reconnect as a known device. No disconnect/unbind protocol
+ * command is exposed; [disconnect] only closes the current Android GATT connection.
  */
 internal class LenovoWatchProbe(private val context: Context) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val packetAssembler = LenovoWatchPacketAssembler()
     private val writeQueue = ArrayDeque<ByteArray>()
-    private val _state = MutableStateFlow(LenovoWatchProbeState())
+    private val syncStore = LenovoWatchSyncStore(context)
+    private val _state = MutableStateFlow(
+        LenovoWatchProbeState(
+            remembered = syncStore.isRememberedDevice(),
+            health = syncStore.cachedSnapshot(),
+        ),
+    )
     val state: StateFlow<LenovoWatchProbeState> = _state.asStateFlow()
 
     private val bluetoothManager: BluetoothManager?
@@ -96,16 +112,46 @@ internal class LenovoWatchProbe(private val context: Context) {
     private var writeCharacteristic: BluetoothGattCharacteristic? = null
     private var writeInFlight = false
     private var requestedUid = 0L
-    private var requestedConnectionKind = LenovoWatchProtocol.ConnectionKind.NEW
+    private var requestedConnectionKind = LenovoWatchProtocol.ConnectionKind.KNOWN
+    private var reconnectSuppressed = false
+    private var syncAccumulator: LenovoWatchSyncAccumulator? = null
+    private var syncStartedAt: LocalDateTime? = null
+
+    private val bluetoothStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+                BluetoothAdapter.STATE_TURNING_OFF,
+                BluetoothAdapter.STATE_OFF,
+                -> handleBluetoothUnavailable()
+
+                BluetoothAdapter.STATE_ON -> {
+                    if (syncStore.isRememberedDevice() && !reconnectSuppressed && !_state.value.isConnected) {
+                        mainHandler.removeCallbacks(persistentReconnect)
+                        mainHandler.post(persistentReconnect)
+                    }
+                }
+            }
+        }
+    }
+
+    init {
+        ContextCompat.registerReceiver(
+            context,
+            bluetoothStateReceiver,
+            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+    }
 
     private val scanTimeout = Runnable {
         stopScan()
-        fail("未在 12 秒内发现 Lenovo Watch Pro；请点亮手表并暂时关闭官方 App")
+        fail("未在 20 秒内发现 Lenovo Watch Pro；请点亮手表并暂时关闭官方 App")
     }
 
     private val syncQuietTimeout = Runnable {
         if (_state.value.stage == LenovoWatchProbeStage.SYNCING) {
-            _state.update { it.copy(stage = LenovoWatchProbeStage.READY, statusText = "同步完成（3 秒无新数据）") }
+            completeSync()
         }
     }
 
@@ -115,8 +161,28 @@ internal class LenovoWatchProbe(private val context: Context) {
         }
     }
 
+    private val persistentReconnect = object : Runnable {
+        override fun run() {
+            if (!syncStore.isRememberedDevice() || reconnectSuppressed || _state.value.isConnected) return
+            val adapter = bluetoothManager?.adapter
+            if (adapter?.isEnabled != true) {
+                _state.value = disconnectedState("蓝牙已关闭，配对记录已保留；打开后自动重连")
+                mainHandler.postDelayed(this, RECONNECT_RETRY_MS)
+                return
+            }
+            start()
+        }
+    }
+
+    private val firstPairingRetry = Runnable {
+        if (!syncStore.isRememberedDevice() && !reconnectSuppressed) {
+            start(connectionKind = LenovoWatchProtocol.ConnectionKind.NEW)
+        }
+    }
+
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            if (_state.value.stage != LenovoWatchProbeStage.SCANNING) return
             val address = runCatching { result.device.address }.getOrNull() ?: return
             if (!address.equals(TARGET_ADDRESS, ignoreCase = true)) return
             stopScan()
@@ -124,6 +190,7 @@ internal class LenovoWatchProbe(private val context: Context) {
         }
 
         override fun onScanFailed(errorCode: Int) {
+            if (_state.value.stage != LenovoWatchProbeStage.SCANNING) return
             stopScan()
             fail("蓝牙扫描失败：$errorCode")
         }
@@ -132,7 +199,13 @@ internal class LenovoWatchProbe(private val context: Context) {
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                failAndDisconnect("GATT 连接失败：$status", gatt)
+                if (syncStore.isRememberedDevice() && !reconnectSuppressed) {
+                    closeGatt(gatt)
+                    _state.value = disconnectedState("连接暂时中断，正在自动重连")
+                    schedulePersistentReconnect()
+                } else {
+                    failAndDisconnect("GATT 连接失败：$status", gatt)
+                }
                 return
             }
             when (newState) {
@@ -149,10 +222,19 @@ internal class LenovoWatchProbe(private val context: Context) {
                 }
 
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    val wasCurrentConnection = this@LenovoWatchProbe.gatt === gatt
                     closeGatt(gatt)
-                    _state.update {
-                        if (it.stage == LenovoWatchProbeStage.ERROR) it else LenovoWatchProbeState(statusText = "连接已断开")
+                    if (!wasCurrentConnection) return
+                    _state.update { current ->
+                        if (current.stage == LenovoWatchProbeStage.ERROR) {
+                            current
+                        } else if (syncStore.isRememberedDevice() && !reconnectSuppressed) {
+                            disconnectedState("连接已断开，正在自动重连")
+                        } else {
+                            disconnectedState("连接已断开，配对记录已保留")
+                        }
                     }
+                    if (_state.value.stage != LenovoWatchProbeStage.ERROR) schedulePersistentReconnect()
                 }
             }
         }
@@ -213,8 +295,11 @@ internal class LenovoWatchProbe(private val context: Context) {
 
     fun start(
         uid: Long = 0,
-        connectionKind: LenovoWatchProtocol.ConnectionKind = LenovoWatchProtocol.ConnectionKind.NEW,
+        connectionKind: LenovoWatchProtocol.ConnectionKind = LenovoWatchProtocol.ConnectionKind.KNOWN,
     ) {
+        mainHandler.removeCallbacks(persistentReconnect)
+        mainHandler.removeCallbacks(firstPairingRetry)
+        reconnectSuppressed = false
         if (!hasBluetoothPermissions()) {
             fail("缺少附近设备权限")
             return
@@ -225,16 +310,41 @@ internal class LenovoWatchProbe(private val context: Context) {
             return
         }
         if (!adapter.isEnabled) {
-            fail("请先打开蓝牙")
+            if (syncStore.isRememberedDevice()) {
+                _state.value = disconnectedState("蓝牙已关闭，配对记录已保留；打开后自动重连")
+                schedulePersistentReconnect()
+            } else {
+                fail("请先打开蓝牙")
+            }
             return
         }
 
         disconnect(resetState = false)
         requestedUid = uid
-        requestedConnectionKind = connectionKind
+        val remembered = syncStore.isRememberedDevice()
+        requestedConnectionKind = if (remembered) LenovoWatchProtocol.ConnectionKind.KNOWN else connectionKind
+        if (remembered) {
+            _state.value = LenovoWatchProbeState(
+                stage = LenovoWatchProbeStage.CONNECTING,
+                remembered = true,
+                autoReconnectEnabled = true,
+                address = TARGET_ADDRESS,
+                deviceName = "Lenovo Watch Pro",
+                statusText = "正在恢复已保存的手表连接",
+                health = syncStore.cachedSnapshot(),
+            )
+            val device = runCatching { adapter.getRemoteDevice(TARGET_ADDRESS) }.getOrElse {
+                fail("无法读取已保存的手表地址：${it.message}")
+                return
+            }
+            connect(device)
+            return
+        }
         _state.value = LenovoWatchProbeState(
             stage = LenovoWatchProbeStage.SCANNING,
-            statusText = "正在扫描 Lenovo Watch Pro",
+            remembered = false,
+            statusText = "正在首次发现 Lenovo Watch Pro",
+            health = syncStore.cachedSnapshot(),
         )
         val scanner = adapter.bluetoothLeScanner
         if (scanner == null) {
@@ -251,19 +361,46 @@ internal class LenovoWatchProbe(private val context: Context) {
 
     fun sync() {
         if (_state.value.stage != LenovoWatchProbeStage.READY) return
-        _state.update { it.copy(stage = LenovoWatchProbeStage.SYNCING, statusText = "正在同步健康数据", error = null) }
-        enqueue(LenovoWatchProtocol.healthSync(since = null))
-        enqueue(LenovoWatchProtocol.gpsSync())
-        enqueue(LenovoWatchProtocol.sleepSync(LocalDate.now().minusDays(7)))
+        val lastSuccessfulSync = syncStore.lastSuccessfulSync()
+        syncStartedAt = LocalDateTime.now()
+        syncAccumulator = LenovoWatchSyncAccumulator(_state.value.health)
+        _state.update {
+            it.copy(
+                stage = LenovoWatchProbeStage.SYNCING,
+                statusText = if (lastSuccessfulSync == null) "正在首次同步健康数据" else "正在同步新增健康数据",
+                error = null,
+                processedRecords = 0,
+            )
+        }
+        enqueue(LenovoWatchProtocol.healthSync(since = lastSuccessfulSync))
+        val gpsSince = lastSuccessfulSync
+            ?.atZone(ZoneId.systemDefault())
+            ?.toEpochSecond()
+            ?.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong())
+            ?.toInt()
+            ?: 0
+        enqueue(LenovoWatchProtocol.gpsSync(gpsSince))
+        val earliestSleepDate = LocalDate.now().minusDays(7)
+        val sleepSince = lastSuccessfulSync?.toLocalDate()?.minusDays(1)?.let { maxOf(it, earliestSleepDate) }
+            ?: earliestSleepDate
+        enqueue(LenovoWatchProtocol.sleepSync(sleepSince))
         scheduleSyncQuietTimeout()
     }
 
-    fun disconnect() = disconnect(resetState = true)
+    fun disconnect() {
+        reconnectSuppressed = true
+        mainHandler.removeCallbacks(persistentReconnect)
+        mainHandler.removeCallbacks(firstPairingRetry)
+        disconnect(resetState = true)
+    }
 
     private fun disconnect(resetState: Boolean) {
         stopScan()
         mainHandler.removeCallbacks(syncQuietTimeout)
         mainHandler.removeCallbacks(handshakeTimeout)
+        checkpointSync()
+        syncAccumulator = null
+        syncStartedAt = null
         writeQueue.clear()
         writeInFlight = false
         writeCharacteristic = null
@@ -273,7 +410,7 @@ internal class LenovoWatchProbe(private val context: Context) {
             closeGatt(current)
         }
         gatt = null
-        if (resetState) _state.value = LenovoWatchProbeState()
+        if (resetState) _state.value = disconnectedState("已暂时断开，配对记录仍然保留")
     }
 
     @SuppressLint("MissingPermission")
@@ -350,96 +487,81 @@ internal class LenovoWatchProbe(private val context: Context) {
             }
 
             is LenovoWatchEvent.ConnectionResult -> handleConnectionResult(event.state)
-            is LenovoWatchEvent.CurrentActivity -> updateHealth(event)
-            is LenovoWatchEvent.HourlyVitals -> updateHealth(event)
-            is LenovoWatchEvent.HourlyRecovery -> updateHealth(event)
-            is LenovoWatchEvent.Measurement -> updateHealth(event)
-            is LenovoWatchEvent.OneKeyMeasurement -> updateHealth(event)
-            else -> Unit
+            else -> handleHealthEvent(event)
         }
-        if (_state.value.stage == LenovoWatchProbeStage.SYNCING) scheduleSyncQuietTimeout()
+    }
+
+    private fun handleHealthEvent(event: LenovoWatchEvent) {
+        if (_state.value.stage == LenovoWatchProbeStage.SYNCING) {
+            val accumulator = syncAccumulator ?: return
+            if (accumulator.accept(event)) {
+                _state.update { it.copy(processedRecords = accumulator.processedRecords) }
+                if (
+                    accumulator.processedRecords == 1 ||
+                    accumulator.processedRecords % SYNC_CHECKPOINT_INTERVAL == 0
+                ) {
+                    syncStore.saveCheckpoint(accumulator.result())
+                }
+                scheduleSyncQuietTimeout()
+            }
+            return
+        }
+
+        val accumulator = LenovoWatchSyncAccumulator(_state.value.health)
+        if (accumulator.accept(event)) {
+            val snapshot = accumulator.result()
+            _state.update { it.copy(health = snapshot) }
+            syncStore.saveCheckpoint(snapshot)
+        }
+    }
+
+    private fun completeSync() {
+        val accumulator = syncAccumulator ?: return
+        val startedAt = syncStartedAt ?: return
+        val snapshot = accumulator.result()
+        val records = accumulator.processedRecords
+        syncStore.saveSuccessfulSync(startedAt, snapshot)
+        syncAccumulator = null
+        syncStartedAt = null
+        _state.update {
+            it.copy(
+                stage = LenovoWatchProbeStage.READY,
+                statusText = "同步完成 · 已处理 $records 条记录",
+                processedRecords = records,
+                health = snapshot,
+            )
+        }
     }
 
     private fun handleConnectionResult(state: LenovoWatchConnectionState) {
         mainHandler.removeCallbacks(handshakeTimeout)
         when (state) {
             LenovoWatchConnectionState.ACCEPTED -> {
-                _state.update { it.copy(stage = LenovoWatchProbeStage.READY, statusText = "手表已连接，可手动同步") }
+                syncStore.rememberDevice()
+                _state.update {
+                    it.copy(
+                        stage = LenovoWatchProbeStage.READY,
+                        remembered = true,
+                        statusText = "手表已连接 · 配对记录已保存",
+                    )
+                }
                 enqueue(LenovoWatchProtocol.deviceInfo())
                 enqueue(LenovoWatchProtocol.foreground())
             }
 
             LenovoWatchConnectionState.REJECTED -> failAndDisconnect("手表拒绝了连接")
             LenovoWatchConnectionState.TIMED_OUT -> failAndDisconnect("手表确认超时")
-            LenovoWatchConnectionState.WATCH_UNBOUND -> failAndDisconnect("手表尚未绑定官方账户")
+            LenovoWatchConnectionState.WATCH_UNBOUND -> {
+                if (!syncStore.isRememberedDevice() && requestedConnectionKind == LenovoWatchProtocol.ConnectionKind.KNOWN) {
+                    _state.update { it.copy(statusText = "手表尚未登记，正在进入首次配对") }
+                    disconnect(resetState = false)
+                    mainHandler.postDelayed(firstPairingRetry, FIRST_PAIRING_RETRY_MS)
+                } else {
+                    failAndDisconnect("手表尚未完成首次配对")
+                }
+            }
             LenovoWatchConnectionState.ACCOUNT_MISMATCH -> failAndDisconnect("官方账户 UID 不匹配；未执行任何解绑操作")
             LenovoWatchConnectionState.UNKNOWN -> failAndDisconnect("手表返回未知连接状态")
-        }
-    }
-
-    private fun updateHealth(event: LenovoWatchEvent.CurrentActivity) {
-        _state.update {
-            it.copy(
-                health = it.health.copy(
-                    steps = event.steps,
-                    calories = event.calories,
-                    shallowSleepMinutes = event.shallowSleepMinutes,
-                    deepSleepMinutes = event.deepSleepMinutes,
-                    awakeCount = event.awakeCount,
-                    exerciseSeconds = event.exerciseSeconds,
-                    exerciseCount = event.exerciseCount,
-                ),
-            )
-        }
-    }
-
-    private fun updateHealth(event: LenovoWatchEvent.HourlyVitals) {
-        _state.update {
-            it.copy(
-                health = it.health.copy(
-                    heartRate = event.heartRate.takeIf { value -> value > 0 } ?: it.health.heartRate,
-                    bloodOxygen = event.bloodOxygen.takeIf { value -> value > 0 } ?: it.health.bloodOxygen,
-                    exerciseSeconds = event.exerciseSeconds ?: it.health.exerciseSeconds,
-                    exerciseCount = event.exerciseCount ?: it.health.exerciseCount,
-                ),
-            )
-        }
-    }
-
-    private fun updateHealth(event: LenovoWatchEvent.HourlyRecovery) {
-        _state.update {
-            it.copy(
-                health = it.health.copy(
-                    immunity = event.immunity.takeIf { value -> value > 0 } ?: it.health.immunity,
-                    temperatureCelsius = event.temperatureCelsius.takeIf { value -> value > 0 } ?: it.health.temperatureCelsius,
-                ),
-            )
-        }
-    }
-
-    private fun updateHealth(event: LenovoWatchEvent.Measurement) {
-        _state.update {
-            val health = when (event.kind) {
-                LenovoWatchMeasurementKind.HEART_RATE -> it.health.copy(heartRate = event.primaryValue.toInt())
-                LenovoWatchMeasurementKind.BLOOD_OXYGEN -> it.health.copy(bloodOxygen = event.primaryValue.toInt())
-                LenovoWatchMeasurementKind.TEMPERATURE -> it.health.copy(temperatureCelsius = event.primaryValue)
-                LenovoWatchMeasurementKind.IMMUNITY -> it.health.copy(immunity = event.primaryValue.toInt())
-                else -> it.health
-            }
-            it.copy(health = health)
-        }
-    }
-
-    private fun updateHealth(event: LenovoWatchEvent.OneKeyMeasurement) {
-        _state.update {
-            it.copy(
-                health = it.health.copy(
-                    heartRate = event.heartRate.takeIf { value -> value > 0 } ?: it.health.heartRate,
-                    bloodOxygen = event.bloodOxygen.takeIf { value -> value >= 60 } ?: it.health.bloodOxygen,
-                    systolic = event.systolic.takeIf { value -> value > 0 } ?: it.health.systolic,
-                    diastolic = event.diastolic.takeIf { value -> value > 0 } ?: it.health.diastolic,
-                ),
-            )
         }
     }
 
@@ -495,6 +617,32 @@ internal class LenovoWatchProbe(private val context: Context) {
         mainHandler.postDelayed(syncQuietTimeout, SYNC_QUIET_MS)
     }
 
+    private fun checkpointSync() {
+        syncAccumulator?.let { syncStore.saveCheckpoint(it.result()) }
+    }
+
+    private fun schedulePersistentReconnect() {
+        if (!syncStore.isRememberedDevice() || reconnectSuppressed) return
+        mainHandler.removeCallbacks(persistentReconnect)
+        mainHandler.postDelayed(persistentReconnect, RECONNECT_RETRY_MS)
+    }
+
+    private fun handleBluetoothUnavailable() {
+        if (!syncStore.isRememberedDevice()) return
+        disconnect(resetState = false)
+        _state.value = disconnectedState("蓝牙已关闭，配对记录已保留；打开后自动重连")
+        schedulePersistentReconnect()
+    }
+
+    private fun disconnectedState(statusText: String) = LenovoWatchProbeState(
+        remembered = syncStore.isRememberedDevice(),
+        autoReconnectEnabled = !reconnectSuppressed,
+        address = TARGET_ADDRESS.takeIf { syncStore.isRememberedDevice() },
+        deviceName = "Lenovo Watch Pro".takeIf { syncStore.isRememberedDevice() },
+        statusText = statusText,
+        health = syncStore.cachedSnapshot(),
+    )
+
     private fun fail(message: String) {
         _state.update { it.copy(stage = LenovoWatchProbeStage.ERROR, statusText = "连接失败", error = message) }
     }
@@ -504,6 +652,9 @@ internal class LenovoWatchProbe(private val context: Context) {
         stopScan()
         mainHandler.removeCallbacks(syncQuietTimeout)
         mainHandler.removeCallbacks(handshakeTimeout)
+        checkpointSync()
+        syncAccumulator = null
+        syncStartedAt = null
         writeQueue.clear()
         writeInFlight = false
         writeCharacteristic = null
@@ -546,10 +697,13 @@ internal class LenovoWatchProbe(private val context: Context) {
 
     private companion object {
         const val TARGET_ADDRESS = "C8:01:00:29:26:AF"
-        const val SCAN_TIMEOUT_MS = 12_000L
+        const val SCAN_TIMEOUT_MS = 20_000L
         const val HANDSHAKE_TIMEOUT_MS = 20_000L
         const val SYNC_QUIET_MS = 3_000L
+        const val SYNC_CHECKPOINT_INTERVAL = 100
         const val WRITE_GAP_MS = 100L
+        const val RECONNECT_RETRY_MS = 5_000L
+        const val FIRST_PAIRING_RETRY_MS = 500L
         val CLIENT_CHARACTERISTIC_CONFIGURATION: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 }

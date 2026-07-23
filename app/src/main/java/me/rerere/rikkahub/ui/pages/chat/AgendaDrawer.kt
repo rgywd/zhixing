@@ -306,6 +306,16 @@ private fun WatchProbeCard(
     ) {
         if (hasWatchPermissions(context, permissions)) watchProbe.start()
     }
+    LaunchedEffect(watchProbe) {
+        if (
+            state.remembered &&
+            state.autoReconnectEnabled &&
+            state.stage in setOf(LenovoWatchProbeStage.IDLE, LenovoWatchProbeStage.ERROR) &&
+            hasWatchPermissions(context, permissions)
+        ) {
+            watchProbe.start()
+        }
+    }
     val active = state.stage !in setOf(LenovoWatchProbeStage.IDLE, LenovoWatchProbeStage.ERROR)
 
     Surface(
@@ -325,7 +335,11 @@ private fun WatchProbeCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Lenovo Watch Pro", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Text(
-                        text = state.address ?: "仅在你点击后扫描，不会后台抢占官方 App",
+                        text = if (state.remembered) {
+                            "${state.address ?: "已知设备"} · 配对已保存，断连后自动恢复"
+                        } else {
+                            state.address ?: "首次连接后永久保存配对，不再依赖官方 App"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -350,7 +364,11 @@ private fun WatchProbeCard(
             )
             state.lastEvent?.let {
                 Text(
-                    text = "$it · 已收 ${state.receivedFrames} 帧",
+                    text = if (state.stage == LenovoWatchProbeStage.SYNCING) {
+                        "已处理 ${state.processedRecords} 条历史记录 · 完成后统一刷新"
+                    } else {
+                        it
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -368,7 +386,17 @@ private fun WatchProbeCard(
                         }
                     },
                 ) {
-                    Text(if (active) "断开" else if (state.stage == LenovoWatchProbeStage.ERROR) "重试" else "连接手表")
+                    Text(
+                        if (active) {
+                            "暂时断开"
+                        } else if (state.stage == LenovoWatchProbeStage.ERROR) {
+                            "重试"
+                        } else if (state.remembered) {
+                            "重新连接"
+                        } else {
+                            "连接手表"
+                        },
+                    )
                 }
                 if (state.canSync) {
                     OutlinedButton(onClick = watchProbe::sync) {
@@ -460,9 +488,10 @@ private fun StepsCard(state: LenovoWatchProbeState) {
 @Composable
 private fun StatusMetricGrid(state: LenovoWatchProbeState) {
     val health = state.health
-    val sleepMinutes = listOfNotNull(health.shallowSleepMinutes, health.deepSleepMinutes)
-        .takeIf { it.isNotEmpty() }
-        ?.sum()
+    val sleepMinutes = health.totalSleepMinutes
+        ?: listOfNotNull(health.shallowSleepMinutes, health.deepSleepMinutes)
+            .takeIf { it.isNotEmpty() }
+            ?.sum()
     val items = listOf(
         StatusPreviewItem(
             label = "睡眠",
