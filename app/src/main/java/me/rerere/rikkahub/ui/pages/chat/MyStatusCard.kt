@@ -30,6 +30,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.rikkahub.data.status.MyStatusCoordinator
 import me.rerere.rikkahub.data.status.MyStatusInsight
 import me.rerere.rikkahub.data.status.MyStatusSnapshot
+import me.rerere.rikkahub.data.status.buildMyStatusDiscussionDraft
+import me.rerere.rikkahub.ui.context.LocalNavController
+import me.rerere.rikkahub.utils.base64Encode
+import me.rerere.rikkahub.utils.navigateToChatPage
 import org.koin.compose.koinInject
 import java.time.Instant
 import java.time.ZoneId
@@ -41,6 +45,7 @@ internal fun MyStatusCard(
     coordinator: MyStatusCoordinator = koinInject(),
 ) {
     val state by coordinator.state.collectAsStateWithLifecycle()
+    val navigator = LocalNavController.current
     var evidenceExpanded by rememberSaveable { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -111,11 +116,24 @@ internal fun MyStatusCard(
                 ) {
                     Text(
                         generatedAtLabel(snapshot),
+                        modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    TextButton(onClick = { evidenceExpanded = !evidenceExpanded }) {
-                        Text(if (evidenceExpanded) "收起依据" else "查看依据")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(
+                            onClick = {
+                                navigateToChatPage(
+                                    navigator = navigator,
+                                    initText = buildMyStatusDiscussionDraft(snapshot).base64Encode(),
+                                )
+                            },
+                        ) {
+                            Text("聊聊")
+                        }
+                        TextButton(onClick = { evidenceExpanded = !evidenceExpanded }) {
+                            Text(if (evidenceExpanded) "收起依据" else "查看依据")
+                        }
                     }
                 }
                 if (evidenceExpanded) {

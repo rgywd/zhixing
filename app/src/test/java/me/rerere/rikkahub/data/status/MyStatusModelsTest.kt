@@ -298,8 +298,89 @@ class MyStatusModelsTest {
         val personalContext = buildMyStatusPersonalContext(memories)
 
         assertEquals(1, personalContext.size)
+        assertEquals(1, personalContext.single().memoryId)
         assertEquals("preferences_values", personalContext.single().dimensionId)
         assertEquals("用户偏好深夜不处理普通工作。", personalContext.single().content)
+        assertFalse(
+            encodeMyStatusModelInput(
+                buildMyStatusModelInput(
+                    facts = sampleFacts(),
+                    allowBodyInAiContext = false,
+                    zoneId = ZONE,
+                    personalContext = personalContext,
+                )
+            ).contains("memoryId")
+        )
+    }
+
+    @Test
+    fun discussionDraftCarriesOnlyAllowedEvidenceAndMemoryReferences() {
+        val snapshot = buildLocalMyStatusFallback(sampleFacts(), NOW, ZONE).copy(
+            discussionEvidenceIds = listOf(
+                "weather.apparentTemperature",
+                "agenda.pending",
+            ),
+            contextMemoryIds = listOf(9, 7, 9),
+        )
+
+        val draft = buildMyStatusDiscussionDraft(snapshot, ZONE)
+
+        assertTrue(draft.contains("状态记录 ID：my-status-$NOW"))
+        assertTrue(draft.contains("相关记忆 ID：7, 9"))
+        assertTrue(draft.contains("weather.apparentTemperature"))
+        assertTrue(draft.contains("agenda.pending"))
+        assertFalse(draft.contains("body.sleep"))
+        assertFalse(draft.contains("body.heartRate"))
+        assertFalse(draft.contains("5小时30分"))
+        assertFalse(draft.contains("72 bpm"))
+    }
+
+    @Test
+    fun discussionDraftOmitsPrivateInsightAndRecommendation() {
+        val snapshot = MyStatusSnapshot(
+            summary = "昨晚睡眠不足，恢复可能偏弱。",
+            insights = listOf(
+                MyStatusInsight(
+                    kind = MyStatusInsightKind.BODY,
+                    text = "昨晚睡眠偏短。",
+                    evidenceIds = listOf("body.sleep"),
+                ),
+                MyStatusInsight(
+                    kind = MyStatusInsightKind.ENVIRONMENT,
+                    text = "当前体感偏热。",
+                    evidenceIds = listOf("weather.apparentTemperature"),
+                ),
+            ),
+            recommendation = MyStatusRecommendation(
+                text = "把高强度安排缩短一些。",
+                evidenceIds = listOf("body.sleep"),
+            ),
+            evidence = sampleFacts().evidence,
+            generatedAtEpochMillis = NOW,
+            validUntilEpochMillis = NOW + MY_STATUS_VALIDITY_MS,
+            confidence = MyStatusConfidence.MEDIUM,
+            source = MyStatusSource.LOCAL,
+            summaryEvidenceIds = listOf("body.sleep"),
+            discussionEvidenceIds = listOf("weather.apparentTemperature"),
+        )
+
+        val draft = buildMyStatusDiscussionDraft(snapshot, ZONE)
+
+        assertFalse(draft.contains("昨晚睡眠不足"))
+        assertFalse(draft.contains("昨晚睡眠偏短"))
+        assertFalse(draft.contains("把高强度安排缩短一些"))
+        assertTrue(draft.contains("当前体感偏热"))
+        assertTrue(draft.contains("部分状态因隐私设置未带入"))
+    }
+
+    @Test
+    fun discussionDraftTreatsUnmarkedPersistedEvidenceAsPrivate() {
+        val snapshot = buildLocalMyStatusFallback(sampleFacts(), NOW, ZONE)
+        val draft = buildMyStatusDiscussionDraft(snapshot, ZONE)
+
+        assertFalse(draft.contains(snapshot.summary))
+        assertFalse(draft.contains("5小时30分"))
+        assertTrue(draft.contains("部分状态因隐私设置未带入"))
     }
 
     @Test
@@ -363,6 +444,7 @@ class MyStatusModelsTest {
         assertEquals(2, snapshot?.insights?.size)
         assertEquals(MyStatusConfidence.HIGH, snapshot?.confidence)
         assertEquals(NOW + MY_STATUS_VALIDITY_MS, snapshot?.validUntilEpochMillis)
+        assertEquals(listOf("body.sleep"), snapshot?.summaryEvidenceIds)
     }
 
     @Test

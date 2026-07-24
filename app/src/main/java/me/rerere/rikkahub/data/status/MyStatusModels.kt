@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.status
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import me.rerere.rikkahub.data.model.AssistantMemory
@@ -16,6 +17,7 @@ import kotlin.math.floor
 
 internal const val MY_STATUS_VALIDITY_MS = 60 * 60 * 1_000L
 internal const val MY_STATUS_REFRESH_DEBOUNCE_MS = 30 * 1_000L
+private val DISCUSSION_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm VV")
 
 @Serializable
 internal enum class MyStatusConfidence {
@@ -71,6 +73,9 @@ internal data class MyStatusSnapshot(
     val confidence: MyStatusConfidence,
     val locationArea: String? = null,
     val source: MyStatusSource,
+    val summaryEvidenceIds: List<String> = emptyList(),
+    val discussionEvidenceIds: List<String> = emptyList(),
+    val contextMemoryIds: List<Int> = emptyList(),
 )
 
 internal data class MyStatusUiState(
@@ -149,6 +154,8 @@ internal data class MyStatusAgendaItem(
 internal data class MyStatusPersonalContext(
     val dimensionId: String,
     val content: String,
+    @Transient
+    val memoryId: Int = 0,
 )
 
 @Serializable
@@ -241,6 +248,7 @@ internal fun buildMyStatusPersonalContext(
         MyStatusPersonalContext(
             dimensionId = it.dimensionId,
             content = it.content.trim().take(MAX_PERSONAL_CONTEXT_LENGTH),
+            memoryId = it.id,
         )
     }
     .toList()
@@ -494,6 +502,7 @@ internal fun parseGeneratedMyStatus(
         },
         locationArea = locationArea,
         source = MyStatusSource.AI,
+        summaryEvidenceIds = response.summaryEvidenceIds.distinct(),
     )
 }.getOrNull()
 
@@ -608,11 +617,87 @@ internal fun buildLocalMyStatusFallback(
         confidence = if (facts.evidence.isEmpty()) MyStatusConfidence.LOW else MyStatusConfidence.MEDIUM,
         locationArea = facts.location?.area,
         source = MyStatusSource.LOCAL,
+        summaryEvidenceIds = primary?.evidenceIds.orEmpty(),
     )
     return enforceMyStatusInterventionPolicy(
         snapshot = snapshot,
         policy = interventionPolicy,
     )
+}
+
+internal fun buildMyStatusDiscussionDraft(
+    snapshot: MyStatusSnapshot,
+    zoneId: ZoneId = ZoneId.systemDefault(),
+): String {
+    val allowedEvidenceIds = snapshot.discussionEvidenceIds.toSet()
+    val safeEvidence = snapshot.evidence.filter { it.id in allowedEvidenceIds }
+    val safeSummary = snapshot.summary.takeIf {
+        when {
+            snapshot.summaryEvidenceIds.isNotEmpty() ->
+                snapshot.summaryEvidenceIds.all(allowedEvidenceIds::contains)
+            snapshot.evidence.isEmpty() -> true
+            else -> allowedEvidenceIds.isNotEmpty()
+        }
+    }
+    val safeInsights = snapshot.insights.filter { insight ->
+        insight.evidenceIds.isNotEmpty() &&
+            insight.evidenceIds.all(allowedEvidenceIds::contains)
+    }
+    val safeRecommendation = snapshot.recommendation?.takeIf { recommendation ->
+        recommendation.evidenceIds.isNotEmpty() &&
+            recommendation.evidenceIds.all(allowedEvidenceIds::contains)
+    }
+    val omittedForPrivacy = safeSummary == null ||
+        safeInsights.size != snapshot.insights.size ||
+        safeRecommendation != snapshot.recommendation ||
+        safeEvidence.size != snapshot.evidence.size
+    val generatedAt = Instant.ofEpochMilli(snapshot.generatedAtEpochMillis)
+        .atZone(zoneId)
+        .format(DISCUSSION_TIME_FORMATTER)
+
+    return buildString {
+        appendLine("我想聊聊右栏中的这条当前状态。")
+        appendLine()
+        appendLine("状态记录 ID：my-status-${snapshot.generatedAtEpochMillis}")
+        appendLine("生成时间：$generatedAt")
+        snapshot.locationArea?.takeIf(String::isNotBlank)?.let {
+            appendLine("大致位置：$it")
+        }
+        snapshot.contextMemoryIds
+            .filter { it > 0 }
+            .distinct()
+            .sorted()
+            .takeIf { it.isNotEmpty() }
+            ?.let { appendLine("相关记忆 ID：${it.joinToString()}") }
+        safeSummary?.let {
+            appendLine()
+            appendLine("状态概括：$it")
+        }
+        if (safeInsights.isNotEmpty()) {
+            appendLine()
+            appendLine("状态洞察：")
+            safeInsights.forEach { insight ->
+                appendLine("- ${insight.kind.displayName}：${insight.text}（依据：${insight.evidenceIds.joinToString()}）")
+            }
+        }
+        safeRecommendation?.let {
+            appendLine()
+            appendLine("当前建议：${it.text}（依据：${it.evidenceIds.joinToString()}）")
+        }
+        if (safeEvidence.isNotEmpty()) {
+            appendLine()
+            appendLine("可讨论依据：")
+            safeEvidence.forEach { evidence ->
+                appendLine("- ${evidence.id}｜${evidence.label}：${evidence.value}（${evidence.freshness}）")
+            }
+        }
+        if (omittedForPrivacy) {
+            appendLine()
+            appendLine("部分状态因隐私设置未带入。")
+        }
+        appendLine()
+        append("请基于以上信息与我讨论。如果我纠正了长期信息，请在确认后更新对应记忆；不要把单次状态直接写成长期记忆。")
+    }
 }
 
 internal fun timePeriod(hour: Int): String = when (hour) {

@@ -272,7 +272,16 @@ internal class MyStatusCoordinator(
             preservePrevious -> requireNotNull(previous)
             else -> buildLocalMyStatusFallback(facts, now)
         }
-        val next = if (preservePrevious) resolved else stabilizeMyStatusSnapshot(previous, resolved)
+        val stabilized = if (preservePrevious) resolved else stabilizeMyStatusSnapshot(previous, resolved)
+        val next = stabilized.copy(
+            discussionEvidenceIds = modelInput.evidence
+                .map(MyStatusEvidence::id)
+                .distinct(),
+            contextMemoryIds = personalContext
+                .map(MyStatusPersonalContext::memoryId)
+                .filter { it > 0 }
+                .distinct(),
+        )
         if (!preservePrevious) {
             snapshotStore.save(next)
             lastSuccessfulAtEpochMillis = now
