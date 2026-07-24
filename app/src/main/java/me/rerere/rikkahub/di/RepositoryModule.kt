@@ -37,7 +37,7 @@ val repositoryModule = module {
     single { DeviceCalendarRepository(get()) }
 
     single {
-        ConversationRepository(get(), get(), get(), get(), get(), get())
+        ConversationRepository(get(), get(), get(), get(), get(), get(), get())
     }
 
     single {

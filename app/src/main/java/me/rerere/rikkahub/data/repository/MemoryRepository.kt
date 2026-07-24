@@ -8,8 +8,13 @@ import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.MemoryKind
 import me.rerere.rikkahub.data.model.MemorySource
 import me.rerere.rikkahub.data.model.MemoryState
+import me.rerere.rikkahub.data.model.ProfileDimensions
 import me.rerere.rikkahub.data.model.ProfileEvidence
 import me.rerere.rikkahub.utils.JsonInstant
+
+internal data class MemoryToolScope(
+    val contextAssistantId: String,
+)
 
 class MemoryRepository(private val memoryDAO: MemoryDAO) {
     companion object {
@@ -42,10 +47,18 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
 
     fun getAllMemoriesOfAssistantFlow(assistantId: String): Flow<List<AssistantMemory>> =
         memoryDAO.getAllMemoriesOfAssistantFlow(assistantId)
-            .map { entities -> entities.map(MemoryEntity::toAssistantMemory) }
+            .map { entities ->
+                entities
+                    .filterNot { it.state == MemoryState.DELETED.name }
+                    .map(MemoryEntity::toAssistantMemory)
+            }
 
     fun getAllGlobalMemoriesFlow(): Flow<List<AssistantMemory>> =
         getAllMemoriesOfAssistantFlow(GLOBAL_MEMORY_ID)
+
+    suspend fun getProfileMaintenanceMemories(): List<AssistantMemory> =
+        memoryDAO.getAllMemoriesOfAssistant(GLOBAL_MEMORY_ID)
+            .map(MemoryEntity::toAssistantMemory)
 
     suspend fun getPromptMemories(contextAssistantId: String): List<AssistantMemory> {
         val profile = memoryDAO.getActiveMemoriesOfKind(
@@ -62,11 +75,27 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
     }
 
     suspend fun deleteMemoriesOfAssistant(assistantId: String) {
-        memoryDAO.deleteMemoriesOfAssistant(assistantId)
+        ProfileMemoryMutationGate.run {
+            memoryDAO.deleteMemoriesOfAssistant(assistantId)
+        }
     }
 
-    suspend fun updateContent(id: Int, content: String): AssistantMemory {
+    suspend fun updateContent(id: Int, content: String): AssistantMemory = ProfileMemoryMutationGate.run {
         val old = memoryDAO.getMemoryById(id) ?: error("Memory record #$id not found")
+        updateContent(old, content)
+    }
+
+    internal suspend fun updateToolMemoryContent(
+        scope: MemoryToolScope,
+        id: Int,
+        content: String,
+    ): AssistantMemory = ProfileMemoryMutationGate.run {
+        updateContent(requireToolMemory(scope, id), content)
+    }
+
+    private suspend fun updateContent(old: MemoryEntity, content: String): AssistantMemory {
+        old.requireNotDeleted()
+        require(content.isNotBlank()) { "Memory content must not be blank" }
         val newMemory = old.copy(
             content = content,
             source = MemorySource.MANUAL.name,
@@ -92,7 +121,19 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
         firstEvidenceAt: Long = 0,
         locked: Boolean = source != MemorySource.AUTO,
         lastEvidenceAt: Long = 0,
-    ): AssistantMemory {
+    ): AssistantMemory = ProfileMemoryMutationGate.run {
+        require(content.isNotBlank()) { "Memory content must not be blank" }
+        when (kind) {
+            MemoryKind.PROFILE, MemoryKind.OBSERVATION -> require(
+                dimensionId in ProfileDimensions.builtIn
+            ) {
+                "Memory dimension must be a built-in profile dimension"
+            }
+
+            MemoryKind.CONTEXT -> require(dimensionId.isBlank()) {
+                "Context memory must not have a profile dimension"
+            }
+        }
         val now = System.currentTimeMillis()
         val entity = MemoryEntity(
             assistantId = if (kind == MemoryKind.PROFILE) GLOBAL_MEMORY_ID else assistantId,
@@ -112,13 +153,28 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
             locked = locked,
             lastEvidenceAt = lastEvidenceAt,
         )
-        return entity.copy(
+        entity.copy(
             id = memoryDAO.insertMemory(entity).toInt()
         ).toAssistantMemory()
     }
 
-    suspend fun updateState(id: Int, state: MemoryState): AssistantMemory {
+    suspend fun updateState(id: Int, state: MemoryState): AssistantMemory = ProfileMemoryMutationGate.run {
         val old = memoryDAO.getMemoryById(id) ?: error("Memory record #$id not found")
+        updateState(old, state)
+    }
+
+    internal suspend fun restoreToolMemory(
+        scope: MemoryToolScope,
+        id: Int,
+    ): AssistantMemory = ProfileMemoryMutationGate.run {
+        updateState(requireToolMemory(scope, id), MemoryState.ACTIVE)
+    }
+
+    private suspend fun updateState(old: MemoryEntity, state: MemoryState): AssistantMemory {
+        old.requireNotDeleted()
+        require(state != MemoryState.DELETED) {
+            "Deleted memory cannot change state"
+        }
         val updated = old.copy(
             state = state.name,
             updatedAt = System.currentTimeMillis(),
@@ -127,8 +183,19 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
         return updated.toAssistantMemory()
     }
 
-    suspend fun updateManualMemory(id: Int, content: String, dimensionId: String): AssistantMemory {
+    suspend fun updateManualMemory(
+        id: Int,
+        content: String,
+        dimensionId: String,
+    ): AssistantMemory = ProfileMemoryMutationGate.run {
         val old = memoryDAO.getMemoryById(id) ?: error("Memory record #$id not found")
+        old.requireNotDeleted()
+        require(content.isNotBlank()) { "Memory content must not be blank" }
+        if (old.kind == MemoryKind.PROFILE.name) {
+            require(dimensionId in ProfileDimensions.builtIn) {
+                "Memory dimension must be a built-in profile dimension"
+            }
+        }
         val updated = old.copy(
             content = content,
             dimensionId = if (old.kind == MemoryKind.PROFILE.name) dimensionId else "",
@@ -138,11 +205,15 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
             updatedAt = System.currentTimeMillis(),
         )
         memoryDAO.updateMemory(updated)
-        return updated.toAssistantMemory()
+        updated.toAssistantMemory()
     }
 
-    suspend fun confirmPending(id: Int): AssistantMemory {
+    suspend fun confirmPending(id: Int): AssistantMemory = ProfileMemoryMutationGate.run {
         val old = memoryDAO.getMemoryById(id) ?: error("Memory record #$id not found")
+        old.requireNotDeleted()
+        require(old.state == MemoryState.PENDING.name) {
+            "Only pending memory can be confirmed"
+        }
         val updated = old.copy(
             state = MemoryState.ACTIVE.name,
             source = MemorySource.MANUAL.name,
@@ -150,7 +221,7 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
             updatedAt = System.currentTimeMillis(),
         )
         memoryDAO.updateMemory(updated)
-        return updated.toAssistantMemory()
+        updated.toAssistantMemory()
     }
 
     suspend fun addAutoProfile(
@@ -190,14 +261,15 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
         profileEvidence: List<ProfileEvidence> = emptyList(),
         supportingObservationIds: List<Int> = emptyList(),
         firstEvidenceAt: Long = 0,
-    ): AssistantMemory? {
-        val old = memoryDAO.getMemoryById(id) ?: return null
+    ): AssistantMemory? = ProfileMemoryMutationGate.run {
+        val old = memoryDAO.getMemoryById(id) ?: return@run null
         if (
             old.assistantId != GLOBAL_MEMORY_ID ||
             old.kind != MemoryKind.PROFILE.name ||
             old.source != MemorySource.AUTO.name ||
+            old.state == MemoryState.DELETED.name ||
             old.locked
-        ) return null
+        ) return@run null
 
         val updated = old.copy(
             content = content,
@@ -212,11 +284,23 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
             updatedAt = System.currentTimeMillis(),
         )
         memoryDAO.updateMemory(updated)
-        return updated.toAssistantMemory()
+        updated.toAssistantMemory()
     }
 
-    suspend fun archiveMemory(id: Int): AssistantMemory {
+    suspend fun archiveMemory(id: Int): AssistantMemory = ProfileMemoryMutationGate.run {
         val old = memoryDAO.getMemoryById(id) ?: error("Memory record #$id not found")
+        archiveMemory(old)
+    }
+
+    internal suspend fun archiveToolMemory(
+        scope: MemoryToolScope,
+        id: Int,
+    ): AssistantMemory = ProfileMemoryMutationGate.run {
+        archiveMemory(requireToolMemory(scope, id))
+    }
+
+    private suspend fun archiveMemory(old: MemoryEntity): AssistantMemory {
+        old.requireNotDeleted()
         val updated = old.copy(
             state = MemoryState.ARCHIVED.name,
             locked = old.locked ||
@@ -258,14 +342,15 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
         confidence: Float,
         evidence: List<ProfileEvidence>,
         state: MemoryState,
-    ): AssistantMemory? {
-        val old = memoryDAO.getMemoryById(id) ?: return null
+    ): AssistantMemory? = ProfileMemoryMutationGate.run {
+        val old = memoryDAO.getMemoryById(id) ?: return@run null
         if (
             old.assistantId != GLOBAL_MEMORY_ID ||
             old.kind != MemoryKind.OBSERVATION.name ||
             old.source != MemorySource.AUTO.name ||
+            old.state == MemoryState.DELETED.name ||
             old.locked
-        ) return null
+        ) return@run null
 
         val updated = old.copy(
             content = content,
@@ -284,11 +369,95 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
             updatedAt = System.currentTimeMillis(),
         )
         memoryDAO.updateMemory(updated)
-        return updated.toAssistantMemory()
+        updated.toAssistantMemory()
     }
 
-    suspend fun deleteMemory(id: Int) {
-        memoryDAO.deleteMemory(id)
+    suspend fun deleteMemory(id: Int) = ProfileMemoryMutationGate.run {
+        val target = memoryDAO.getMemoryById(id) ?: error("Memory record #$id not found")
+        if (target.state == MemoryState.DELETED.name) return@run
+        val supportingIds = target.decodedSupportingObservationIds()
+        val relatedRecords = if (supportingIds.isEmpty()) {
+            emptyList()
+        } else {
+            memoryDAO.getAllMemoriesOfAssistant(GLOBAL_MEMORY_ID)
+        }
+        val now = System.currentTimeMillis()
+        memoryDAO.updateMemories(
+            deletionTombstones(
+                target = target,
+                supportingRecords = relatedRecords,
+                now = now,
+            ) + archivedAutomaticProfileSiblings(
+                target = target,
+                relatedRecords = relatedRecords,
+                now = now,
+            ),
+        )
+    }
+
+    suspend fun revokeConversationEvidence(conversationId: String) = ProfileMemoryMutationGate.run {
+        val memories = memoryDAO.getAllMemoriesOfAssistant(GLOBAL_MEMORY_ID)
+            .filterNot { it.state == MemoryState.DELETED.name }
+        val now = System.currentTimeMillis()
+        val updates = linkedMapOf<Int, MemoryEntity>()
+        memories.forEach { memory ->
+            memory.withoutConversationEvidence(conversationId, now)?.let { updated ->
+                updates[updated.id] = updated
+            }
+        }
+
+        val invalidatedObservationIds = updates.values
+            .filter {
+                it.kind == MemoryKind.OBSERVATION.name &&
+                    it.source == MemorySource.AUTO.name
+            }
+            .mapTo(hashSetOf(), MemoryEntity::id)
+        if (invalidatedObservationIds.isNotEmpty()) {
+            memories.filter { memory ->
+                memory.kind == MemoryKind.PROFILE.name &&
+                    memory.source == MemorySource.AUTO.name &&
+                    !memory.locked &&
+                    memory.decodedSupportingObservationIds().any(invalidatedObservationIds::contains)
+            }.forEach { profile ->
+                val current = updates[profile.id] ?: profile
+                updates[profile.id] = current.copy(
+                    state = MemoryState.ARCHIVED.name,
+                    updatedAt = now,
+                )
+            }
+        }
+
+        if (updates.isNotEmpty()) {
+            memoryDAO.updateMemories(updates.values.toList())
+        }
+    }
+
+    internal suspend fun deleteToolMemory(scope: MemoryToolScope, id: Int) = ProfileMemoryMutationGate.run {
+        requireToolMemory(scope, id)
+        deleteMemory(id)
+    }
+
+    private suspend fun requireToolMemory(scope: MemoryToolScope, id: Int): MemoryEntity {
+        val memory = memoryDAO.getMemoryById(id)
+        if (memory == null || !memory.isVisibleIn(scope)) {
+            error("Memory record #$id not found in current memory scope")
+        }
+        return memory
+    }
+}
+
+private fun MemoryEntity.requireNotDeleted() {
+    require(state != MemoryState.DELETED.name) {
+        "Deleted memory cannot be modified"
+    }
+}
+
+private fun MemoryEntity.isVisibleIn(scope: MemoryToolScope): Boolean {
+    if (state != MemoryState.ACTIVE.name && state != MemoryState.ARCHIVED.name) return false
+    return when (kind) {
+        MemoryKind.PROFILE.name -> assistantId == MemoryRepository.GLOBAL_MEMORY_ID
+        MemoryKind.CONTEXT.name -> assistantId == scope.contextAssistantId
+        else -> false
     }
 }
 

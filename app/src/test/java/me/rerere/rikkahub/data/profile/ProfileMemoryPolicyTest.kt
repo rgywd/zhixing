@@ -8,6 +8,7 @@ import me.rerere.rikkahub.data.model.MemorySource
 import me.rerere.rikkahub.data.model.MemoryState
 import me.rerere.rikkahub.data.model.ProfileDimensions
 import me.rerere.rikkahub.data.model.ProfileEvidence
+import me.rerere.rikkahub.data.repository.memorySuppressionKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -165,6 +166,97 @@ class ProfileMemoryPolicyTest {
 
         assertTrue(isObservationStale(TimeUnit.DAYS.toMillis(10), now, staleAfterDays = 180))
         assertFalse(isObservationStale(TimeUnit.DAYS.toMillis(30), now, staleAfterDays = 180))
+    }
+
+    @Test
+    fun `deleted observation suppresses the same automatic claim but not its whole dimension`() {
+        val deleted = AssistantMemory(
+            id = 21,
+            content = "",
+            kind = MemoryKind.OBSERVATION,
+            state = MemoryState.DELETED,
+            dimensionId = ProfileDimensions.BEHAVIOR_COLLABORATION,
+            source = MemorySource.AUTO,
+            canonicalKey = "用户偏好先给结论".memorySuppressionKey(),
+            locked = true,
+        )
+        val sameClaim = ValidatedProfileObservation(
+            action = "create",
+            targetObservationId = null,
+            dimensionId = ProfileDimensions.BEHAVIOR_COLLABORATION,
+            content = "用户偏好先给结论",
+            canonicalKey = "用户偏好先给结论",
+            evidence = emptyList(),
+        )
+
+        assertTrue(isSuppressedObservationCandidate(sameClaim, listOf(deleted)))
+        assertTrue(
+            isSuppressedObservationCandidate(
+                sameClaim.copy(action = "reinforce", targetObservationId = 21),
+                listOf(deleted),
+            )
+        )
+        assertFalse(
+            isSuppressedObservationCandidate(
+                sameClaim.copy(
+                    content = "用户偏好查看测试证据",
+                    canonicalKey = "用户偏好查看测试证据",
+                ),
+                listOf(deleted),
+            )
+        )
+    }
+
+    @Test
+    fun `observation quote cannot span separate user text parts`() {
+        val source = ProfileEvidenceSource(
+            conversationId = "c1",
+            messageId = "u1",
+            text = "先讨论方案\n再开始写代码",
+            observedAt = 1L,
+            quoteSegments = listOf("先讨论方案", "再开始写代码"),
+        )
+        val candidate = candidate(
+            evidence = listOf(ProfileEvidenceReference("c1", "u1", "方案\n再开始")),
+        )
+
+        assertNull(validateProfileObservation(candidate, mapOf("u1" to source), emptySet()))
+    }
+
+    @Test
+    fun `canonical profile requires every recorded supporting observation to stay qualified`() {
+        val canonical = profile(
+            id = 30,
+            dimensionId = ProfileDimensions.PREFERENCES_VALUES,
+            evidenceCount = 3,
+        ).copy(supportingObservationIds = listOf(1, 2))
+        val qualifiedOne = AssistantMemory(
+            id = 1,
+            kind = MemoryKind.OBSERVATION,
+            state = MemoryState.ACTIVE,
+            dimensionId = ProfileDimensions.PREFERENCES_VALUES,
+        )
+        val qualifiedTwo = qualifiedOne.copy(id = 2)
+
+        assertFalse(hasQualifiedProfileSupport(canonical, listOf(qualifiedOne)))
+        assertTrue(hasQualifiedProfileSupport(canonical, listOf(qualifiedOne, qualifiedTwo)))
+    }
+
+    @Test
+    fun `legacy profile without support ids falls back to qualified dimension`() {
+        val canonical = profile(
+            id = 31,
+            dimensionId = ProfileDimensions.IDENTITY_CONTEXT,
+            evidenceCount = 3,
+        )
+        val qualified = AssistantMemory(
+            id = 4,
+            kind = MemoryKind.OBSERVATION,
+            state = MemoryState.ACTIVE,
+            dimensionId = ProfileDimensions.IDENTITY_CONTEXT,
+        )
+
+        assertTrue(hasQualifiedProfileSupport(canonical, listOf(qualified)))
     }
 
     private fun candidate(evidence: List<ProfileEvidenceReference>) = ProfileObservationCandidate(

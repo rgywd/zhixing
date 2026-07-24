@@ -34,6 +34,7 @@ class ConversationRepository(
     private val database: AppDatabase,
     private val filesManager: FilesManager,
     private val messageFtsManager: MessageFtsManager,
+    private val memoryRepository: MemoryRepository,
 ) {
     companion object {
         private const val PAGE_SIZE = 20
@@ -335,13 +336,16 @@ class ConversationRepository(
         } else {
             conversation
         }
-        messageFtsManager.deleteConversation(conversation.id.toString())
-        database.withTransaction {
-            // message_node 会通过 CASCADE 自动删除
-            conversationDAO.delete(
-                conversationToConversationEntity(conversation)
-            )
+        ProfileMemoryMutationGate.run {
+            database.withTransaction {
+                memoryRepository.revokeConversationEvidence(conversation.id.toString())
+                // message_node 会通过 CASCADE 自动删除
+                conversationDAO.delete(
+                    conversationToConversationEntity(conversation)
+                )
+            }
         }
+        messageFtsManager.deleteConversation(conversation.id.toString())
         filesManager.deleteChatFiles(fullConversation.files)
     }
 

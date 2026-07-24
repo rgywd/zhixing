@@ -193,7 +193,12 @@ private fun AssistantMemoryContent(
                 TextButton(
                     onClick = {
                         memoryDialogState.confirm()
-                    }
+                    },
+                    enabled = memory.content.isNotBlank() &&
+                        (
+                            memory.kind != MemoryKind.PROFILE ||
+                                memory.dimensionId in ProfileDimensions.builtIn
+                            ),
                 ) {
                     Text(stringResource(R.string.assistant_page_save))
                 }
@@ -592,13 +597,18 @@ private fun MemoryItem(
                             "${memory.evidenceConversationIds.distinct().size} 个对话",
                         style = MaterialTheme.typography.labelSmall,
                     )
-                    if (memory.profileEvidence.isNotEmpty()) {
-                        TextButton(
-                            onClick = { showEvidence = true },
-                            contentPadding = PaddingValues(0.dp),
-                        ) {
-                            Text("查看 ${memory.profileEvidence.size} 条用户原话")
-                        }
+                } else if (memory.profileEvidence.isNotEmpty()) {
+                    Text(
+                        text = "用户已确认或编辑 · 保留原自动整理依据",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+                if (memory.profileEvidence.isNotEmpty()) {
+                    TextButton(
+                        onClick = { showEvidence = true },
+                        contentPadding = PaddingValues(0.dp),
+                    ) {
+                        Text("查看 ${memory.profileEvidence.size} 条用户原话")
                     }
                 }
             }

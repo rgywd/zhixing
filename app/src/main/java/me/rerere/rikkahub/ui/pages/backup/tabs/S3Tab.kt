@@ -56,6 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dokar.sonner.ToastType
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.sync.DatabaseRestoreRequiresRestartException
 import me.rerere.rikkahub.data.sync.S3BackupItem
 import me.rerere.rikkahub.data.sync.s3.S3Config
 import me.rerere.rikkahub.ui.components.ui.CardGroup
@@ -386,6 +387,9 @@ fun S3Tab(
                                             onShowRestartDialog()
                                         }.onFailure { err ->
                                             err.printStackTrace()
+                                            if (err is DatabaseRestoreRequiresRestartException) {
+                                                onShowRestartDialog()
+                                            }
                                             toaster.show(
                                                 resources.getString(
                                                     R.string.backup_page_restore_failed,

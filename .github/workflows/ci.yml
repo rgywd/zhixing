@@ -154,6 +154,15 @@ jobs:
             --tests me.rerere.rikkahub.service.WorkSessionTitleTest \
             --tests me.rerere.rikkahub.data.datastore.DefaultProvidersTest \
             --tests me.rerere.rikkahub.data.ai.tools.GitHubCliToolTest \
+            --tests me.rerere.rikkahub.data.ai.GenerationHandlerSecurityTest \
+            --tests me.rerere.rikkahub.data.ai.GenerationPromptsTest \
+            --tests me.rerere.rikkahub.data.ai.tools.MemoryToolsTest \
+            --tests me.rerere.rikkahub.data.profile.ProfileMaintenanceServiceTest \
+            --tests me.rerere.rikkahub.data.profile.ProfileMemoryPolicyTest \
+            --tests me.rerere.rikkahub.data.repository.MemoryForgetPolicyTest \
+            --tests me.rerere.rikkahub.data.repository.MemoryRepositoryTest \
+            --tests me.rerere.rikkahub.data.sync.DatabaseBackupContractTest \
+            --tests me.rerere.rikkahub.ui.pages.assistant.detail.AssistantMemoryCreationTest \
             --tests me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigureConvertToTest
 
   android-lint:
