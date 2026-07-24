@@ -3,7 +3,7 @@ package me.rerere.workspace
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.InputStream
-import java.nio.file.Path
+import java.nio.file.Paths
 
 data class KnowledgeSpaceStatus(
     val initialized: Boolean,
@@ -216,7 +216,7 @@ class KnowledgeSpaceManager(
     private fun normalizeKnowledgePath(path: String): String {
         val candidate = path.replace('\\', '/').trim().trimStart('/')
         require(candidate.isNotBlank() && !candidate.contains('\u0000')) { "Invalid knowledge path: $path" }
-        val normalized = Path.of(candidate).normalize().joinToString("/")
+        val normalized = Paths.get(candidate).normalize().joinToString("/")
         require(normalized == candidate && normalized != "." && !normalized.startsWith("../")) {
             "Knowledge path must already be normalized: $path"
         }
