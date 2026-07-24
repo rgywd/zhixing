@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url"
 const FULL_PR_CHECKS = [
   "Work and JS tests",
   "Android unit tests",
+  "Android lint",
   "Android build smoke",
 ]
 

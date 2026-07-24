@@ -156,6 +156,49 @@ jobs:
             --tests me.rerere.rikkahub.data.ai.tools.GitHubCliToolTest \
             --tests me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigureConvertToTest
 
+  android-lint:
+    name: Android lint
+    needs: plan
+    if: needs.plan.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web-ui/pnpm-lock.yaml
+
+      - name: Install web dependencies
+        working-directory: web-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: >-
+            ${{ github.event_name == 'pull_request' &&
+                github.event.pull_request.head.repo.full_name != github.repository }}
+
+      - name: Run Android lint
+        run: ./gradlew :app:lintStaging
+
   android-build:
     name: Android build smoke
     needs: plan

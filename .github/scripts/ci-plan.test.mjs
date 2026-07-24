@@ -82,6 +82,7 @@ test("accepts a fully verified normal pull request", () => {
     successfulCheck("Branch policy"),
     successfulCheck("Work and JS tests"),
     successfulCheck("Android unit tests"),
+    successfulCheck("Android lint"),
     successfulCheck("Android build smoke"),
     {
       id: 1,
@@ -92,6 +93,18 @@ test("accepts a fully verified normal pull request", () => {
   ]
 
   assert.equal(hasVerifiedPullRequestChecks(checks), true)
+})
+
+test("rejects a normal pull request without Android lint", () => {
+  const checks = [
+    successfulCheck("Plan CI"),
+    successfulCheck("Branch policy"),
+    successfulCheck("Work and JS tests"),
+    successfulCheck("Android unit tests"),
+    successfulCheck("Android build smoke"),
+  ]
+
+  assert.equal(hasVerifiedPullRequestChecks(checks), false)
 })
 
 test("accepts a verified release metadata pull request", () => {
@@ -110,6 +123,7 @@ test("rejects missing or failed checks and uses the latest attempt", () => {
     successfulCheck("Branch policy"),
     successfulCheck("Work and JS tests"),
     successfulCheck("Android unit tests"),
+    successfulCheck("Android lint"),
     successfulCheck("Android build smoke", 1),
     {
       id: 2,

@@ -11,10 +11,12 @@
 
 - `Work and JS tests`
 - `Android unit tests`
+- `Android lint`
 - `Android build smoke`
 - `Branch policy`
 
-三组构建与测试互不串行等待。任一必需检查失败，合并后的 `main` 都不会复用该 PR 结果。
+四组构建与测试互不串行等待，其中 `Android lint` 执行 `:app:lintStaging`。任一必需检查失败或缺失，
+合并后的 `main` 都不会复用该 PR 结果。
 
 只有 diff 严格限定为以下内容时，PR 才进入 `Release metadata` 快线：
 
@@ -28,7 +30,8 @@
 
 GitHub 私有仓当前没有平台级分支保护，因此 `main` push 不能被简单忽略：
 
-- 合并提交能关联到同一 SHA 的已完成 PR，且该 PR 的必需检查全部成功时，只运行来源校验；
+- 合并提交能关联到同一 SHA 的已完成 PR，且该 PR 的必需检查（包括 `Android lint`）全部成功时，只运行
+  来源校验，不重复执行已经通过的构建、测试与 lint；
 - 直接 push、API 查询失败、检查缺失或失败时，自动运行完整 CI。
 
 这保留了直接 push 的兜底，同时避免绿色 PR 合并后再重复约十分钟的相同任务。
