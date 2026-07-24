@@ -461,6 +461,49 @@ test("ask timeout settles with the recommended options and a late answer is igno
   assert.equal(commands.payload.commands.filter((command) => command.kind === "RESUME").length, 0);
 });
 
+test("ask remains pending until the timeout window expires or the user answers", async (t) => {
+  const { baseUrl } = await fixture(t, 600);
+  const { session, sessionToken } = await registerAndCreate(baseUrl);
+  const askPromise = request(baseUrl, `/v1/mcp/sessions/${session.id}/ask`, {
+    token: sessionToken,
+    method: "POST",
+    body: {
+      clientCallId: "ask-within-window",
+      questions: [{
+        id: "choice",
+        header: "选择",
+        question: "继续吗？",
+        multiSelect: false,
+        options: [{ id: "yes", label: "继续" }, { id: "no", label: "停止" }],
+        recommendedOptionIds: ["yes"],
+      }],
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const eventsBeforeAnswer = await request(baseUrl, `/v1/work/sessions/${session.id}/events?afterSeq=0`);
+  const askEvent = eventsBeforeAnswer.payload.events.find((event) => event.type === "ASK");
+  assert.ok(askEvent);
+  assert.equal(eventsBeforeAnswer.payload.events.some((event) => event.type === "ASK_ANSWERED"), false);
+  const waitingSession = (await request(baseUrl, "/v1/work/sessions")).payload.sessions
+    .find((item) => item.id === session.id);
+  assert.equal(waitingSession.status, "WAITING_FOR_USER");
+
+  const answer = await request(baseUrl, `/v1/work/sessions/${session.id}/asks/${askEvent.payload.askId}/answer`, {
+    method: "POST",
+    idempotencyKey: "answer-within-window",
+    body: { answers: [{ questionId: "choice", selectedOptionIds: ["no"], otherText: null }] },
+  });
+  assert.equal(answer.response.status, 200);
+  const askResult = await askPromise;
+  assert.equal(askResult.payload.status, "answered");
+  assert.deepEqual(askResult.payload.answers, [{
+    questionId: "choice",
+    selectedOptionIds: ["no"],
+    otherText: null,
+  }]);
+});
+
 test("ask requires honest recommended options for the timeout fallback", async (t) => {
   const { baseUrl } = await fixture(t);
   const { session, sessionToken } = await registerAndCreate(baseUrl);

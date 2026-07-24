@@ -301,7 +301,7 @@ export function createWorkServer({ store, askTimeoutMs = 180_000, quotaProxy = n
         requireSession(store, request, match[1]);
         const input = await readJson(request);
         const ask = store.createAsk(match[1], input, askTimeoutMs);
-        const answer = await waitForAnswer(store, ask.id, askTimeoutMs, request.signal);
+        const answer = await waitForAnswer(store, ask.id, askTimeoutMs, response);
         if (!answer) {
           const settled = store.timeoutAsk(ask.id, "RUNNING");
           return sendJson(response, 200, {
@@ -351,18 +351,22 @@ function hasImageSignature(data, mimeType) {
   return false;
 }
 
-function waitForAnswer(store, askId, timeoutMs, signal) {
+function waitForAnswer(store, askId, timeoutMs, response) {
   return new Promise((resolve) => {
     const deadline = Date.now() + timeoutMs;
     const timer = setInterval(() => {
       const ask = store.getAsk(askId);
       if (ask?.status === "ANSWERED") finish(ask);
-      else if (Date.now() >= deadline || signal?.aborted) finish(null);
+      else if (Date.now() >= deadline) finish(null);
     }, Math.min(100, Math.max(10, timeoutMs / 10)));
+    const onClose = () => finish(null);
     const finish = (value) => {
       clearInterval(timer);
+      response.off("close", onClose);
       resolve(value);
     };
+    response.once("close", onClose);
+    if (response.destroyed) finish(null);
   });
 }
 
