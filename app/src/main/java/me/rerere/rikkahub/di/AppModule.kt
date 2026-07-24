@@ -27,6 +27,7 @@ import me.rerere.rikkahub.data.status.MyStatusSnapshotStore
 import me.rerere.rikkahub.data.status.MyStatusTextGenerator
 import me.rerere.rikkahub.data.status.OpenMeteoWeatherProvider
 import me.rerere.rikkahub.data.status.WeatherProvider
+import me.rerere.rikkahub.data.today.TodayOverviewProvider
 import me.rerere.rikkahub.data.work.PhoneWorkSessionCreator
 import me.rerere.rikkahub.data.work.PhoneWorkSessionGateway
 import me.rerere.rikkahub.data.work.PhoneWorkTitleGenerator
@@ -88,6 +89,8 @@ val appModule = module {
             clock = get(),
         ).also(MyStatusCoordinator::start)
     }
+
+    single { TodayOverviewProvider(get(), get(), get(), get()) }
 
     single {
         LocalTools(get(), get(), get(), get(), get(), get())
