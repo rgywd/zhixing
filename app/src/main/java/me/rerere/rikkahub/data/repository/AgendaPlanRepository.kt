@@ -117,6 +117,55 @@ class AgendaPlanRepository(
         return updated
     }
 
+    /**
+     * Atomically updates a plan and every existing stage in position order.
+     *
+     * Stage topology is intentionally stable: callers may edit stage content and timing, but
+     * cannot add, remove, or reorder stages through this operation.
+     */
+    suspend fun updatePlanWithStages(
+        id: String,
+        title: String,
+        note: String,
+        location: String,
+        eventAt: Long?,
+        sourceReference: String?,
+        stages: List<AgendaPlanStageDraft>,
+    ): AgendaPlanWithStages {
+        require(title.isNotBlank()) { "长期事项标题不能为空" }
+        val old = getById(id) ?: error("长期事项不存在")
+        val orderedOldStages = old.stages.sortedBy(AgendaPlanStage::position)
+        require(stages.size == orderedOldStages.size) { "编辑长期事项时不能增删阶段" }
+        stages.forEach(::validateDraft)
+
+        val timestamp = now()
+        val updatedPlan = old.plan.copy(
+            title = title.trim(),
+            note = note.trim(),
+            location = location.trim(),
+            eventAt = eventAt,
+            sourceReference = sourceReference?.trim()?.takeIf { it.isNotEmpty() },
+            updatedAt = timestamp,
+        )
+        val updatedStages = stages.mapIndexed { index, draft ->
+            val oldStage = orderedOldStages[index]
+            draft.toStage(
+                id = oldStage.id,
+                planId = oldStage.planId,
+                position = oldStage.position,
+                eventAt = eventAt,
+                timestamp = timestamp,
+                createdAt = oldStage.createdAt,
+                status = oldStage.status,
+                completedAt = oldStage.completedAt,
+            )
+        }
+        val updated = AgendaPlanWithStages(updatedPlan, updatedStages)
+        dao.upsertPlanWithStages(updatedPlan.toEntity(), updatedStages.map { it.toEntity() })
+        syncPlan(updated)
+        return updated
+    }
+
     suspend fun updateStage(
         stageId: String,
         draft: AgendaPlanStageDraft,

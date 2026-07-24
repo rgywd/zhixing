@@ -1,8 +1,10 @@
 package me.rerere.rikkahub.data.today
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -55,12 +57,20 @@ internal class TodayOverviewProvider(
     agendaPlanRepository: AgendaPlanRepository,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
+    private val agendaNow = flow {
+        while (true) {
+            emit(clock())
+            delay(AGENDA_REFRESH_INTERVAL_MS)
+        }
+    }
+
     val state: StateFlow<TodaySnapshot> = combine(
         phoneWorkRepository.observeActiveSessions(),
         agendaTaskRepository.observeVisibleTasks(),
         agendaPlanRepository.observeVisiblePlans(),
-    ) { sessions, tasks, plans ->
-        buildTodaySnapshot(sessions, tasks, plans, clock())
+        agendaNow,
+    ) { sessions, tasks, plans, now ->
+        buildTodaySnapshot(sessions, tasks, plans, now)
     }.stateIn(appScope, SharingStarted.WhileSubscribed(5_000), TodaySnapshot.EMPTY)
 
     private val refreshMutex = Mutex()
@@ -80,6 +90,7 @@ internal class TodayOverviewProvider(
     }
 
     private companion object {
+        const val AGENDA_REFRESH_INTERVAL_MS = 60_000L
         const val REFRESH_MIN_INTERVAL_MS = 60_000L
     }
 }

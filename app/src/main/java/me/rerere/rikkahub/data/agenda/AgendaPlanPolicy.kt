@@ -54,6 +54,7 @@ data class AgendaPlanProjection(
 
 data class AgendaProjection(
     val actions: List<AgendaAction>,
+    val inboxTasks: List<AgendaTask>,
     val futureTasks: List<AgendaTask>,
     val upcomingPlans: List<AgendaPlanProjection>,
     val waitingPlans: List<AgendaPlanProjection>,
@@ -66,6 +67,7 @@ data class AgendaProjection(
 
 data class AgendaSummary(
     val actionCount: Int,
+    val inboxCount: Int,
     val upcomingPlanCount: Int,
     val nextActionAt: Long?,
     val nextPlanAt: Long?,
@@ -73,6 +75,7 @@ data class AgendaSummary(
 
 fun AgendaProjection.toSummary(): AgendaSummary = AgendaSummary(
     actionCount = actions.size,
+    inboxCount = inboxTasks.size,
     upcomingPlanCount = upcomingPlanCount,
     nextActionAt = actions.mapNotNull { it.actionAt }.minOrNull(),
     nextPlanAt = (upcomingPlans + waitingPlans).mapNotNull { it.nextAt }.minOrNull(),
@@ -103,15 +106,18 @@ fun buildAgendaProjection(
 
     val pendingTasks = tasks.filter { it.status == AgendaTaskStatus.PENDING }
     val taskActions = pendingTasks
-        .filter { it.dueAt == null || it.dueAt < tomorrowStart }
+        .filter { it.dueAt != null && it.dueAt < tomorrowStart }
         .map(AgendaAction::Task)
+    val inboxTasks = pendingTasks
+        .filter { it.dueAt == null }
+        .sortedByDescending(AgendaTask::updatedAt)
     val futureTasks = pendingTasks
         .filter { it.dueAt != null && it.dueAt >= tomorrowStart }
         .sortedBy { it.dueAt }
 
     val projectedPlans = plans.map { value ->
         val current = currentAgendaPlanStage(value)
-        val nextAt = current?.let(::agendaStageActionAt) ?: value.plan.eventAt
+        val nextAt = if (current == null) value.plan.eventAt else agendaStageActionAt(current)
         val phase = when {
             value.plan.status == AgendaPlanStatus.COMPLETED -> AgendaPlanPhase.COMPLETED
             value.plan.status != AgendaPlanStatus.ACTIVE -> AgendaPlanPhase.COMPLETED
@@ -141,6 +147,7 @@ fun buildAgendaProjection(
 
     return AgendaProjection(
         actions = actions,
+        inboxTasks = inboxTasks,
         futureTasks = futureTasks,
         upcomingPlans = projectedPlans
             .filter { it.phase == AgendaPlanPhase.UPCOMING }

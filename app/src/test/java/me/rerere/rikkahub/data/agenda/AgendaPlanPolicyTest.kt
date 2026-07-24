@@ -53,7 +53,26 @@ class AgendaPlanPolicyTest {
     }
 
     @Test
-    fun `undated simple tasks remain compatible with the current action projection`() {
+    fun `an untimed current stage is actionable before the parent event`() {
+        val projection = buildAgendaProjection(
+            tasks = emptyList(),
+            plans = listOf(
+                plan(
+                    id = "manual-plan",
+                    stages = listOf(stage("first-step")),
+                    eventAt = now + days(15),
+                )
+            ),
+            nowMillis = now,
+            zoneId = zone,
+        )
+
+        assertEquals("stage:first-step", projection.actions.single().stableId)
+        assertTrue(projection.upcomingPlans.isEmpty())
+    }
+
+    @Test
+    fun `undated simple tasks stay in inbox without becoming urgent actions`() {
         val projection = buildAgendaProjection(
             tasks = listOf(task("inbox", dueAt = null)),
             plans = emptyList(),
@@ -61,7 +80,8 @@ class AgendaPlanPolicyTest {
             zoneId = zone,
         )
 
-        assertEquals("task:inbox", projection.actions.single().stableId)
+        assertTrue(projection.actions.isEmpty())
+        assertEquals("inbox", projection.inboxTasks.single().id)
     }
 
     @Test

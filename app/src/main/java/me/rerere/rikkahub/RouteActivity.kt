@@ -248,6 +248,10 @@ class RouteActivity : ComponentActivity() {
             navStack?.add(Screen.AgendaPlanDetail(id))
             intent.removeExtra("agendaPlanId")
         }
+        intent.getStringExtra("agendaTaskId")?.let { id ->
+            navStack?.add(Screen.AgendaTaskDetail(id))
+            intent.removeExtra("agendaTaskId")
+        }
         if (intent.getBooleanExtra("openAgenda", false)) {
             navStack?.add(Screen.Agenda)
             intent.removeExtra("openAgenda")
@@ -300,6 +304,10 @@ class RouteActivity : ComponentActivity() {
             intent.getStringExtra("agendaPlanId")?.let { id ->
                 backStack.add(Screen.AgendaPlanDetail(id))
                 intent.removeExtra("agendaPlanId")
+            }
+            intent.getStringExtra("agendaTaskId")?.let { id ->
+                backStack.add(Screen.AgendaTaskDetail(id))
+                intent.removeExtra("agendaTaskId")
             }
             if (intent.getBooleanExtra("openAgenda", false)) {
                 backStack.add(Screen.Agenda)
@@ -386,6 +394,10 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.Agenda> {
                                 AgendaPage()
+                            }
+
+                            entry<Screen.AgendaTaskDetail> { key ->
+                                AgendaPage(initialTaskId = key.id)
                             }
 
                             entry<Screen.AgendaPlanDetail> { key ->
@@ -655,6 +667,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object Agenda : Screen
+
+    @Serializable
+    data class AgendaTaskDetail(val id: String) : Screen
 
     @Serializable
     data class AgendaPlanDetail(val id: String) : Screen

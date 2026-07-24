@@ -9,6 +9,7 @@ import android.provider.CalendarContract
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.concurrent.CancellationException
 
 data class DeviceCalendarEvent(
     val id: Long,
@@ -30,41 +31,43 @@ class DeviceCalendarRepository(private val context: Context) {
     suspend fun getEvents(beginAt: Long, endAt: Long, limit: Int = 100): List<DeviceCalendarEvent> =
         withContext(Dispatchers.IO) {
             if (!canRead() || beginAt >= endAt) return@withContext emptyList()
-            val projection = arrayOf(
-                CalendarContract.Instances.EVENT_ID,
-                CalendarContract.Instances.TITLE,
-                CalendarContract.Instances.DESCRIPTION,
-                CalendarContract.Instances.EVENT_LOCATION,
-                CalendarContract.Instances.BEGIN,
-                CalendarContract.Instances.END,
-                CalendarContract.Instances.ALL_DAY,
-                CalendarContract.Instances.CALENDAR_DISPLAY_NAME,
-            )
-            val uri = CalendarContract.Instances.CONTENT_URI.buildUpon()
-                .appendPath(beginAt.toString())
-                .appendPath(endAt.toString())
-                .build()
-            buildList {
-                context.contentResolver.query(
-                    uri,
-                    projection,
-                    null,
-                    null,
-                    "${CalendarContract.Instances.BEGIN} ASC",
-                )?.use { cursor ->
-                    while (cursor.moveToNext() && size < limit) {
-                        add(
-                            DeviceCalendarEvent(
-                                id = cursor.getLong(0),
-                                title = cursor.getString(1).orEmpty().ifBlank { "无标题日程" },
-                                description = cursor.getString(2).orEmpty(),
-                                location = cursor.getString(3).orEmpty(),
-                                startAt = cursor.getLong(4),
-                                endAt = cursor.getLong(5),
-                                allDay = cursor.getInt(6) == 1,
-                                calendarName = cursor.getString(7).orEmpty(),
+            readDeviceCalendarEventsOrEmpty {
+                val projection = arrayOf(
+                    CalendarContract.Instances.EVENT_ID,
+                    CalendarContract.Instances.TITLE,
+                    CalendarContract.Instances.DESCRIPTION,
+                    CalendarContract.Instances.EVENT_LOCATION,
+                    CalendarContract.Instances.BEGIN,
+                    CalendarContract.Instances.END,
+                    CalendarContract.Instances.ALL_DAY,
+                    CalendarContract.Instances.CALENDAR_DISPLAY_NAME,
+                )
+                val uri = CalendarContract.Instances.CONTENT_URI.buildUpon()
+                    .appendPath(beginAt.toString())
+                    .appendPath(endAt.toString())
+                    .build()
+                buildList {
+                    context.contentResolver.query(
+                        uri,
+                        projection,
+                        null,
+                        null,
+                        "${CalendarContract.Instances.BEGIN} ASC",
+                    )?.use { cursor ->
+                        while (cursor.moveToNext() && size < limit) {
+                            add(
+                                DeviceCalendarEvent(
+                                    id = cursor.getLong(0),
+                                    title = cursor.getString(1).orEmpty().ifBlank { "无标题日程" },
+                                    description = cursor.getString(2).orEmpty(),
+                                    location = cursor.getString(3).orEmpty(),
+                                    startAt = cursor.getLong(4),
+                                    endAt = cursor.getLong(5),
+                                    allDay = cursor.getInt(6) == 1,
+                                    calendarName = cursor.getString(7).orEmpty(),
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
@@ -77,4 +80,14 @@ class DeviceCalendarRepository(private val context: Context) {
         )
         true
     }.getOrDefault(false)
+}
+
+internal fun readDeviceCalendarEventsOrEmpty(
+    query: () -> List<DeviceCalendarEvent>,
+): List<DeviceCalendarEvent> = try {
+    query()
+} catch (error: CancellationException) {
+    throw error
+} catch (_: Exception) {
+    emptyList()
 }
