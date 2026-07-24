@@ -1,6 +1,6 @@
 # 知行数据安全、升级与备份契约
 
-状态：设计基线，P0 缺口未闭环（2026-07-23）
+状态：设计基线，P0 缺口未闭环（2026-07-24）
 
 目标不是承诺任何故障都不丢数据，而是保证覆盖升级不静默清空、迁移失败可恢复、远端备份可验证。
 
@@ -17,8 +17,9 @@
 
 当前代码证据：
 
-- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 38。
+- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 39。
 - Room 存在连续迁移注册，未启用 destructive fallback。
+- v38→v39 只新增长期计划和阶段表及索引，保留既有待办与其他用户数据。
 - Workspace 用户文件位于 `files/workspaces/<root>/files`，与可替换的 `linux` RootFS 分离。
 - WebDAV、S3、手动导入导出和备份提醒已有基础实现。
 

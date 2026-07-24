@@ -23,7 +23,7 @@ SettingsStore -> DataStore
 
 | 数据 | 事实来源 |
 | --- | --- |
-| 会话、消息分支、文件夹、记忆、工作区元数据、待办 | Room |
+| 会话、消息分支、文件夹、记忆、工作区元数据、待办与长期计划 | Room |
 | Provider、模型、助手、外观和功能开关 | DataStore |
 | 附件与 Workspace 用户原文 | 应用管理的文件目录 |
 | RootFS、缓存、OCR/检索索引 | 可重建派生数据 |
@@ -81,7 +81,7 @@ SettingsStore -> DataStore
 - MCP、搜索、语音和设备连接均为可选能力；失败只降级对应入口。
 - Knowledge Space 复用 Workspace，原文与派生索引边界见
   [`KNOWLEDGE_SPACE.md`](./KNOWLEDGE_SPACE.md)。
-- Agenda 以本地待办为事实来源，系统日历只读投影见
+- Agenda 以本地待办和长期计划为事实来源，系统日历只读投影见
   [`AGENDA_AND_CALENDAR.md`](./AGENDA_AND_CALENDAR.md)。
 - Codex Work 是独立的手机创建会话域，不读取桌面历史、不复用普通 Provider 生成链路；见
   [`CODEX_PHONE_LINE_ARCHITECTURE.md`](./CODEX_PHONE_LINE_ARCHITECTURE.md)。

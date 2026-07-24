@@ -22,7 +22,7 @@
 | 用户画像 | [长期用户画像 V2](./AUTO_PROFILE_MAINTENANCE.md) | V2 已实现；以用户原话证据、纵向观察和每维单摘要为现行契约 |
 | 知识空间 | [知识空间 v0.1](./KNOWLEDGE_SPACE.md) | 已实现；目录、引用和工具边界仍是有效契约 |
 | 火山语音 | [Agent Plan TTS](./VOLCENGINE_TTS.md) · [Agent Plan ASR](./VOLCENGINE_ASR.md) | 已实现；记录协议、接口和默认配置 |
-| 待办与弱日历 | [本地待办、系统日历投影与 AI 工具](./AGENDA_AND_CALENDAR.md) | v1 已实现；待办为权威数据，日历为可选时间背景 |
+| 事项与弱日历 | [简单待办、长期计划、系统日历投影与 AI 工具](./AGENDA_AND_CALENDAR.md) | v2 已实现；待办与长期计划均以 Room 为事实来源，日历为可选时间背景 |
 | 当前状态理解 | [本地事实、画像语境与确定性介入边界](./RUNTIME_CONTRACT.md#当前状态理解与介入) | 已实现；只解释值得注意的变化，无理由时保持安静 |
 | GitHub CLI | [受控 `gh issue` 工具](./GITHUB_CLI_TOOL.md) | v1 已实现；复用 App Token 入口并按 Workspace 自动配置 Rootfs |
 | Lenovo Watch Pro | [协议基线](./LENOVO_WATCH_PRO_PROTOCOL.md) | 只读 BLE 探针已实现并完成真机同步验证 |

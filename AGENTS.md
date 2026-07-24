@@ -126,9 +126,10 @@
   are defined in `docs/zhixing/CODEX_PHONE_LINE_ARCHITECTURE.md` and
   `docs/zhixing/CODEX_PHONE_LINE_CONTRACT.md`.
 
-- **Agenda / Weak Calendar**: A local-first task domain surfaced in the normal chat right drawer. Room tasks are the
-  source of truth; Android system calendar events are an optional read-only projection. Normal chat exposes five task
-  tools, with approval required for every write. The current contract is documented in
+- **Agenda / Weak Calendar**: A local-first domain for simple tasks and long-horizon plans, surfaced compactly in the
+  normal chat right drawer with a full plan/stage page for detail. Room is the source of truth; Android system calendar
+  events are an optional read-only projection. Normal chat exposes read and write tools for both task types, with
+  approval required for every write. The current contract is documented in
   `docs/zhixing/AGENDA_AND_CALENDAR.md`.
 
 ## Internationalization
