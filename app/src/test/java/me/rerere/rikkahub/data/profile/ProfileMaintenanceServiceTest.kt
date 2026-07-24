@@ -1,10 +1,45 @@
 package me.rerere.rikkahub.data.profile
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.runBlocking
 import me.rerere.rikkahub.data.model.ProfileDimensions
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileMaintenanceServiceTest {
+    @Test
+    fun `maintenance run gate serializes workers from different scheduler entries`() = runBlocking {
+        val releaseFirst = CompletableDeferred<Unit>()
+        val events = mutableListOf<String>()
+
+        val first = async(start = CoroutineStart.UNDISPATCHED) {
+            ProfileMaintenanceRunGate.run {
+                events += "first-started"
+                releaseFirst.await()
+                events += "first-finished"
+            }
+        }
+        val second = async(start = CoroutineStart.UNDISPATCHED) {
+            ProfileMaintenanceRunGate.run {
+                events += "second-started"
+            }
+        }
+
+        assertEquals(listOf("first-started"), events)
+        assertFalse(second.isCompleted)
+
+        releaseFirst.complete(Unit)
+        awaitAll(first, second)
+
+        assertEquals(listOf("first-started", "first-finished", "second-started"), events)
+        assertTrue(second.isCompleted)
+    }
+
     @Test
     fun parsesObservationJsonWrappedInMarkdown() {
         val parsed = parseProfileObservationResponse(

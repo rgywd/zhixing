@@ -3,6 +3,9 @@ package me.rerere.rikkahub.data.profile
 import kotlinx.serialization.Serializable
 import me.rerere.rikkahub.data.datastore.ProfileMaintenanceConfig
 import me.rerere.rikkahub.data.model.AssistantMemory
+import me.rerere.rikkahub.data.model.MemoryKind
+import me.rerere.rikkahub.data.model.MemorySource
+import me.rerere.rikkahub.data.model.MemoryState
 import me.rerere.rikkahub.data.model.ProfileDimensions
 import me.rerere.rikkahub.data.model.ProfileEvidence
 import java.util.Locale
@@ -164,6 +167,33 @@ internal fun isObservationStale(
     now: Long,
     staleAfterDays: Int,
 ): Boolean = lastEvidenceAt > 0 && now - lastEvidenceAt >= TimeUnit.DAYS.toMillis(staleAfterDays.toLong())
+
+internal fun duplicateAutoProfileIdsToArchive(
+    memories: Collection<AssistantMemory>,
+): Set<Int> = memories
+    .filter {
+        it.kind == MemoryKind.PROFILE &&
+            it.source == MemorySource.AUTO &&
+            !it.locked &&
+            it.state != MemoryState.ARCHIVED &&
+            it.dimensionId in ProfileDimensions.builtIn
+    }
+    .groupBy(AssistantMemory::dimensionId)
+    .values
+    .flatMap { profiles ->
+        val canonical = profiles.maxWithOrNull(
+            compareBy<AssistantMemory> {
+                if (it.state == MemoryState.ACTIVE) 1 else 0
+            }
+                .thenBy { it.evidenceConversationIds.distinct().size }
+                .thenBy { it.profileEvidence.distinctBy(ProfileEvidence::messageId).size }
+                .thenBy(AssistantMemory::lastEvidenceAt)
+                .thenBy(AssistantMemory::updatedAt)
+                .thenBy(AssistantMemory::id)
+        )
+        profiles.filterNot { it.id == canonical?.id }.map(AssistantMemory::id)
+    }
+    .toSet()
 
 internal fun validateProfileSummary(
     candidate: ProfileSummaryCandidate,

@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.profile
 
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
 import kotlinx.serialization.Serializable
@@ -54,13 +55,30 @@ data class ProfileMaintenanceResult(
     val skipped: Int,
 )
 
+internal object ProfileMaintenanceRunGate {
+    private val mutex = Mutex()
+
+    suspend fun <T> run(block: suspend () -> T): T {
+        mutex.lock()
+        return try {
+            block()
+        } finally {
+            mutex.unlock()
+        }
+    }
+}
+
 class ProfileMaintenanceService(
     private val settingsStore: SettingsStore,
     private val conversationRepository: ConversationRepository,
     private val memoryRepository: MemoryRepository,
     private val providerManager: ProviderManager,
 ) {
-    suspend fun run(): ProfileMaintenanceResult? {
+    suspend fun run(): ProfileMaintenanceResult? = ProfileMaintenanceRunGate.run {
+        runSerially()
+    }
+
+    private suspend fun runSerially(): ProfileMaintenanceResult? {
         var settings = settingsStore.settingsFlow.first()
         val config = settings.profileMaintenanceConfig.normalized()
         if (!config.enabled) return null
@@ -332,7 +350,9 @@ class ProfileMaintenanceService(
     private suspend fun refreshStoredPipeline(
         config: ProfileMaintenanceConfig,
     ) {
-        val memories = memoryRepository.getAllGlobalMemoriesFlow().first()
+        val memories = archiveDuplicateAutoProfiles(
+            memoryRepository.getAllGlobalMemoriesFlow().first()
+        )
         val observations = memories.filter {
             it.kind == MemoryKind.OBSERVATION && it.source == MemorySource.AUTO
         }
@@ -368,6 +388,20 @@ class ProfileMaintenanceService(
             profiles = memories.filter { it.kind == MemoryKind.PROFILE },
             qualifiedObservations = refreshed.filter { it.state == MemoryState.ACTIVE },
         )
+    }
+
+    private suspend fun archiveDuplicateAutoProfiles(
+        memories: List<AssistantMemory>,
+    ): List<AssistantMemory> {
+        val duplicateIds = duplicateAutoProfileIdsToArchive(memories)
+        if (duplicateIds.isEmpty()) return memories
+        return memories.map { memory ->
+            if (memory.id in duplicateIds) {
+                memoryRepository.updateState(memory.id, MemoryState.ARCHIVED)
+            } else {
+                memory
+            }
+        }
     }
 
     private suspend fun archiveProfilesWithoutQualifiedEvidence(

@@ -4,6 +4,8 @@ import me.rerere.rikkahub.data.datastore.ProfileMaintenanceConfig
 import me.rerere.rikkahub.data.datastore.ProfileMaintenanceStrategy
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.MemoryKind
+import me.rerere.rikkahub.data.model.MemorySource
+import me.rerere.rikkahub.data.model.MemoryState
 import me.rerere.rikkahub.data.model.ProfileDimensions
 import me.rerere.rikkahub.data.model.ProfileEvidence
 import org.junit.Assert.assertEquals
@@ -15,6 +17,41 @@ import org.junit.Test
 import java.util.concurrent.TimeUnit
 
 class ProfileMemoryPolicyTest {
+    @Test
+    fun `duplicate automatic summaries keep one strongest profile per dimension`() {
+        val profiles = listOf(
+            profile(id = 34, dimensionId = ProfileDimensions.IDENTITY_CONTEXT, evidenceCount = 4),
+            profile(id = 35, dimensionId = ProfileDimensions.PREFERENCES_VALUES, evidenceCount = 4),
+            profile(id = 36, dimensionId = ProfileDimensions.CAPABILITIES_KNOWLEDGE, evidenceCount = 4),
+            profile(id = 37, dimensionId = ProfileDimensions.BEHAVIOR_COLLABORATION, evidenceCount = 4),
+            profile(id = 38, dimensionId = ProfileDimensions.IDENTITY_CONTEXT, evidenceCount = 6),
+            profile(id = 39, dimensionId = ProfileDimensions.PREFERENCES_VALUES, evidenceCount = 6),
+            profile(id = 40, dimensionId = ProfileDimensions.CAPABILITIES_KNOWLEDGE, evidenceCount = 6),
+            profile(id = 41, dimensionId = ProfileDimensions.BEHAVIOR_COLLABORATION, evidenceCount = 6),
+            profile(id = 42, dimensionId = ProfileDimensions.PREFERENCES_VALUES, evidenceCount = 8),
+            profile(id = 43, dimensionId = ProfileDimensions.IDENTITY_CONTEXT, evidenceCount = 8),
+            profile(id = 44, dimensionId = ProfileDimensions.CAPABILITIES_KNOWLEDGE, evidenceCount = 8),
+            profile(id = 45, dimensionId = ProfileDimensions.BEHAVIOR_COLLABORATION, evidenceCount = 8),
+            profile(
+                id = 46,
+                dimensionId = ProfileDimensions.IDENTITY_CONTEXT,
+                evidenceCount = 10,
+                locked = true,
+            ),
+            profile(
+                id = 47,
+                dimensionId = ProfileDimensions.IDENTITY_CONTEXT,
+                evidenceCount = 10,
+                state = MemoryState.ARCHIVED,
+            ),
+        )
+
+        assertEquals(
+            setOf(34, 35, 36, 37, 38, 39, 40, 41),
+            duplicateAutoProfileIdsToArchive(profiles),
+        )
+    }
+
     @Test
     fun `observation evidence must quote an allowed user message`() {
         val source = ProfileEvidenceSource("c1", "u1", "我长期更喜欢先讨论方案，再开始写代码。", 1L)
@@ -142,5 +179,24 @@ class ProfileMemoryPolicyTest {
         messageId = messageId,
         quote = "用户原话-$messageId",
         observedAt = TimeUnit.DAYS.toMillis(day),
+    )
+
+    private fun profile(
+        id: Int,
+        dimensionId: String,
+        evidenceCount: Int,
+        locked: Boolean = false,
+        state: MemoryState = MemoryState.ACTIVE,
+    ) = AssistantMemory(
+        id = id,
+        content = "自动画像-$id",
+        kind = MemoryKind.PROFILE,
+        state = state,
+        updatedAt = id.toLong(),
+        dimensionId = dimensionId,
+        source = MemorySource.AUTO,
+        evidenceConversationIds = (1..evidenceCount).map { "c-$it" },
+        locked = locked,
+        lastEvidenceAt = id.toLong(),
     )
 }
