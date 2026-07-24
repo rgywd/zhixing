@@ -135,6 +135,7 @@ fun ChatList(
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
+    onOpenAgenda: () -> Unit = {},
 ) {
     AnimatedContent(
         targetState = previewMode,
@@ -177,6 +178,7 @@ fun ChatList(
                 onToolAnswer = onToolAnswer,
                 onToggleFavorite = onToggleFavorite,
                 onConversationSystemPromptChange = onConversationSystemPromptChange,
+                onOpenAgenda = onOpenAgenda,
             )
         }
     }
@@ -207,6 +209,7 @@ private fun ChatListNormal(
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
+    onOpenAgenda: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val loadingState by rememberUpdatedState(loading)
@@ -521,6 +524,14 @@ private fun ChatListNormal(
                 ChatSuggestionsRow(
                     conversation = conversation,
                     onClickSuggestion = onClickSuggestion,
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
+            }
+
+            // 空会话态:现在值得注意
+            if (conversation.messageNodes.isEmpty() && !loading && conversation.chatSuggestions.isEmpty() && !captureProgress) {
+                TodayOverviewCards(
+                    onOpenAgenda = onOpenAgenda,
                     modifier = Modifier.align(Alignment.BottomCenter)
                 )
             }

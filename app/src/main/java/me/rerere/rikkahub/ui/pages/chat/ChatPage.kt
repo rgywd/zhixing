@@ -487,6 +487,7 @@ private fun ChatPageContent(
                     vm.updateConversation(conversation.copy(customSystemPrompt = newPrompt))
                     vm.saveConversationAsync()
                 },
+                onOpenAgenda = onOpenAgenda,
             )
     }
 

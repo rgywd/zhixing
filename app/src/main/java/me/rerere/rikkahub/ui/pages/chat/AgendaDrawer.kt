@@ -87,6 +87,11 @@ import me.rerere.rikkahub.data.quota.buildQuotaOverviews
 import me.rerere.rikkahub.data.quota.orderQuotaChannels
 import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbe
 import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbeState
+import me.rerere.rikkahub.data.today.TodayOverviewProvider
+import me.rerere.rikkahub.data.work.PhoneWorkSession
+import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.ui.context.LocalNavController
+import me.rerere.rikkahub.ui.pages.work.WorkStatusChip
 import org.koin.compose.koinInject
 import java.time.Instant
 import java.time.ZoneId
@@ -321,6 +326,10 @@ private fun LifeOverviewDrawerContent(
     val quotaItems = remember(quotaState.envelope) { buildQuotaOverviews(quotaState.envelope) }
     LaunchedEffect(quotaRepository) { quotaRepository.refresh() }
 
+    val todayProvider: TodayOverviewProvider = koinInject()
+    val todaySnapshot by todayProvider.state.collectAsStateWithLifecycle()
+    LaunchedEffect(todayProvider) { todayProvider.onVisible() }
+
     Column(modifier = modifier.fillMaxHeight()) {
         LifeOverviewHeader(onClose = onClose)
         LazyColumn(
@@ -335,6 +344,12 @@ private fun LifeOverviewDrawerContent(
                 )
             }
             item(key = "my-status") { MyStatusCard() }
+
+            if (todaySnapshot.waitingSessions.isNotEmpty()) {
+                item(key = "work-waiting") {
+                    WorkWaitingSection(waitingSessions = todaySnapshot.waitingSessions)
+                }
+            }
 
             item(key = "agenda") { AgendaOverviewSection() }
 
@@ -408,6 +423,56 @@ private fun OverviewSectionTitle(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun WorkWaitingSection(waitingSessions: List<PhoneWorkSession>) {
+    val navigator = LocalNavController.current
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OverviewSectionTitle(
+            title = "Work",
+            subtitle = "${waitingSessions.size} 个会话等你回答",
+        )
+        waitingSessions.take(2).forEach { session ->
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { navigator.navigate(Screen.PhoneWorkSession(session.id)) },
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = session.title.ifBlank { session.repoName },
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    WorkStatusChip(status = session.status)
+                }
+            }
+        }
+        if (waitingSessions.size > 2) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                Text(
+                    text = "查看全部",
+                    modifier = Modifier
+                        .clickable { navigator.navigate(Screen.PhoneWorkHome) }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
     }
 }
 
