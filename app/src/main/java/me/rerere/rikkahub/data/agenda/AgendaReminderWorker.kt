@@ -38,7 +38,7 @@ class AgendaReminderWorker(
         val note = task.note
         val launchIntent = Intent(applicationContext, RouteActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            .putExtra(EXTRA_OPEN_AGENDA, true)
+            .putExtra(EXTRA_AGENDA_TASK_ID, task.id)
         val pendingIntent = PendingIntent.getActivity(
             applicationContext,
             taskId.hashCode(),
@@ -55,13 +55,19 @@ class AgendaReminderWorker(
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
-        NotificationManagerCompat.from(applicationContext).notify(taskId.hashCode(), notification)
+        val notificationManager = NotificationManagerCompat.from(applicationContext)
+        if (!notificationManager.areNotificationsEnabled()) return Result.success()
+        try {
+            notificationManager.notify(taskId.hashCode(), notification)
+        } catch (_: SecurityException) {
+            return Result.success()
+        }
         return Result.success()
     }
 
     companion object {
         const val KEY_TASK_ID = "task_id"
         const val KEY_EXPECTED_REMINDER_AT = "expected_reminder_at"
-        const val EXTRA_OPEN_AGENDA = "openAgenda"
+        const val EXTRA_AGENDA_TASK_ID = "agendaTaskId"
     }
 }

@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.ui.pages.agenda
 
+import android.os.Build
+import androidx.core.app.NotificationManagerCompat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,28 +26,40 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.dokar.sonner.ToastType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Calendar03
 import me.rerere.hugeicons.stroke.Location01
 import me.rerere.hugeicons.stroke.Notification01
+import me.rerere.hugeicons.stroke.PencilEdit01
 import me.rerere.hugeicons.stroke.Tick01
+import me.rerere.rikkahub.data.agenda.AgendaPlanEditorSubmission
 import me.rerere.rikkahub.data.agenda.currentAgendaPlanStage
 import me.rerere.rikkahub.data.model.AgendaPlanStage
 import me.rerere.rikkahub.data.model.AgendaPlanStageStatus
 import me.rerere.rikkahub.data.model.AgendaPlanStatus
 import me.rerere.rikkahub.data.repository.AgendaPlanRepository
 import me.rerere.rikkahub.ui.components.nav.BackButton
+import me.rerere.rikkahub.ui.components.ui.RikkaConfirmDialog
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionNotification
+import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalNavController
+import me.rerere.rikkahub.ui.context.LocalToaster
 import org.koin.compose.koinInject
 import java.time.Duration
 import java.time.Instant
@@ -57,15 +71,125 @@ import kotlin.math.absoluteValue
 fun AgendaPlanDetailPage(planId: String) {
     val repository: AgendaPlanRepository = koinInject()
     val navigator = LocalNavController.current
+    val context = LocalContext.current
     val plans by repository.observeVisiblePlans().collectAsStateWithLifecycle(emptyList())
     val plan = remember(plans, planId) { plans.firstOrNull { it.plan.id == planId } }
     val scope = rememberCoroutineScope()
+    val toaster = LocalToaster.current
+    val notificationPermission = rememberPermissionState(
+        permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            setOf(PermissionNotification)
+        } else {
+            emptySet()
+        },
+    )
+    PermissionManager(notificationPermission)
+    val notificationAccessGranted = notificationPermission.allPermissionsGranted &&
+        NotificationManagerCompat.from(context).areNotificationsEnabled()
+    var showEditor by remember { mutableStateOf(false) }
+    var submitting by remember { mutableStateOf(false) }
+    var showCancelConfirmation by remember { mutableStateOf(false) }
+    var cancelling by remember { mutableStateOf(false) }
+
+    if (showEditor && plan != null) {
+        AgendaPlanEditorSheet(
+            initialPlan = plan,
+            submitting = submitting,
+            onDismiss = {
+                if (!submitting) {
+                    showEditor = false
+                }
+            },
+            onSubmit = { submission ->
+                if (submission is AgendaPlanEditorSubmission.Update && !submitting) {
+                    submitting = true
+                    scope.launch {
+                        try {
+                            val updated = repository.updatePlanWithStages(
+                                id = submission.planId,
+                                title = submission.parent.title,
+                                note = submission.parent.note,
+                                location = submission.parent.location,
+                                eventAt = submission.parent.eventAt,
+                                sourceReference = submission.parent.sourceReference,
+                                stages = submission.stageUpdates.map { it.draft },
+                            )
+                            if (
+                                updated.stages.any {
+                                    it.status == AgendaPlanStageStatus.PENDING &&
+                                        it.reminderAt?.let { reminderAt ->
+                                            reminderAt > System.currentTimeMillis()
+                                        } == true
+                                } &&
+                                !notificationPermission.allPermissionsGranted
+                            ) {
+                                notificationPermission.requestPermissions()
+                            }
+                            showEditor = false
+                            toaster.show("计划已更新", type = ToastType.Success)
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Throwable) {
+                            toaster.show(
+                                message = "保存计划失败：${error.message ?: "请稍后重试"}",
+                                type = ToastType.Error,
+                            )
+                        } finally {
+                            submitting = false
+                        }
+                    }
+                }
+            },
+        )
+    }
+
+    RikkaConfirmDialog(
+        show = showCancelConfirmation,
+        title = "取消计划？",
+        confirmText = "确认取消",
+        dismissText = "返回",
+        onConfirm = {
+            showCancelConfirmation = false
+            if (!cancelling) {
+                cancelling = true
+                scope.launch {
+                    try {
+                        repository.setPlanStatus(planId, AgendaPlanStatus.CANCELLED)
+                        navigator.popBackStack()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        toaster.show(
+                            message = "取消计划失败：${error.message ?: "请稍后重试"}",
+                            type = ToastType.Error,
+                        )
+                    } finally {
+                        cancelling = false
+                    }
+                }
+            }
+        },
+        onDismiss = { showCancelConfirmation = false },
+        text = {
+            Text("计划会从当前事项列表中移除，此操作不会自动完成任何阶段。")
+        },
+    )
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("计划详情") },
                 navigationIcon = { BackButton() },
+                actions = {
+                    if (plan != null) {
+                        IconButton(
+                            onClick = { showEditor = true },
+                            enabled = !submitting && !cancelling,
+                        ) {
+                            Icon(HugeIcons.PencilEdit01, "编辑计划")
+                        }
+                    }
+                },
             )
         },
     ) { padding ->
@@ -79,6 +203,13 @@ fun AgendaPlanDetailPage(planId: String) {
             return@Scaffold
         }
         val currentStage = currentAgendaPlanStage(plan)
+        val hasFutureReminder = remember(plan) {
+            val now = System.currentTimeMillis()
+            plan.stages.any {
+                it.status == AgendaPlanStageStatus.PENDING &&
+                    it.reminderAt?.let { reminderAt -> reminderAt > now } == true
+            }
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
@@ -125,6 +256,19 @@ fun AgendaPlanDetailPage(planId: String) {
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
+            if (hasFutureReminder && !notificationAccessGranted) {
+                item("notification-permission") {
+                    PlanReminderPermissionRow(
+                        onClick = {
+                            if (notificationPermission.allPermissionsGranted) {
+                                notificationPermission.openAppSettings()
+                            } else {
+                                notificationPermission.requestPermissions()
+                            }
+                        },
+                    )
+                }
+            }
             items(plan.stages.sortedBy { it.position }, key = { it.id }) { stage ->
                 AgendaStageRow(
                     stage = stage,
@@ -162,18 +306,40 @@ fun AgendaPlanDetailPage(planId: String) {
                             Text("完成计划")
                         }
                         OutlinedButton(
-                            onClick = {
-                                scope.launch {
-                                    repository.setPlanStatus(planId, AgendaPlanStatus.CANCELLED)
-                                    navigator.popBackStack()
-                                }
-                            },
+                            onClick = { showCancelConfirmation = true },
+                            enabled = !cancelling,
                         ) {
-                            Text("取消")
+                            Text(if (cancelling) "取消中…" else "取消")
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PlanReminderPermissionRow(onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(HugeIcons.Notification01, null, Modifier.size(19.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("通知权限未开启", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "计划提醒已保存；开启后才会显示系统通知，且可能受节电策略延迟。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            TextButton(onClick = onClick) { Text("开启") }
         }
     }
 }

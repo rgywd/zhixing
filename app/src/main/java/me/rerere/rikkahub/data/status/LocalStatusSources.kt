@@ -88,6 +88,16 @@ internal fun buildMyStatusAgendaFacts(
                 )
             )
         }
+        projection.inboxTasks.forEach { task ->
+            add(
+                MyStatusAgendaCandidate(
+                    stableId = "task:${task.id}",
+                    title = task.title,
+                    at = null,
+                    overdue = false,
+                )
+            )
+        }
         (projection.upcomingPlans + projection.waitingPlans).forEach { plan ->
             add(plan.toMyStatusCandidate())
         }
@@ -105,6 +115,7 @@ internal fun buildMyStatusAgendaFacts(
         }
     return MyStatusAgendaFacts(
         pendingCount = projection.actions.size +
+            projection.inboxTasks.size +
             projection.futureTasks.size +
             projection.upcomingPlans.size +
             projection.waitingPlans.size,

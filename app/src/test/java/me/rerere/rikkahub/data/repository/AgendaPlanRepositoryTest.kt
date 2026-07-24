@@ -98,6 +98,75 @@ class AgendaPlanRepositoryTest {
     }
 
     @Test
+    fun `editing a plan and its stages persists one consistent bundle`() = runBlocking {
+        val dao = FakeAgendaPlanDao()
+        val repository = AgendaPlanRepository(dao, FakeReminderGateway()) { now }
+        val created = repository.create(
+            title = "公司年会",
+            eventAt = now + days(15),
+            stages = listOf(
+                AgendaPlanStageDraft("购买车票", triggerOffsetMinutes = -15 * 24 * 60L),
+                AgendaPlanStageDraft("确认天气", triggerOffsetMinutes = -3 * 24 * 60L),
+            ),
+        )
+
+        val updated = repository.updatePlanWithStages(
+            id = created.plan.id,
+            title = "公司年会 2026",
+            note = "带身份证",
+            location = "杭州",
+            eventAt = now + days(20),
+            sourceReference = null,
+            stages = listOf(
+                AgendaPlanStageDraft("购买高铁票", triggerOffsetMinutes = -10 * 24 * 60L),
+                AgendaPlanStageDraft("再次确认天气", triggerAt = now + days(18)),
+            ),
+        )
+
+        assertEquals("公司年会 2026", updated.plan.title)
+        assertEquals(created.stages.map { it.id }, updated.stages.map { it.id })
+        assertEquals(listOf("购买高铁票", "再次确认天气"), updated.stages.map { it.title })
+        assertEquals(now + days(10), updated.stages.first().triggerAt)
+        assertEquals(now + days(18), updated.stages.last().triggerAt)
+    }
+
+    @Test
+    fun `invalid stage batch leaves the existing plan untouched`() = runBlocking {
+        val dao = FakeAgendaPlanDao()
+        val repository = AgendaPlanRepository(dao, FakeReminderGateway()) { now }
+        val created = repository.create(
+            title = "公司年会",
+            eventAt = now + days(15),
+            stages = listOf(
+                AgendaPlanStageDraft("购买车票"),
+                AgendaPlanStageDraft("确认天气"),
+            ),
+        )
+
+        val result = runCatching {
+            repository.updatePlanWithStages(
+                id = created.plan.id,
+                title = "不应保存",
+                note = "",
+                location = "",
+                eventAt = now + days(20),
+                sourceReference = null,
+                stages = listOf(
+                    AgendaPlanStageDraft("第一阶段"),
+                    AgendaPlanStageDraft(
+                        title = "非法阶段",
+                        triggerAt = now,
+                        triggerOffsetMinutes = -15,
+                    ),
+                ),
+            )
+        }
+
+        assertTrue(result.isFailure)
+        assertEquals(created, repository.getById(created.plan.id))
+    }
+
+    @Test
     fun `invalid mixed absolute and relative stage does not persist a partial plan`() = runBlocking {
         val dao = FakeAgendaPlanDao()
         val repository = AgendaPlanRepository(dao, FakeReminderGateway()) { now }

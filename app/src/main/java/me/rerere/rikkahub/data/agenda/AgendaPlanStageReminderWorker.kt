@@ -51,7 +51,13 @@ class AgendaPlanStageReminderWorker(
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
-        NotificationManagerCompat.from(applicationContext).notify(stageId.hashCode(), notification)
+        val notificationManager = NotificationManagerCompat.from(applicationContext)
+        if (!notificationManager.areNotificationsEnabled()) return Result.success()
+        try {
+            notificationManager.notify(stageId.hashCode(), notification)
+        } catch (_: SecurityException) {
+            return Result.success()
+        }
         return Result.success()
     }
 

@@ -42,7 +42,7 @@ class TodayOverviewProviderTest {
     }
 
     @Test
-    fun `overdue count only includes actions due before now`() {
+    fun `today actions exclude undated inbox tasks and only overdue timed items`() {
         val snapshot = buildTodaySnapshot(
             sessions = emptyList(),
             tasks = listOf(
@@ -55,7 +55,7 @@ class TodayOverviewProviderTest {
             nowMillis = now,
         )
 
-        assertEquals(3, snapshot.agendaActionCount)
+        assertEquals(2, snapshot.agendaActionCount)
         assertEquals(1, snapshot.agendaOverdueCount)
     }
 

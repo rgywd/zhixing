@@ -1,11 +1,9 @@
 package me.rerere.rikkahub.ui.pages.chat
 
-import android.Manifest
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.NotificationManagerCompat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,8 +26,11 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -44,6 +45,10 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
@@ -57,9 +62,10 @@ import me.rerere.rikkahub.data.agenda.DeviceCalendarEvent
 import me.rerere.rikkahub.data.agenda.DeviceCalendarRepository
 import me.rerere.rikkahub.data.agenda.AgendaAction
 import me.rerere.rikkahub.data.agenda.AgendaTaskBucket
+import me.rerere.rikkahub.data.agenda.AgendaTaskSaveInput
 import me.rerere.rikkahub.data.agenda.agendaTaskBucket
 import me.rerere.rikkahub.data.agenda.buildAgendaProjection
-import me.rerere.rikkahub.data.agenda.parseAgendaQuickInput
+import me.rerere.rikkahub.data.agenda.resolveAgendaTaskSave
 import me.rerere.rikkahub.data.model.AgendaPlanStageStatus
 import me.rerere.rikkahub.data.model.AgendaPlanWithStages
 import me.rerere.rikkahub.data.model.AgendaTask
@@ -67,6 +73,10 @@ import me.rerere.rikkahub.data.model.AgendaTaskStatus
 import me.rerere.rikkahub.data.repository.AgendaPlanRepository
 import me.rerere.rikkahub.data.repository.AgendaTaskRepository
 import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.ui.components.ui.RikkaConfirmDialog
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionNotification
+import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalNavController
 import org.koin.compose.koinInject
 import java.time.Instant
@@ -80,18 +90,69 @@ internal fun AgendaOverviewSection() {
     val repository: AgendaTaskRepository = koinInject()
     val planRepository: AgendaPlanRepository = koinInject()
     val navigator = LocalNavController.current
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val tasks by repository.observeVisibleTasks().collectAsStateWithLifecycle(emptyList())
     val plans by planRepository.observeVisiblePlans().collectAsStateWithLifecycle(emptyList())
     val scope = rememberCoroutineScope()
-    var editorTask by remember { mutableStateOf<AgendaTask?>(null) }
+    var lifecycleResumeRevision by remember { mutableIntStateOf(0) }
+    var agendaNowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var editorTaskId by rememberSaveable { mutableStateOf<String?>(null) }
+    val editorTask = remember(tasks, editorTaskId) {
+        editorTaskId?.let { id -> tasks.firstOrNull { it.id == id } }
+    }
     var editorOpen by rememberSaveable { mutableStateOf(false) }
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { }
+    val notificationPermission = rememberPermissionState(
+        permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            setOf(PermissionNotification)
+        } else {
+            emptySet()
+        },
+    )
+    PermissionManager(permissionState = notificationPermission)
+    val notificationAccessGranted = remember(
+        lifecycleResumeRevision,
+        notificationPermission.allPermissionsGranted,
+    ) {
+        notificationPermission.allPermissionsGranted &&
+            NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
 
-    val projection = remember(tasks, plans) { buildAgendaProjection(tasks, plans) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                lifecycleResumeRevision++
+                agendaNowMillis = System.currentTimeMillis()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            val now = System.currentTimeMillis()
+            delay(AGENDA_CLOCK_INTERVAL_MS - now % AGENDA_CLOCK_INTERVAL_MS)
+            agendaNowMillis = System.currentTimeMillis()
+        }
+    }
+
+    val projection = remember(tasks, plans, agendaNowMillis) {
+        buildAgendaProjection(tasks, plans, nowMillis = agendaNowMillis)
+    }
     val previewPlan = remember(projection) {
         (projection.waitingPlans + projection.upcomingPlans).minByOrNull { it.nextAt ?: Long.MAX_VALUE }
+    }
+    val hasPendingReminder = remember(tasks, plans, agendaNowMillis) {
+        tasks.any {
+            it.status == AgendaTaskStatus.PENDING &&
+                it.reminderAt?.let { reminderAt -> reminderAt > agendaNowMillis } == true
+        } || plans.any { plan ->
+            plan.stages.any {
+                it.status == AgendaPlanStageStatus.PENDING &&
+                    it.reminderAt?.let { reminderAt -> reminderAt > agendaNowMillis } == true
+            }
+        }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -103,17 +164,31 @@ internal fun AgendaOverviewSection() {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("我的事项", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    text = "${projection.actions.size} 项需处理 · ${projection.upcomingPlanCount} 个计划即将到来",
+                    text = "${projection.actions.size} 项需处理 · " +
+                        "${projection.inboxTasks.size} 项收件箱 · " +
+                        "${projection.upcomingPlanCount} 个计划即将到来",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             IconButton(onClick = {
-                editorTask = null
+                editorTaskId = null
                 editorOpen = true
             }) {
                 Icon(HugeIcons.Add01, contentDescription = "新增待办")
             }
+        }
+
+        if (hasPendingReminder && !notificationAccessGranted) {
+            ReminderNotificationPermissionCard(
+                onClick = {
+                    if (notificationPermission.allPermissionsGranted) {
+                        notificationPermission.openAppSettings()
+                    } else {
+                        notificationPermission.requestPermissions()
+                    }
+                },
+            )
         }
 
         projection.actions.take(2).forEach { action ->
@@ -122,7 +197,7 @@ internal fun AgendaOverviewSection() {
                 onOpen = {
                     when (action) {
                         is AgendaAction.Task -> {
-                            editorTask = action.task
+                            editorTaskId = action.task.id
                             editorOpen = true
                         }
                         is AgendaAction.PlanStage ->
@@ -140,6 +215,27 @@ internal fun AgendaOverviewSection() {
             )
         }
 
+        if (projection.inboxTasks.isNotEmpty()) {
+            Text(
+                "收件箱 · 无截止时间",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
+            )
+            projection.inboxTasks
+                .take(if (projection.actions.isEmpty()) 2 else 1)
+                .forEach { task ->
+                    TaskAgendaCard(
+                        task = task,
+                        onClick = {
+                            editorTaskId = it.id
+                            editorOpen = true
+                        },
+                        onToggle = { scope.launch { repository.setCompleted(it.id, true) } },
+                    )
+                }
+        }
+
         if (previewPlan != null) {
             CompactAgendaPlanCard(
                 plan = previewPlan.value,
@@ -147,7 +243,7 @@ internal fun AgendaOverviewSection() {
             )
         }
 
-        if (projection.actions.isEmpty() && previewPlan == null) {
+        if (projection.actions.isEmpty() && projection.inboxTasks.isEmpty() && previewPlan == null) {
             Text(
                 "当前没有需要处理的事项",
                 style = MaterialTheme.typography.bodySmall,
@@ -164,25 +260,31 @@ internal fun AgendaOverviewSection() {
         }
     }
 
-    if (editorOpen) {
+    if (editorOpen && (editorTaskId == null || editorTask != null)) {
         AgendaTaskEditorSheet(
             task = editorTask,
             onDismiss = { editorOpen = false },
             onSave = { title, note, dueAt, reminderEnabled ->
+                val task = editorTask
+                val save = resolveAgendaTaskSave(
+                    AgendaTaskSaveInput(
+                        title = title,
+                        note = note,
+                        dueAt = dueAt,
+                        reminderEnabled = reminderEnabled,
+                        originalDueAt = task?.dueAt,
+                        originalReminderAt = task?.reminderAt,
+                        quickInputEnabled = task == null,
+                    )
+                )
                 scope.launch {
-                    val parsed = if (dueAt == null) parseAgendaQuickInput(title) else null
-                    val finalTitle = parsed?.title?.ifBlank { title } ?: title
-                    val finalDueAt = dueAt ?: parsed?.dueAt
-                    val reminderAt = if (reminderEnabled) finalDueAt else null
-                    if (editorTask == null) {
-                        repository.create(finalTitle, note, finalDueAt, reminderAt)
+                    if (task == null) {
+                        repository.create(save.title, save.note, save.dueAt, save.reminderAt)
                     } else {
-                        repository.update(editorTask!!.id, finalTitle, note, finalDueAt, reminderAt)
+                        repository.update(task.id, save.title, save.note, save.dueAt, save.reminderAt)
                     }
-                    if (
-                        reminderEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                    ) {
-                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    if (save.reminderAt != null && !notificationPermission.allPermissionsGranted) {
+                        notificationPermission.requestPermissions()
                     }
                     editorOpen = false
                 }
@@ -196,6 +298,49 @@ internal fun AgendaOverviewSection() {
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun ReminderNotificationPermissionCard(
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                HugeIcons.Notification01,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    "通知权限未开启",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    "提醒已保存；开启后才会显示系统通知，且可能受节电策略延迟。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = onClick) {
+                Text("开启")
+            }
+        }
     }
 }
 
@@ -469,7 +614,10 @@ internal fun AgendaTaskEditorSheet(
     var note by remember(task?.id) { mutableStateOf(task?.note.orEmpty()) }
     var dueAt by remember(task?.id) { mutableStateOf(task?.dueAt) }
     var reminderEnabled by remember(task?.id) { mutableStateOf(task?.reminderAt != null) }
-    val reminderEligible = dueAt?.let { it > System.currentTimeMillis() } == true
+    var deleteConfirmationOpen by remember(task?.id) { mutableStateOf(false) }
+    val nowMillis = System.currentTimeMillis()
+    val existingReminderEligible = task?.reminderAt?.let { it > nowMillis } == true
+    val reminderEligible = dueAt?.let { it > nowMillis } == true || existingReminderEligible
 
     fun pickTime() {
         val initial = dueAt?.let { Instant.ofEpochMilli(it).atZone(zone) } ?: ZonedDateTime.now(zone).plusHours(1)
@@ -527,7 +675,9 @@ internal fun AgendaTaskEditorSheet(
                 if (dueAt != null) {
                     TextButton(onClick = {
                         dueAt = null
-                        reminderEnabled = false
+                        if (task?.reminderAt == task?.dueAt) {
+                            reminderEnabled = false
+                        }
                     }) { Text("清除") }
                 }
             }
@@ -537,9 +687,10 @@ internal fun AgendaTaskEditorSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Column {
-                    Text("到点提醒", style = MaterialTheme.typography.bodyLarge)
+                    Text("系统提醒", style = MaterialTheme.typography.bodyLarge)
                     Text(
                         when {
+                            dueAt == null && existingReminderEligible -> "保留原提醒时间"
                             dueAt == null -> "设置时间后可开启"
                             !reminderEligible -> "提醒时间需要晚于现在"
                             else -> "使用系统通知提醒"
@@ -559,13 +710,13 @@ internal fun AgendaTaskEditorSheet(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 onDelete?.let {
-                    OutlinedButton(onClick = it) {
+                    OutlinedButton(onClick = { deleteConfirmationOpen = true }) {
                         Icon(HugeIcons.Delete01, contentDescription = null)
                         Text("删除")
                     }
                 }
                 Button(
-                    onClick = { onSave(title, note, dueAt, reminderEnabled && reminderEligible) },
+                    onClick = { onSave(title, note, dueAt, reminderEnabled) },
                     modifier = Modifier.weight(1f),
                     enabled = title.isNotBlank(),
                 ) { Text("保存") }
@@ -578,6 +729,21 @@ internal fun AgendaTaskEditorSheet(
             )
         }
     }
+
+    RikkaConfirmDialog(
+        show = deleteConfirmationOpen,
+        title = "删除待办？",
+        confirmText = "删除",
+        dismissText = "返回",
+        onConfirm = {
+            deleteConfirmationOpen = false
+            onDelete?.invoke()
+        },
+        onDismiss = { deleteConfirmationOpen = false },
+        text = {
+            Text("这条待办会从本地事项中永久删除。")
+        },
+    )
 }
 
 private enum class AgendaGroupKind(val label: String) {
@@ -656,3 +822,4 @@ private fun formatTaskDateTime(value: Long): String = Instant.ofEpochMilli(value
 
 private val DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("M月d日 HH:mm")
 private val TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")
+private const val AGENDA_CLOCK_INTERVAL_MS = 60_000L
