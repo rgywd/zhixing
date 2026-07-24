@@ -104,8 +104,14 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     val errors by vm.errors.collectAsStateWithLifecycle()
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    var agendaDrawerVisible by rememberSaveable { mutableStateOf(false) }
+    val agendaDrawerState = rememberAgendaDrawerState(initialValue = DrawerValue.Closed)
     val softwareKeyboardController = LocalSoftwareKeyboardController.current
+    val openAgendaDrawer: () -> Unit = {
+        scope.launch {
+            if (drawerState.isOpen) drawerState.close()
+            agendaDrawerState.open(scope)
+        }
+    }
 
     // Handle back press when drawer is open
     BackHandler(enabled = drawerState.isOpen) {
@@ -115,8 +121,8 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     }
 
     // Hide keyboard when drawer is open
-    LaunchedEffect(drawerState.isOpen, agendaDrawerVisible) {
-        if (drawerState.isOpen || agendaDrawerVisible) {
+    LaunchedEffect(drawerState.isOpen, agendaDrawerState.isVisible) {
+        if (drawerState.isOpen || agendaDrawerState.isVisible) {
             softwareKeyboardController?.hide()
         }
     }
@@ -179,8 +185,7 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     }
 
     AgendaDrawerHost(
-        visible = agendaDrawerVisible,
-        onDismissRequest = { agendaDrawerVisible = false },
+        drawerState = agendaDrawerState,
     ) {
         when {
             isBigScreen -> {
@@ -208,7 +213,7 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
                         currentChatModel = currentChatModel,
                         bigScreen = true,
                         errors = errors,
-                        onOpenAgenda = { agendaDrawerVisible = true },
+                        onOpenAgenda = openAgendaDrawer,
                         onDismissError = { vm.dismissError(it) },
                         onClearAllErrors = { vm.clearAllErrors() },
                     )
@@ -241,18 +246,10 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
                         currentChatModel = currentChatModel,
                         bigScreen = false,
                         errors = errors,
-                        onOpenAgenda = {
-                            agendaDrawerVisible = true
-                            scope.launch {
-                                drawerState.close()
-                            }
-                        },
+                        onOpenAgenda = openAgendaDrawer,
                         onDismissError = { vm.dismissError(it) },
                         onClearAllErrors = { vm.clearAllErrors() },
                     )
-                }
-                BackHandler(drawerState.isOpen) {
-                    scope.launch { drawerState.close() }
                 }
             }
         }
@@ -301,10 +298,7 @@ private fun ChatPageContent(
     TTSAutoPlay(vm = vm, setting = setting, conversation = conversation)
 
     NativeChatScaffold(
-        modifier = Modifier.agendaSwipeGesture(
-            direction = AgendaSwipeDirection.OPEN,
-            onSwipe = onOpenAgenda,
-        ),
+        modifier = Modifier,
         background = {
             AssistantBackground(setting = setting, modifier = Modifier.hazeSource(hazeState))
         },
