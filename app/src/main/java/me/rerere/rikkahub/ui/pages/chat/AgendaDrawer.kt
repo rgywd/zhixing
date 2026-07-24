@@ -1,14 +1,10 @@
 package me.rerere.rikkahub.ui.pages.chat
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -22,26 +18,35 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerDefaults
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,11 +54,17 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.ChartColumn
@@ -85,55 +96,217 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+@Stable
+internal class AgendaDrawerState(
+    initialValue: DrawerValue,
+) {
+    private var offsetPx by mutableFloatStateOf(0f)
+    private var drawerWidthPx by mutableFloatStateOf(Float.NaN)
+    private var animationJob: Job? = null
+
+    var currentValue by mutableStateOf(initialValue)
+        private set
+    var targetValue by mutableStateOf(initialValue)
+        private set
+
+    val isOpen: Boolean
+        get() = currentValue == DrawerValue.Open
+
+    val isVisible: Boolean
+        get() = targetValue == DrawerValue.Open ||
+            currentValue == DrawerValue.Open ||
+            (drawerWidthPx.isFinite() && offsetPx < drawerWidthPx)
+
+    val currentOffset: Float
+        get() = offsetPx
+
+    val openFraction: Float
+        get() = if (drawerWidthPx.isFinite() && drawerWidthPx > 0f) {
+            (1f - offsetPx / drawerWidthPx).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+
+    val hasWidth: Boolean
+        get() = drawerWidthPx.isFinite() && drawerWidthPx > 0f
+
+    fun updateWidth(newWidthPx: Float) {
+        if (!newWidthPx.isFinite() || newWidthPx <= 0f || newWidthPx == drawerWidthPx) return
+        animationJob?.cancel()
+        val previousWidthPx = drawerWidthPx
+        val nextOffset = if (previousWidthPx.isFinite() && previousWidthPx > 0f) {
+            (offsetPx / previousWidthPx * newWidthPx).coerceIn(0f, newWidthPx)
+        } else if (targetValue == DrawerValue.Open) {
+            0f
+        } else {
+            newWidthPx
+        }
+        drawerWidthPx = newWidthPx
+        offsetPx = nextOffset
+        if (nextOffset == 0f) currentValue = DrawerValue.Open
+        if (nextOffset == newWidthPx) currentValue = DrawerValue.Closed
+    }
+
+    fun open(scope: CoroutineScope) {
+        animateTo(scope, DrawerValue.Open)
+    }
+
+    fun close(scope: CoroutineScope) {
+        animateTo(scope, DrawerValue.Closed)
+    }
+
+    fun beginDrag() {
+        animationJob?.cancel()
+        targetValue = currentValue
+    }
+
+    fun dragBy(deltaX: Float) {
+        if (!hasWidth) return
+        offsetPx = (offsetPx + deltaX).coerceIn(0f, drawerWidthPx)
+        targetValue = if (openFraction >= AGENDA_DRAWER_POSITIONAL_THRESHOLD) {
+            DrawerValue.Open
+        } else {
+            DrawerValue.Closed
+        }
+    }
+
+    fun settle(
+        scope: CoroutineScope,
+        velocityX: Float,
+        velocityThresholdPx: Float,
+    ) {
+        val target = if (
+            shouldOpenAgendaDrawer(
+                openFraction = openFraction,
+                velocityX = velocityX,
+                velocityThresholdPx = velocityThresholdPx,
+            )
+        ) {
+            DrawerValue.Open
+        } else {
+            DrawerValue.Closed
+        }
+        animateTo(scope, target, initialVelocity = velocityX)
+    }
+
+    private fun animateTo(
+        scope: CoroutineScope,
+        target: DrawerValue,
+        initialVelocity: Float = 0f,
+    ) {
+        targetValue = target
+        if (!hasWidth) return
+        animationJob?.cancel()
+        animationJob = scope.launch {
+            animate(
+                initialValue = offsetPx,
+                targetValue = if (target == DrawerValue.Open) 0f else drawerWidthPx,
+                initialVelocity = initialVelocity,
+                animationSpec = tween(durationMillis = AGENDA_DRAWER_ANIMATION_DURATION_MS),
+            ) { value, _ ->
+                offsetPx = value.coerceIn(0f, drawerWidthPx)
+            }
+            currentValue = target
+        }
+    }
+
+    companion object {
+        fun Saver(): Saver<AgendaDrawerState, DrawerValue> = Saver(
+            save = { state ->
+                if (state.openFraction >= AGENDA_DRAWER_POSITIONAL_THRESHOLD) {
+                    DrawerValue.Open
+                } else {
+                    DrawerValue.Closed
+                }
+            },
+            restore = ::AgendaDrawerState,
+        )
+    }
+}
+
 @Composable
-fun AgendaDrawerHost(
-    visible: Boolean,
-    onDismissRequest: () -> Unit,
+internal fun rememberAgendaDrawerState(
+    initialValue: DrawerValue = DrawerValue.Closed,
+): AgendaDrawerState = rememberSaveable(saver = AgendaDrawerState.Saver()) {
+    AgendaDrawerState(initialValue)
+}
+
+@Composable
+internal fun AgendaDrawerHost(
+    drawerState: AgendaDrawerState,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    BackHandler(enabled = visible, onBack = onDismissRequest)
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val velocityThresholdPx = with(density) { AGENDA_DRAWER_VELOCITY_THRESHOLD.toPx() }
+    BackHandler(enabled = drawerState.isVisible) {
+        drawerState.close(scope)
+    }
 
-    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .agendaDrawerDragGesture(
+                drawerState = drawerState,
+                animationScope = scope,
+                velocityThresholdPx = velocityThresholdPx,
+            ),
+    ) {
+        val drawerWidth = minOf(maxWidth * 0.88f, 360.dp)
+        val drawerWidthPx = with(density) { drawerWidth.toPx() }
+        SideEffect {
+            drawerState.updateWidth(drawerWidthPx)
+        }
+        val drawerActive by remember(drawerState) { derivedStateOf { drawerState.isVisible } }
+        val interactionSource = remember { MutableInteractionSource() }
+        val scrimColor = DrawerDefaults.scrimColor
+
         content()
 
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(animationSpec = tween(220)),
-            exit = fadeOut(animationSpec = tween(160)),
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (drawerActive) {
+                        Modifier.clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            role = Role.Button,
+                            onClickLabel = "关闭生活概览",
+                            onClick = { drawerState.close(scope) },
+                        )
+                    } else {
+                        Modifier
+                    }
+                ),
         ) {
-            val interactionSource = remember { MutableInteractionSource() }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.45f))
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = null,
-                        role = Role.Button,
-                        onClickLabel = "关闭生活概览",
-                        onClick = onDismissRequest,
-                    )
-            )
+            drawRect(scrimColor, alpha = drawerState.openFraction)
         }
 
-        val drawerWidth = minOf(maxWidth * 0.88f, 360.dp)
-        AnimatedVisibility(
-            visible = visible,
-            modifier = Modifier.align(Alignment.CenterEnd),
-            enter = slideInHorizontally(
-                initialOffsetX = { it },
-                animationSpec = tween(260),
-            ) + fadeIn(animationSpec = tween(180)),
-            exit = slideOutHorizontally(
-                targetOffsetX = { it },
-                animationSpec = tween(200),
-            ) + fadeOut(animationSpec = tween(140)),
+        ModalDrawerSheet(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .offset {
+                    IntOffset(
+                        x = if (drawerState.hasWidth) {
+                            drawerState.currentOffset.roundToInt()
+                        } else {
+                            drawerWidthPx.roundToInt()
+                        },
+                        y = 0,
+                    )
+                }
+                .width(drawerWidth),
+            drawerShape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
         ) {
-            LifeOverviewDrawerContent(
-                onClose = onDismissRequest,
-                modifier = Modifier.width(drawerWidth),
-            )
+            if (drawerActive) {
+                LifeOverviewDrawerContent(
+                    onClose = { drawerState.close(scope) },
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxHeight())
+            }
         }
     }
 }
@@ -148,44 +321,31 @@ private fun LifeOverviewDrawerContent(
     val quotaItems = remember(quotaState.envelope) { buildQuotaOverviews(quotaState.envelope) }
     LaunchedEffect(quotaRepository) { quotaRepository.refresh() }
 
-    Surface(
-        modifier = modifier
-            .fillMaxHeight()
-            .agendaSwipeGesture(
-                direction = AgendaSwipeDirection.CLOSE,
-                onSwipe = onClose,
-            ),
-        shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        tonalElevation = 1.dp,
-        shadowElevation = 8.dp,
-    ) {
-        Column(modifier = Modifier.safeDrawingPadding()) {
-            LifeOverviewHeader(onClose = onClose)
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                item(key = "status-title") {
-                    OverviewSectionTitle(
-                        title = "我的状态",
-                        subtitle = "理解身体、环境与安排中最值得注意的部分",
-                    )
-                }
-                item(key = "my-status") { MyStatusCard() }
+    Column(modifier = modifier.fillMaxHeight()) {
+        LifeOverviewHeader(onClose = onClose)
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            item(key = "status-title") {
+                OverviewSectionTitle(
+                    title = "我的状态",
+                    subtitle = "理解身体、环境与安排中最值得注意的部分",
+                )
+            }
+            item(key = "my-status") { MyStatusCard() }
 
-                item(key = "agenda") { AgendaOverviewSection() }
+            item(key = "agenda") { AgendaOverviewSection() }
 
-                item(key = "quota-title") {
-                    OverviewSectionTitle(
-                        title = "套餐余量",
-                        subtitle = quotaSectionSubtitle(quotaState),
-                    )
-                }
-                item(key = "quota-deck") {
-                    QuotaChannelDeck(quotaItems)
-                }
+            item(key = "quota-title") {
+                OverviewSectionTitle(
+                    title = "套餐余量",
+                    subtitle = quotaSectionSubtitle(quotaState),
+                )
+            }
+            item(key = "quota-deck") {
+                QuotaChannelDeck(quotaItems)
             }
         }
     }
@@ -790,50 +950,101 @@ private fun formatMinutes(value: Int): String = when {
 private val QUOTA_TIME_FORMATTER = DateTimeFormatter.ofPattern("M月d日 HH:mm")
 private val STATUS_TIME_FORMATTER = DateTimeFormatter.ofPattern("M月d日 HH:mm")
 private const val DAILY_STEP_GOAL = 10_000
+private const val AGENDA_DRAWER_POSITIONAL_THRESHOLD = 0.5f
+private const val AGENDA_DRAWER_ANIMATION_DURATION_MS = 256
+private val AGENDA_DRAWER_VELOCITY_THRESHOLD = 400.dp
 
-internal enum class AgendaSwipeDirection {
-    OPEN,
-    CLOSE,
+internal fun shouldOpenAgendaDrawer(
+    openFraction: Float,
+    velocityX: Float,
+    velocityThresholdPx: Float,
+): Boolean = when {
+    velocityX < -velocityThresholdPx -> true
+    velocityX > velocityThresholdPx -> false
+    else -> openFraction >= AGENDA_DRAWER_POSITIONAL_THRESHOLD
 }
 
-internal fun Modifier.agendaSwipeGesture(
-    direction: AgendaSwipeDirection,
-    onSwipe: () -> Unit,
-): Modifier = pointerInput(direction, onSwipe) {
-    val threshold = 64.dp.toPx()
+internal enum class AgendaDrawerDragDecision {
+    WAIT,
+    START,
+    IGNORE,
+}
+
+internal fun agendaDrawerDragDecision(
+    drawerVisible: Boolean,
+    totalX: Float,
+    totalY: Float,
+    touchSlop: Float,
+): AgendaDrawerDragDecision {
+    val horizontalGesture = abs(totalX) > touchSlop && abs(totalX) > abs(totalY)
+    val verticalGesture = abs(totalY) > touchSlop && abs(totalY) >= abs(totalX)
+    return when {
+        verticalGesture -> AgendaDrawerDragDecision.IGNORE
+        !horizontalGesture -> AgendaDrawerDragDecision.WAIT
+        drawerVisible || totalX < 0f -> AgendaDrawerDragDecision.START
+        else -> AgendaDrawerDragDecision.IGNORE
+    }
+}
+
+private fun Modifier.agendaDrawerDragGesture(
+    drawerState: AgendaDrawerState,
+    animationScope: CoroutineScope,
+    velocityThresholdPx: Float,
+): Modifier = pointerInput(drawerState, animationScope, velocityThresholdPx) {
     awaitEachGesture {
         val down = awaitFirstDown(
             requireUnconsumed = false,
             pass = PointerEventPass.Initial,
         )
+        val velocityTracker = VelocityTracker().apply {
+            addPosition(down.uptimeMillis, down.position)
+        }
         var totalX = 0f
         var totalY = 0f
+        var dragging = false
 
         while (true) {
             val event = awaitPointerEvent(PointerEventPass.Initial)
             val change = event.changes.firstOrNull { it.id == down.id } ?: break
-            val delta = change.position - change.previousPosition
-            totalX += delta.x
-            totalY += delta.y
-            if (isAgendaSwipeTriggered(direction, totalX, totalY, threshold)) {
-                change.consume()
-                onSwipe()
+            velocityTracker.addPosition(change.uptimeMillis, change.position)
+            val delta = change.positionChange()
+
+            if (!change.pressed) {
+                if (dragging) {
+                    drawerState.settle(
+                        scope = animationScope,
+                        velocityX = velocityTracker.calculateVelocity().x,
+                        velocityThresholdPx = velocityThresholdPx,
+                    )
+                }
                 break
             }
-            if (!change.pressed) break
+
+            if (dragging) {
+                drawerState.dragBy(delta.x)
+                change.consume()
+                continue
+            }
+
+            totalX += delta.x
+            totalY += delta.y
+            when (
+                agendaDrawerDragDecision(
+                    drawerVisible = drawerState.isVisible,
+                    totalX = totalX,
+                    totalY = totalY,
+                    touchSlop = viewConfiguration.touchSlop,
+                )
+            ) {
+                AgendaDrawerDragDecision.WAIT -> continue
+                AgendaDrawerDragDecision.IGNORE -> break
+                AgendaDrawerDragDecision.START -> {
+                    dragging = true
+                    drawerState.beginDrag()
+                    drawerState.dragBy(totalX)
+                    change.consume()
+                }
+            }
         }
     }
-}
-
-internal fun isAgendaSwipeTriggered(
-    direction: AgendaSwipeDirection,
-    totalX: Float,
-    totalY: Float,
-    threshold: Float,
-): Boolean {
-    val directionMatches = when (direction) {
-        AgendaSwipeDirection.OPEN -> totalX < 0f
-        AgendaSwipeDirection.CLOSE -> totalX > 0f
-    }
-    return directionMatches && abs(totalX) >= threshold && abs(totalX) > abs(totalY) * 1.25f
 }
