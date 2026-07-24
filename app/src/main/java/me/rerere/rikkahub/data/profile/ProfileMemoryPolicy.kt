@@ -8,6 +8,7 @@ import me.rerere.rikkahub.data.model.MemorySource
 import me.rerere.rikkahub.data.model.MemoryState
 import me.rerere.rikkahub.data.model.ProfileDimensions
 import me.rerere.rikkahub.data.model.ProfileEvidence
+import me.rerere.rikkahub.data.repository.memorySuppressionKey
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -63,6 +64,7 @@ internal data class ProfileEvidenceSource(
     val messageId: String,
     val text: String,
     val observedAt: Long,
+    val quoteSegments: List<String> = listOf(text),
 )
 
 internal data class ValidatedProfileObservation(
@@ -103,6 +105,9 @@ internal fun validateProfileObservation(
                 return@mapNotNull null
             }
             if (!source.text.contains(quote)) {
+                return@mapNotNull null
+            }
+            if (source.quoteSegments.none { segment -> segment.contains(quote) }) {
                 return@mapNotNull null
             }
             if (sensitiveMaterialPattern.containsMatchIn(quote)) return@mapNotNull null
@@ -168,14 +173,43 @@ internal fun isObservationStale(
     staleAfterDays: Int,
 ): Boolean = lastEvidenceAt > 0 && now - lastEvidenceAt >= TimeUnit.DAYS.toMillis(staleAfterDays.toLong())
 
+internal fun isSuppressedObservationCandidate(
+    candidate: ValidatedProfileObservation,
+    observations: Collection<AssistantMemory>,
+): Boolean = observations.any { observation ->
+    observation.kind == MemoryKind.OBSERVATION &&
+        observation.source == MemorySource.AUTO &&
+        observation.state == MemoryState.DELETED &&
+        (
+            observation.id == candidate.targetObservationId ||
+                (
+                    observation.dimensionId == candidate.dimensionId &&
+                        observation.canonicalKey.isNotBlank() &&
+                        observation.canonicalKey == candidate.canonicalKey.memorySuppressionKey()
+                    )
+            )
+}
+
+internal fun hasQualifiedProfileSupport(
+    profile: AssistantMemory,
+    qualifiedObservations: Collection<AssistantMemory>,
+): Boolean {
+    val qualifiedIds = qualifiedObservations.mapTo(hashSetOf(), AssistantMemory::id)
+    return if (profile.supportingObservationIds.isNotEmpty()) {
+        profile.supportingObservationIds.all(qualifiedIds::contains)
+    } else {
+        qualifiedObservations.any { it.dimensionId == profile.dimensionId }
+    }
+}
+
 internal fun duplicateAutoProfileIdsToArchive(
     memories: Collection<AssistantMemory>,
 ): Set<Int> = memories
     .filter {
-        it.kind == MemoryKind.PROFILE &&
+            it.kind == MemoryKind.PROFILE &&
             it.source == MemorySource.AUTO &&
             !it.locked &&
-            it.state != MemoryState.ARCHIVED &&
+            it.state !in setOf(MemoryState.ARCHIVED, MemoryState.DELETED) &&
             it.dimensionId in ProfileDimensions.builtIn
     }
     .groupBy(AssistantMemory::dimensionId)

@@ -1,7 +1,6 @@
 package me.rerere.rikkahub.data.profile
 
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
 import kotlinx.serialization.Serializable
@@ -9,6 +8,7 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.datastore.PROFILE_MAINTENANCE_PIPELINE_VERSION
 import me.rerere.rikkahub.data.datastore.ProfileMaintenanceConfig
 import me.rerere.rikkahub.data.datastore.ProfileMaintenanceStatus
@@ -22,6 +22,7 @@ import me.rerere.rikkahub.data.model.MemoryState
 import me.rerere.rikkahub.data.model.ProfileEvidence
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.ProfileMemoryMutationGate
 import me.rerere.rikkahub.service.backgroundTextGenerationParams
 import me.rerere.rikkahub.utils.JsonInstant
 
@@ -31,6 +32,32 @@ private const val MAX_CONVERSATION_INPUT_CHARS = 60_000
 private const val MAX_OBSERVATION_CANDIDATES_PER_RUN = 30
 private const val MAX_SUMMARIES_PER_RUN = 4
 private const val MAX_LIVE_OBSERVATIONS_PER_DIMENSION = 12
+
+internal data class SelectedProfileUserMessage(
+    val message: UIMessage,
+    val text: String,
+)
+
+internal fun selectRecentProfileUserMessages(
+    messages: List<UIMessage>,
+    charBudget: Int,
+): List<SelectedProfileUserMessage> {
+    var remaining = charBudget.coerceAtLeast(0)
+    return messages
+        .filter { it.role == MessageRole.USER }
+        .takeLast(MAX_MESSAGES_PER_CONVERSATION)
+        .asReversed()
+        .mapNotNull { message ->
+            if (remaining <= 0) return@mapNotNull null
+            val text = message.toText()
+                .take(minOf(MAX_MESSAGE_CHARS, remaining))
+                .trim()
+            if (text.isBlank()) return@mapNotNull null
+            remaining -= text.length
+            SelectedProfileUserMessage(message, text)
+        }
+        .asReversed()
+}
 
 internal fun parseProfileObservationResponse(raw: String): ProfileObservationResponse =
     JsonInstant.decodeFromString(extractJsonObject(raw))
@@ -56,16 +83,7 @@ data class ProfileMaintenanceResult(
 )
 
 internal object ProfileMaintenanceRunGate {
-    private val mutex = Mutex()
-
-    suspend fun <T> run(block: suspend () -> T): T {
-        mutex.lock()
-        return try {
-            block()
-        } finally {
-            mutex.unlock()
-        }
-    }
+    suspend fun <T> run(block: suspend () -> T): T = ProfileMemoryMutationGate.run(block)
 }
 
 class ProfileMaintenanceService(
@@ -186,13 +204,17 @@ class ProfileMaintenanceService(
         val model = settings.findModelById(settings.fastModelId) ?: error("Fast model is not configured")
         val provider = model.findProvider(settings.providers) ?: error("Provider for fast model is not configured")
         val providerHandler = providerManager.getProviderByType(provider)
-        val allGlobalMemories = memoryRepository.getAllGlobalMemoriesFlow().first()
-        val existingProfiles = allGlobalMemories.filter { it.kind == MemoryKind.PROFILE }
+        val allGlobalMemories = memoryRepository.getProfileMaintenanceMemories()
+        val existingProfiles = allGlobalMemories.filter {
+            it.kind == MemoryKind.PROFILE && it.state != MemoryState.DELETED
+        }
         val observations = allGlobalMemories
             .filter { it.kind == MemoryKind.OBSERVATION && it.source == MemorySource.AUTO }
             .toMutableList()
 
-        val activeObservations = observations.filter { it.state != MemoryState.ARCHIVED }
+        val activeObservations = observations.filter {
+            it.state !in setOf(MemoryState.ARCHIVED, MemoryState.DELETED)
+        }
         val batch = prepareConversationBatch(conversations)
         if (batch.inputs.none { it.messages.isNotEmpty() }) {
             return ProfileMaintenanceResult(conversations.size, 0, 0, 0, conversations.size)
@@ -220,6 +242,10 @@ class ProfileMaintenanceService(
                     existingObservationIds = knownObservations.keys,
                 )
                 if (candidate == null) {
+                    skipped++
+                    return@forEach
+                }
+                if (isSuppressedObservationCandidate(candidate, knownObservations.values)) {
                     skipped++
                     return@forEach
                 }
@@ -350,15 +376,13 @@ class ProfileMaintenanceService(
     private suspend fun refreshStoredPipeline(
         config: ProfileMaintenanceConfig,
     ) {
-        val memories = archiveDuplicateAutoProfiles(
-            memoryRepository.getAllGlobalMemoriesFlow().first()
-        )
+        val memories = archiveDuplicateAutoProfiles(memoryRepository.getProfileMaintenanceMemories())
         val observations = memories.filter {
             it.kind == MemoryKind.OBSERVATION && it.source == MemorySource.AUTO
         }
         val now = System.currentTimeMillis()
         val refreshed = observations.map { observation ->
-            if (observation.state == MemoryState.ARCHIVED) {
+            if (observation.state in setOf(MemoryState.ARCHIVED, MemoryState.DELETED)) {
                 observation
             } else if (isObservationStale(observation.lastEvidenceAt, now, config.staleAfterDays)) {
                 memoryRepository.updateState(observation.id, MemoryState.ARCHIVED)
@@ -408,10 +432,10 @@ class ProfileMaintenanceService(
         profiles: List<AssistantMemory>,
         qualifiedObservations: Collection<AssistantMemory>,
     ) {
-        val qualifiedDimensions = qualifiedObservations.mapTo(hashSetOf(), AssistantMemory::dimensionId)
         profiles.filter {
             it.source == MemorySource.AUTO && !it.locked &&
-                it.state != MemoryState.ARCHIVED && it.dimensionId !in qualifiedDimensions
+                it.state !in setOf(MemoryState.ARCHIVED, MemoryState.DELETED) &&
+                !hasQualifiedProfileSupport(it, qualifiedObservations)
         }.forEach { memoryRepository.updateState(it.id, MemoryState.ARCHIVED) }
     }
 
@@ -419,7 +443,7 @@ class ProfileMaintenanceService(
         observations: MutableMap<Int, AssistantMemory>,
     ) {
         observations.values
-            .filter { it.state != MemoryState.ARCHIVED }
+            .filter { it.state in setOf(MemoryState.ACTIVE, MemoryState.PENDING) }
             .groupBy(AssistantMemory::dimensionId)
             .values
             .flatMap { dimensionObservations ->
@@ -442,10 +466,12 @@ class ProfileMaintenanceService(
         observations: Collection<AssistantMemory>,
     ): AssistantMemory? {
         candidate.targetObservationId?.let { id ->
-            return observations.firstOrNull { it.id == id && it.state != MemoryState.ARCHIVED }
+            return observations.firstOrNull {
+                it.id == id && it.state in setOf(MemoryState.ACTIVE, MemoryState.PENDING)
+            }
         }
         return observations.firstOrNull {
-            it.state != MemoryState.ARCHIVED &&
+            it.state in setOf(MemoryState.ACTIVE, MemoryState.PENDING) &&
                 it.dimensionId == candidate.dimensionId && it.canonicalKey == candidate.canonicalKey
         }
     }
@@ -543,7 +569,8 @@ class ProfileMaintenanceService(
         append(
             JsonInstant.encodeToString(
                 profiles.filter {
-                    it.source == MemorySource.AUTO && !it.locked && it.state != MemoryState.ARCHIVED
+                    it.source == MemorySource.AUTO && !it.locked &&
+                        it.state !in setOf(MemoryState.ARCHIVED, MemoryState.DELETED)
                 }.map {
                     ProfileCanonicalInput(it.dimensionId, it.content)
                 }
@@ -558,29 +585,28 @@ class ProfileMaintenanceService(
         val evidenceSources = linkedMapOf<String, ProfileEvidenceSource>()
         val inputs = conversations.map { conversation ->
             val conversationBudget = (MAX_CONVERSATION_INPUT_CHARS / conversations.size).coerceAtLeast(400)
-            var conversationRemaining = minOf(conversationBudget, totalRemaining)
-            val messages = conversation.currentMessages
-                .filter { it.role == MessageRole.USER }
-                .takeLast(MAX_MESSAGES_PER_CONVERSATION)
-                .mapNotNull { message ->
-                    if (conversationRemaining <= 0 || totalRemaining <= 0) return@mapNotNull null
-                    val text = message.summaryAsText(MAX_MESSAGE_CHARS)
-                        .take(minOf(conversationRemaining, totalRemaining))
-                        .trim()
-                    if (text.isBlank()) return@mapNotNull null
-                    conversationRemaining -= text.length
-                    totalRemaining -= text.length
-                    val messageId = message.id.toString()
-                    evidenceSources[messageId] = ProfileEvidenceSource(
-                        conversationId = conversation.id.toString(),
-                        messageId = messageId,
-                        text = text,
-                        observedAt = message.createdAt
-                            .toInstant(TimeZone.currentSystemDefault())
-                            .toEpochMilliseconds(),
-                    )
-                    ProfileMessageInput(messageId = messageId, text = text)
-                }
+            val selectedMessages = selectRecentProfileUserMessages(
+                messages = conversation.currentMessages,
+                charBudget = minOf(conversationBudget, totalRemaining),
+            )
+            totalRemaining -= selectedMessages.sumOf { it.text.length }
+            val messages = selectedMessages.map { selected ->
+                val message = selected.message
+                val text = selected.text
+                val messageId = message.id.toString()
+                evidenceSources[messageId] = ProfileEvidenceSource(
+                    conversationId = conversation.id.toString(),
+                    messageId = messageId,
+                    text = text,
+                    observedAt = message.createdAt
+                        .toInstant(TimeZone.currentSystemDefault())
+                        .toEpochMilliseconds(),
+                    quoteSegments = message.parts
+                        .filterIsInstance<UIMessagePart.Text>()
+                        .map(UIMessagePart.Text::text),
+                )
+                ProfileMessageInput(messageId = messageId, text = text)
+            }
             ProfileConversationInput(
                 id = conversation.id.toString(),
                 title = conversation.title,

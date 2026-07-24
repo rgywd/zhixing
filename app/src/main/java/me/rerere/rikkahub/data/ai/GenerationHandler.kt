@@ -47,6 +47,7 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.MemoryState
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemoryToolScope
 import me.rerere.rikkahub.utils.applyPlaceholders
 import java.util.Locale
 import kotlin.time.Clock
@@ -55,6 +56,25 @@ import kotlin.uuid.Uuid
 private const val TAG = "GenerationHandler"
 private const val MAX_TOOL_OUTPUT_CHARS = 32 * 1024
 private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
+
+internal fun toolExecutionLogMessage(toolName: String) = "generateText: executing tool $toolName"
+
+internal class MemoryPromptSnapshot(initialMemories: List<AssistantMemory>) {
+    private var currentMemories = initialMemories
+    private var invalidated = false
+
+    fun invalidate() {
+        invalidated = true
+    }
+
+    suspend fun resolve(refresh: suspend () -> List<AssistantMemory>): List<AssistantMemory> {
+        if (invalidated) {
+            currentMemories = refresh()
+            invalidated = false
+        }
+        return currentMemories
+    }
+}
 
 @Serializable
 sealed interface GenerationChunk {
@@ -89,35 +109,53 @@ class GenerationHandler(
         val providerImpl = providerManager.getProviderByType(provider)
 
         var messages: List<UIMessage> = messages
+        val memoryAssistantId = if (assistant.enableMemory) {
+            if (assistant.useGlobalMemory) MemoryRepository.GLOBAL_MEMORY_ID else assistant.id.toString()
+        } else {
+            null
+        }
+        val memoryPromptSnapshot = MemoryPromptSnapshot(memories.orEmpty())
 
         for (stepIndex in 0 until maxSteps) {
             Log.i(TAG, "streamText: start step #$stepIndex (${model.id})")
+            val promptMemories = if (memoryAssistantId != null) {
+                memoryPromptSnapshot.resolve {
+                    memoryRepo.getPromptMemories(memoryAssistantId)
+                }
+            } else {
+                emptyList()
+            }
 
             val toolsInternal = buildList {
                 Log.i(TAG, "generateInternal: build tools($assistant)")
-                if (assistant?.enableMemory == true) {
-                    val memoryAssistantId = if (assistant.useGlobalMemory) {
-                        MemoryRepository.GLOBAL_MEMORY_ID
-                    } else {
-                        assistant.id.toString()
-                    }
+                if (memoryAssistantId != null) {
+                    val memoryToolScope = MemoryToolScope(memoryAssistantId)
                     buildMemoryTools(
                         json = json,
-                        onCreation = { kind, content ->
-                            memoryRepo.addMemory(memoryAssistantId, content, kind)
+                        onCreation = { kind, content, dimensionId ->
+                            memoryRepo.addMemory(
+                                assistantId = memoryAssistantId,
+                                content = content,
+                                kind = kind,
+                                dimensionId = dimensionId,
+                            ).also { memoryPromptSnapshot.invalidate() }
                         },
                         onUpdate = { id, content ->
-                            memoryRepo.updateContent(id, content)
+                            memoryRepo.updateToolMemoryContent(memoryToolScope, id, content)
+                                .also { memoryPromptSnapshot.invalidate() }
                         },
                         onStateChange = { id, state ->
-                            if (state == MemoryState.ARCHIVED) {
-                                memoryRepo.archiveMemory(id)
+                            val updatedMemory = if (state == MemoryState.ARCHIVED) {
+                                memoryRepo.archiveToolMemory(memoryToolScope, id)
                             } else {
-                                memoryRepo.updateState(id, state)
+                                memoryRepo.restoreToolMemory(memoryToolScope, id)
                             }
+                            memoryPromptSnapshot.invalidate()
+                            updatedMemory
                         },
                         onDelete = { id ->
-                            memoryRepo.deleteMemory(id)
+                            memoryRepo.deleteToolMemory(memoryToolScope, id)
+                            memoryPromptSnapshot.invalidate()
                         }
                     ).let(this::addAll)
                 }
@@ -162,7 +200,7 @@ class GenerationHandler(
                     providerImpl = providerImpl,
                     provider = provider,
                     tools = toolsInternal,
-                    memories = memories ?: emptyList(),
+                    memories = promptMemories,
                     stream = assistant.streamOutput,
                     processingStatus = processingStatus,
                     conversationSystemPrompt = conversationSystemPrompt,
@@ -291,7 +329,7 @@ class GenerationHandler(
                             }.getOrElse {
                                 error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}")
                             }
-                            Log.i(TAG, "generateText: executing tool ${toolDef.name} with args: $args")
+                            Log.i(TAG, toolExecutionLogMessage(toolDef.name))
                             val result = toolDef.execute(args)
                             val hasShellAccess = toolsInternal.any { it.name == "workspace_shell" }
                             executedTools += tool.copy(

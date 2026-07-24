@@ -98,6 +98,7 @@ enum class MemoryState {
     ACTIVE,
     PENDING,
     ARCHIVED,
+    DELETED,
 }
 
 @Serializable

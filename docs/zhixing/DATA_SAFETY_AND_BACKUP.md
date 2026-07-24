@@ -22,17 +22,24 @@
 - v38→v39 只新增长期计划和阶段表及索引，保留既有待办与其他用户数据。
 - Workspace 用户文件位于 `files/workspaces/<root>/files`，与可替换的 `linux` RootFS 分离。
 - WebDAV、S3、手动导入导出和备份提醒已有基础实现。
+- WebDAV/S3 新建数据库备份使用 `zhixing.db`、`zhixing-wal`、`zhixing-shm`；恢复优先识别该命名，
+  同时将旧备份中的 `rikka_hub.db`、`rikka_hub-wal`、`rikka_hub-shm` 映射回当前逻辑库。
+- 数据库恢复先解压到 cache staging，以应用同一套 Room、迁移链和 SQLite 扩展真实打开并校验 schema，
+  再执行 SQLite `quick_check`，关闭活库 Room 后替换主库；替换前保留
+  rollback 副本，缺失的 WAL/SHM 会清除旧 sidecar，安装失败时尝试恢复原库。Room 一旦关闭，无论安装
+  成功或失败，界面都会要求立即重启应用。
 
 P0 缺口：
 
 | 缺口 | 风险 |
 | --- | --- |
-| WebDAV/S3 仍读写旧数据库名 `rikka_hub` | 实际 `zhixing` 数据库可能未进入备份或恢复 |
 | FILES 备份未覆盖 `files/workspaces/` | Workspace 与知识原文可能遗漏 |
 | 定时备份只是提醒，没有后台备份 Worker | 用户以为有自动保护但实际未执行 |
 | 同步凭据尚未完成 Keystore 边界 | Secret 保护不足 |
 | 缺少公开版本到当前版本的完整升级测试 | 覆盖升级安全没有机器证据 |
 | 备份缺少统一 manifest、哈希、读回校验和恢复演练 | 无法证明备份真的可恢复 |
+| Settings、FILES 与数据库尚未形成统一 staging/回滚事务，FILES 路径校验未统一 | 整包恢复中途失败仍可能产生部分恢复 |
+| 数据库主库/WAL/SHM 仍是进程内多文件替换，启动时未自动接管中断遗留的 rollback 目录 | 替换窗口内进程退出仍需恢复机制 |
 
 以上缺口闭环前，不得把现有 WebDAV/S3 描述为完整灾难恢复。
 
@@ -95,7 +102,8 @@ P0 缺口：
 
 实施顺序：
 
-1. **P0：修正事实错误。** 统一数据库名兼容、覆盖 Workspace 文件、保护同步凭据。
+1. **P0：修正事实错误。** 覆盖 Workspace 文件、保护同步凭据，并统一 Settings、FILES 与数据库的
+   staging、路径校验、整包提交和失败回滚。
 2. **P1：可恢复升级。** 增加升级前快照、manifest、校验、恢复模式和设备升级测试。
 3. **P2：自动加密备份。** 增加 BackupCoordinator、Worker、读回校验、恢复码和恢复演练。
 

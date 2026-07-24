@@ -24,6 +24,9 @@ interface MemoryDAO {
     @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId ORDER BY updated_at DESC, id DESC")
     fun getAllMemoriesOfAssistantFlow(assistantId: String): Flow<List<MemoryEntity>>
 
+    @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId ORDER BY updated_at DESC, id DESC")
+    suspend fun getAllMemoriesOfAssistant(assistantId: String): List<MemoryEntity>
+
     @Query(
         """
         SELECT * FROM memoryentity
@@ -37,11 +40,17 @@ interface MemoryDAO {
     @Query("SELECT * FROM memoryentity WHERE id = :id")
     suspend fun getMemoryById(id: Int): MemoryEntity?
 
+    @Query("SELECT * FROM memoryentity WHERE id IN (:ids)")
+    suspend fun getMemoriesByIds(ids: List<Int>): List<MemoryEntity>
+
     @Insert
     suspend fun insertMemory(memory: MemoryEntity): Long
 
     @Update
     suspend fun updateMemory(memory: MemoryEntity)
+
+    @Update
+    suspend fun updateMemories(memories: List<MemoryEntity>)
 
     @Query("DELETE FROM memoryentity WHERE id = :id")
     suspend fun deleteMemory(id: Int)

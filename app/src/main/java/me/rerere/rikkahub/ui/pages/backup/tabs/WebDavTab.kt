@@ -56,6 +56,7 @@ import com.dokar.sonner.ToastType
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.WebDavConfig
+import me.rerere.rikkahub.data.sync.DatabaseRestoreRequiresRestartException
 import me.rerere.rikkahub.data.sync.webdav.WebDavBackupItem
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -367,6 +368,9 @@ fun WebDavTab(
                                             onShowRestartDialog()
                                         }.onFailure { err ->
                                             err.printStackTrace()
+                                            if (err is DatabaseRestoreRequiresRestartException) {
+                                                onShowRestartDialog()
+                                            }
                                             toaster.show(
                                                 resources.getString(
                                                     R.string.backup_page_restore_failed,

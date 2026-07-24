@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.dokar.sonner.ToastType
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.sync.DatabaseRestoreRequiresRestartException
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.StickyHeader
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -160,6 +161,9 @@ fun ImportExportTab(
                     onShowRestartDialog()
                 }.onFailure { e ->
                     e.printStackTrace()
+                    if (e is DatabaseRestoreRequiresRestartException) {
+                        onShowRestartDialog()
+                    }
                     toaster.show(
                         resources.getString(R.string.backup_page_restore_failed, e.message ?: ""),
                         type = ToastType.Error

@@ -34,6 +34,9 @@ import kotlin.uuid.Uuid
 
 private const val TAG = "AssistantDetailVM"
 
+internal fun memoryDimensionIdForCreate(memory: AssistantMemory): String =
+    if (memory.kind == MemoryKind.PROFILE) memory.dimensionId else ""
+
 class AssistantDetailVM(
     private val id: String,
     private val settingsStore: SettingsStore,
@@ -236,6 +239,7 @@ class AssistantDetailVM(
                 assistantId = memoryAssistantId,
                 content = memory.content,
                 kind = memory.kind,
+                dimensionId = memoryDimensionIdForCreate(memory),
             )
         }
     }

@@ -1,15 +1,10 @@
 package me.rerere.rikkahub.di
 
-import androidx.room.Room
-import androidx.room.RoomDatabase
-import androidx.sqlite.db.SupportSQLiteDatabase
 import android.content.Context
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.http.HttpHeaders
 import io.pebbletemplates.pebble.PebbleEngine
-import io.requery.android.database.sqlite.RequerySQLiteOpenHelperFactory
-import io.requery.android.database.sqlite.SQLiteCustomExtension
 import kotlinx.serialization.json.Json
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.common.http.AcceptLanguageBuilder
@@ -22,18 +17,8 @@ import me.rerere.rikkahub.data.ai.GenerationHandler
 import me.rerere.rikkahub.data.ai.transformers.TemplateTransformer
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.db.AppDatabase
+import me.rerere.rikkahub.data.db.createAppDatabase
 import me.rerere.rikkahub.data.db.fts.MessageFtsManager
-import me.rerere.rikkahub.data.db.fts.SimpleDictManager
-import me.rerere.rikkahub.data.db.migrations.Migration_6_7
-import me.rerere.rikkahub.data.db.migrations.Migration_11_12
-import me.rerere.rikkahub.data.db.migrations.Migration_13_14
-import me.rerere.rikkahub.data.db.migrations.Migration_14_15
-import me.rerere.rikkahub.data.db.migrations.Migration_15_16
-import me.rerere.rikkahub.data.db.migrations.Migration_32_33
-import me.rerere.rikkahub.data.db.migrations.Migration_33_34
-import me.rerere.rikkahub.data.db.migrations.Migration_36_37
-import me.rerere.rikkahub.data.db.migrations.Migration_37_38
-import me.rerere.rikkahub.data.db.migrations.Migration_38_39
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.sync.webdav.WebDavSync
 import me.rerere.search.SearchService
@@ -57,65 +42,7 @@ val dataSourceModule = module {
 
     single {
         val context: Context = get()
-        Room.databaseBuilder(context, AppDatabase::class.java, "zhixing")
-            .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
-            .addMigrations(
-                Migration_6_7,
-                Migration_11_12,
-                Migration_13_14,
-                Migration_14_15,
-                Migration_15_16,
-                Migration_32_33,
-                Migration_33_34,
-                Migration_36_37,
-                Migration_37_38,
-                Migration_38_39,
-            )
-            .addCallback(object : RoomDatabase.Callback() {
-                override fun onOpen(db: SupportSQLiteDatabase) {
-                    val dictDir = SimpleDictManager.extractDict(context)
-                    val cursor = db.query("SELECT jieba_dict(?)", arrayOf(dictDir.absolutePath))
-                    cursor.use {
-                        if (it.moveToFirst()) {
-                            val result = it.getString(0)
-                            val success = result?.trimEnd('/') == dictDir.absolutePath.trimEnd('/')
-                            if (!success) {
-                                android.util.Log.e(
-                                    "DataSourceModule",
-                                    "jieba_dict failed: $result, path=${dictDir.absolutePath}"
-                                )
-                            }
-                        }
-                    }
-                    db.execSQL(
-                        """
-                        CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
-                            text,
-                            node_id UNINDEXED,
-                            message_id UNINDEXED,
-                            conversation_id UNINDEXED,
-                            title UNINDEXED,
-                            update_at UNINDEXED,
-                            tokenize = 'simple'
-                        )
-                        """.trimIndent()
-                    )
-                }
-            })
-            .openHelperFactory(
-                RequerySQLiteOpenHelperFactory(
-                    listOf(
-                RequerySQLiteOpenHelperFactory.ConfigurationOptions { options ->
-                    options.customExtensions.add(
-                        SQLiteCustomExtension(
-                            context.applicationInfo.nativeLibraryDir + "/libsimple",
-                            null
-                        )
-                    )
-                    options
-                }
-            )))
-            .build()
+        createAppDatabase(context = context)
     }
 
     single {
@@ -244,7 +171,8 @@ val dataSourceModule = module {
             settingsStore = get(),
             json = get(),
             context = get(),
-            httpClient = get()
+            httpClient = get(),
+            database = get(),
         )
     }
 
@@ -268,7 +196,8 @@ val dataSourceModule = module {
             settingsStore = get(),
             json = get(),
             context = get(),
-            httpClient = get()
+            httpClient = get(),
+            database = get(),
         )
     }
 
