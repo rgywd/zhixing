@@ -93,7 +93,7 @@ val appModule = module {
     single { TodayOverviewProvider(get(), get(), get(), get()) }
 
     single {
-        LocalTools(get(), get(), get(), get(), get(), get())
+        LocalTools(get(), get(), get(), get(), get(), get(), get())
     }
 
     single { GitHubIssueCredentialStore(get()) }

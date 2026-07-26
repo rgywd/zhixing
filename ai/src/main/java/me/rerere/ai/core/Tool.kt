@@ -14,6 +14,11 @@ data class Tool(
     val description: String,
     val parameters: () -> InputSchema? = { null },
     val systemPrompt: (model: Model, messages: List<UIMessage>) -> String = { _, _ -> "" },
+    /**
+     * Must be deterministic and fail closed. Applied before tool input enters app state or storage;
+     * the sanitized value is also used for approval and execution, so required fields must be preserved.
+     */
+    val sanitizeInputForStorage: (String) -> String = { it },
     val needsApproval: (JsonElement) -> Boolean = { false },
     val execute: suspend (JsonElement) -> List<UIMessagePart>
 )
@@ -25,5 +30,6 @@ sealed class InputSchema {
     data class Obj(
         val properties: JsonObject,
         val required: List<String>? = null,
+        val additionalProperties: Boolean? = null,
     ) : InputSchema()
 }

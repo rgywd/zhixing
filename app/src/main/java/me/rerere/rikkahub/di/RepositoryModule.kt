@@ -16,6 +16,7 @@ import me.rerere.rikkahub.data.repository.FolderRepository
 import me.rerere.rikkahub.data.repository.FilesRepository
 import me.rerere.rikkahub.data.repository.GenMediaRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MonthlyLedgerRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.knowledge.KnowledgeSpaceService
 import me.rerere.workspace.ProotShellRunner
@@ -33,6 +34,8 @@ val repositoryModule = module {
     single<AgendaPlanReminderGateway> { AgendaPlanReminderScheduler(get()) }
 
     single { AgendaPlanRepository(get(), get()) }
+
+    single { MonthlyLedgerRepository(get()) }
 
     single { DeviceCalendarRepository(get()) }
 

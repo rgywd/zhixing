@@ -59,6 +59,28 @@ private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
 
 internal fun toolExecutionLogMessage(toolName: String) = "generateText: executing tool $toolName"
 
+internal fun sanitizeToolInputsForStorage(
+    messages: List<UIMessage>,
+    tools: List<Tool>,
+): List<UIMessage> {
+    val toolsByName = tools.associateBy(Tool::name)
+    return messages.map { message ->
+        message.copy(
+            parts = message.parts.map partsLoop@{ part ->
+                if (part is UIMessagePart.Tool) {
+                    val tool = toolsByName[part.toolName] ?: return@partsLoop part
+                    val sanitizedInput = runCatching {
+                        tool.sanitizeInputForStorage(part.input)
+                    }.getOrDefault("{}")
+                    part.copy(input = sanitizedInput)
+                } else {
+                    part
+                }
+            },
+        )
+    }
+}
+
 internal class MemoryPromptSnapshot(initialMemories: List<AssistantMemory>) {
     private var currentMemories = initialMemories
     private var invalidated = false
@@ -108,7 +130,7 @@ class GenerationHandler(
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
         val providerImpl = providerManager.getProviderByType(provider)
 
-        var messages: List<UIMessage> = messages
+        var messages: List<UIMessage> = sanitizeToolInputsForStorage(messages, tools)
         val memoryAssistantId = if (assistant.enableMemory) {
             if (assistant.useGlobalMemory) MemoryRepository.GLOBAL_MEMORY_ID else assistant.id.toString()
         } else {
@@ -176,7 +198,7 @@ class GenerationHandler(
                     settings = settings,
                     messages = messages,
                     onUpdateMessages = {
-                        messages = it.transforms(
+                        messages = sanitizeToolInputsForStorage(it, toolsInternal).transforms(
                             transformers = outputTransformers,
                             context = context,
                             model = model,

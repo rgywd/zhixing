@@ -15,6 +15,7 @@ import me.rerere.rikkahub.data.db.dao.GenMediaDAO
 import me.rerere.rikkahub.data.db.dao.ManagedFileDAO
 import me.rerere.rikkahub.data.db.dao.MemoryDAO
 import me.rerere.rikkahub.data.db.dao.MessageNodeDAO
+import me.rerere.rikkahub.data.db.dao.MonthlyLedgerDAO
 import me.rerere.rikkahub.data.db.dao.PhoneWorkDAO
 import me.rerere.rikkahub.data.db.dao.WorkspaceDAO
 import me.rerere.rikkahub.data.db.entity.AgendaPlanEntity
@@ -27,6 +28,8 @@ import me.rerere.rikkahub.data.db.entity.GenMediaEntity
 import me.rerere.rikkahub.data.db.entity.ManagedFileEntity
 import me.rerere.rikkahub.data.db.entity.MemoryEntity
 import me.rerere.rikkahub.data.db.entity.MessageNodeEntity
+import me.rerere.rikkahub.data.db.entity.MonthlyLedgerChannelEntity
+import me.rerere.rikkahub.data.db.entity.MonthlyLedgerSummaryEntity
 import me.rerere.rikkahub.data.db.entity.PhoneWorkEventEntity
 import me.rerere.rikkahub.data.db.entity.PhoneWorkSessionEntity
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
@@ -37,7 +40,7 @@ import me.rerere.rikkahub.data.db.migrations.Migration_8_9
 import me.rerere.rikkahub.utils.JsonInstant
 
 internal const val APP_DATABASE_NAME = "zhixing"
-internal const val APP_DATABASE_VERSION = 40
+internal const val APP_DATABASE_VERSION = 41
 
 @Database(
     entities = [
@@ -54,6 +57,8 @@ internal const val APP_DATABASE_VERSION = 40
         AgendaTaskEntity::class,
         AgendaPlanEntity::class,
         AgendaPlanStageEntity::class,
+        MonthlyLedgerSummaryEntity::class,
+        MonthlyLedgerChannelEntity::class,
     ],
     version = APP_DATABASE_VERSION,
     autoMigrations = [
@@ -110,6 +115,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun agendaTaskDao(): AgendaTaskDAO
 
     abstract fun agendaPlanDao(): AgendaPlanDAO
+
+    abstract fun monthlyLedgerDao(): MonthlyLedgerDAO
 }
 
 object TokenUsageConverter {

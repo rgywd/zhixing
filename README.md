@@ -53,7 +53,7 @@ Android 的安全机制仍会要求用户在安装新版本时进行系统确认
 ## 验证
 
 ```powershell
-./gradlew.bat :app:testDebugUnitTest --tests me.rerere.rikkahub.AppIdentityTest --tests me.rerere.rikkahub.utils.UpdateCheckerTest
+./gradlew.bat :app:testStagingUnitTest --tests me.rerere.rikkahub.AppIdentityTest --tests me.rerere.rikkahub.utils.UpdateCheckerTest
 ./gradlew.bat :app:assembleDebug
 ```
 
