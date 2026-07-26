@@ -17,6 +17,49 @@ function parseJson(value, fallback = null) {
   return JSON.parse(value);
 }
 
+function normalizeRuntimeCatalog(repo) {
+  const advertised = Array.isArray(repo.runtimes) ? repo.runtimes : [];
+  const runtimes = advertised.length
+    ? advertised
+    : [{
+      id: "codex",
+      name: "Codex",
+      models: repo.models ?? [],
+      reasoningEfforts: repo.reasoningEfforts ?? [],
+    }];
+  const seen = new Set();
+  return runtimes.map((runtime) => {
+    const normalized = {
+      id: String(runtime.id ?? "").trim(),
+      name: String(runtime.name ?? runtime.id ?? "").trim(),
+      models: [...new Set((runtime.models ?? []).map(String).filter(Boolean))],
+      reasoningEfforts: [...new Set((runtime.reasoningEfforts ?? []).map(String).filter(Boolean))],
+    };
+    if (
+      !normalized.id
+      || !normalized.name
+      || !normalized.models.length
+      || !normalized.reasoningEfforts.length
+      || seen.has(normalized.id)
+    ) {
+      throw Object.assign(new Error("Runner advertised an invalid runtime catalog"), { statusCode: 400 });
+    }
+    seen.add(normalized.id);
+    return normalized;
+  });
+}
+
+function runtimeCatalogFromRow(row) {
+  const runtimes = parseJson(row.runtimes_json, []);
+  if (Array.isArray(runtimes) && runtimes.length) return runtimes;
+  return [{
+    id: "codex",
+    name: "Codex",
+    models: parseJson(row.models_json, []),
+    reasoningEfforts: parseJson(row.efforts_json, []),
+  }];
+}
+
 function id(prefix) {
   return `${prefix}_${randomUUID()}`;
 }
@@ -53,6 +96,7 @@ export class WorkStore {
         group_name TEXT,
         models_json TEXT NOT NULL,
         efforts_json TEXT NOT NULL,
+        runtimes_json TEXT NOT NULL DEFAULT '[]',
         available INTEGER NOT NULL DEFAULT 1,
         PRIMARY KEY (runner_id, id)
       );
@@ -65,6 +109,8 @@ export class WorkStore {
         model TEXT NOT NULL,
         reasoning_effort TEXT NOT NULL,
         status TEXT NOT NULL,
+        runtime TEXT NOT NULL DEFAULT 'codex',
+        runtime_session_id TEXT,
         codex_session_id TEXT,
         last_seq INTEGER NOT NULL DEFAULT 0,
         inbox_cursor INTEGER NOT NULL DEFAULT 0,
@@ -139,9 +185,15 @@ export class WorkStore {
     this.ensureColumn("commands", "lease_until", "TEXT");
     this.ensureColumn("runners", "instance_id", "TEXT");
     this.ensureColumn("repos", "group_name", "TEXT");
+    this.ensureColumn("repos", "runtimes_json", "TEXT NOT NULL DEFAULT '[]'");
     this.ensureColumn("sessions", "archived_at", "TEXT");
     this.ensureColumn("sessions", "title", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("sessions", "runtime", "TEXT NOT NULL DEFAULT 'codex'");
+    this.ensureColumn("sessions", "runtime_session_id", "TEXT");
     this.db.prepare("UPDATE sessions SET title=repo_name WHERE title=''").run();
+    this.db.prepare(
+      "UPDATE sessions SET runtime_session_id=codex_session_id WHERE runtime='codex' AND runtime_session_id IS NULL",
+    ).run();
     this.recoverInterruptedAsks();
   }
 
@@ -258,9 +310,12 @@ export class WorkStore {
       `).run(input.id, input.instanceId, input.name, input.version, leaseUntil, json(input.capabilities ?? {}), now);
       this.db.prepare("DELETE FROM repos WHERE runner_id = ?").run(input.id);
       const insertRepo = this.db.prepare(`
-        INSERT INTO repos(runner_id, id, name, group_name, models_json, efforts_json, available) VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO repos(
+          runner_id, id, name, group_name, models_json, efforts_json, runtimes_json, available
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const repo of input.repos ?? []) {
+        const runtimes = normalizeRuntimeCatalog(repo);
         insertRepo.run(
           input.id,
           repo.id,
@@ -268,6 +323,7 @@ export class WorkStore {
           repo.group ?? null,
           json(repo.models ?? []),
           json(repo.reasoningEfforts ?? []),
+          json(runtimes),
           repo.available === false ? 0 : 1,
         );
       }
@@ -314,6 +370,7 @@ export class WorkStore {
       group: row.group_name,
       models: parseJson(row.models_json, []),
       reasoningEfforts: parseJson(row.efforts_json, []),
+      runtimes: runtimeCatalogFromRow(row),
       available: Boolean(row.available),
     }));
   }
@@ -387,10 +444,17 @@ export class WorkStore {
     return this.withIdempotency("create-session", idempotencyKey, () => {
       const repo = this.db.prepare("SELECT * FROM repos WHERE runner_id=? AND id=? AND available=1").get(input.runnerId, input.repoId);
       if (!repo) throw Object.assign(new Error("Repository is not available"), { statusCode: 409 });
-      const models = parseJson(repo.models_json, []);
-      const efforts = parseJson(repo.efforts_json, []);
-      if (!models.includes(input.model) || !efforts.includes(input.reasoningEffort)) {
-        throw Object.assign(new Error("Model or reasoning effort is not advertised by the runner"), { statusCode: 400 });
+      const runtime = String(input.runtime ?? "codex").trim();
+      const advertisedRuntime = runtimeCatalogFromRow(repo).find((candidate) => candidate.id === runtime);
+      if (
+        !advertisedRuntime
+        || !advertisedRuntime.models.includes(input.model)
+        || !advertisedRuntime.reasoningEfforts.includes(input.reasoningEffort)
+      ) {
+        throw Object.assign(
+          new Error("Runtime, model or reasoning effort is not advertised by the runner"),
+          { statusCode: 400 },
+        );
       }
       if (!String(input.message ?? "").trim() && !(input.attachmentIds?.length)) {
         throw Object.assign(new Error("First message or image is required"), { statusCode: 400 });
@@ -406,9 +470,21 @@ export class WorkStore {
       const sessionId = id("work");
       const now = new Date().toISOString();
       this.db.prepare(`
-          INSERT INTO sessions(id, runner_id, repo_id, repo_name, title, model, reasoning_effort, status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?)
-      `).run(sessionId, input.runnerId, input.repoId, repo.name, title, input.model, input.reasoningEffort, now, now);
+          INSERT INTO sessions(
+            id, runner_id, repo_id, repo_name, title, runtime, model, reasoning_effort, status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?)
+      `).run(
+        sessionId,
+        input.runnerId,
+        input.repoId,
+        repo.name,
+        title,
+        runtime,
+        input.model,
+        input.reasoningEffort,
+        now,
+        now,
+      );
       const attachments = this.bindAttachments(sessionId, input.attachmentIds);
       const firstMessage = this.appendEvent(sessionId, "USER_MESSAGE", {
         text: input.message ?? "",
@@ -419,6 +495,7 @@ export class WorkStore {
         message: input.message ?? "",
         attachments,
         repoId: input.repoId,
+        runtime,
         model: input.model,
         reasoningEffort: input.reasoningEffort,
         sessionToken: this.createSessionToken(sessionId),
@@ -457,12 +534,16 @@ export class WorkStore {
       repoId: row.repo_id,
       repoName: row.repo_name,
       title: row.title || row.repo_name,
+      runtime: row.runtime ?? "codex",
       model: row.model,
       reasoningEffort: row.reasoning_effort,
       sandboxMode: "danger-full-access",
       approvalPolicy: "never",
       status: row.status,
-      codexSessionId: row.codex_session_id,
+      runtimeSessionId: row.runtime_session_id ?? row.codex_session_id,
+      codexSessionId: (row.runtime ?? "codex") === "codex"
+        ? row.runtime_session_id ?? row.codex_session_id
+        : null,
       lastSeq: row.last_seq,
       archivedAt: row.archived_at ?? null,
       createdAt: row.created_at,
@@ -520,13 +601,14 @@ export class WorkStore {
         attachments,
         clientMessageId: input.clientMessageId ?? null,
       });
-      const restartFailedStart = session.status === "FAILED" && !session.codexSessionId;
+      const restartFailedStart = session.status === "FAILED" && !session.runtimeSessionId;
       const commandInput = restartFailedStart
         ? this.buildFailedStartInput(sessionId)
         : { message: input.text ?? "", attachments };
       this.createCommand(session.runnerId, sessionId, restartFailedStart ? "START" : "RESUME", {
         ...commandInput,
         repoId: session.repoId,
+        runtime: session.runtime,
         model: session.model,
         reasoningEffort: session.reasoningEffort,
         inboxCursor: event.seq,
@@ -629,8 +711,29 @@ export class WorkStore {
     if (!session) throw Object.assign(new Error("Session not found"), { statusCode: 404 });
     const allowed = new Set(["QUEUED", "RUNNING", "WAITING_FOR_USER", "IDLE", "COMPLETED", "FAILED"]);
     if (!allowed.has(input.status)) throw Object.assign(new Error("Invalid session state"), { statusCode: 400 });
-    this.db.prepare("UPDATE sessions SET status=?, codex_session_id=COALESCE(?, codex_session_id), updated_at=? WHERE id=?")
-      .run(input.status, input.codexSessionId ?? null, new Date().toISOString(), sessionId);
+    if (input.runtime && input.runtime !== session.runtime) {
+      throw Object.assign(new Error("Session runtime mismatch"), { statusCode: 400 });
+    }
+    const runtimeSessionId = input.runtimeSessionId
+      ?? (session.runtime === "codex" ? input.codexSessionId : null)
+      ?? null;
+    this.db.prepare(`
+      UPDATE sessions
+      SET status=?,
+          runtime_session_id=COALESCE(?, runtime_session_id),
+          codex_session_id=CASE
+            WHEN runtime='codex' THEN COALESCE(?, codex_session_id)
+            ELSE codex_session_id
+          END,
+          updated_at=?
+      WHERE id=?
+    `).run(
+      input.status,
+      runtimeSessionId,
+      runtimeSessionId,
+      new Date().toISOString(),
+      sessionId,
+    );
     const payload = { status: input.status, detail: input.detail ?? null };
     const last = this.db.prepare("SELECT * FROM events WHERE session_id=? AND type='RUN_STATE' ORDER BY seq DESC LIMIT 1")
       .get(sessionId);

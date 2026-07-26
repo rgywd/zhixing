@@ -40,11 +40,21 @@ export class CoreClient {
         instanceId: this.instanceId,
         name: config.name,
         version: config.version,
-        capabilities: { codex: true, phoneLineProtocol: 1 },
+        capabilities: {
+          codex: config.repos.some((repo) => repo.runtimes.some((runtime) => runtime.id === "codex")),
+          claudeCode: config.repos.some((repo) => repo.runtimes.some((runtime) => runtime.id === "claude-code")),
+          phoneLineProtocol: 1,
+        },
         repos: config.repos.map((repo) => ({
           id: repo.id,
           name: repo.name,
           group: repo.group ?? null,
+          runtimes: repo.runtimes.map((runtime) => ({
+            id: runtime.id,
+            name: runtime.name,
+            models: runtime.models,
+            reasoningEfforts: runtime.reasoningEfforts,
+          })),
           models: repo.models,
           reasoningEfforts: repo.reasoningEfforts,
           available: repo.available !== false,
@@ -113,10 +123,17 @@ export class CoreClient {
     throw lastError;
   }
 
-  updateState(sessionId, status, detail = null, codexSessionId = null) {
+  updateState(sessionId, status, detail = null, runtimeSessionId = null, runtime = null) {
     return this.request(`/v1/runner/sessions/${encodeURIComponent(sessionId)}/state`, {
       method: "POST",
-      body: { status, detail, codexSessionId, instanceId: this.instanceId },
+      body: {
+        status,
+        detail,
+        runtime,
+        runtimeSessionId,
+        ...(runtime === "codex" ? { codexSessionId: runtimeSessionId } : {}),
+        instanceId: this.instanceId,
+      },
     });
   }
 

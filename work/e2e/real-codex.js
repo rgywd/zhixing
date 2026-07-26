@@ -31,19 +31,33 @@ try {
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const model = process.env.WORK_E2E_MODEL ?? "gpt-5.6-terra";
+  const runtime = process.env.WORK_E2E_RUNTIME ?? "codex";
+  const runtimeName = runtime === "claude-code" ? "Claude Code" : "Codex";
+  const model = process.env.WORK_E2E_MODEL ?? (runtime === "claude-code" ? "sonnet" : "gpt-5.6-terra");
   const effort = process.env.WORK_E2E_EFFORT ?? "medium";
   const config = {
     id: "real-e2e-runner",
-    name: "Real Codex E2E",
+    name: `Real ${runtimeName} E2E`,
     version: "1.0.0",
     coreUrl: baseUrl,
     token: RUNNER_TOKEN,
     stateFile: join(root, "runner-state.json"),
-    codexHome: process.env.CODEX_HOME ?? join(process.env.USERPROFILE, ".codex"),
     pollIntervalMs: 250,
-    codexCommand: process.env.WORK_E2E_CODEX ?? "codex",
-    repos: [{ id: "fixture", name: "Fixture", path: repo, models: [model], reasoningEfforts: [effort] }],
+    defaultRuntimes: [{
+      id: runtime,
+      name: runtimeName,
+      models: [model],
+      reasoningEfforts: [effort],
+    }],
+    repos: [{ id: "fixture", name: "Fixture", path: repo }],
+    ...(runtime === "codex"
+      ? {
+          codexHome: process.env.CODEX_HOME ?? join(process.env.USERPROFILE, ".codex"),
+          codexCommand: process.env.WORK_E2E_CODEX ?? "codex",
+        }
+      : {
+          claudeCommand: process.env.WORK_E2E_CLAUDE ?? "claude",
+        }),
   };
   runner = WorkRunner.fromConfig(config);
   runnerPromise = runner.start();
@@ -55,6 +69,7 @@ try {
     body: {
       runnerId: config.id,
       repoId: "fixture",
+      runtime,
       model,
       reasoningEffort: effort,
       clientMessageId: "real-e2e-message",
@@ -92,12 +107,15 @@ try {
       && events.some((event) => event.type === "HTML_REPORT" && event.payload.title.includes("PHONE_LINE_HTML_OK"))
       && events.some((event) => event.type === "ASSISTANT_MESSAGE")
       && current?.status === "IDLE";
-    return complete ? { events, current } : null;
+    return complete || current?.status === "FAILED" ? { events, current } : null;
   }, 300_000, 500);
 
-  assert.equal(result.current.status, "IDLE");
-  assert.ok(result.current.codexSessionId);
-  console.log(`Real Codex phone-line E2E passed for ${result.current.codexSessionId}`);
+  const finalState = result.events.findLast((event) => event.type === "RUN_STATE")?.payload;
+  assert.equal(result.current.status, "IDLE", finalState?.detail ?? "Runtime did not complete the phone-line scenario");
+  assert.equal(result.current.runtime, runtime);
+  assert.ok(result.current.runtimeSessionId);
+  if (runtime === "codex") assert.equal(result.current.codexSessionId, result.current.runtimeSessionId);
+  console.log(`Real ${runtimeName} phone-line E2E passed for ${result.current.runtimeSessionId}`);
 } finally {
   runner?.stop();
   await Promise.race([runnerPromise?.catch(() => {}), delay(3_000)]);

@@ -143,6 +143,7 @@ class PhoneWorkTrackingService : Service() {
 
     private fun notifyEvent(session: PhoneWorkSession, event: PhoneWorkEvent): WorkTrackingMilestone? {
         val payload = event.payload.jsonObject
+        val runtimeName = if (session.runtime == "claude-code") "Claude Code" else "Codex"
         var milestoneStatus: WorkTrackingMilestoneStatus? = null
         val notification = when (event.type) {
             "ASK" -> {
@@ -154,9 +155,9 @@ class PhoneWorkTrackingService : Service() {
                     WORK_ASK_NOTIFICATION_CHANNEL_ID,
                     "${session.repoName} 需要你的回答",
                     if (minutes != null) {
-                        "Codex 遇到需要你决定的问题，${minutes} 分钟未回答将采用推荐方案"
+                        "$runtimeName 遇到需要你决定的问题，${minutes} 分钟未回答将采用推荐方案"
                     } else {
-                        "Codex 遇到需要你决定的问题"
+                        "$runtimeName 遇到需要你决定的问题"
                     },
                     session.id,
                 ).setCategory(NotificationCompat.CATEGORY_CALL).setPriority(NotificationCompat.PRIORITY_HIGH).build()
@@ -173,13 +174,13 @@ class PhoneWorkTrackingService : Service() {
             "REPORT" -> alertBuilder(
                 WORK_ALERT_NOTIFICATION_CHANNEL_ID,
                 session.repoName,
-                payload["text"]?.jsonPrimitive?.content?.take(180) ?: "Codex 发来一条进度汇报",
+                payload["text"]?.jsonPrimitive?.content?.take(180) ?: "$runtimeName 发来一条进度汇报",
                 session.id,
             ).build()
             "HTML_REPORT" -> alertBuilder(
                 WORK_ALERT_NOTIFICATION_CHANNEL_ID,
                 payload["title"]?.jsonPrimitive?.content ?: "${session.repoName} 报告",
-                "Codex 已生成一份可查看的报告",
+                "$runtimeName 已生成一份可查看的报告",
                 session.id,
             ).build()
             "RUN_STATE" -> {

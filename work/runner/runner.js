@@ -4,6 +4,14 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CoreClient } from "./core-client.js";
 import {
+  buildClaudeArgs,
+  parseClaudeAssistantMessage,
+  parseClaudeSessionId,
+  parseClaudeTurnOutcome,
+  runClaude,
+  writeClaudeMcpConfig,
+} from "./claude-process.js";
+import {
   buildCodexArgs,
   parseCodexAssistantMessage,
   parseCodexSessionId,
@@ -34,6 +42,7 @@ export class WorkRunner {
     state,
     client,
     spawnCodex = runCodex,
+    spawnClaude = runClaude,
     terminateCodex = terminateProcessTree,
     nodePath = process.execPath,
     mcpServerPath = resolve(here, "mcp-server.js"),
@@ -43,6 +52,7 @@ export class WorkRunner {
     this.state = state;
     this.client = client;
     this.spawnCodex = spawnCodex;
+    this.spawnClaude = spawnClaude;
     this.terminateCodex = terminateCodex;
     this.nodePath = nodePath;
     this.mcpServerPath = mcpServerPath;
@@ -131,21 +141,32 @@ export class WorkRunner {
       await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", "Repository is not available on the runner"));
       return;
     }
+    const runtime = command.payload.runtime ?? previous.runtime ?? "codex";
+    const runtimeConfig = repo.runtimes.find((candidate) => candidate.id === runtime);
     const model = command.payload.model ?? previous.model;
     const reasoningEffort = command.payload.reasoningEffort ?? previous.reasoningEffort;
     const sessionToken = command.payload.sessionToken ?? previous.sessionToken;
-    if (!repo.models.includes(model) || !repo.reasoningEfforts.includes(reasoningEffort) || !sessionToken) {
+    if (
+      !runtimeConfig
+      || (previous.runtime && previous.runtime !== runtime)
+      || !runtimeConfig.models.includes(model)
+      || !runtimeConfig.reasoningEfforts.includes(reasoningEffort)
+      || !sessionToken
+    ) {
       await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", "Runner rejected the session snapshot"));
       return;
     }
 
+    const previousRuntimeSessionId = previous.runtimeSessionId
+      ?? (runtime === "codex" ? previous.codexSessionId : null);
     const pendingAttachments = command.payload.attachments?.length
       ? command.payload.attachments
-      : previous.codexSessionId
+      : previousRuntimeSessionId
         ? []
         : previous.pendingAttachments ?? [];
     this.state.set(command.sessionId, {
       repoId: repo.id,
+      runtime,
       model,
       reasoningEffort,
       sessionToken,
@@ -153,16 +174,22 @@ export class WorkRunner {
       lastCommandId: command.id,
     });
 
-    await this.client.ack(command.id, "CLAIMED", sessionState(command.sessionId, "RUNNING"));
+    await this.client.ack(
+      command.id,
+      "CLAIMED",
+      sessionState(command.sessionId, "RUNNING", null, runtime, previousRuntimeSessionId),
+    );
     const cursorFile = resolve(dirname(this.config.stateFile), "cursors", `${command.sessionId}.json`);
     let attachmentDirectory = null;
     let hookOutboxDirectory = null;
+    let runtimeConfigDirectory = null;
     let profileName = null;
     let args;
     try {
       const downloaded = await this.downloadAttachments(command, pendingAttachments);
       attachmentDirectory = downloaded.directory;
-      if (this.config.codexHome) {
+      const effectiveKind = command.kind === "RESUME" && !previousRuntimeSessionId ? "START" : command.kind;
+      if (runtime === "codex" && this.config.codexHome) {
         try {
           profileName = ensurePhoneHookProfile({
             codexHome: this.config.codexHome,
@@ -177,53 +204,88 @@ export class WorkRunner {
           this.logError("phone-hook", error);
         }
       }
-      args = buildCodexArgs({
-        kind: command.kind === "RESUME" && !previous.codexSessionId ? "START" : command.kind,
-        repoPath: repo.path,
-        model,
-        reasoningEffort,
-        codexSessionId: previous.codexSessionId,
-        imagePaths: downloaded.paths,
-        profileName,
-        developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
-        mcp: {
-          nodePath: this.nodePath,
-          mcpServerPath: this.mcpServerPath,
-          coreUrl: this.config.coreUrl,
-          sessionId: command.sessionId,
-          sessionToken,
-          cursorFile,
-          initialInboxCursor: command.payload.inboxCursor ?? 0,
-        },
-      });
+      const mcp = {
+        nodePath: this.nodePath,
+        mcpServerPath: this.mcpServerPath,
+        coreUrl: this.config.coreUrl,
+        sessionId: command.sessionId,
+        sessionToken,
+        cursorFile,
+        initialInboxCursor: command.payload.inboxCursor ?? 0,
+      };
+      if (runtime === "claude-code") {
+        runtimeConfigDirectory = resolve(
+          dirname(this.config.stateFile),
+          "claude",
+          command.sessionId,
+          command.id,
+        );
+        const mcpConfigPath = writeClaudeMcpConfig(resolve(runtimeConfigDirectory, "mcp.json"), mcp);
+        args = buildClaudeArgs({
+          kind: effectiveKind,
+          model,
+          reasoningEffort,
+          runtimeSessionId: previousRuntimeSessionId,
+          developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
+          mcpConfigPath,
+          additionalDirectories: attachmentDirectory ? [attachmentDirectory] : [],
+        });
+      } else {
+        args = buildCodexArgs({
+          kind: effectiveKind,
+          repoPath: repo.path,
+          model,
+          reasoningEffort,
+          codexSessionId: previousRuntimeSessionId,
+          imagePaths: downloaded.paths,
+          profileName,
+          developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
+          mcp,
+        });
+      }
     } catch (error) {
       if (attachmentDirectory) rmSync(attachmentDirectory, { recursive: true, force: true });
       if (hookOutboxDirectory) rmSync(hookOutboxDirectory, { recursive: true, force: true });
+      if (runtimeConfigDirectory) rmSync(runtimeConfigDirectory, { recursive: true, force: true });
       await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", safeError(error)));
       return;
     }
-    let discoveredSessionId = previous.codexSessionId ?? null;
+    let discoveredSessionId = previousRuntimeSessionId ?? null;
     let resolveSemanticOutcome;
     const semanticOutcome = new Promise((resolve) => { resolveSemanticOutcome = resolve; });
     let running;
     try {
-      running = this.spawnCodex({
-        command: this.config.codexCommand ?? "codex",
+      const spawnRuntime = runtime === "claude-code" ? this.spawnClaude : this.spawnCodex;
+      const parseSessionId = runtime === "claude-code" ? parseClaudeSessionId : parseCodexSessionId;
+      const parseAssistantMessage = runtime === "claude-code"
+        ? parseClaudeAssistantMessage
+        : parseCodexAssistantMessage;
+      const parseTurnOutcome = runtime === "claude-code" ? parseClaudeTurnOutcome : parseCodexTurnOutcome;
+      running = spawnRuntime({
+        command: runtimeConfig.command,
         args,
-        prompt: command.payload.message,
+        prompt: promptForRuntime(runtime, command.payload.message, attachmentDirectory),
         cwd: repo.path,
-        env: isolatedCodexEnv(this.config.codexHome, process.env, hookOutboxDirectory ? {
-          ZHIXING_WORK_HOOK_OUTBOX: hookOutboxDirectory,
-          ZHIXING_WORK_SESSION_ID: command.sessionId,
-        } : {}),
+        env: runtime === "codex"
+          ? isolatedCodexEnv(this.config.codexHome, process.env, hookOutboxDirectory ? {
+            ZHIXING_WORK_HOOK_OUTBOX: hookOutboxDirectory,
+            ZHIXING_WORK_SESSION_ID: command.sessionId,
+          } : {})
+          : process.env,
         onEvent: (event) => {
-          const parsed = parseCodexSessionId(event);
+          const parsed = parseSessionId(event);
           if (parsed && parsed !== discoveredSessionId) {
             discoveredSessionId = parsed;
-            this.state.set(command.sessionId, { codexSessionId: parsed, pendingAttachments: [] });
-            this.client.updateState(command.sessionId, "RUNNING", null, parsed).catch((error) => this.logError("session-id", error));
+            this.state.set(command.sessionId, {
+              runtime,
+              runtimeSessionId: parsed,
+              ...(runtime === "codex" ? { codexSessionId: parsed } : {}),
+              pendingAttachments: [],
+            });
+            this.client.updateState(command.sessionId, "RUNNING", null, parsed, runtime)
+              .catch((error) => this.logError("session-id", error));
           }
-          const message = parseCodexAssistantMessage(event);
+          const message = parseAssistantMessage(event);
           if (message) {
             this.state.enqueueEvent(command.sessionId, {
               clientEventId: `${command.id}:${message.itemId}`,
@@ -232,13 +294,14 @@ export class WorkRunner {
             });
             this.flushOutbox().catch((error) => this.logError("assistant-message", error));
           }
-          const outcome = parseCodexTurnOutcome(event);
+          const outcome = parseTurnOutcome(event);
           if (outcome) resolveSemanticOutcome(outcome);
         },
       });
     } catch (error) {
       if (attachmentDirectory) rmSync(attachmentDirectory, { recursive: true, force: true });
       if (hookOutboxDirectory) rmSync(hookOutboxDirectory, { recursive: true, force: true });
+      if (runtimeConfigDirectory) rmSync(runtimeConfigDirectory, { recursive: true, force: true });
       await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", safeError(error)));
       return;
     }
@@ -248,8 +311,10 @@ export class WorkRunner {
       running,
       semanticOutcome,
       getDiscoveredSessionId: () => discoveredSessionId,
+      runtime,
       attachmentDirectory,
       hookOutboxDirectory,
+      runtimeConfigDirectory,
     }).catch((error) => this.logError("process-exit", error));
   }
 
@@ -258,8 +323,10 @@ export class WorkRunner {
     running,
     semanticOutcome,
     getDiscoveredSessionId,
+    runtime,
     attachmentDirectory,
     hookOutboxDirectory,
+    runtimeConfigDirectory,
   }) {
     const processOutcome = running.completed.then(
       (result) => ({ source: "process", result }),
@@ -293,24 +360,31 @@ export class WorkRunner {
       const discoveredSessionId = getDiscoveredSessionId();
       const semanticSuccess = first.source === "semantic" && first.outcome.status === "COMPLETED";
       const processSuccess = first.source === "process" && first.result.code === 0;
+      const runtimeName = runtimeDisplayName(runtime);
       if ((semanticSuccess || processSuccess) && discoveredSessionId) {
         await this.commitTransition(command.id, "COMPLETED", sessionState(
           command.sessionId,
           "IDLE",
-          "Codex 本轮已完成",
+          `${runtimeName} 本轮已完成`,
+          runtime,
           discoveredSessionId,
         ));
       } else {
         const detail = first.source === "semantic" && first.outcome.detail
           ? first.outcome.detail
           : discoveredSessionId
-            ? "Codex process exited with an error"
-            : "Codex exited before returning a session ID";
-        await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", detail, discoveredSessionId));
+            ? `${runtimeName} process exited with an error`
+            : `${runtimeName} exited before returning a session ID`;
+        await this.commitTransition(
+          command.id,
+          "FAILED",
+          sessionState(command.sessionId, "FAILED", detail, runtime, discoveredSessionId),
+        );
       }
     } finally {
       if (attachmentDirectory) rmSync(attachmentDirectory, { recursive: true, force: true });
       if (hookOutboxDirectory) rmSync(hookOutboxDirectory, { recursive: true, force: true });
+      if (runtimeConfigDirectory) rmSync(runtimeConfigDirectory, { recursive: true, force: true });
     }
   }
 
@@ -351,7 +425,14 @@ export class WorkRunner {
       this.state.enqueueTransition(command.id, "COMPLETED", finalState);
       this.state.delete(command.sessionId);
     } else {
-      finalState = sessionState(command.sessionId, "IDLE", "Codex turn stopped by user");
+      const previous = this.state.get(command.sessionId) ?? {};
+      finalState = sessionState(
+        command.sessionId,
+        "IDLE",
+        `${runtimeDisplayName(previous.runtime)} turn stopped by user`,
+        previous.runtime ?? "codex",
+        previous.runtimeSessionId ?? previous.codexSessionId ?? null,
+      );
       this.state.enqueueTransition(command.id, "COMPLETED", finalState);
     }
     await this.flushOutbox();
@@ -409,10 +490,13 @@ export class WorkRunner {
 }
 
 function validateConfig(config) {
-  for (const key of ["id", "name", "version", "coreUrl", "token", "stateFile", "codexHome"]) {
+  for (const key of ["id", "name", "version", "coreUrl", "token", "stateFile"]) {
     if (!config[key]) throw new Error(`Runner config is missing ${key}`);
   }
   validateRepositoryConfig(config);
+  const hasCodex = buildRepositoryCatalog(config).some((repo) =>
+    repo.runtimes.some((runtime) => runtime.id === "codex"));
+  if (hasCodex && !config.codexHome) throw new Error("Runner config is missing codexHome");
 }
 
 export function isolatedCodexEnv(codexHome, source = process.env, extra = {}) {
@@ -444,10 +528,26 @@ function extensionForImage(mimeType) {
   })[String(mimeType ?? "").split(";", 1)[0].toLowerCase()] ?? null;
 }
 
-function sessionState(sessionId, status, detail = null, codexSessionId = null) {
-  return { sessionId, status, detail, codexSessionId };
+function sessionState(sessionId, status, detail = null, runtime = null, runtimeSessionId = null) {
+  return {
+    sessionId,
+    status,
+    detail,
+    runtime,
+    runtimeSessionId,
+    ...(runtime === "codex" ? { codexSessionId: runtimeSessionId } : {}),
+  };
 }
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function runtimeDisplayName(runtime) {
+  return runtime === "claude-code" ? "Claude Code" : "Codex";
+}
+
+function promptForRuntime(runtime, prompt, attachmentDirectory) {
+  if (runtime !== "claude-code" || !attachmentDirectory) return prompt;
+  return `${prompt}\n\nImages attached to this phone message are in this read-only turn directory: ${attachmentDirectory}\nUse the Read tool on the image files when they are relevant.`;
 }

@@ -20,6 +20,7 @@ class PhoneWorkSessionCreator(
         model: String,
         reasoningEffort: String,
         message: String,
+        runtime: String = "codex",
         imageUrls: List<String> = emptyList(),
     ): PhoneWorkSession {
         val title = titleGenerator.generate(message)
@@ -29,6 +30,7 @@ class PhoneWorkSessionCreator(
                 runnerId = repo.runnerId,
                 repoId = repo.id,
                 title = title,
+                runtime = runtime,
                 model = model,
                 reasoningEffort = reasoningEffort,
                 message = message,

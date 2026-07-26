@@ -253,7 +253,7 @@ class RikkaHubApp : Application() {
         notificationManager.createNotificationChannel(
             NotificationChannelCompat.Builder(WORK_ASK_NOTIFICATION_CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_HIGH)
                 .setName("Work 等待回答")
-                .setDescription("Codex 需要你做决定时提醒")
+                .setDescription("开发机智能体需要你做决定时提醒")
                 .setVibrationEnabled(true)
                 .build()
         )

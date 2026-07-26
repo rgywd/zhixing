@@ -140,9 +140,13 @@ fun PhoneWorkHomePage(vm: PhoneWorkHomeVM = koinViewModel()) {
             )
 
             sessions.isEmpty() -> EmptyWorkState(
-                title = if (showArchived) "还没有归档会话" else "开始一个 Codex 会话",
+                title = if (showArchived) "还没有归档会话" else "开始一个开发机 AI 会话",
                 detail = error
-                    ?: if (showArchived) "结束或暂停的会话可以归档后在这里恢复。" else "选择仓库、模型和思考深度，然后像普通聊天一样发送消息。",
+                    ?: if (showArchived) {
+                        "结束或暂停的会话可以归档后在这里恢复。"
+                    } else {
+                        "选择 Codex 或 Claude Code、仓库、模型和思考深度，然后像普通聊天一样发送消息。"
+                    },
                 actionLabel = if (showArchived) "返回进行中" else "新建会话",
                 modifier = Modifier.padding(padding),
                 onClick = { if (showArchived) vm.toggleArchived() else navigator.navigate(Screen.PhoneWorkSession("")) },
@@ -335,7 +339,7 @@ private fun WorkSessionCard(
                 }
             }
             Text(
-                "${session.repoName} · ${session.model} · ${session.reasoningEffort}",
+                "${session.runtime.workRuntimeName()} · ${session.repoName} · ${session.model} · ${session.reasoningEffort}",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (waiting) {
                     MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.72f)
@@ -410,4 +414,9 @@ internal fun String.displayStatus(): String = when (this) {
     "COMPLETED" -> "已结束"
     "FAILED" -> "需要重试"
     else -> this
+}
+
+private fun String.workRuntimeName(): String = when (this) {
+    "claude-code" -> "Claude Code"
+    else -> "Codex"
 }

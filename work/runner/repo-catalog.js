@@ -35,10 +35,14 @@ export function buildRepositoryCatalog(config, env = process.env) {
     const path = expandPath(repo.path, env);
     const canonicalPath = canonicalDirectory(path);
     if (canonicalPath) claimedPaths.add(pathKey(canonicalPath));
+    const runtimes = runtimeCatalog(repo, config);
+    const legacy = legacyCodexCatalog(runtimes);
     repositories.push({
       ...repo,
       path,
       group: repo.group ?? null,
+      runtimes,
+      ...legacy,
       available: Boolean(canonicalPath),
     });
   }
@@ -46,8 +50,8 @@ export function buildRepositoryCatalog(config, env = process.env) {
   for (const root of config.repoRoots ?? []) {
     const rootPath = canonicalDirectory(expandPath(root.path, env));
     if (!rootPath) continue;
-    const models = root.models ?? config.defaultModels;
-    const reasoningEfforts = root.reasoningEfforts ?? config.defaultReasoningEfforts;
+    const runtimes = runtimeCatalog(root, config);
+    const legacy = legacyCodexCatalog(runtimes);
     for (const candidate of discoverRoot(rootPath, root)) {
       const key = pathKey(candidate.path);
       if (claimedPaths.has(key)) continue;
@@ -57,8 +61,8 @@ export function buildRepositoryCatalog(config, env = process.env) {
         name: candidate.relativePath.split(sep).join(" / "),
         group: root.name,
         path: candidate.path,
-        models,
-        reasoningEfforts,
+        runtimes,
+        ...legacy,
         available: true,
       });
     }
@@ -77,19 +81,16 @@ export function validateRepositoryConfig(config) {
     throw new Error("Runner config needs at least one repository or repository root");
   }
   for (const repo of repos) {
-    if (!repo.id || !repo.name || !repo.path || !repo.models?.length || !repo.reasoningEfforts?.length) {
+    if (!repo.id || !repo.name || !repo.path) {
       throw new Error(`Repository ${repo.id ?? "<unknown>"} is incomplete`);
     }
+    validateRuntimeCatalog(runtimeCatalog(repo, config), `Repository ${repo.id}`);
   }
   for (const root of roots) {
-    const models = root.models ?? config.defaultModels;
-    const efforts = root.reasoningEfforts ?? config.defaultReasoningEfforts;
     if (!root.id || !root.name || !root.path || !["children", "projects"].includes(root.strategy)) {
       throw new Error(`Repository root ${root.id ?? "<unknown>"} is incomplete`);
     }
-    if (!models?.length || !efforts?.length) {
-      throw new Error(`Repository root ${root.id} needs models and reasoning efforts`);
-    }
+    validateRuntimeCatalog(runtimeCatalog(root, config), `Repository root ${root.id}`);
     if (root.maxDepth != null && (!Number.isInteger(root.maxDepth) || root.maxDepth < 0 || root.maxDepth > 8)) {
       throw new Error(`Repository root ${root.id} maxDepth must be between 0 and 8`);
     }
@@ -101,6 +102,12 @@ export function repositoryCatalogFingerprint(repositories) {
     id: repo.id,
     name: repo.name,
     group: repo.group ?? null,
+    runtimes: (repo.runtimes ?? [{
+      id: "codex",
+      name: "Codex",
+      models: repo.models ?? [],
+      reasoningEfforts: repo.reasoningEfforts ?? [],
+    }]).map(publicRuntime),
     models: repo.models,
     reasoningEfforts: repo.reasoningEfforts,
     available: repo.available !== false,
@@ -180,4 +187,65 @@ function discoveredRepoId(rootId, relativePath) {
   const normalized = relativePath.split(sep).join("/").toLowerCase();
   const suffix = createHash("sha256").update(`${rootId}\0${normalized}`).digest("hex").slice(0, 20);
   return `discovered-${rootId}-${suffix}`;
+}
+
+function runtimeCatalog(source, config) {
+  const configured = source.runtimes ?? config.defaultRuntimes;
+  if (Array.isArray(configured) && configured.length) {
+    return configured.map((runtime) => ({
+      id: String(runtime.id ?? "").trim(),
+      name: String(runtime.name ?? runtime.id ?? "").trim(),
+      command: String(runtime.command ?? defaultRuntimeCommand(runtime.id)).trim(),
+      models: [...(runtime.models ?? [])],
+      reasoningEfforts: [...(runtime.reasoningEfforts ?? [])],
+    }));
+  }
+  const models = source.models ?? config.defaultModels ?? [];
+  const reasoningEfforts = source.reasoningEfforts ?? config.defaultReasoningEfforts ?? [];
+  return [{
+    id: "codex",
+    name: "Codex",
+    command: String(config.codexCommand ?? "codex"),
+    models,
+    reasoningEfforts,
+  }];
+}
+
+function validateRuntimeCatalog(runtimes, owner) {
+  if (!runtimes.length) throw new Error(`${owner} needs at least one runtime`);
+  const seen = new Set();
+  for (const runtime of runtimes) {
+    if (
+      !["codex", "claude-code"].includes(runtime.id)
+      || !runtime.name
+      || !runtime.command
+      || !runtime.models.length
+      || !runtime.reasoningEfforts.length
+      || seen.has(runtime.id)
+    ) {
+      throw new Error(`${owner} has an invalid runtime catalog`);
+    }
+    seen.add(runtime.id);
+  }
+}
+
+function legacyCodexCatalog(runtimes) {
+  const codex = runtimes.find((runtime) => runtime.id === "codex");
+  return {
+    models: codex?.models ?? [],
+    reasoningEfforts: codex?.reasoningEfforts ?? [],
+  };
+}
+
+function publicRuntime(runtime) {
+  return {
+    id: runtime.id,
+    name: runtime.name,
+    models: runtime.models,
+    reasoningEfforts: runtime.reasoningEfforts,
+  };
+}
+
+function defaultRuntimeCommand(runtimeId) {
+  return runtimeId === "claude-code" ? "claude" : "codex";
 }

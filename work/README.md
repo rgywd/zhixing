@@ -1,7 +1,8 @@
 # Zhixing Work Phone-line
 
-这套运行时只服务于手机新建的 Codex 会话。Core 不持有 Codex 登录态和仓库；Windows Runner 只主动访问 Core，
-并在白名单仓库中启动本机 `codex exec`。Codex 只能通过 `report`、`ask`、`report_html` 三个 MCP 工具联系手机。
+这套运行时只服务于手机新建的 Codex 或 Claude Code 会话。Core 不持有 CLI 登录态和仓库；Windows Runner 只主动
+访问 Core，并在白名单仓库中启动用户选定的本机 CLI。两个运行时都只能通过 `report`、`ask`、`report_html`
+三个 MCP 工具联系手机。
 
 ## Core
 
@@ -34,14 +35,30 @@ Core 会在 SQLite 同目录持久化最后一次通过 `quota-monitor/v1` 校�
 
 ## Windows Runner
 
-1. 安装 Node.js 22.5+、Git 和 Codex CLI。Runner 使用独立 `codexHome`，先为该目录完成一次登录：
+1. 安装 Node.js 22.5+、Git，以及需要开放给手机使用的 CLI。
+
+   Codex 使用独立 `codexHome`，先为该目录完成一次登录：
 
 ```powershell
 $env:CODEX_HOME = "$HOME\.zhixing-work\codex-home"
 codex login
 ```
+
+   Claude Code 复用当前 Windows 用户自己的登录态，不复制或上传凭据。先确认 CLI 可用并完成一次真实请求：
+
+```powershell
+claude --version
+claude auth status
+claude -p "只回复 CLAUDE_WORK_READY" --model sonnet --effort low --tools ""
+```
+
+   `claude auth status` 只代表本地存在凭据；若真实请求返回 401 或 `authentication_failed`，执行
+   `claude auth login` 重新登录后再验收。
+
 2. 复制 `runner/work-runner.example.json` 为 `runner/work-runner.json`，填写 Core HTTPS 地址、Runner token
-   和仓库白名单。token 不要提交到 Git。目录来源支持两种方式：
+   和仓库白名单。token 不要提交到 Git。`defaultRuntimes` 定义手机可选择的运行时、模型和思考深度；
+   单个 `repos` 或 `repoRoots` 项也可用 `runtimes` 覆盖默认值。旧版 `defaultModels/models/reasoningEfforts`
+   配置继续按 Codex catalog 读取。目录来源支持两种方式：
    - `repos`：固定目录，兼容已有配置；Runner 会实时校验目录是否仍然存在。
    - `repoRoots`：显式授权的本机根目录。`children` 发现一级子目录，`projects` 在 `maxDepth` 内寻找
      `.git`、`AGENTS.md`、`package.json`、`pyproject.toml`、Gradle、Cargo 或 Go 项目标记。
@@ -63,6 +80,12 @@ pwsh -File .\work\runner\install-autostart.ps1
 
 ## 验证
 
-`npm --prefix work test` 使用假 Codex 覆盖完整协议；本机已登录 Codex 时可额外运行
-`npm --prefix work run e2e:real`。真实测试在临时 Git 仓库中启动 Core 与 Runner，自动回答 `ask`，并确认三个
-MCP 工具和最终 IDLE 状态均完成，不会修改产品仓库。
+`npm --prefix work test` 使用假的 Codex/Claude Code 进程覆盖完整协议。本机对应 CLI 已真实登录时，可额外运行：
+
+```powershell
+npm --prefix work run e2e:codex
+npm --prefix work run e2e:claude
+```
+
+真实测试在临时 Git 仓库中启动 Core 与 Runner，自动回答 `ask`，并确认三个 MCP 工具、通用
+`runtimeSessionId` 和最终 IDLE 状态均完成，不会修改产品仓库。

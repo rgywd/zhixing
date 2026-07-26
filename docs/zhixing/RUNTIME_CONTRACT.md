@@ -93,7 +93,8 @@ SettingsStore -> DataStore
   [`KNOWLEDGE_SPACE.md`](./KNOWLEDGE_SPACE.md)。
 - Agenda 以本地待办和长期计划为事实来源，系统日历只读投影见
   [`AGENDA_AND_CALENDAR.md`](./AGENDA_AND_CALENDAR.md)。
-- Codex Work 是独立的手机创建会话域，不读取桌面历史、不复用普通 Provider 生成链路；见
+- Work 是独立的手机创建会话域，由开发机 Runner 启动 Codex 或 Claude Code；它不读取桌面历史、不复用普通
+  Provider 生成链路；见
   [`CODEX_PHONE_LINE_ARCHITECTURE.md`](./CODEX_PHONE_LINE_ARCHITECTURE.md)。
 - 若重新引入同步服务，客户端持有稳定对象 ID、版本与删除标记；协议必须版本化、幂等并有契约测试。
 
