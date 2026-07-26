@@ -17,9 +17,10 @@
 
 当前代码证据：
 
-- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 39。
+- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 41。
 - Room 存在连续迁移注册，未启用 destructive fallback。
-- v38→v39 只新增长期计划和阶段表及索引，保留既有待办与其他用户数据。
+- v40→v41 只新增月度收支与渠道汇总表及索引；v39→v40 扩展 Work 运行时身份，两次迁移均保留
+  既有会话、事项、长期计划与其他用户数据。
 - Workspace 用户文件位于 `files/workspaces/<root>/files`，与可替换的 `linux` RootFS 分离。
 - WebDAV、S3、手动导入导出和备份提醒已有基础实现。
 - WebDAV/S3 新建数据库备份使用 `zhixing.db`、`zhixing-wal`、`zhixing-shm`；恢复优先识别该命名，
@@ -47,7 +48,7 @@ P0 缺口：
 
 | 数据 | 事实来源 | 升级 | 远端备份 |
 | --- | --- | --- | --- |
-| 会话、消息、记忆、待办、工作区元数据 | Room `zhixing` | 必须保留 | 必须 |
+| 会话、消息、记忆、待办、月度收支汇总、工作区元数据 | Room `zhixing` | 必须保留 | 必须 |
 | Provider、助手、外观、同步配置 | DataStore | 必须保留 | 必须 |
 | 上传附件、Skills、Workspace 用户文件与知识原文 | 应用 `files/` | 必须保留 | 必须 |
 | Workspace RootFS、派生索引、缓存和临时工具输出 | 可重建数据 | 可重建 | 默认不备份 |

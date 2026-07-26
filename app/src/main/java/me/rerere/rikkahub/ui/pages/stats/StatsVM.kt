@@ -4,8 +4,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.data.db.dao.ConversationDAO
@@ -13,8 +20,10 @@ import me.rerere.rikkahub.data.db.dao.MessageNodeDAO
 import me.rerere.rikkahub.data.db.dao.getMessageCountPerDay
 import me.rerere.rikkahub.data.db.dao.getTokenStats
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.repository.MonthlyLedgerRepository
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.temporal.TemporalAdjusters
 
 data class AppStats(
@@ -32,13 +41,57 @@ class StatsVM(
     private val conversationDAO: ConversationDAO,
     private val messageNodeDAO: MessageNodeDAO,
     private val settingsStore: SettingsStore,
+    private val monthlyLedgerRepository: MonthlyLedgerRepository,
 ) : ViewModel() {
 
     private val _stats = MutableStateFlow(AppStats())
     val stats = _stats.asStateFlow()
 
+    private val _selectedLedgerMonth = MutableStateFlow(YearMonth.now())
+    val selectedLedgerMonth = _selectedLedgerMonth.asStateFlow()
+
+    val monthlyLedgerStats = selectedLedgerMonth
+        .flatMapLatest { month ->
+            monthlyLedgerRepository.observeMonth(month.toString())
+                .map { summaries ->
+                    buildMonthlyLedgerStatsUiState(
+                        month = month,
+                        summaries = summaries,
+                    )
+                }
+                .onStart {
+                    emit(MonthlyLedgerStatsUiState(month = month, isLoading = true))
+                }
+                .catch {
+                    emit(
+                        MonthlyLedgerStatsUiState(
+                            month = month,
+                            loadFailed = true,
+                        )
+                    )
+                }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = MonthlyLedgerStatsUiState(
+                month = _selectedLedgerMonth.value,
+                isLoading = true,
+            ),
+        )
+
     init {
         viewModelScope.launch { loadStats() }
+    }
+
+    fun selectPreviousLedgerMonth() {
+        _selectedLedgerMonth.update { it.minusMonths(1) }
+    }
+
+    fun selectNextLedgerMonth() {
+        _selectedLedgerMonth.update { selected ->
+            nextLedgerMonth(selected = selected, currentMonth = YearMonth.now())
+        }
     }
 
     private suspend fun loadStats() {
@@ -81,3 +134,8 @@ class StatsVM(
         )
     }
 }
+
+internal fun nextLedgerMonth(
+    selected: YearMonth,
+    currentMonth: YearMonth,
+): YearMonth = if (selected < currentMonth) selected.plusMonths(1) else selected

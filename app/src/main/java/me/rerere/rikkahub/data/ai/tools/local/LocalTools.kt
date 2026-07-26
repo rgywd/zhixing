@@ -6,6 +6,7 @@ import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.repository.AgendaTaskRepository
 import me.rerere.rikkahub.data.repository.AgendaPlanRepository
+import me.rerere.rikkahub.data.repository.MonthlyLedgerRepository
 import me.rerere.tts.provider.TTSManager
 
 class LocalTools(
@@ -15,6 +16,7 @@ class LocalTools(
     private val settingsStore: SettingsStore,
     private val agendaTaskRepository: AgendaTaskRepository,
     private val agendaPlanRepository: AgendaPlanRepository,
+    private val monthlyLedgerRepository: MonthlyLedgerRepository,
 ) {
     val javascriptTool by lazy { buildJavascriptTool() }
 
@@ -36,9 +38,14 @@ class LocalTools(
 
     val agendaPlanTools by lazy { buildAgendaPlanTools(agendaPlanRepository) }
 
+    val monthlySpendingSummaryTool by lazy {
+        buildMonthlySpendingSummaryTool(monthlyLedgerRepository)
+    }
+
     fun getTools(options: List<LocalToolOption>): List<Tool> {
         val tools = agendaTaskTools.toMutableList()
         tools.addAll(agendaPlanTools)
+        tools.add(monthlySpendingSummaryTool)
         if (options.contains(LocalToolOption.JavascriptEngine)) {
             tools.add(javascriptTool)
         }

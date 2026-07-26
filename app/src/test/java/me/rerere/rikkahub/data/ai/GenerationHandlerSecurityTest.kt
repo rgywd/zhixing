@@ -1,10 +1,15 @@
 package me.rerere.rikkahub.data.ai
 
 import kotlinx.coroutines.runBlocking
+import me.rerere.ai.core.MessageRole
+import me.rerere.ai.core.Tool
+import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.MemoryKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GenerationHandlerSecurityTest {
@@ -42,5 +47,69 @@ class GenerationHandlerSecurityTest {
             },
         )
         assertEquals(1, refreshCount)
+    }
+
+    @Test
+    fun toolInputIsSanitizedBeforeItCanBePersisted() {
+        val tool = Tool(
+            name = "sensitive_tool",
+            description = "",
+            sanitizeInputForStorage = { """{"safe_summary":"kept"}""" },
+            execute = { emptyList() },
+        )
+        val messages = listOf(
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Tool(
+                        toolCallId = "call-1",
+                        toolName = tool.name,
+                        input = """{"raw_text":"must not persist"}""",
+                    ),
+                ),
+            ),
+        )
+
+        val sanitized = sanitizeToolInputsForStorage(messages, listOf(tool))
+            .single()
+            .parts
+            .filterIsInstance<UIMessagePart.Tool>()
+            .single()
+            .input
+
+        assertEquals("""{"safe_summary":"kept"}""", sanitized)
+        assertFalse(sanitized.contains("must not persist"))
+    }
+
+    @Test
+    fun failingToolInputSanitizerFailsClosed() {
+        val tool = Tool(
+            name = "sensitive_tool",
+            description = "",
+            sanitizeInputForStorage = { error("sanitizer failure") },
+            execute = { emptyList() },
+        )
+        val messages = listOf(
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Tool(
+                        toolCallId = "call-1",
+                        toolName = tool.name,
+                        input = """{"raw_text":"must not persist"}""",
+                    ),
+                ),
+            ),
+        )
+
+        val sanitized = sanitizeToolInputsForStorage(messages, listOf(tool))
+            .single()
+            .parts
+            .filterIsInstance<UIMessagePart.Tool>()
+            .single()
+            .input
+
+        assertEquals("{}", sanitized)
+        assertTrue(sanitized.length <= 2)
     }
 }
