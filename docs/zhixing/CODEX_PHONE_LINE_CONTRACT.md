@@ -168,6 +168,12 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
 
 ## 3. 最小 HTTP API
 
+`/v1/life/*` 是普通聊天复用 Work 用户鉴权的相邻只读代理，不属于 Work 会话状态机，也不改变 Phone-line MCP
+三工具约束。信息监控提供 `GET /v1/life/inbox/status|items|digest`，要求相同的协议头和用户 Bearer，并只接受
+`channel`、`hours`、`limit`、`minImportance` 四个受限查询参数；其中 `status` 只允许 `channel`，`items`
+允许全部四项，`digest` 不允许 `limit`。其上游是独立 Life Gateway；Core 不采集消息，不保存登录凭据、原始
+正文或 webhook payload。
+
 ### Android scope
 
 - `GET /v1/work/runners`：Runner 在线状态与缓存版本。

@@ -122,7 +122,12 @@ function sanitizeReport(html, title) {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><title>${safeTitle}</title><style>${REPORT_STYLE}</style></head><body>${body}</body></html>`;
 }
 
-export function createWorkServer({ store, askTimeoutMs = 180_000, quotaProxy = null }) {
+export function createWorkServer({
+  store,
+  askTimeoutMs = 180_000,
+  quotaProxy = null,
+  informationMonitorProxy = null,
+}) {
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url, "http://localhost");
@@ -135,6 +140,22 @@ export function createWorkServer({ store, askTimeoutMs = 180_000, quotaProxy = n
           throw Object.assign(new Error("套餐余量服务尚未配置"), { statusCode: 503 });
         }
         return sendJson(response, 200, await quotaProxy.getQuotas());
+      }
+      const informationMonitorMatch = url.pathname.match(/^\/v1\/life\/inbox\/(status|items|digest)$/);
+      if (request.method === "GET" && informationMonitorMatch) {
+        requireUser(store, request);
+        if (!informationMonitorProxy) {
+          throw Object.assign(new Error("信息监控服务尚未配置"), { statusCode: 503 });
+        }
+        const result = await informationMonitorProxy.get(informationMonitorMatch[1], url.searchParams);
+        const headers = {
+          "x-zhixing-life-cache": result.isStale ? "stale" : "fresh",
+          ...(result.isStale ? {
+            warning: '110 - "Response is stale"',
+            "x-zhixing-life-error": result.errorCode,
+          } : {}),
+        };
+        return sendJson(response, 200, result.body, headers);
       }
 
       if (request.method === "POST" && url.pathname === "/v1/runner/register") {

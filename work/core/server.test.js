@@ -12,13 +12,13 @@ const RUNNER_TOKEN = "runner-test-token";
 const RUNNER_INSTANCE = "runner-instance-1";
 const PROTOCOL = { "x-zhixing-work-protocol": "1" };
 
-async function fixture(t, askTimeoutMs = 150, quotaProxy = null) {
+async function fixture(t, askTimeoutMs = 150, quotaProxy = null, informationMonitorProxy = null) {
   const store = new WorkStore({
     userToken: USER_TOKEN,
     runnerTokens: { "runner-1": RUNNER_TOKEN, "runner-2": "runner-2-token" },
     sessionSecret: "test-session-secret-at-least-32-bytes",
   });
-  const server = createWorkServer({ store, askTimeoutMs, quotaProxy });
+  const server = createWorkServer({ store, askTimeoutMs, quotaProxy, informationMonitorProxy });
   let port;
   do {
     server.listen(0, "127.0.0.1");
@@ -137,6 +137,55 @@ test("life quota endpoint uses Work user authentication", async (t) => {
   const result = await request(baseUrl, "/v1/life/quotas");
   assert.equal(result.response.status, 200);
   assert.deepEqual(result.payload, expected);
+});
+
+test("life inbox endpoints use Work user authentication and expose stale state only in safe headers", async (t) => {
+  const calls = [];
+  const expected = {
+    schema: "information-monitor/v1",
+    items: [{
+      id: "event_01",
+      sourceLabel: "工作邮箱",
+      channel: "email",
+      occurredAt: "2026-07-26T03:04:05Z",
+      sender: null,
+      title: "本周安排",
+      summary: "项目组更新了本周安排。",
+      actionItems: [],
+      importance: "high",
+    }],
+  };
+  const informationMonitorProxy = {
+    get: async (action, searchParams) => {
+      calls.push({ action, query: searchParams.toString() });
+      return { body: expected, isStale: true, errorCode: "upstream_timeout" };
+    },
+  };
+  const { baseUrl } = await fixture(t, 150, null, informationMonitorProxy);
+
+  const missingProtocol = await fetch(`${baseUrl}/v1/life/inbox/items`, {
+    headers: { authorization: `Bearer ${USER_TOKEN}` },
+  });
+  assert.equal(missingProtocol.status, 426);
+  assert.equal(calls.length, 0);
+
+  const unauthorized = await request(baseUrl, "/v1/life/inbox/items", { token: "wrong-token" });
+  assert.equal(unauthorized.response.status, 401);
+  assert.equal(calls.length, 0);
+
+  const result = await request(
+    baseUrl,
+    "/v1/life/inbox/items?channel=email&hours=24&limit=10&minImportance=high",
+  );
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(result.payload, expected);
+  assert.deepEqual(calls, [{
+    action: "items",
+    query: "channel=email&hours=24&limit=10&minImportance=high",
+  }]);
+  assert.equal(result.response.headers.get("x-zhixing-life-cache"), "stale");
+  assert.equal(result.response.headers.get("x-zhixing-life-error"), "upstream_timeout");
+  assert.match(result.response.headers.get("warning"), /^110 /);
 });
 
 test("full phone-line API flow is durable, ordered and idempotent", async (t) => {

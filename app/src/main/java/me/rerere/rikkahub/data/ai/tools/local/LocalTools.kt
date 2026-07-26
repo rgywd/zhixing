@@ -7,6 +7,8 @@ import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.repository.AgendaTaskRepository
 import me.rerere.rikkahub.data.repository.AgendaPlanRepository
 import me.rerere.rikkahub.data.repository.MonthlyLedgerRepository
+import me.rerere.rikkahub.data.work.PhoneWorkApiClient
+import me.rerere.rikkahub.data.work.PhoneWorkCredentialStore
 import me.rerere.tts.provider.TTSManager
 
 class LocalTools(
@@ -17,6 +19,8 @@ class LocalTools(
     private val agendaTaskRepository: AgendaTaskRepository,
     private val agendaPlanRepository: AgendaPlanRepository,
     private val monthlyLedgerRepository: MonthlyLedgerRepository,
+    private val phoneWorkApiClient: PhoneWorkApiClient,
+    private val phoneWorkCredentialStore: PhoneWorkCredentialStore,
 ) {
     val javascriptTool by lazy { buildJavascriptTool() }
 
@@ -42,10 +46,17 @@ class LocalTools(
         buildMonthlySpendingSummaryTool(monthlyLedgerRepository)
     }
 
+    val inboxMonitorTool by lazy {
+        buildInboxMonitorTool(phoneWorkApiClient, phoneWorkCredentialStore)
+    }
+
     fun getTools(options: List<LocalToolOption>): List<Tool> {
         val tools = agendaTaskTools.toMutableList()
         tools.addAll(agendaPlanTools)
         tools.add(monthlySpendingSummaryTool)
+        if (phoneWorkCredentialStore.connection.value.configured) {
+            tools.add(inboxMonitorTool)
+        }
         if (options.contains(LocalToolOption.JavascriptEngine)) {
             tools.add(javascriptTool)
         }

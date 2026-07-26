@@ -11,6 +11,13 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import me.rerere.rikkahub.data.life.InformationMonitorDigestEnvelope
+import me.rerere.rikkahub.data.life.InformationMonitorFreshness
+import me.rerere.rikkahub.data.life.InformationMonitorItemsEnvelope
+import me.rerere.rikkahub.data.life.InformationMonitorQuery
+import me.rerere.rikkahub.data.life.InformationMonitorSnapshot
+import me.rerere.rikkahub.data.life.InformationMonitorStatusEnvelope
+import me.rerere.rikkahub.data.life.requireValid
 import me.rerere.rikkahub.data.quota.QuotaEnvelope
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -43,6 +50,27 @@ class PhoneWorkApiClient(
         get<SessionsResponse>("/v1/work/sessions${if (archived) "?archived=true" else ""}").sessions
 
     suspend fun quotas(): QuotaEnvelope = get("/v1/life/quotas")
+
+    suspend fun informationMonitorStatus(
+        query: InformationMonitorQuery = InformationMonitorQuery(),
+    ): InformationMonitorSnapshot<InformationMonitorStatusEnvelope> =
+        getInformationMonitor("/v1/life/inbox/status${query.toQueryString()}") {
+            it.requireValid()
+        }
+
+    suspend fun informationMonitorItems(
+        query: InformationMonitorQuery = InformationMonitorQuery(),
+    ): InformationMonitorSnapshot<InformationMonitorItemsEnvelope> =
+        getInformationMonitor("/v1/life/inbox/items${query.toQueryString()}") {
+            it.requireValid()
+        }
+
+    suspend fun informationMonitorDigest(
+        query: InformationMonitorQuery = InformationMonitorQuery(),
+    ): InformationMonitorSnapshot<InformationMonitorDigestEnvelope> =
+        getInformationMonitor("/v1/life/inbox/digest${query.toQueryString()}") {
+            it.requireValid()
+        }
 
     suspend fun events(sessionId: String, afterSeq: Long): List<PhoneWorkEvent> =
         get<EventsResponse>("/v1/work/sessions/${sessionId.urlEncode()}/events?afterSeq=$afterSeq").events
@@ -138,8 +166,21 @@ class PhoneWorkApiClient(
         Request.Builder().url(url("/v1/work/reports/${reportId.urlEncode()}")),
     ) { it.body?.string().orEmpty() }
 
-    private suspend inline fun <reified T> get(path: String): T = request(Request.Builder().url(url(path))) { response ->
-        json.decodeFromString(response.body?.string().orEmpty())
+    private suspend inline fun <reified T> get(path: String): T =
+        request(Request.Builder().url(url(path))) { response ->
+            json.decodeFromString(response.body?.string().orEmpty())
+        }
+
+    private suspend inline fun <reified T> getInformationMonitor(
+        path: String,
+        crossinline validate: (T) -> T,
+    ): InformationMonitorSnapshot<T> = request(Request.Builder().url(url(path))) { response ->
+        InformationMonitorSnapshot(
+            data = validate(json.decodeFromString(response.body?.string().orEmpty())),
+            freshness = parseInformationMonitorFreshness(
+                response.header(INFORMATION_MONITOR_CACHE_HEADER),
+            ),
+        )
     }
 
     private suspend inline fun <reified T, reified B> post(
@@ -184,6 +225,23 @@ class PhoneWorkApiClient(
 
     private fun String.urlEncode(): String = java.net.URLEncoder.encode(this, Charsets.UTF_8.name())
 
+    private fun InformationMonitorQuery.toQueryString(): String {
+        require(hours == null || hours in 1..168) { "hours must be between 1 and 168" }
+        require(limit == null || limit in 1..50) { "limit must be between 1 and 50" }
+        val parameters = buildList {
+            channel?.let { add("channel" to it.name.lowercase()) }
+            hours?.let { add("hours" to it.toString()) }
+            limit?.let { add("limit" to it.toString()) }
+            minImportance?.let { add("minImportance" to it.name.lowercase()) }
+        }
+        return parameters
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(prefix = "?", separator = "&") { (name, value) ->
+                "${name.urlEncode()}=${value.urlEncode()}"
+            }
+            .orEmpty()
+    }
+
     private fun queryFileName(uri: Uri): String? = context.contentResolver.query(
         uri,
         arrayOf(OpenableColumns.DISPLAY_NAME),
@@ -212,8 +270,16 @@ class PhoneWorkApiClient(
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
         val SUPPORTED_IMAGE_TYPES = setOf("image/png", "image/jpeg", "image/webp", "image/gif")
         const val MAX_IMAGE_BYTES = 10 * 1024 * 1024
+        const val INFORMATION_MONITOR_CACHE_HEADER = "X-Zhixing-Life-Cache"
     }
 }
+
+internal fun parseInformationMonitorFreshness(value: String?): InformationMonitorFreshness =
+    when (value?.trim()?.lowercase()) {
+        null, "", InformationMonitorFreshness.FRESH.value -> InformationMonitorFreshness.FRESH
+        InformationMonitorFreshness.STALE.value -> InformationMonitorFreshness.STALE
+        else -> throw PhoneWorkApiException("Work Core 返回了无效的信息监控新鲜度")
+    }
 
 class PhoneWorkApiException(message: String, cause: Throwable? = null) : IOException(message, cause)
 
