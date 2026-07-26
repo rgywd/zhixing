@@ -9,7 +9,10 @@ import androidx.core.net.toUri
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -23,6 +26,7 @@ import me.rerere.rikkahub.data.repository.FilesRepository
 import me.rerere.rikkahub.utils.exportImage
 import me.rerere.rikkahub.utils.exportImageFile
 import me.rerere.rikkahub.utils.getActivity
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -34,6 +38,8 @@ class FilesManager(
     companion object {
         private const val TAG = "FilesManager"
     }
+
+    private val managedFileTrackingJobs = ConcurrentHashMap<String, Job>()
 
     suspend fun saveManagedFromUri(
         folder: String,
@@ -217,6 +223,44 @@ class FilesManager(
                 }
             }
         }
+    }
+
+    /** Returns whether [uri] is a file URI canonically contained by [context.filesDir]/upload. */
+    fun isManagedUploadFile(uri: Uri): Boolean = managedUploadFile(uri) != null
+
+    /** Returns the canonical app-relative upload path used for ownership/reference checks. */
+    fun managedUploadRelativePath(uri: Uri): String? = managedUploadFile(uri)?.relativePath
+
+    /**
+     * Deletes managed upload files and their database records before returning.
+     *
+     * Missing files are treated as already removed, while a failed disk deletion keeps the
+     * managed-file record. Non-file and out-of-scope URIs are rejected without side effects.
+     */
+    suspend fun deleteManagedUploadFiles(uris: List<Uri>): ManagedFileDeleteResult =
+        withContext(Dispatchers.IO) {
+            val targets = uris.map(::managedUploadFile)
+            targets
+                .mapNotNull { it?.relativePath }
+                .distinct()
+                .forEach { relativePath ->
+                    managedFileTrackingJobs[relativePath]?.join()
+                }
+            deleteManagedUploadTargets(
+                targets = targets,
+                deleteMetadata = { relativePath ->
+                    repository.deleteByPath(relativePath)
+                },
+            )
+        }
+
+    private fun managedUploadFile(uri: Uri): ManagedUploadFile? {
+        if (uri.scheme != "file" || !uri.authority.isNullOrEmpty()) return null
+        return resolveManagedUploadFile(
+            filesDir = context.filesDir,
+            scheme = uri.scheme,
+            file = runCatching { uri.toFile() }.getOrNull(),
+        )
     }
 
     suspend fun countChatFiles(): Pair<Int, Long> = withContext(Dispatchers.IO) {
@@ -437,7 +481,10 @@ class FilesManager(
 
     private fun trackManagedFile(folder: String, file: File, displayName: String, mimeType: String) {
         val relativePath = buildRelativePath(folder, file)
-        appScope.launch(Dispatchers.IO) {
+        val job = appScope.launch(
+            context = Dispatchers.IO,
+            start = CoroutineStart.LAZY,
+        ) {
             runCatching {
                 val existing = repository.getByPath(relativePath)
                 if (existing != null) {
@@ -463,6 +510,11 @@ class FilesManager(
                 )
             }
         }
+        managedFileTrackingJobs[relativePath] = job
+        job.invokeOnCompletion {
+            managedFileTrackingJobs.remove(relativePath, job)
+        }
+        job.start()
     }
 
     private fun buildRelativePath(folder: String, file: File): String =
@@ -485,6 +537,84 @@ data class SyncResult(
     val inserted: Int,
     val removed: Int,
 )
+
+data class ManagedFileDeleteResult(
+    val requested: Int,
+    val removed: Int,
+    val rejected: Int,
+    val failed: Int,
+)
+
+internal data class ManagedUploadFile(
+    val file: File,
+    val relativePath: String,
+)
+
+internal fun resolveManagedUploadFile(
+    filesDir: File,
+    scheme: String?,
+    file: File?,
+): ManagedUploadFile? {
+    if (scheme != "file" || file == null) return null
+
+    val uploadDir = runCatching {
+        File(filesDir, FileFolders.UPLOAD).canonicalFile
+    }.getOrNull() ?: return null
+    val candidate = runCatching { file.canonicalFile }.getOrNull() ?: return null
+    val uploadPath = uploadDir.toPath()
+    val candidatePath = candidate.toPath()
+    if (candidatePath == uploadPath || !candidatePath.startsWith(uploadPath)) {
+        return null
+    }
+
+    val relativeToUpload = runCatching {
+        candidate.relativeTo(uploadDir).invariantSeparatorsPath
+    }.getOrNull()?.takeIf { it.isNotBlank() } ?: return null
+    return ManagedUploadFile(
+        file = candidate,
+        relativePath = "${FileFolders.UPLOAD}/$relativeToUpload",
+    )
+}
+
+internal suspend fun deleteManagedUploadTargets(
+    targets: List<ManagedUploadFile?>,
+    deleteMetadata: suspend (String) -> Unit,
+): ManagedFileDeleteResult {
+    var removed = 0
+    var rejected = 0
+    var failed = 0
+
+    targets.forEach { target ->
+        if (target == null) {
+            rejected += 1
+            return@forEach
+        }
+
+        try {
+            val removedFromDisk = !target.file.exists() ||
+                (target.file.isFile && target.file.delete()) ||
+                !target.file.exists()
+            if (!removedFromDisk) {
+                failed += 1
+                return@forEach
+            }
+
+            deleteMetadata(target.relativePath)
+            removed += 1
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            failed += 1
+        }
+    }
+
+    return ManagedFileDeleteResult(
+        requested = targets.size,
+        removed = removed,
+        rejected = rejected,
+        failed = failed,
+    )
+}
 
 object FileFolders {
     const val UPLOAD = "upload"

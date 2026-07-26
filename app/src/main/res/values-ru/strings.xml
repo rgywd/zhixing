@@ -1076,6 +1076,7 @@
   <string name="stats_page_ledger_net">Сальдо</string>
   <string name="stats_page_ledger_next_month">Следующий месяц</string>
   <string name="stats_page_ledger_previous_month">Предыдущий месяц</string>
+  <string name="ledger_attachment_cleanup_placeholder">После сохранения сводки за месяц вложения со счетами и выписками были удалены из этого чата.</string>
   <string name="stats_page_launch_count">Количество запусков приложения</string>
   <string name="stats_page_output_tokens">Выходные токены</string>
   <string name="stats_page_tab_conversations">Беседы</string>

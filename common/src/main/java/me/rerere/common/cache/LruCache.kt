@@ -49,59 +49,84 @@ class LruCache<K, V>(
     }
 
     fun get(key: K): V? {
-        lock.withLock {
+        return lock.withLock {
             map[key]?.let { entry ->
                 if (!entry.isExpired(now())) return entry.value
                 map.remove(key)
             }
-        }
-        val entry = store.loadEntry(key)
-        if (entry != null) {
-            return if (!entry.isExpired(now())) {
-                lock.withLock { map[key] = entry }
-                entry.value
+            val entry = store.loadEntry(key)
+            if (entry != null) {
+                if (!entry.isExpired(now())) {
+                    map[key] = entry
+                    entry.value
+                } else {
+                    runCatching { store.remove(key) }
+                    null
+                }
             } else {
-                runCatching { store.remove(key) }
                 null
             }
         }
-        return null
     }
 
     fun put(key: K, value: V) = put(key, value, expireAfterWriteMillis)
 
     fun put(key: K, value: V, ttlMillis: Long?) {
         val entry = CacheEntry(value = value, expiresAt = ttlMillis?.let { now() + it })
-        lock.withLock { map[key] = entry }
-        try {
-            store.saveEntry(key, entry)
-        } catch (_: Exception) {
+        lock.withLock {
+            map[key] = entry
+            try {
+                store.saveEntry(key, entry)
+            } catch (_: Exception) {
+            }
         }
     }
 
     fun remove(key: K) {
-        lock.withLock { map.remove(key) }
-        try {
+        lock.withLock {
+            map.remove(key)
+            try {
+                store.remove(key)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /**
+     * Removes [key] from memory and persistent storage, propagating persistent-store failures.
+     *
+     * Existing callers that require best-effort cleanup should continue to use [remove].
+     */
+    fun removeChecked(key: K) {
+        lock.withLock {
+            map.remove(key)
             store.remove(key)
-        } catch (_: Exception) {
         }
     }
 
     fun clear() {
-        lock.withLock { map.clear() }
-        try {
-            store.clear()
-        } catch (_: Exception) {
+        lock.withLock {
+            map.clear()
+            try {
+                store.clear()
+            } catch (_: Exception) {
+            }
         }
     }
 
     fun containsKey(key: K): Boolean {
-        val inMem = lock.withLock { map[key]?.let { !it.isExpired(now()) } ?: false }
-        if (inMem) return true
-        val entry = store.loadEntry(key)
-        if (entry != null && !entry.isExpired(now())) return true
-        if (entry != null) runCatching { store.remove(key) }
-        return false
+        return lock.withLock {
+            val inMem = map[key]?.let { !it.isExpired(now()) } ?: false
+            if (inMem) return true
+            val entry = store.loadEntry(key)
+            if (entry != null && !entry.isExpired(now())) {
+                map[key] = entry
+                true
+            } else {
+                if (entry != null) runCatching { store.remove(key) }
+                false
+            }
+        }
     }
 
     fun size(): Int = lock.withLock { map.size }

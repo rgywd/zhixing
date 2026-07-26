@@ -21,6 +21,8 @@ import me.rerere.rikkahub.data.datastore.findProvider
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.get
 import java.io.File
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 import kotlin.time.Duration.Companion.days
 
 private const val TAG = "OcrTransformer"
@@ -43,6 +45,7 @@ object OcrTransformer : InputMessageTransformer, KoinComponent {
             expireAfterWriteMillis = 3.days.inWholeMilliseconds,
         )
     }
+    private val cacheCoordinator by lazy { OcrCacheCoordinator(cache) }
 
     override suspend fun transform(
         ctx: TransformerContext,
@@ -79,45 +82,137 @@ object OcrTransformer : InputMessageTransformer, KoinComponent {
         }
     }
 
-    suspend fun performOcr(part: UIMessagePart.Image): String = runCatching {
-        // Check cache first
-        cache.get(part.url)?.let { cachedResult ->
-            Log.i(TAG, "performOcr: Using cached result for ${part.url}")
+    fun removeCachedResults(urls: Iterable<String>) {
+        cacheCoordinator.remove(urls)
+    }
+
+    suspend fun performOcr(part: UIMessagePart.Image): String {
+        val cacheLease = cacheCoordinator.begin(part.url)
+        cacheLease.cachedValue?.let { cachedResult ->
+            Log.i(TAG, "performOcr: cacheHit=true, outputChars=${cachedResult.length}")
             return cachedResult
         }
+        val generation = checkNotNull(cacheLease.generation)
+        var resultToCache: String? = null
 
-        val settings = get<SettingsStore>().settingsFlow.value
-        val model = settings.findModelById(settings.ocrModelId) ?: return "[Image]"
-        val providerSetting = model.findProvider(settings.providers) ?: return "[Image]"
-        val provider = get<ProviderManager>().getProviderByType(providerSetting)
-        val result = provider.generateText(
-            providerSetting = providerSetting,
-            messages = listOf(
-                UIMessage.system(settings.ocrPrompt),
-                UIMessage(
-                    role = MessageRole.USER,
-                    parts = listOf(UIMessagePart.Image(part.url))
-                )
-            ),
-            params = TextGenerationParams(
-                model = model,
-                customHeaders = model.customHeaders,
-                customBody = model.customBodies,
-            ),
-        )
-        val content = result.choices[0].message?.toText() ?: "[ERROR, OCR failed]"
-        Log.i(TAG, "performOcr: $content")
-        val ocrResult = """
-            <image_file_ocr>
-               $content
-            </image_file_ocr>
-            * The image_file_ocr tag contains a description of an image that the user uploaded to you, not the user's prompt.
-        """.trimIndent()
+        return try {
+            val settings = get<SettingsStore>().settingsFlow.value
+            val model = settings.findModelById(settings.ocrModelId) ?: return "[Image]"
+            val providerSetting = model.findProvider(settings.providers) ?: return "[Image]"
+            val provider = get<ProviderManager>().getProviderByType(providerSetting)
+            val result = provider.generateText(
+                providerSetting = providerSetting,
+                messages = listOf(
+                    UIMessage.system(settings.ocrPrompt),
+                    UIMessage(
+                        role = MessageRole.USER,
+                        parts = listOf(UIMessagePart.Image(part.url))
+                    )
+                ),
+                params = TextGenerationParams(
+                    model = model,
+                    customHeaders = model.customHeaders,
+                    customBody = model.customBodies,
+                ),
+            )
+            val content = result.choices[0].message?.toText() ?: "[ERROR, OCR failed]"
+            Log.i(TAG, "performOcr: cacheHit=false, outputChars=${content.length}")
+            val ocrResult = """
+                <image_file_ocr>
+                   $content
+                </image_file_ocr>
+                * The image_file_ocr tag contains a description of an image that the user uploaded to you, not the user's prompt.
+            """.trimIndent()
 
-        // Cache the result
-        cache.put(part.url, ocrResult)
-        return ocrResult
-    }.getOrElse {
-        "[ERROR, OCR failed: $it]"
+            resultToCache = ocrResult
+            ocrResult
+        } catch (error: Exception) {
+            "[ERROR, OCR failed: $error]"
+        } finally {
+            cacheCoordinator.complete(
+                url = part.url,
+                generation = generation,
+                value = resultToCache,
+            )
+        }
     }
+}
+
+internal data class OcrCacheLease(
+    val cachedValue: String?,
+    val generation: Long?,
+)
+
+/**
+ * Coordinates cache misses that perform slow OCR outside the cache lock.
+ *
+ * Removing a URL advances its generation while a miss is in flight. The stale computation can
+ * still return to its caller, but it cannot write sensitive OCR text back after cleanup.
+ */
+internal class OcrCacheCoordinator(
+    private val cache: LruCache<String, String>,
+) {
+    private data class InFlightState(
+        var generation: Long = 0L,
+        var count: Int = 0,
+    )
+
+    private val lock = ReentrantLock()
+    private val inFlight = mutableMapOf<String, InFlightState>()
+
+    fun begin(url: String): OcrCacheLease = lock.withLock {
+        cache.get(url)?.let { cached ->
+            return OcrCacheLease(cachedValue = cached, generation = null)
+        }
+        val state = inFlight.getOrPut(url) { InFlightState() }
+        state.count += 1
+        OcrCacheLease(cachedValue = null, generation = state.generation)
+    }
+
+    fun complete(
+        url: String,
+        generation: Long,
+        value: String?,
+    ): Boolean = lock.withLock {
+        val state = inFlight[url] ?: return false
+        val isCurrent = state.generation == generation
+        val cached = isCurrent && value != null
+        if (cached) {
+            cache.put(url, value)
+        }
+
+        state.count -= 1
+        check(state.count >= 0) { "OCR cache lease completed more than once: $url" }
+        if (state.count == 0) {
+            inFlight.remove(url)
+        }
+        cached
+    }
+
+    fun remove(urls: Iterable<String>) = lock.withLock {
+        val distinctUrls = urls.toSet()
+        distinctUrls.forEach { url ->
+            inFlight[url]?.let { state ->
+                state.generation += 1
+            }
+        }
+        removeOcrCacheEntries(cache, distinctUrls)
+    }
+}
+
+internal fun removeOcrCacheEntries(
+    cache: LruCache<String, String>,
+    urls: Iterable<String>,
+) {
+    var firstFailure: Exception? = null
+    urls.forEach { url ->
+        try {
+            cache.removeChecked(url)
+        } catch (error: Exception) {
+            if (firstFailure == null) {
+                firstFailure = error
+            }
+        }
+    }
+    firstFailure?.let { throw it }
 }
