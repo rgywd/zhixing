@@ -28,6 +28,7 @@ import me.rerere.rikkahub.data.quota.QuotaRepository
 import me.rerere.rikkahub.data.work.PhoneWorkCatalogStore
 import me.rerere.rikkahub.data.work.PhoneWorkCredentialStore
 import me.rerere.rikkahub.data.work.PhoneWorkDraftStore
+import me.rerere.rikkahub.data.work.PhoneWorkRepoPreferenceStore
 import me.rerere.rikkahub.data.work.PhoneWorkRepository
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -97,6 +98,7 @@ val dataSourceModule = module {
     single { PhoneWorkCredentialStore(get()) }
     single { PhoneWorkCatalogStore(get()) }
     single { PhoneWorkDraftStore(get()) }
+    single { PhoneWorkRepoPreferenceStore(get()) }
     single { PhoneWorkApiClient(get(), get()) }
     single { QuotaRepository(get(), get()) }
     single { PhoneWorkRepository(get(), get(), get(), get(), get()) }

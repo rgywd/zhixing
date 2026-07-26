@@ -43,8 +43,10 @@ repo/runtime/model/effort 组合。仓库 catalog 项可携带可选 `group`、`
 ```
 
 `group` 是 Runner 配置的公开显示标签，不得包含真实绝对路径。Android 只允许创建 `available=true` 的目录会话，
-并可按 `group` 分组和搜索。创建后 runtime/model/effort 固定；旧客户端未提交 `runtime` 时默认 `codex`。
-旧 Runner 的扁平 `models/reasoningEfforts` catalog 也继续映射为 Codex。
+并可按 `group` 分组和搜索。Android 可在本机保存仓库引用（`runnerId + repoId`）的置顶顺序和最多 5 项最近选择；
+选择器按置顶、最近使用、其余分组展示且不重复。新会话只从仍可用的最近项或置顶项恢复默认，没有本地历史时保持
+未选择。该偏好不上传 Core，也不改变 catalog 或会话创建协议。创建后 runtime/model/effort 固定；旧客户端未提交
+`runtime` 时默认 `codex`。旧 Runner 的扁平 `models/reasoningEfforts` catalog 也继续映射为 Codex。
 
 Android 创建会话时可提交最多 80 字符的 `title`。当前客户端用已配置的快速模型根据首条文本生成标题；模型不可用、
 生成失败或仅发送图片时使用首条文本摘要或仓库名兜底。旧客户端未提交标题时，Core 使用 `repoName`，保持 v1 向后兼容。

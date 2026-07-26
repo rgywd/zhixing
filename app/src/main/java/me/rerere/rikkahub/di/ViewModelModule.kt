@@ -87,6 +87,7 @@ val viewModelModule = module {
             repository = get(),
             draftStore = get(),
             sessionCreator = get(),
+            repoPreferenceStore = get(),
         )
     }
 }
