@@ -18,10 +18,12 @@ import me.rerere.rikkahub.data.work.PhoneWorkCatalog
 import me.rerere.rikkahub.data.work.PhoneWorkEvent
 import me.rerere.rikkahub.data.work.PhoneWorkDraftStore
 import me.rerere.rikkahub.data.work.PhoneWorkRepo
+import me.rerere.rikkahub.data.work.PhoneWorkRepoPreferenceStore
 import me.rerere.rikkahub.data.work.PhoneWorkRepository
 import me.rerere.rikkahub.data.work.PhoneWorkRuntime
 import me.rerere.rikkahub.data.work.PhoneWorkSession
 import me.rerere.rikkahub.data.work.PhoneWorkSessionCreator
+import me.rerere.rikkahub.data.work.chooseDefaultWorkRepo
 import me.rerere.rikkahub.data.work.effectiveRuntimes
 
 class PhoneWorkSessionVM(
@@ -29,6 +31,7 @@ class PhoneWorkSessionVM(
     private val repository: PhoneWorkRepository,
     private val draftStore: PhoneWorkDraftStore,
     private val sessionCreator: PhoneWorkSessionCreator,
+    private val repoPreferenceStore: PhoneWorkRepoPreferenceStore,
 ) : ViewModel() {
     private val sessionId = MutableStateFlow(initialSessionId.takeIf { it.isNotBlank() })
     val session: StateFlow<PhoneWorkSession?> = sessionId.flatMapLatest { id ->
@@ -38,6 +41,7 @@ class PhoneWorkSessionVM(
         id?.let(repository::observeEvents) ?: flowOf(emptyList())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val catalog: StateFlow<PhoneWorkCatalog> = repository.catalog
+    val repoPreferences = repoPreferenceStore.state
     val selectedRepo = MutableStateFlow<PhoneWorkRepo?>(null)
     val selectedRuntime = MutableStateFlow("codex")
     val selectedModel = MutableStateFlow(DEFAULT_MODELS.first())
@@ -45,6 +49,7 @@ class PhoneWorkSessionVM(
     val sending = MutableStateFlow(false)
     val sendError = MutableStateFlow<String?>(null)
     val error = MutableStateFlow<String?>(null)
+    private var initialDefaultResolved = false
 
     init {
         viewModelScope.launch {
@@ -85,14 +90,14 @@ class PhoneWorkSessionVM(
                 }
         }
         viewModelScope.launch {
-            chooseDefaults(catalog.value)
+            chooseDefaults(catalog.value, confirmedCatalog = false)
             while (isActive) {
                 val id = sessionId.value
                 val catalogResult = runCatching { repository.refreshCatalog() }
                 if (id == null) {
                     catalogResult
                         .onSuccess {
-                            chooseDefaults(it)
+                            chooseDefaults(it, confirmedCatalog = true)
                             error.value = null
                         }
                         .onFailure { error.value = it.message ?: "无法刷新开发机目录，正在重试" }
@@ -111,7 +116,20 @@ class PhoneWorkSessionVM(
 
     fun selectRepo(repo: PhoneWorkRepo) {
         if (sessionId.value != null) return
+        initialDefaultResolved = true
+        applyRepo(repo, recordRecent = true)
+    }
+
+    fun toggleRepoPinned(repo: PhoneWorkRepo) {
+        if (sessionId.value == null) {
+            initialDefaultResolved = true
+            repoPreferenceStore.togglePinned(repo)
+        }
+    }
+
+    private fun applyRepo(repo: PhoneWorkRepo, recordRecent: Boolean) {
         selectedRepo.value = repo
+        if (recordRecent) repoPreferenceStore.markSelected(repo)
         val runtime = repo.effectiveRuntimes().firstOrNull { it.id == "codex" }
             ?: repo.effectiveRuntimes().first()
         applyRuntime(runtime)
@@ -194,16 +212,24 @@ class PhoneWorkSessionVM(
 
     suspend fun reportHtml(reportId: String): String = repository.reportHtml(reportId)
 
-    private fun chooseDefaults(value: PhoneWorkCatalog) {
+    private fun chooseDefaults(value: PhoneWorkCatalog, confirmedCatalog: Boolean) {
         if (sessionId.value != null) return
         val available = value.repos.filter { it.available }
         val current = selectedRepo.value
         val next = available.firstOrNull { current != null && it.id == current.id && it.runnerId == current.runnerId }
-            ?: available.firstOrNull()
+            ?: when {
+                current != null -> chooseDefaultWorkRepo(available, repoPreferences.value)
+                !initialDefaultResolved && available.isNotEmpty() -> {
+                    chooseDefaultWorkRepo(available, repoPreferences.value).also {
+                        if (it != null || confirmedCatalog) initialDefaultResolved = true
+                    }
+                }
+                else -> null
+            }
         if (next == null) {
             selectedRepo.value = null
         } else if (next.id != current?.id || next.runnerId != current.runnerId) {
-            selectRepo(next)
+            applyRepo(next, recordRecent = false)
         } else {
             selectedRepo.value = next
             val runtimes = next.effectiveRuntimes()

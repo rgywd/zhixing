@@ -82,6 +82,8 @@ import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.hugeicons.stroke.Book03
+import me.rerere.hugeicons.stroke.Pin
+import me.rerere.hugeicons.stroke.PinOff
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.work.PhoneWorkAnswer
 import me.rerere.rikkahub.data.work.PhoneWorkAskAnsweredPayload
@@ -91,11 +93,15 @@ import me.rerere.rikkahub.data.work.PhoneWorkEvent
 import me.rerere.rikkahub.data.work.PhoneWorkHtmlReportPayload
 import me.rerere.rikkahub.data.work.PhoneWorkQuestion
 import me.rerere.rikkahub.data.work.PhoneWorkRepo
+import me.rerere.rikkahub.data.work.PhoneWorkRepoKey
+import me.rerere.rikkahub.data.work.PhoneWorkRepoPreferences
 import me.rerere.rikkahub.data.work.PhoneWorkReportPayload
 import me.rerere.rikkahub.data.work.PhoneWorkRunStatePayload
 import me.rerere.rikkahub.data.work.PhoneWorkRuntime
 import me.rerere.rikkahub.data.work.PhoneWorkUserMessagePayload
 import me.rerere.rikkahub.data.work.effectiveRuntimes
+import me.rerere.rikkahub.data.work.isPinned
+import me.rerere.rikkahub.data.work.key
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.ui.components.ai.ChatInput
@@ -136,6 +142,7 @@ fun PhoneWorkSessionPage(sessionId: String) {
     val session by vm.session.collectAsStateWithLifecycle()
     val events by vm.events.collectAsStateWithLifecycle()
     val catalog by vm.catalog.collectAsStateWithLifecycle()
+    val repoPreferences by vm.repoPreferences.collectAsStateWithLifecycle()
     val selectedRepo by vm.selectedRepo.collectAsStateWithLifecycle()
     val selectedRuntime by vm.selectedRuntime.collectAsStateWithLifecycle()
     val selectedModel by vm.selectedModel.collectAsStateWithLifecycle()
@@ -222,8 +229,10 @@ fun PhoneWorkSessionPage(sessionId: String) {
                             ?: selectedRuntimeConfig?.name
                             ?: workRuntimeDisplayName(selectedRuntime),
                         repos = catalog.repos.filter { it.available },
+                        preferences = repoPreferences,
                         enabled = draft,
                         onSelect = vm::selectRepo,
+                        onTogglePinned = vm::toggleRepoPinned,
                     )
                 },
                 actions = {
@@ -364,8 +373,10 @@ private fun RepoTitleSelector(
     selected: PhoneWorkRepo?,
     runtimeName: String,
     repos: List<PhoneWorkRepo>,
+    preferences: PhoneWorkRepoPreferences,
     enabled: Boolean,
     onSelect: (PhoneWorkRepo) -> Unit,
+    onTogglePinned: (PhoneWorkRepo) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -389,7 +400,9 @@ private fun RepoTitleSelector(
         }
     }
     if (expanded) {
-        val groups = remember(repos, query) { filterWorkRepos(repos, query) }
+        val sections = remember(repos, query, preferences) {
+            buildWorkRepoSections(repos, query, preferences)
+        }
         ModalBottomSheet(
             onDismissRequest = {
                 expanded = false
@@ -413,7 +426,7 @@ private fun RepoTitleSelector(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (groups.isEmpty()) {
+                if (sections.isEmpty()) {
                     Text(
                         if (query.isBlank()) "开发机暂时没有可用目录" else "没有匹配“$query”的目录",
                         modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
@@ -425,23 +438,19 @@ private fun RepoTitleSelector(
                         modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        groups.forEach { (group, items) ->
-                            item(key = "group:$group") {
+                        sections.forEach { section ->
+                            item(key = "section:${section.id}") {
                                 Text(
-                                    group,
+                                    section.title,
                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
                                     style = MaterialTheme.typography.labelLarge,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
                             }
-                            items(items, key = { repo -> "${repo.runnerId}:${repo.id}" }) { repo ->
+                            items(section.repos, key = { repo -> "${repo.runnerId}:${repo.id}" }) { repo ->
                                 val isSelected = selected != null && repo.id == selected.id && repo.runnerId == selected.runnerId
+                                val isPinned = preferences.isPinned(repo)
                                 Surface(
-                                    onClick = {
-                                        onSelect(repo)
-                                        expanded = false
-                                        query = ""
-                                    },
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = MaterialTheme.shapes.medium,
                                     color = if (isSelected) {
@@ -451,17 +460,42 @@ private fun RepoTitleSelector(
                                     },
                                 ) {
                                     Row(
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        Icon(HugeIcons.Folder01, null, modifier = Modifier.size(24.dp))
-                                        Text(repo.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                                        if (isSelected) {
-                                            Text(
-                                                "已选择",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = MaterialTheme.colorScheme.primary,
+                                        Row(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable {
+                                                    onSelect(repo)
+                                                    expanded = false
+                                                    query = ""
+                                                }
+                                                .padding(start = 12.dp, top = 12.dp, bottom = 12.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Icon(HugeIcons.Folder01, null, modifier = Modifier.size(24.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(repo.name, style = MaterialTheme.typography.bodyLarge)
+                                                Text(
+                                                    repo.group?.takeIf(String::isNotBlank) ?: "固定目录",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                            if (isSelected) {
+                                                Text(
+                                                    "已选择",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                )
+                                            }
+                                        }
+                                        IconButton(onClick = { onTogglePinned(repo) }) {
+                                            Icon(
+                                                if (isPinned) HugeIcons.PinOff else HugeIcons.Pin,
+                                                if (isPinned) "取消置顶 ${repo.name}" else "置顶 ${repo.name}",
                                             )
                                         }
                                     }
@@ -475,16 +509,44 @@ private fun RepoTitleSelector(
     }
 }
 
-internal fun filterWorkRepos(repos: List<PhoneWorkRepo>, query: String): Map<String, List<PhoneWorkRepo>> {
+internal data class WorkRepoSection(
+    val id: String,
+    val title: String,
+    val repos: List<PhoneWorkRepo>,
+)
+
+internal fun buildWorkRepoSections(
+    repos: List<PhoneWorkRepo>,
+    query: String,
+    preferences: PhoneWorkRepoPreferences,
+): List<WorkRepoSection> {
     val normalizedQuery = query.trim()
-    return repos.asSequence()
+    val candidates = repos.asSequence()
         .filter { it.available }
         .filter { repo ->
             normalizedQuery.isBlank() || repo.name.contains(normalizedQuery, ignoreCase = true) ||
                 repo.group.orEmpty().contains(normalizedQuery, ignoreCase = true)
         }
+        .toList()
+    val candidatesByKey = candidates.associateBy(PhoneWorkRepo::key)
+    fun preferredRepos(keys: List<PhoneWorkRepoKey>) =
+        keys.mapNotNull(candidatesByKey::get).distinctBy(PhoneWorkRepo::key)
+
+    val pinned = preferredRepos(preferences.pinned)
+    val pinnedKeys = pinned.mapTo(mutableSetOf(), PhoneWorkRepo::key)
+    val recent = preferredRepos(preferences.recent).filterNot { it.key() in pinnedKeys }
+    val preferredKeys = (pinned + recent).mapTo(mutableSetOf(), PhoneWorkRepo::key)
+    val remainingGroups = candidates.asSequence()
+        .filterNot { it.key() in preferredKeys }
         .sortedWith(compareBy<PhoneWorkRepo>({ it.group.orEmpty() }, { it.name }))
         .groupBy { it.group?.takeIf(String::isNotBlank) ?: "固定目录" }
+    return buildList {
+        if (pinned.isNotEmpty()) add(WorkRepoSection("pinned", "置顶", pinned))
+        if (recent.isNotEmpty()) add(WorkRepoSection("recent", "最近使用", recent))
+        remainingGroups.forEach { (group, items) ->
+            add(WorkRepoSection("group:$group", group, items))
+        }
+    }
 }
 
 @Composable
