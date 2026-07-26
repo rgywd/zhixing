@@ -61,7 +61,7 @@ export function buildClaudeArgs({
     "--model", model,
     "--effort", reasoningEffort,
     "--settings", PHONE_SETTINGS,
-    "--setting-sources", "project",
+    "--setting-sources", "user,project",
     "--strict-mcp-config",
     "--mcp-config", mcpConfigPath,
     "--disable-slash-commands",

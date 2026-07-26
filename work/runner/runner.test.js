@@ -100,7 +100,7 @@ test("Codex JSONL mapper treats turn events as the semantic terminal state", () 
   assert.equal(parseCodexTurnOutcome({ type: "item.completed" }), null);
 });
 
-test("Claude Code args preserve local auth while isolating hooks and MCP", () => {
+test("Claude Code args load user API settings while isolating hooks and MCP", () => {
   const directory = mkdtempSync(join(tmpdir(), "zhixing-claude-config-"));
   const mcpConfigPath = writeClaudeMcpConfig(join(directory, "mcp.json"), {
     nodePath: "C:/node.exe",
@@ -134,7 +134,10 @@ test("Claude Code args preserve local auth while isolating hooks and MCP", () =>
   assert.ok(args.includes("--strict-mcp-config"));
   assert.ok(args.includes("--disable-slash-commands"));
   assert.ok(args.includes("--no-chrome"));
-  assert.ok(args.includes("project"));
+  assert.deepEqual(args.slice(args.indexOf("--setting-sources"), args.indexOf("--setting-sources") + 2), [
+    "--setting-sources", "user,project",
+  ]);
+  assert.deepEqual(JSON.parse(args[args.indexOf("--settings") + 1]), { disableAllHooks: true });
   assert.ok(args.includes("claude-session"));
   assert.ok(!args.includes("secret"));
 });

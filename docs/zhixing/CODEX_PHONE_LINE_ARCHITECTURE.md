@@ -92,7 +92,8 @@ Core 可以部署在 VPS，但不持有 OpenAI/Anthropic 登录态、CLI 凭据�
 - Hook 不联网、不持有 Core/Runner/session token，只把小于 1 KiB 的结束标记原子写入单轮本地 outbox。
 - Hook 超时为 1 秒，脚本无论错误与否都静默 `exit 0`；Runner 仍以 JSONL 语义终态、子进程退出码和耐久 transition
   为事实来源，Hook 缺失、超时或损坏不能阻断 Codex。
-- Claude Code 启动时通过命令行禁用 hooks，并只读取 project setting source；不会加载用户级或本机级 hooks。
+- Claude Code 读取 user/project settings 以复用本机第三方 API 环境配置；命令级 `disableAllHooks=true`
+  始终覆盖并禁用 hooks，本机 local settings 不加载。
 
 ### Phone-line MCP
 
@@ -136,8 +137,8 @@ Runner 生成和维护；日常电脑会话不会携带 profile 参数，也不�
 
 在白名单仓库中使用 print mode、verbose stream-json、`bypassPermissions` 和用户选择的 model/effort 启动。Runner
 通过 `--mcp-config` + `--strict-mcp-config` 只暴露本轮 Phone-line MCP，通过命令级 settings 禁用 hooks，并用
-`--setting-sources project` 避免加载用户级和本机级 settings。继续消息使用 `--resume <runtimeSessionId>`。
-Claude Code 复用当前 Windows 用户已有的登录态，但凭据永远不进入 Runner 配置、Core 或日志。
+`--setting-sources user,project` 复用当前 Windows 用户的订阅登录或 `settings.json.env` 第三方 API 配置，同时不加载
+local settings。继续消息使用 `--resume <runtimeSessionId>`。凭据永远不进入 Runner 配置、Core、命令行参数或日志。
 
 三个 Phone-line 工具的行为约定通过同一次手机专属启动命令注入。它必须明确要求里程碑汇报、决策式提问和结束前
 最终汇报，确保“工具已注册”同时也“模型知道何时该用”；该指令仅作用于 Runner 发起的会话。

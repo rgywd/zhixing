@@ -44,16 +44,17 @@ $env:CODEX_HOME = "$HOME\.zhixing-work\codex-home"
 codex login
 ```
 
-   Claude Code 复用当前 Windows 用户自己的登录态，不复制或上传凭据。先确认 CLI 可用并完成一次真实请求：
+   Claude Code 复用当前 Windows 用户自己的 user settings。订阅登录态或 `settings.json.env` 中的第三方 API
+   `ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL` 和模型映射都只由本机 CLI 读取，
+   Runner 不复制或上传凭据。先确认 CLI 可用并完成一次真实请求：
 
 ```powershell
 claude --version
-claude auth status
 claude -p "只回复 CLAUDE_WORK_READY" --model sonnet --effort low --tools ""
 ```
 
-   `claude auth status` 只代表本地存在凭据；若真实请求返回 401 或 `authentication_failed`，执行
-   `claude auth login` 重新登录后再验收。
+   以真实请求为准。使用第三方 API 时先修复 `~/.claude/settings.json` 的 `env`；只有明确使用 Claude 订阅且
+   OAuth 失效时才执行 `claude auth login`。
 
 2. 复制 `runner/work-runner.example.json` 为 `runner/work-runner.json`，填写 Core HTTPS 地址、Runner token
    和仓库白名单。token 不要提交到 Git。`defaultRuntimes` 定义手机可选择的运行时、模型和思考深度；

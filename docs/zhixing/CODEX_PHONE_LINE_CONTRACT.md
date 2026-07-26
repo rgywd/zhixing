@@ -273,5 +273,6 @@ Phone-line v1 不读取旧 Work/Happy 数据；Room v33 迁移会删除旧 Work/
   JSONL 的 `turn.completed` / `turn.failed` 完成会话，并以子进程退出结果作为兼容兜底。收到语义终态后 CLI
   若未在短暂宽限期内退出，Runner 必须清理其进程树；不得把 Hook 失败转换成任务失败。
 - Claude Code 会话不用该 Hook；Runner 在命令级 settings 中设置 `disableAllHooks=true`，并通过
-  `--mcp-config` + `--strict-mcp-config` 只注入本轮 Phone-line MCP。最终 `result` 的 `is_error`、
+  `--setting-sources user,project` 复用本机订阅登录或第三方 API env，通过 `--mcp-config` +
+  `--strict-mcp-config` 只注入本轮 Phone-line MCP。最终 `result` 的 `is_error`、
   `api_error_status` 和错误文本优先于 `subtype` 判断成功，认证失败不得被误报为 IDLE。
