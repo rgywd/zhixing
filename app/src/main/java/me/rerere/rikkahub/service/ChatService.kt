@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.jsonObject
 import me.rerere.ai.core.MessageRole
@@ -47,7 +48,15 @@ import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.GenerationChunk
 import me.rerere.rikkahub.data.ai.GenerationHandler
+import me.rerere.rikkahub.data.ai.MonthlySpendingAttachmentCleanupCandidate
+import me.rerere.rikkahub.data.ai.MonthlySpendingToolCallRef
+import me.rerere.rikkahub.data.ai.bindMonthlySpendingSaveSourceMessages
+import me.rerere.rikkahub.data.ai.containsMonthlySpendingAttachmentUris
+import me.rerere.rikkahub.data.ai.findReadyMonthlySpendingAttachmentCleanupCandidates
+import me.rerere.rikkahub.data.ai.isReadyForMonthlySpendingAttachmentCleanup
 import me.rerere.rikkahub.data.ai.mcp.McpManager
+import me.rerere.rikkahub.data.ai.redactMonthlySpendingAttachments
+import me.rerere.rikkahub.data.ai.successfulMonthlySpendingSaveToolCalls
 import me.rerere.rikkahub.data.ai.tools.createConversationTools
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.ai.tools.createSearchTools
@@ -518,6 +527,7 @@ class ChatService(
         } else {
             model.displayName
         }
+        var successfulSaveToolCallsBeforeGeneration = emptySet<MonthlySpendingToolCallRef>()
 
         runCatching {
 
@@ -538,6 +548,8 @@ class ChatService(
             // check invalid messages
             checkInvalidMessages(conversationId)
             val conversation = getConversationFlow(conversationId).value
+            successfulSaveToolCallsBeforeGeneration =
+                conversation.successfulMonthlySpendingSaveToolCalls()
 
             // start generating
             val session = getOrCreateSession(conversationId)
@@ -629,7 +641,7 @@ class ChatService(
                             node.copy(messages = node.messages.map { it.finishReasoning() })
                         },
                         updateAt = Instant.now()
-                    )
+                    ).bindMonthlySpendingSaveSourceMessages()
                     updateConversation(conversationId, updatedConversation)
                     runCatching {
                         saveConversation(conversationId, updatedConversation)
@@ -652,6 +664,7 @@ class ChatService(
                     is GenerationChunk.Messages -> {
                         val updatedConversation = getConversationFlow(conversationId).value
                             .updateCurrentMessages(chunk.messages)
+                            .bindMonthlySpendingSaveSourceMessages()
                         updateConversation(conversationId, updatedConversation)
 
                         // 通知等边缘副作用由 ChatNotificationManager 消费；
@@ -673,15 +686,182 @@ class ChatService(
             Logging.log(TAG, "handleMessageComplete: $it")
             Logging.log(TAG, it.stackTraceToString())
         }.onSuccess {
-            val finalConversation = getConversationFlow(conversationId).value
-
-            launchWithConversationReference(conversationId) {
-                generateTitle(conversationId, finalConversation)
+            var finalConversation = getConversationFlow(conversationId).value
+            val hasUnexecutedTools = finalConversation.currentMessages.any { message ->
+                message.getTools().any { !it.isExecuted }
             }
-            launchWithConversationReference(conversationId) {
-                generateSuggestion(conversationId, finalConversation)
+            if (!hasUnexecutedTools) {
+                val newlySuccessfulSaveToolCalls =
+                    finalConversation.successfulMonthlySpendingSaveToolCalls() -
+                        successfulSaveToolCallsBeforeGeneration
+                finalConversation = cleanupReadyMonthlySpendingAttachments(
+                    conversationId = conversationId,
+                    newlySuccessfulToolCalls = newlySuccessfulSaveToolCalls,
+                )
+
+                launchWithConversationReference(conversationId) {
+                    generateTitle(conversationId, finalConversation)
+                }
+                launchWithConversationReference(conversationId) {
+                    generateSuggestion(conversationId, finalConversation)
+                }
             }
         }
+    }
+
+    private suspend fun cleanupReadyMonthlySpendingAttachments(
+        conversationId: Uuid,
+        newlySuccessfulToolCalls: Set<MonthlySpendingToolCallRef>,
+    ): Conversation {
+        var conversation = getConversationFlow(conversationId).value
+        conversation
+            .findReadyMonthlySpendingAttachmentCleanupCandidates(
+                eligibleToolCalls = newlySuccessfulToolCalls,
+            )
+            .mapNotNull { candidate ->
+                candidate.copy(
+                    attachmentUris = candidate.attachmentUris
+                        .filterTo(mutableSetOf()) { uri ->
+                            filesManager.isManagedUploadFile(uri.toUri())
+                        },
+                ).takeIf { it.attachmentUris.isNotEmpty() }
+            }
+            .forEach { candidate ->
+                conversation = cleanupSavedMonthlySpendingAttachments(
+                    conversationId = conversationId,
+                    candidate = candidate,
+                )
+            }
+        return conversation
+    }
+
+    private suspend fun cleanupSavedMonthlySpendingAttachments(
+        conversationId: Uuid,
+        candidate: MonthlySpendingAttachmentCleanupCandidate,
+    ): Conversation = withContext(NonCancellable) {
+        val session = getOrCreateSession(conversationId)
+        session.mutationMutex.withLock {
+            val latestConversation = session.state.value
+            if (!latestConversation.isReadyForMonthlySpendingAttachmentCleanup(candidate)) {
+                return@withLock latestConversation
+            }
+
+            val updatedAt = Instant.now()
+            val redactedConversation = latestConversation
+                .redactMonthlySpendingAttachments(
+                    redaction = candidate.redaction,
+                    placeholder = context.getString(R.string.ledger_attachment_cleanup_placeholder),
+                )
+                .copy(updateAt = updatedAt)
+
+            val persistedConversation = try {
+                conversationRepo.replaceConversationMessageNodes(
+                    conversationId = conversationId,
+                    messageNodes = redactedConversation.messageNodes,
+                    updatedAt = updatedAt,
+                ) ?: return@withLock latestConversation
+            } catch (error: Exception) {
+                // Message-node replacement commits Room before refreshing FTS. A post-commit
+                // indexing failure must not make us retain a stale in-memory attachment reference.
+                val readBack = runCatching {
+                    conversationRepo.getConversationById(conversationId)
+                }.getOrNull()
+                if (
+                    readBack != null &&
+                    !readBack.containsMonthlySpendingAttachmentUris(candidate.redaction)
+                ) {
+                    Log.w(
+                        TAG,
+                        "Monthly spending attachment redaction was committed despite a " +
+                            "post-persistence failure (${error.javaClass.simpleName})",
+                    )
+                    readBack
+                } else {
+                    Log.e(
+                        TAG,
+                        "Monthly spending attachment redaction was not confirmed; cleanup skipped " +
+                            "(${error.javaClass.simpleName})",
+                    )
+                    return@withLock latestConversation
+                }
+            }
+
+            session.recordAttachmentRedaction(candidate.redaction)
+            session.state.update { current ->
+                current
+                    .redactMonthlySpendingAttachments(
+                        redaction = candidate.redaction,
+                        placeholder = context.getString(R.string.ledger_attachment_cleanup_placeholder),
+                    )
+                    .copy(
+                        updateAt = maxOf(current.updateAt, persistedConversation.updateAt),
+                    )
+            }
+
+            val deletableUris = runCatching {
+                findUnreferencedManagedUploadUris(candidate.attachmentUris)
+            }.getOrElse { error ->
+                Log.e(
+                    TAG,
+                    "Monthly spending attachment reference scan failed; physical files retained " +
+                        "(${error.javaClass.simpleName})",
+                )
+                emptyList()
+            }
+            runCatching {
+                filesManager.deleteManagedUploadFiles(deletableUris)
+            }.onSuccess { result ->
+                Log.i(
+                    TAG,
+                    "Monthly spending attachment cleanup: candidates=${candidate.attachmentUris.size}, " +
+                        "requested=${result.requested}, " +
+                        "removed=${result.removed}, rejected=${result.rejected}, " +
+                        "failed=${result.failed}, " +
+                        "retainedReferences=${candidate.attachmentUris.size - deletableUris.size}",
+                )
+            }.onFailure { error ->
+                Log.e(
+                    TAG,
+                    "Monthly spending attachment file cleanup failed (${error.javaClass.simpleName})",
+                )
+            }
+
+            runCatching {
+                OcrTransformer.removeCachedResults(candidate.attachmentUris)
+            }.onFailure { error ->
+                Log.e(
+                    TAG,
+                    "Monthly spending OCR cache cleanup failed (${error.javaClass.simpleName})",
+                )
+            }
+
+            session.state.value
+        }
+    }
+
+    private suspend fun findUnreferencedManagedUploadUris(
+        candidateUris: Set<String>,
+    ): List<android.net.Uri> {
+        val candidatePaths = candidateUris
+            .mapNotNull { uri ->
+                val parsed = uri.toUri()
+                filesManager.managedUploadRelativePath(parsed)?.let { path -> path to parsed }
+            }
+            .toMap()
+        if (candidatePaths.isEmpty()) return emptyList()
+
+        val activeConversations = sessions.values.map { it.state.value }
+        val persistedConversations = conversationRepo.getAllConversationsWithMessages()
+        val referencedPaths = (persistedConversations.asSequence() + activeConversations.asSequence())
+            .asSequence()
+            .flatMap { it.files.asSequence() }
+            .mapNotNull(filesManager::managedUploadRelativePath)
+            .toSet()
+
+        return candidatePaths
+            .filterKeys { it !in referencedPaths }
+            .values
+            .toList()
     }
 
     private suspend fun createWorkspaceToolsIfReady(workspaceId: String?, cwd: String? = null): List<Tool> {
@@ -820,6 +1000,7 @@ class ChatService(
         if (!shouldGenerate) return
 
         runCatching {
+            val expectedLastMessageId = conversation.currentMessages.lastOrNull()?.id
             val settings = settingsStore.settingsFlow.first()
             val model = settings.findModelById(settings.titleModelId, fallback = settings.fastModelId) ?: return
             val provider = model.findProvider(settings.providers) ?: return
@@ -838,12 +1019,18 @@ class ChatService(
                 params = backgroundTextGenerationParams(model),
             )
 
-            // 生成完，conversation可能不是最新了，因此需要重新获取
-            conversationRepo.getConversationById(conversation.id)?.let {
-                saveConversation(
-                    conversationId,
-                    it.copy(title = result.choices[0].message?.toText()?.trim() ?: "")
-                )
+            val generatedTitle = result.choices[0].message?.toText()?.trim() ?: ""
+            mutateAndSaveConversation(conversationId) { latestConversation ->
+                if (
+                    expectedLastMessageId != null &&
+                    latestConversation.currentMessages.lastOrNull()?.id != expectedLastMessageId
+                ) {
+                    null
+                } else if (!force && latestConversation.title.isNotBlank()) {
+                    null
+                } else {
+                    latestConversation.copy(title = generatedTitle)
+                }
             }
         }.onFailure {
             it.printStackTrace()
@@ -860,6 +1047,7 @@ class ChatService(
 
     suspend fun generateSuggestion(conversationId: Uuid, conversation: Conversation) {
         runCatching {
+            val expectedLastMessageId = conversation.currentMessages.lastOrNull()?.id
             val settings = settingsStore.settingsFlow.first()
             if (!settings.enableSuggestion) return
             val model = settings.findModelById(settings.suggestionModelId, fallback = settings.fastModelId) ?: return
@@ -889,17 +1077,18 @@ class ChatService(
                 result.choices[0].message?.toText()?.split("\n")?.map { it.trim() }
                     ?.filter { it.isNotBlank() } ?: emptyList()
 
-            val latestConversation = conversationRepo.getConversationById(conversationId)
-                ?: sessions[conversationId]?.state?.value
-                ?: conversation
-            saveConversation(
-                conversationId,
-                latestConversation.copy(
-                    chatSuggestions = suggestions.take(
-                        10
+            mutateAndSaveConversation(conversationId) { latestConversation ->
+                if (
+                    expectedLastMessageId != null &&
+                    latestConversation.currentMessages.lastOrNull()?.id != expectedLastMessageId
+                ) {
+                    null
+                } else {
+                    latestConversation.copy(
+                        chatSuggestions = suggestions.take(10),
                     )
-                )
-            )
+                }
+            }
         }.onFailure {
             it.printStackTrace()
         }
@@ -993,11 +1182,24 @@ class ChatService(
 
     // ---- 对话状态更新 ----
 
-    private fun updateConversation(conversationId: Uuid, conversation: Conversation) {
-        if (conversation.id != conversationId) return
+    private fun updateConversation(conversationId: Uuid, conversation: Conversation): Conversation? {
+        if (conversation.id != conversationId) return null
         val session = getOrCreateSession(conversationId)
-        checkFilesDelete(conversation, session.state.value)
-        session.state.value = conversation
+        val safeConversation = session.attachmentRedactions().fold(conversation) { current, redaction ->
+            current.redactMonthlySpendingAttachments(
+                redaction = redaction,
+                placeholder = context.getString(R.string.ledger_attachment_cleanup_placeholder),
+            )
+        }
+        val cleanupManagedUris = session.attachmentRedactions()
+            .flatMapTo(mutableSetOf()) { it.attachmentUris }
+        checkFilesDelete(
+            newConversation = safeConversation,
+            oldConversation = session.state.value,
+            excludedUris = cleanupManagedUris,
+        )
+        session.state.value = safeConversation
+        return safeConversation
     }
 
     fun updateConversationState(conversationId: Uuid, update: (Conversation) -> Conversation) {
@@ -1012,12 +1214,42 @@ class ChatService(
      * 否则仅改数据库 folder_id，而内存里那份 Conversation 仍是旧 folderId，
      * 后续任意 saveConversation(id, state.value) 会用整对象把 folder_id 覆盖回旧值，导致移动丢失。
      * 先改内存可确保这段窗口内的整对象保存也带上新 folderId。
-     */
+    */
     suspend fun moveConversationToFolder(conversationId: Uuid, folderId: Uuid?) {
-        if (sessions.containsKey(conversationId)) {
-            updateConversationState(conversationId) { it.copy(folderId = folderId) }
+        val session = sessions[conversationId]
+        if (session == null) {
+            conversationRepo.updateConversationFolderId(conversationId, folderId)
+            return
         }
-        conversationRepo.updateConversationFolderId(conversationId, folderId)
+        session.mutationMutex.withLock {
+            updateConversationState(conversationId) { it.copy(folderId = folderId) }
+            conversationRepo.updateConversationFolderId(conversationId, folderId)
+        }
+    }
+
+    /**
+     * Changes only assistant/folder columns in Room. If the conversation has an active session,
+     * synchronize its in-memory metadata under the same mutation lock first. This deliberately
+     * avoids writing a previously loaded full message snapshot over a concurrent attachment cleanup.
+     */
+    suspend fun moveConversationToAssistant(conversationId: Uuid, assistantId: Uuid) {
+        val session = sessions[conversationId]
+        if (session == null) {
+            conversationRepo.updateConversationAssistantAndClearFolder(
+                conversationId = conversationId,
+                assistantId = assistantId,
+            )
+            return
+        }
+        session.mutationMutex.withLock {
+            updateConversationState(conversationId) {
+                it.copy(assistantId = assistantId, folderId = null)
+            }
+            conversationRepo.updateConversationAssistantAndClearFolder(
+                conversationId = conversationId,
+                assistantId = assistantId,
+            )
+        }
     }
 
     /**
@@ -1042,11 +1274,15 @@ class ChatService(
         folderRepository.deleteFolder(folderId)
     }
 
-    private fun checkFilesDelete(newConversation: Conversation, oldConversation: Conversation) {
+    private fun checkFilesDelete(
+        newConversation: Conversation,
+        oldConversation: Conversation,
+        excludedUris: Set<String> = emptySet(),
+    ) {
         val newFiles = newConversation.files
         val oldFiles = oldConversation.files
         val deletedFiles = oldFiles.filter { file ->
-            newFiles.none { it == file }
+            file.toString() !in excludedUris && newFiles.none { it == file }
         }
         if (deletedFiles.isNotEmpty()) {
             filesManager.deleteChatFiles(deletedFiles)
@@ -1055,18 +1291,38 @@ class ChatService(
     }
 
     suspend fun saveConversation(conversationId: Uuid, conversation: Conversation) {
+        val session = getOrCreateSession(conversationId)
+        session.mutationMutex.withLock {
+            saveConversationLocked(conversationId, conversation)
+        }
+    }
+
+    private suspend fun saveConversationLocked(conversationId: Uuid, conversation: Conversation) {
         val exists = conversationRepo.existsConversationById(conversation.id)
         if (!exists && conversation.title.isBlank() && conversation.messageNodes.isEmpty()) {
             return // 新会话且为空时不保存
         }
 
-        val updatedConversation = conversation.copy()
-        updateConversation(conversationId, updatedConversation)
+        val safeConversation = updateConversation(
+            conversationId = conversationId,
+            conversation = conversation.copy(),
+        ) ?: return
 
         if (!exists) {
-            conversationRepo.insertConversation(updatedConversation)
+            conversationRepo.insertConversation(safeConversation)
         } else {
-            conversationRepo.updateConversation(updatedConversation)
+            conversationRepo.updateConversation(safeConversation)
+        }
+    }
+
+    private suspend fun mutateAndSaveConversation(
+        conversationId: Uuid,
+        transform: (Conversation) -> Conversation?,
+    ) {
+        val session = getOrCreateSession(conversationId)
+        session.mutationMutex.withLock {
+            val updated = transform(session.state.value) ?: return@withLock
+            saveConversationLocked(conversationId, updated)
         }
     }
 

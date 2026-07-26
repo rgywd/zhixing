@@ -1109,6 +1109,7 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="stats_page_ledger_net">净额</string>
   <string name="stats_page_ledger_next_month">下个月</string>
   <string name="stats_page_ledger_previous_month">上个月</string>
+  <string name="ledger_attachment_cleanup_placeholder">月度汇总保存后，账单附件已从本对话中移除。</string>
   <string name="stats_page_output_tokens">输出 Token</string>
   <string name="stats_page_tab_conversations">对话</string>
   <string name="stats_page_tab_ledger">收支</string>

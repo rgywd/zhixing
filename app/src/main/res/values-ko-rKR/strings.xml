@@ -1076,6 +1076,7 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="stats_page_ledger_net">순액</string>
   <string name="stats_page_ledger_next_month">다음 달</string>
   <string name="stats_page_ledger_previous_month">이전 달</string>
+  <string name="ledger_attachment_cleanup_placeholder">월별 요약을 저장한 후 청구서 및 이용 내역 첨부 파일이 이 대화에서 삭제되었습니다.</string>
   <string name="stats_page_launch_count">앱 실행 횟수</string>
   <string name="stats_page_output_tokens">출력 토큰</string>
   <string name="stats_page_tab_conversations">대화</string>

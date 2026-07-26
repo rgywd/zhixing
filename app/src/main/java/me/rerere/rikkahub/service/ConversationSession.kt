@@ -8,7 +8,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import me.rerere.rikkahub.data.ai.MonthlySpendingAttachmentRedaction
 import me.rerere.rikkahub.data.model.Conversation
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.uuid.Uuid
 
@@ -23,6 +26,13 @@ class ConversationSession(
 ) {
     // 会话状态
     val state = MutableStateFlow(initial)
+
+    // 串行化会读取并写回整份 Conversation 的后台 mutation，避免旧快照覆盖新消息状态。
+    val mutationMutex = Mutex()
+
+    // 已提交到 Room 的账单附件脱敏目标。后续旧快照保存前必须再次应用，防止 URI 复活。
+    private val completedAttachmentRedactions =
+        AtomicReference<List<MonthlySpendingAttachmentRedaction>>(emptyList())
 
     // 原子引用计数
     private val refCount = AtomicInteger(0)
@@ -73,14 +83,22 @@ class ConversationSession(
         _generationJob.value?.cancel()
         _generationJob.value = job
         job?.invokeOnCompletion {
-            _generationJob.value = null
-            if (refCount.get() <= 0) {
+            if (_generationJob.compareAndSet(job, null) && refCount.get() <= 0) {
                 scheduleIdleCheck()
             }
         }
     }
 
     fun getJob(): Job? = _generationJob.value
+
+    internal fun recordAttachmentRedaction(redaction: MonthlySpendingAttachmentRedaction) {
+        completedAttachmentRedactions.updateAndGet { current ->
+            if (redaction in current) current else current + redaction
+        }
+    }
+
+    internal fun attachmentRedactions(): List<MonthlySpendingAttachmentRedaction> =
+        completedAttachmentRedactions.get()
 
     private fun scheduleIdleCheck() {
         idleCheckJob?.cancel()

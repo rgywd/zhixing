@@ -277,6 +277,13 @@ class ConversationRepository(
         } else null
     }
 
+    suspend fun getAllConversationsWithMessages(): List<Conversation> =
+        conversationDAO.getAllIds().map { id ->
+            checkNotNull(getConversationById(Uuid.parse(id))) {
+                "Conversation disappeared while loading attachment references: $id"
+            }
+        }
+
     suspend fun getChangedConversations(
         cursorUpdatedAt: Long,
         cursorConversationId: String,
@@ -327,6 +334,39 @@ class ConversationRepository(
             saveMessageNodes(conversation.id.toString(), conversation.messageNodes)
         }
         messageFtsManager.indexConversation(conversation)
+    }
+
+    /**
+     * Replaces only message nodes and the update timestamp.
+     *
+     * Attachment redaction must not overwrite concurrently patched title, pin, assistant, or
+     * folder fields with a stale full-Conversation snapshot.
+     */
+    suspend fun replaceConversationMessageNodes(
+        conversationId: Uuid,
+        messageNodes: List<MessageNode>,
+        updatedAt: Instant,
+    ): Conversation? {
+        val updated = database.withTransaction {
+            if (
+                conversationDAO.updateTimestamp(
+                    id = conversationId.toString(),
+                    updateAt = updatedAt.toEpochMilli(),
+                ) == 0
+            ) {
+                return@withTransaction null
+            }
+            messageNodeDAO.deleteByConversation(conversationId.toString())
+            saveMessageNodes(conversationId.toString(), messageNodes)
+            conversationDAO.getConversationById(conversationId.toString())
+        } ?: return null
+
+        val conversation = conversationEntityToConversation(
+            conversationEntity = updated,
+            messageNodes = loadMessageNodes(updated.id),
+        )
+        messageFtsManager.indexConversation(conversation)
+        return conversation
     }
 
     suspend fun deleteConversation(conversation: Conversation) {
@@ -437,6 +477,16 @@ class ConversationRepository(
         conversationDAO.updateFolderId(
             id = conversationId.toString(),
             folderId = folderId?.toString() ?: ""
+        )
+    }
+
+    suspend fun updateConversationAssistantAndClearFolder(
+        conversationId: Uuid,
+        assistantId: Uuid,
+    ) {
+        conversationDAO.updateAssistantAndClearFolder(
+            id = conversationId.toString(),
+            assistantId = assistantId.toString(),
         )
     }
 
