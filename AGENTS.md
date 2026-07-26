@@ -119,11 +119,11 @@
   only active profiles do. The V2 contract, thresholds, lifecycle, evidence fields, and destructive v35→v36 legacy
   profile cleanup are documented in `docs/zhixing/AUTO_PROFILE_MAINTENANCE.md`.
 
-- **Work / Codex Phone-line**: A separate, mobile-created session domain for communicating with Codex processes on a
-  registered development machine. It uses a durable Work Core, an outbound-only local Runner, and exactly three MCP
-  tools (`report`, `ask`, `report_html`). It must not read Codex Desktop history, depend on Happy/App Server protocols,
-  expose arbitrary repository paths, or reuse the normal Provider generation pipeline. Product and protocol boundaries
-  are defined in `docs/zhixing/CODEX_PHONE_LINE_ARCHITECTURE.md` and
+- **Work / Agent Phone-line**: A separate, mobile-created session domain for communicating with Codex or Claude Code
+  processes on a registered development machine. It uses a durable Work Core, an outbound-only local Runner, and exactly
+  three MCP tools (`report`, `ask`, `report_html`). It must not read desktop history, depend on Happy/App Server
+  protocols, expose arbitrary repository paths, or reuse the normal Provider generation pipeline. Product and protocol
+  boundaries are defined in `docs/zhixing/CODEX_PHONE_LINE_ARCHITECTURE.md` and
   `docs/zhixing/CODEX_PHONE_LINE_CONTRACT.md`.
 
 - **Agenda / Weak Calendar**: A local-first domain for simple tasks and long-horizon plans, surfaced compactly in the

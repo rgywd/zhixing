@@ -227,6 +227,7 @@ data class CreateSessionRequest(
     val runnerId: String,
     val repoId: String,
     val title: String,
+    val runtime: String = "codex",
     val model: String,
     val reasoningEffort: String,
     val message: String,

@@ -6,6 +6,14 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
+  buildClaudeArgs,
+  parseClaudeAssistantMessage,
+  parseClaudeSessionId,
+  parseClaudeTurnOutcome,
+  resolveClaudeCommand,
+  writeClaudeMcpConfig,
+} from "./claude-process.js";
+import {
   buildCodexArgs,
   parseCodexAssistantMessage,
   parseCodexSessionId,
@@ -90,6 +98,80 @@ test("Codex JSONL mapper treats turn events as the semantic terminal state", () 
     error: { message: "tool host failed" },
   }), { status: "FAILED", detail: "tool host failed" });
   assert.equal(parseCodexTurnOutcome({ type: "item.completed" }), null);
+});
+
+test("Claude Code args preserve local auth while isolating hooks and MCP", () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-claude-config-"));
+  const mcpConfigPath = writeClaudeMcpConfig(join(directory, "mcp.json"), {
+    nodePath: "C:/node.exe",
+    mcpServerPath: "C:/mcp-server.js",
+    coreUrl: "https://core.example.com",
+    sessionId: "work-claude",
+    sessionToken: "secret",
+    cursorFile: "C:/cursor.json",
+    initialInboxCursor: 7,
+  });
+  const config = JSON.parse(readFileSync(mcpConfigPath, "utf8"));
+  assert.equal(config.mcpServers.zhixing_phone.command, "C:/node.exe");
+  assert.equal(config.mcpServers.zhixing_phone.env.WORK_SESSION_TOKEN, "secret");
+
+  const args = buildClaudeArgs({
+    kind: "RESUME",
+    model: "sonnet",
+    reasoningEffort: "high",
+    runtimeSessionId: "claude-session",
+    developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
+    mcpConfigPath,
+    additionalDirectories: ["C:/turn-images"],
+  });
+  assert.ok(args.includes("-p"));
+  assert.deepEqual(args.slice(args.indexOf("--output-format"), args.indexOf("--output-format") + 2), [
+    "--output-format", "stream-json",
+  ]);
+  assert.deepEqual(args.slice(args.indexOf("--permission-mode"), args.indexOf("--permission-mode") + 2), [
+    "--permission-mode", "bypassPermissions",
+  ]);
+  assert.ok(args.includes("--strict-mcp-config"));
+  assert.ok(args.includes("--disable-slash-commands"));
+  assert.ok(args.includes("--no-chrome"));
+  assert.ok(args.includes("project"));
+  assert.ok(args.includes("claude-session"));
+  assert.ok(!args.includes("secret"));
+});
+
+test("Claude Code stream-json mapper exposes only assistant text and terminal result", () => {
+  assert.equal(parseClaudeSessionId({
+    type: "system",
+    subtype: "init",
+    session_id: "claude-session",
+  }), "claude-session");
+  assert.deepEqual(parseClaudeAssistantMessage({
+    type: "assistant",
+    message: {
+      id: "message-1",
+      content: [
+        { type: "thinking", thinking: "private" },
+        { type: "text", text: "阶段结果" },
+        { type: "tool_use", name: "Bash", input: { command: "secret" } },
+      ],
+    },
+  }), { itemId: "message-1", text: "阶段结果" });
+  assert.equal(parseClaudeAssistantMessage({
+    type: "assistant",
+    error: "authentication_failed",
+    message: { id: "message-2", content: [{ type: "text", text: "Failed to authenticate" }] },
+  }), null);
+  assert.deepEqual(parseClaudeTurnOutcome({
+    type: "result",
+    is_error: false,
+    result: "done",
+  }), { status: "COMPLETED", detail: null });
+  assert.deepEqual(parseClaudeTurnOutcome({
+    type: "result",
+    is_error: true,
+    api_error_status: 401,
+    result: "OAuth access token has been revoked",
+  }), { status: "FAILED", detail: "OAuth access token has been revoked" });
 });
 
 test("Windows process cleanup terminates the full Codex child tree", async () => {
@@ -376,6 +458,82 @@ test("runner persists discovered session id and completes one turn", async () =>
   assert.deepEqual(persisted.eventOutbox, {});
 });
 
+test("runner starts and resumes Claude Code with a generic runtime session id", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-claude-"));
+  const state = new RunnerState(join(directory, "state.json"));
+  const calls = [];
+  let invocation;
+  const runner = new WorkRunner({
+    config: {
+      id: "runner",
+      coreUrl: "https://core",
+      stateFile: state.filename,
+      repos: [{
+        id: "repo",
+        name: "repo",
+        path: directory,
+        runtimes: [{
+          id: "claude-code",
+          name: "Claude Code",
+          command: "claude",
+          models: ["sonnet"],
+          reasoningEfforts: ["high"],
+        }],
+      }],
+    },
+    state,
+    client: {
+      ack: async (...args) => calls.push(["ack", ...args]),
+      updateState: async (...args) => calls.push(["state", ...args]),
+      publishEvent: async (...args) => calls.push(["event", ...args]),
+    },
+    spawnClaude: (input) => {
+      invocation = input;
+      input.onEvent({ type: "system", subtype: "init", session_id: "claude-session" });
+      input.onEvent({
+        type: "assistant",
+        message: { id: "assistant-1", content: [{ type: "text", text: "Claude 阶段结果" }] },
+      });
+      input.onEvent({ type: "result", is_error: false, result: "Claude 阶段结果" });
+      return {
+        child: { kill() {} },
+        completed: Promise.resolve({ code: 0, signal: null, stderr: "" }),
+      };
+    },
+  });
+
+  await runner.startCommand({
+    id: "cmd-claude",
+    sessionId: "work-claude",
+    kind: "START",
+    payload: {
+      repoId: "repo",
+      runtime: "claude-code",
+      model: "sonnet",
+      reasoningEffort: "high",
+      sessionToken: "session-token",
+      message: "hello",
+    },
+  });
+  await waitForCondition(() => calls.some((call) => call[0] === "ack" && call[2] === "COMPLETED"));
+
+  assert.equal(invocation.command, "claude");
+  assert.ok(invocation.args.includes("--strict-mcp-config"));
+  assert.equal(state.get("work-claude").runtime, "claude-code");
+  assert.equal(state.get("work-claude").runtimeSessionId, "claude-session");
+  assert.ok(calls.some((call) =>
+    call[0] === "state"
+    && call[1] === "work-claude"
+    && call[4] === "claude-session"
+    && call[5] === "claude-code"));
+  const completed = calls.find((call) => call[0] === "ack" && call[2] === "COMPLETED");
+  assert.equal(completed[3].runtime, "claude-code");
+  assert.equal(completed[3].runtimeSessionId, "claude-session");
+  assert.equal(completed[3].codexSessionId, undefined);
+  const event = calls.find((call) => call[0] === "event");
+  assert.equal(event[2].payload.text, "Claude 阶段结果");
+});
+
 test("runner completes a semantic turn even when the Codex process never exits", async () => {
   const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-semantic-complete-"));
   const state = new RunnerState(join(directory, "state.json"));
@@ -569,4 +727,13 @@ test("Windows resolves the real Codex executable instead of an npm shell shim", 
     /codex\.exe/,
   );
   assert.equal(resolveCodexCommand("codex", "linux"), "codex");
+});
+
+test("Windows resolves the native Claude Code executable instead of a shell shim", () => {
+  assert.equal(resolveClaudeCommand("claude", "win32", () => "C:/Claude/claude.exe"), "C:/Claude/claude.exe");
+  assert.throws(
+    () => resolveClaudeCommand("C:/Users/me/AppData/Roaming/npm/claude.cmd", "win32"),
+    /claude\.exe/,
+  );
+  assert.equal(resolveClaudeCommand("claude", "linux"), "claude");
 });

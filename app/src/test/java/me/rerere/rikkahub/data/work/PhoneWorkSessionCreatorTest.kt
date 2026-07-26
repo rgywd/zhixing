@@ -18,6 +18,7 @@ class PhoneWorkSessionCreatorTest {
         assertEquals("修复 Work 会话标题", gateway.request?.title)
         assertEquals("请修复标题", gateway.request?.message)
         assertEquals("runner-1", gateway.request?.runnerId)
+        assertEquals("codex", gateway.request?.runtime)
     }
 
     @Test
@@ -31,6 +32,35 @@ class PhoneWorkSessionCreatorTest {
         creator.create(REPO, "gpt-5.6-sol", "high", "# 修复 Work 标题\n更多说明")
 
         assertEquals("修复 Work 标题", gateway.request?.title)
+    }
+
+    @Test
+    fun `selected Claude Code runtime is preserved in create request`() = runBlocking {
+        val gateway = RecordingGateway()
+        val creator = PhoneWorkSessionCreator(
+            gateway = gateway,
+            titleGenerator = PhoneWorkTitleGenerator { "Claude 会话" },
+        )
+
+        creator.create(
+            repo = REPO,
+            model = "sonnet",
+            reasoningEffort = "high",
+            message = "继续处理",
+            runtime = "claude-code",
+        )
+
+        assertEquals("claude-code", gateway.request?.runtime)
+        assertEquals("sonnet", gateway.request?.model)
+    }
+
+    @Test
+    fun `legacy repository catalog exposes Codex runtime`() {
+        val runtime = REPO.effectiveRuntimes().single()
+
+        assertEquals("codex", runtime.id)
+        assertEquals(REPO.models, runtime.models)
+        assertEquals(REPO.reasoningEfforts, runtime.reasoningEfforts)
     }
 
     private class RecordingGateway : PhoneWorkSessionGateway {
@@ -47,6 +77,7 @@ class PhoneWorkSessionCreatorTest {
                 repoId = request.repoId,
                 repoName = REPO.name,
                 title = request.title,
+                runtime = request.runtime,
                 model = request.model,
                 reasoningEffort = request.reasoningEffort,
                 status = "QUEUED",

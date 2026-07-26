@@ -19,8 +19,10 @@ import me.rerere.rikkahub.data.work.PhoneWorkEvent
 import me.rerere.rikkahub.data.work.PhoneWorkDraftStore
 import me.rerere.rikkahub.data.work.PhoneWorkRepo
 import me.rerere.rikkahub.data.work.PhoneWorkRepository
+import me.rerere.rikkahub.data.work.PhoneWorkRuntime
 import me.rerere.rikkahub.data.work.PhoneWorkSession
 import me.rerere.rikkahub.data.work.PhoneWorkSessionCreator
+import me.rerere.rikkahub.data.work.effectiveRuntimes
 
 class PhoneWorkSessionVM(
     initialSessionId: String,
@@ -37,6 +39,7 @@ class PhoneWorkSessionVM(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val catalog: StateFlow<PhoneWorkCatalog> = repository.catalog
     val selectedRepo = MutableStateFlow<PhoneWorkRepo?>(null)
+    val selectedRuntime = MutableStateFlow("codex")
     val selectedModel = MutableStateFlow(DEFAULT_MODELS.first())
     val selectedEffort = MutableStateFlow("high")
     val sending = MutableStateFlow(false)
@@ -53,7 +56,16 @@ class PhoneWorkSessionVM(
                     models = listOf(current.model),
                     reasoningEfforts = listOf(current.reasoningEffort),
                     available = true,
+                    runtimes = listOf(
+                        PhoneWorkRuntime(
+                            id = current.runtime,
+                            name = runtimeDisplayName(current.runtime),
+                            models = listOf(current.model),
+                            reasoningEfforts = listOf(current.reasoningEffort),
+                        )
+                    ),
                 )
+                selectedRuntime.value = current.runtime
                 selectedModel.value = current.model
                 selectedEffort.value = current.reasoningEffort
             }
@@ -100,10 +112,15 @@ class PhoneWorkSessionVM(
     fun selectRepo(repo: PhoneWorkRepo) {
         if (sessionId.value != null) return
         selectedRepo.value = repo
-        selectedModel.value = repo.models.firstOrNull() ?: DEFAULT_MODELS.first()
-        selectedEffort.value = repo.reasoningEfforts.firstOrNull { it == "high" }
-            ?: repo.reasoningEfforts.firstOrNull()
-            ?: "high"
+        val runtime = repo.effectiveRuntimes().firstOrNull { it.id == "codex" }
+            ?: repo.effectiveRuntimes().first()
+        applyRuntime(runtime)
+    }
+
+    fun selectRuntime(runtimeId: String) {
+        if (sessionId.value != null) return
+        val runtime = selectedRepo.value?.effectiveRuntimes()?.firstOrNull { it.id == runtimeId } ?: return
+        applyRuntime(runtime)
     }
 
     fun selectModel(model: String) {
@@ -126,6 +143,7 @@ class PhoneWorkSessionVM(
                     val repo = selectedRepo.value ?: error("开发机还没有可用仓库")
                     sessionCreator.create(
                         repo = repo,
+                        runtime = selectedRuntime.value,
                         model = selectedModel.value,
                         reasoningEffort = selectedEffort.value,
                         message = text,
@@ -188,17 +206,40 @@ class PhoneWorkSessionVM(
             selectRepo(next)
         } else {
             selectedRepo.value = next
-            if (selectedModel.value !in next.models) selectedModel.value = next.models.firstOrNull() ?: DEFAULT_MODELS.first()
-            if (selectedEffort.value !in next.reasoningEfforts) {
-                selectedEffort.value = next.reasoningEfforts.firstOrNull { it == "high" }
-                    ?: next.reasoningEfforts.firstOrNull()
-                    ?: "high"
+            val runtimes = next.effectiveRuntimes()
+            val runtime = runtimes.firstOrNull { it.id == selectedRuntime.value }
+                ?: runtimes.firstOrNull { it.id == "codex" }
+                ?: runtimes.first()
+            if (runtime.id != selectedRuntime.value) {
+                applyRuntime(runtime)
+            } else {
+                if (selectedModel.value !in runtime.models) {
+                    selectedModel.value = runtime.models.firstOrNull() ?: DEFAULT_MODELS.first()
+                }
+                if (selectedEffort.value !in runtime.reasoningEfforts) {
+                    selectedEffort.value = runtime.reasoningEfforts.firstOrNull { it == "high" }
+                        ?: runtime.reasoningEfforts.firstOrNull()
+                        ?: "high"
+                }
             }
         }
+    }
+
+    private fun applyRuntime(runtime: PhoneWorkRuntime) {
+        selectedRuntime.value = runtime.id
+        selectedModel.value = runtime.models.firstOrNull() ?: DEFAULT_MODELS.first()
+        selectedEffort.value = runtime.reasoningEfforts.firstOrNull { it == "high" }
+            ?: runtime.reasoningEfforts.firstOrNull()
+            ?: "high"
     }
 
     companion object {
         val DEFAULT_MODELS = listOf("gpt-5.6-sol", "gpt-5.6-terra")
         val DEFAULT_EFFORTS = listOf("medium", "high", "xhigh", "max")
     }
+}
+
+private fun runtimeDisplayName(runtime: String): String = when (runtime) {
+    "claude-code" -> "Claude Code"
+    else -> "Codex"
 }

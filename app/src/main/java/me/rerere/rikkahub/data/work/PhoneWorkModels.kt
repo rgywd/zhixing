@@ -13,6 +13,14 @@ data class PhoneWorkRunner(
 )
 
 @Serializable
+data class PhoneWorkRuntime(
+    val id: String,
+    val name: String,
+    val models: List<String>,
+    val reasoningEfforts: List<String>,
+)
+
+@Serializable
 data class PhoneWorkRepo(
     val id: String,
     val runnerId: String,
@@ -21,7 +29,19 @@ data class PhoneWorkRepo(
     val reasoningEfforts: List<String>,
     val available: Boolean,
     val group: String? = null,
+    val runtimes: List<PhoneWorkRuntime> = emptyList(),
 )
+
+fun PhoneWorkRepo.effectiveRuntimes(): List<PhoneWorkRuntime> = runtimes.ifEmpty {
+    listOf(
+        PhoneWorkRuntime(
+            id = "codex",
+            name = "Codex",
+            models = models,
+            reasoningEfforts = reasoningEfforts,
+        )
+    )
+}
 
 @Serializable
 data class PhoneWorkSession(
@@ -30,11 +50,13 @@ data class PhoneWorkSession(
     val repoId: String,
     val repoName: String,
     val title: String = "",
+    val runtime: String = "codex",
     val model: String,
     val reasoningEffort: String,
     val sandboxMode: String = "danger-full-access",
     val approvalPolicy: String = "never",
     val status: String,
+    val runtimeSessionId: String? = null,
     val codexSessionId: String? = null,
     val lastSeq: Long = 0,
     val archivedAt: String? = null,

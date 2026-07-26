@@ -93,7 +93,9 @@ import me.rerere.rikkahub.data.work.PhoneWorkQuestion
 import me.rerere.rikkahub.data.work.PhoneWorkRepo
 import me.rerere.rikkahub.data.work.PhoneWorkReportPayload
 import me.rerere.rikkahub.data.work.PhoneWorkRunStatePayload
+import me.rerere.rikkahub.data.work.PhoneWorkRuntime
 import me.rerere.rikkahub.data.work.PhoneWorkUserMessagePayload
+import me.rerere.rikkahub.data.work.effectiveRuntimes
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.ui.components.ai.ChatInput
@@ -135,12 +137,16 @@ fun PhoneWorkSessionPage(sessionId: String) {
     val events by vm.events.collectAsStateWithLifecycle()
     val catalog by vm.catalog.collectAsStateWithLifecycle()
     val selectedRepo by vm.selectedRepo.collectAsStateWithLifecycle()
+    val selectedRuntime by vm.selectedRuntime.collectAsStateWithLifecycle()
     val selectedModel by vm.selectedModel.collectAsStateWithLifecycle()
     val selectedEffort by vm.selectedEffort.collectAsStateWithLifecycle()
     val sending by vm.sending.collectAsStateWithLifecycle()
     val sendError by vm.sendError.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val draft = sessionId.isBlank() && session == null
+    val selectedRuntimeConfig = selectedRepo
+        ?.effectiveRuntimes()
+        ?.firstOrNull { it.id == selectedRuntime }
     val canCompose = session?.status != "COMPLETED" && session?.archivedAt == null
     var messageActionTarget by remember { mutableStateOf<WorkMessageActionTarget?>(null) }
     var statusClockMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -193,8 +199,28 @@ fun PhoneWorkSessionPage(sessionId: String) {
                 },
                 title = {
                     RepoTitleSelector(
-                        selected = session?.let { PhoneWorkRepo(it.repoId, it.runnerId, it.repoName, listOf(it.model), listOf(it.reasoningEffort), true) }
+                        selected = session?.let {
+                            PhoneWorkRepo(
+                                id = it.repoId,
+                                runnerId = it.runnerId,
+                                name = it.repoName,
+                                models = listOf(it.model),
+                                reasoningEfforts = listOf(it.reasoningEffort),
+                                available = true,
+                                runtimes = listOf(
+                                    PhoneWorkRuntime(
+                                        id = it.runtime,
+                                        name = workRuntimeDisplayName(it.runtime),
+                                        models = listOf(it.model),
+                                        reasoningEfforts = listOf(it.reasoningEffort),
+                                    )
+                                ),
+                            )
+                        }
                             ?: selectedRepo,
+                        runtimeName = session?.runtime?.let(::workRuntimeDisplayName)
+                            ?: selectedRuntimeConfig?.name
+                            ?: workRuntimeDisplayName(selectedRuntime),
                         repos = catalog.repos.filter { it.available },
                         enabled = draft,
                         onSelect = vm::selectRepo,
@@ -212,7 +238,7 @@ fun PhoneWorkSessionPage(sessionId: String) {
                 Column {
                     if (draft) {
                         Text(
-                            "仓库、模型和思考深度在会话创建后固定",
+                            "运行引擎、仓库、模型和思考深度在会话创建后固定",
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
                             textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.labelSmall,
@@ -245,15 +271,30 @@ fun PhoneWorkSessionPage(sessionId: String) {
                         showMoreButton = true,
                         customLeadingControls = {
                             WorkChoiceButton(
+                                label = selectedRuntimeConfig?.name ?: workRuntimeDisplayName(selectedRuntime),
+                                options = selectedRepo?.effectiveRuntimes()?.map { it.id }.orEmpty(),
+                                enabled = draft,
+                                icon = { Icon(HugeIcons.AiMagic, null, Modifier.size(18.dp)) },
+                                optionLabel = { runtimeId ->
+                                    selectedRepo?.effectiveRuntimes()?.firstOrNull { it.id == runtimeId }?.name
+                                        ?: workRuntimeDisplayName(runtimeId)
+                                },
+                                onSelect = vm::selectRuntime,
+                            )
+                            WorkChoiceButton(
                                 label = selectedModel,
-                                options = selectedRepo?.models.orEmpty().ifEmpty { PhoneWorkSessionVM.DEFAULT_MODELS },
+                                options = selectedRuntimeConfig?.models.orEmpty().ifEmpty {
+                                    PhoneWorkSessionVM.DEFAULT_MODELS
+                                },
                                 enabled = draft,
                                 icon = { Icon(HugeIcons.AiMagic, null, Modifier.size(18.dp)) },
                                 onSelect = vm::selectModel,
                             )
                             WorkChoiceButton(
                                 label = selectedEffort,
-                                options = selectedRepo?.reasoningEfforts.orEmpty().ifEmpty { PhoneWorkSessionVM.DEFAULT_EFFORTS },
+                                options = selectedRuntimeConfig?.reasoningEfforts.orEmpty().ifEmpty {
+                                    PhoneWorkSessionVM.DEFAULT_EFFORTS
+                                },
                                 enabled = draft,
                                 icon = { Text("A", style = MaterialTheme.typography.labelLarge) },
                                 onSelect = vm::selectEffort,
@@ -321,6 +362,7 @@ private fun formatWorkReportSize(size: Long): String? = when {
 @Composable
 private fun RepoTitleSelector(
     selected: PhoneWorkRepo?,
+    runtimeName: String,
     repos: List<PhoneWorkRepo>,
     enabled: Boolean,
     onSelect: (PhoneWorkRepo) -> Unit,
@@ -337,7 +379,7 @@ private fun RepoTitleSelector(
                 if (selected == null) {
                     "等待开发机目录"
                 } else {
-                    selected.group?.let { "$it · Codex 完全访问" } ?: "Codex · 完全访问"
+                    selected.group?.let { "$it · $runtimeName 完全访问" } ?: "$runtimeName · 完全访问"
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -451,6 +493,7 @@ private fun WorkChoiceButton(
     options: List<String>,
     enabled: Boolean,
     icon: @Composable () -> Unit,
+    optionLabel: (String) -> String = { it },
     onSelect: (String) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -471,10 +514,15 @@ private fun WorkChoiceButton(
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.distinct().forEach { option ->
-                DropdownMenuItem(text = { Text(option) }, onClick = { onSelect(option); expanded = false })
+                DropdownMenuItem(text = { Text(optionLabel(option)) }, onClick = { onSelect(option); expanded = false })
             }
         }
     }
+}
+
+private fun workRuntimeDisplayName(runtime: String): String = when (runtime) {
+    "claude-code" -> "Claude Code"
+    else -> "Codex"
 }
 
 @Composable

@@ -243,7 +243,7 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         supportingContent = {
                             Text(
                                 if (workConnection.configured) workConnection.baseUrl
-                                else "连接自建 Core，让开发机 Codex 通过三条电话线联系手机",
+                                else "连接自建 Core，让 Codex 或 Claude Code 通过三条电话线联系手机",
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -362,7 +362,7 @@ private fun WorkConnectionDialog(
         title = { Text("连接 Work Core") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("这里仅保存 Core 地址与用户 Token；Codex 登录态和仓库仍只在开发机。")
+                Text("这里仅保存 Core 地址与用户 Token；CLI 登录态和仓库仍只在开发机。")
                 OutlinedTextField(
                     value = url,
                     onValueChange = { url = it; error = null },

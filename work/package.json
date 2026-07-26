@@ -9,7 +9,9 @@
     "core": "node core/index.js",
     "runner": "node runner/index.js",
     "test": "node --test",
-    "e2e:real": "node e2e/real-codex.js"
+    "e2e:real": "node e2e/real-codex.js",
+    "e2e:codex": "node e2e/real-codex.js",
+    "e2e:claude": "node e2e/real-claude.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.18.2",

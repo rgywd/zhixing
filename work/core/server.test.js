@@ -303,6 +303,97 @@ test("repository catalog preserves groups and rejects unavailable directories", 
   assert.equal(rejected.response.status, 409);
 });
 
+test("runtime catalog creates and resumes a Claude Code session without breaking Codex fields", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const registration = await request(baseUrl, "/v1/runner/register", {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      id: "runner-1",
+      instanceId: RUNNER_INSTANCE,
+      name: "Minecraft",
+      version: "test",
+      capabilities: { codex: true, claudeCode: true, phoneLineProtocol: 1 },
+      repos: [{
+        id: "zhixing",
+        name: "zhixing",
+        runtimes: [
+          {
+            id: "codex",
+            name: "Codex",
+            models: ["gpt-5.6-sol"],
+            reasoningEfforts: ["high"],
+          },
+          {
+            id: "claude-code",
+            name: "Claude Code",
+            models: ["sonnet", "opus"],
+            reasoningEfforts: ["high", "xhigh"],
+          },
+        ],
+        models: ["gpt-5.6-sol"],
+        reasoningEfforts: ["high"],
+      }],
+    },
+  });
+  assert.equal(registration.response.status, 200);
+
+  const repos = await request(baseUrl, "/v1/work/repos?runnerId=runner-1");
+  assert.deepEqual(repos.payload.repos[0].runtimes.map((runtime) => runtime.id), ["codex", "claude-code"]);
+
+  const created = await request(baseUrl, "/v1/work/sessions", {
+    method: "POST",
+    idempotencyKey: "create-claude",
+    body: {
+      runnerId: "runner-1",
+      repoId: "zhixing",
+      title: "Claude Code 接入",
+      runtime: "claude-code",
+      model: "sonnet",
+      reasoningEffort: "high",
+      message: "实现 Claude Code 接入",
+    },
+  });
+  assert.equal(created.response.status, 201);
+  assert.equal(created.payload.runtime, "claude-code");
+  assert.equal(created.payload.runtimeSessionId, null);
+  assert.equal(created.payload.codexSessionId, null);
+
+  const commands = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  assert.equal(commands.payload.commands[0].payload.runtime, "claude-code");
+
+  const runtimeState = await request(
+    baseUrl,
+    `/v1/runner/sessions/${created.payload.id}/state`,
+    {
+      token: RUNNER_TOKEN,
+      method: "POST",
+      body: {
+        instanceId: RUNNER_INSTANCE,
+        status: "IDLE",
+        runtime: "claude-code",
+        runtimeSessionId: "claude-session-1",
+      },
+    },
+  );
+  assert.equal(runtimeState.response.status, 200);
+
+  const updated = (await request(baseUrl, "/v1/work/sessions")).payload.sessions
+    .find((session) => session.id === created.payload.id);
+  assert.equal(updated.runtimeSessionId, "claude-session-1");
+  assert.equal(updated.codexSessionId, null);
+
+  await request(baseUrl, `/v1/work/sessions/${created.payload.id}/messages`, {
+    method: "POST",
+    idempotencyKey: "resume-claude",
+    body: { text: "继续" },
+  });
+  const resumed = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  const resumeCommand = resumed.payload.commands.find((command) => command.kind === "RESUME");
+  assert.equal(resumeCommand.payload.runtime, "claude-code");
+  assert.equal(resumeCommand.payload.model, "sonnet");
+});
+
 test("runner assistant messages are allow-listed, idempotent and ordered", async (t) => {
   const { baseUrl } = await fixture(t);
   const { session } = await registerAndCreate(baseUrl);
