@@ -66,6 +66,9 @@ Core 可以部署在 VPS，但不持有 OpenAI/Anthropic 登录态、CLI 凭据�
 - 为所有写请求提供客户端 ID/幂等键，保证重试不重复创建消息或答案。
 - 只存仓库显示名、可选分组与 Runner 内部 repo ID，不接收真实路径和源码。
 - 清理过期 session token，保留可配置的会话与报告生命周期。
+- 可以复用 Work 用户鉴权承载少量 `/v1/life/*` 只读薄代理，但代理不得采集或保存上游原始内容，不得持有邮箱、
+  飞书登录凭据，也不得向 Phone-line MCP 增加工具。当前信息监控只代理到独立 Life Gateway，并仅在进程内短暂缓存
+  已验证、已剥离敏感字段的 `information-monitor/v1` 结果。
 
 ### Work Runner
 
@@ -172,6 +175,8 @@ Runner 离线是连接状态，不改写会话状态。手机允许排队发送�
 ## 6. 安全与内容边界
 
 - Core 强制 HTTPS；token 仅存哈希，按 user/runner/session 分 scope 并可撤销。
+- `/v1/life/*` 上游同样必须使用 HTTPS 或 loopback 加密隧道，禁止携带服务 token 跟随重定向；上游响应按固定
+  schema 重建，原始正文、provider ID、credentials 和契约外字段不得穿过 Core。
 - Runner 只接受预登记 repo ID，不允许手机提交任意路径、命令、环境变量或 MCP 配置。
 - HTML 由 Core 使用固定模板封装并清洗；脚本、表单、外链资源、文件 URL 和任意导航默认禁用。
 - Android WebView 使用独立只读页，关闭文件访问和跨源能力；报告正文不获得 App bridge。

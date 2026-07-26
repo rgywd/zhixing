@@ -33,6 +33,32 @@ Core 会在 SQLite 同目录持久化最后一次通过 `quota-monitor/v1` 校�
 携带 Bearer Token 的公网明文 HTTP。当前单机部署可用受限 SSH 本地转发连接监控服务的 loopback
 端口，再把该隧道地址填入 Core 环境变量。
 
+### 信息监控薄代理
+
+普通聊天通过 Work Core 的以下只读端点查询邮件与飞书的监控结果：
+
+- `GET /v1/life/inbox/status`
+- `GET /v1/life/inbox/items`
+- `GET /v1/life/inbox/digest`
+
+三者沿用 Work 用户 Bearer 鉴权和 `X-Zhixing-Work-Protocol: 1`，分别转发到 Life Gateway 的
+`/api/v1/monitor/status|items|digest`。Core 的总查询白名单是 `channel=email|feishu`、`hours=1..168`、
+`limit=1..50` 和 `minImportance=low|normal|high|urgent`，并按端点继续收窄：`status` 只允许 `channel`，
+`items` 允许全部四项，`digest` 允许除 `limit` 外的三项。未知、重复、越界或对当前端点无意义的参数直接拒绝。
+
+部署时通过 `LIFE_GATEWAY_BASE_URL` 和 `LIFE_GATEWAY_TOKEN` 配置上游。Base URL 必须是 HTTPS，或仅供
+同机/加密隧道使用的 loopback HTTP；Core 禁止携带 token 跟随重定向。邮箱、飞书的登录凭据、游标、原始正文和
+webhook payload 只属于 Life Gateway，不得放入 Android、Work Core 配置或日志。
+
+Core 会验证并重建 `information-monitor/v1` 响应，任意深度出现 `body`、`raw`、`content`、
+`credentials` 或 `providerItemId` 时拒绝该次上游结果，其他契约外字段也不会转发。最后一次有效结果只在进程内按
+“端点 + 完整查询”缓存：最多 32 组，30 秒内复用，上游失败时最多降级使用 5 分钟。降级状态通过
+`X-Zhixing-Life-Cache: stale`、`X-Zhixing-Life-Error` 和标准 `Warning: 110` 响应头表达；Core 不把邮件摘要缓存
+写入磁盘，也不会跨查询借用结果。
+
+这是普通聊天生活服务的窄代理例外，不负责采集、摘要生成或事件存储，也不会注册新的 Phone-line MCP 工具。
+Codex / Claude Code 手机电话线仍然只有 `report`、`ask`、`report_html` 三个工具。
+
 ## Windows Runner
 
 1. 安装 Node.js 22.5+、Git，以及需要开放给手机使用的 CLI。

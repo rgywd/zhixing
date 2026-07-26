@@ -93,6 +93,9 @@ SettingsStore -> DataStore
   [`KNOWLEDGE_SPACE.md`](./KNOWLEDGE_SPACE.md)。
 - Agenda 以本地待办和长期计划为事实来源，系统日历只读投影见
   [`AGENDA_AND_CALENDAR.md`](./AGENDA_AND_CALENDAR.md)。
+- 邮件与飞书监控是可选只读云能力：Life Gateway 持有连接器与事件事实，Work Core 只做经过用户鉴权的固定
+  schema 薄代理，Android 不保存消息正文或第二份事件真相；见
+  [`INFORMATION_MONITOR.md`](./INFORMATION_MONITOR.md)。
 - Work 是独立的手机创建会话域，由开发机 Runner 启动 Codex 或 Claude Code；它不读取桌面历史、不复用普通
   Provider 生成链路；见
   [`CODEX_PHONE_LINE_ARCHITECTURE.md`](./CODEX_PHONE_LINE_ARCHITECTURE.md)。

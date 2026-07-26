@@ -93,7 +93,17 @@ val appModule = module {
     single { TodayOverviewProvider(get(), get(), get(), get()) }
 
     single {
-        LocalTools(get(), get(), get(), get(), get(), get(), get())
+        LocalTools(
+            context = get(),
+            eventBus = get(),
+            ttsManager = get(),
+            settingsStore = get(),
+            agendaTaskRepository = get(),
+            agendaPlanRepository = get(),
+            monthlyLedgerRepository = get(),
+            phoneWorkApiClient = get(),
+            phoneWorkCredentialStore = get(),
+        )
     }
 
     single { GitHubIssueCredentialStore(get()) }
