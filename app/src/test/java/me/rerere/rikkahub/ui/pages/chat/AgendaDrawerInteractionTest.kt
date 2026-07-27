@@ -45,19 +45,43 @@ class AgendaDrawerInteractionTest {
     fun `closed right drawer claims only leftward horizontal drags`() {
         assertEquals(
             AgendaDrawerDragDecision.START,
-            agendaDrawerDragDecision(drawerVisible = false, totalX = -20f, totalY = 2f, touchSlop = 8f),
+            agendaDrawerDragDecision(
+                drawerVisible = false,
+                gestureBlocked = false,
+                totalX = -20f,
+                totalY = 2f,
+                touchSlop = 8f,
+            ),
         )
         assertEquals(
             AgendaDrawerDragDecision.IGNORE,
-            agendaDrawerDragDecision(drawerVisible = false, totalX = 20f, totalY = 2f, touchSlop = 8f),
+            agendaDrawerDragDecision(
+                drawerVisible = false,
+                gestureBlocked = false,
+                totalX = 20f,
+                totalY = 2f,
+                touchSlop = 8f,
+            ),
         )
         assertEquals(
             AgendaDrawerDragDecision.IGNORE,
-            agendaDrawerDragDecision(drawerVisible = false, totalX = -10f, totalY = 20f, touchSlop = 8f),
+            agendaDrawerDragDecision(
+                drawerVisible = false,
+                gestureBlocked = false,
+                totalX = -10f,
+                totalY = 20f,
+                touchSlop = 8f,
+            ),
         )
         assertEquals(
             AgendaDrawerDragDecision.WAIT,
-            agendaDrawerDragDecision(drawerVisible = false, totalX = -6f, totalY = 1f, touchSlop = 8f),
+            agendaDrawerDragDecision(
+                drawerVisible = false,
+                gestureBlocked = false,
+                totalX = -6f,
+                totalY = 1f,
+                touchSlop = 8f,
+            ),
         )
     }
 
@@ -65,11 +89,51 @@ class AgendaDrawerInteractionTest {
     fun `visible right drawer keeps ownership of horizontal reversal`() {
         assertEquals(
             AgendaDrawerDragDecision.START,
-            agendaDrawerDragDecision(drawerVisible = true, totalX = 20f, totalY = 2f, touchSlop = 8f),
+            agendaDrawerDragDecision(
+                drawerVisible = true,
+                gestureBlocked = true,
+                totalX = 20f,
+                totalY = 2f,
+                touchSlop = 8f,
+            ),
         )
         assertEquals(
             AgendaDrawerDragDecision.START,
-            agendaDrawerDragDecision(drawerVisible = true, totalX = -20f, totalY = 2f, touchSlop = 8f),
+            agendaDrawerDragDecision(
+                drawerVisible = true,
+                gestureBlocked = true,
+                totalX = -20f,
+                totalY = 2f,
+                touchSlop = 8f,
+            ),
+        )
+    }
+
+    @Test
+    fun `closed right drawer yields horizontal drags blocked by table or left drawer`() {
+        assertEquals(
+            AgendaDrawerDragDecision.IGNORE,
+            agendaDrawerDragDecision(
+                drawerVisible = false,
+                gestureBlocked = true,
+                totalX = -20f,
+                totalY = 2f,
+                touchSlop = 8f,
+            ),
+        )
+    }
+
+    @Test
+    fun `visible right drawer keeps ownership even when content gesture is blocked`() {
+        assertEquals(
+            AgendaDrawerDragDecision.START,
+            agendaDrawerDragDecision(
+                drawerVisible = true,
+                gestureBlocked = true,
+                totalX = 20f,
+                totalY = 2f,
+                touchSlop = 8f,
+            ),
         )
     }
 

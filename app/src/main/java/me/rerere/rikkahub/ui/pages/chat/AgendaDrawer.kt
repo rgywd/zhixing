@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerDefaults
+import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,6 +37,7 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
@@ -90,6 +92,7 @@ import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbeState
 import me.rerere.rikkahub.data.today.TodayOverviewProvider
 import me.rerere.rikkahub.data.work.PhoneWorkSession
 import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.ui.context.LocalDrawerGestureExclusion
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.pages.work.WorkStatusChip
 import org.koin.compose.koinInject
@@ -239,11 +242,13 @@ internal fun rememberAgendaDrawerState(
 @Composable
 internal fun AgendaDrawerHost(
     drawerState: AgendaDrawerState,
+    contentDrawerState: DrawerState? = null,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val drawerGestureExclusion = remember { mutableStateOf(false) }
     val velocityThresholdPx = with(density) { AGENDA_DRAWER_VELOCITY_THRESHOLD.toPx() }
     BackHandler(enabled = drawerState.isVisible) {
         drawerState.close(scope)
@@ -256,6 +261,12 @@ internal fun AgendaDrawerHost(
                 drawerState = drawerState,
                 animationScope = scope,
                 velocityThresholdPx = velocityThresholdPx,
+                gestureBlocked = {
+                    contentDrawerState?.let {
+                        it.currentValue == DrawerValue.Open ||
+                            it.targetValue == DrawerValue.Open
+                    } == true || drawerGestureExclusion.value
+                },
             ),
     ) {
         val drawerWidth = minOf(maxWidth * 0.88f, 360.dp)
@@ -267,7 +278,11 @@ internal fun AgendaDrawerHost(
         val interactionSource = remember { MutableInteractionSource() }
         val scrimColor = DrawerDefaults.scrimColor
 
-        content()
+        CompositionLocalProvider(
+            LocalDrawerGestureExclusion provides drawerGestureExclusion,
+        ) {
+            content()
+        }
 
         Canvas(
             modifier = Modifier
@@ -1037,6 +1052,7 @@ internal enum class AgendaDrawerDragDecision {
 
 internal fun agendaDrawerDragDecision(
     drawerVisible: Boolean,
+    gestureBlocked: Boolean,
     totalX: Float,
     totalY: Float,
     touchSlop: Float,
@@ -1044,6 +1060,7 @@ internal fun agendaDrawerDragDecision(
     val horizontalGesture = abs(totalX) > touchSlop && abs(totalX) > abs(totalY)
     val verticalGesture = abs(totalY) > touchSlop && abs(totalY) >= abs(totalX)
     return when {
+        !drawerVisible && gestureBlocked -> AgendaDrawerDragDecision.IGNORE
         verticalGesture -> AgendaDrawerDragDecision.IGNORE
         !horizontalGesture -> AgendaDrawerDragDecision.WAIT
         drawerVisible || totalX < 0f -> AgendaDrawerDragDecision.START
@@ -1055,6 +1072,7 @@ private fun Modifier.agendaDrawerDragGesture(
     drawerState: AgendaDrawerState,
     animationScope: CoroutineScope,
     velocityThresholdPx: Float,
+    gestureBlocked: () -> Boolean,
 ): Modifier = pointerInput(drawerState, animationScope, velocityThresholdPx) {
     awaitEachGesture {
         val down = awaitFirstDown(
@@ -1096,6 +1114,7 @@ private fun Modifier.agendaDrawerDragGesture(
             when (
                 agendaDrawerDragDecision(
                     drawerVisible = drawerState.isVisible,
+                    gestureBlocked = gestureBlocked(),
                     totalX = totalX,
                     totalY = totalY,
                     touchSlop = viewConfiguration.touchSlop,
