@@ -5,6 +5,8 @@ package me.rerere.rikkahub.ui.components.table
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -15,11 +17,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.MutableState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.text.style.TextOverflow
@@ -29,6 +34,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
+import me.rerere.rikkahub.ui.context.LocalDrawerGestureExclusion
 import me.rerere.rikkahub.ui.context.LocalSettings
 import kotlin.math.max
 
@@ -55,6 +61,7 @@ fun DataTable(
     stretchToFillWidth: Boolean = true,
 ) {
     val hScroll = rememberScrollState()
+    val drawerGestureExclusion = LocalDrawerGestureExclusion.current
     val surfaceContainer = MaterialTheme.colorScheme.surfaceContainer
 
     BoxWithConstraints(
@@ -67,7 +74,11 @@ fun DataTable(
         // 捕获滚动视口的可用宽度，用于在内容较窄时把列宽拉伸铺满
         val viewportMaxWidth = constraints.maxWidth
 
-        Box(modifier = Modifier.horizontalScroll(hScroll)) {
+        Box(
+            modifier = Modifier
+                .excludeDrawerGesturesWhilePressed(drawerGestureExclusion)
+                .horizontalScroll(hScroll),
+        ) {
             SubcomposeLayout { constraints ->
             val columnCount = max(headers.size, rows.maxOfOrNull { it.size } ?: 0)
             val rowCount = rows.size
@@ -215,6 +226,29 @@ fun DataTable(
                     y += rowHeights[r]
                 }
             }
+            }
+        }
+    }
+}
+
+private fun Modifier.excludeDrawerGesturesWhilePressed(
+    exclusion: MutableState<Boolean>?,
+): Modifier = if (exclusion == null) {
+    this
+} else {
+    pointerInput(exclusion) {
+        awaitEachGesture {
+            awaitFirstDown(
+                requireUnconsumed = false,
+                pass = PointerEventPass.Initial,
+            )
+            exclusion.value = true
+            try {
+                do {
+                    val event = awaitPointerEvent(PointerEventPass.Final)
+                } while (event.changes.any { it.pressed })
+            } finally {
+                exclusion.value = false
             }
         }
     }

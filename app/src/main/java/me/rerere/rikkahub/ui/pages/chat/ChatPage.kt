@@ -186,6 +186,8 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
 
     AgendaDrawerHost(
         drawerState = agendaDrawerState,
+        contentDrawerState = drawerState,
+        openingGestureEnabled = setting.displaySetting.enableAgendaDrawerGesture,
     ) {
         when {
             isBigScreen -> {

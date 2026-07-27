@@ -119,6 +119,18 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                         },
                     )
                     item(
+                        headlineContent = { Text(stringResource(R.string.setting_display_page_agenda_drawer_gesture_title)) },
+                        supportingContent = { Text(stringResource(R.string.setting_display_page_agenda_drawer_gesture_desc)) },
+                        trailingContent = {
+                            Switch(
+                                checked = displaySetting.enableAgendaDrawerGesture,
+                                onCheckedChange = {
+                                    updateDisplaySetting(displaySetting.copy(enableAgendaDrawerGesture = it))
+                                }
+                            )
+                        },
+                    )
+                    item(
                         headlineContent = { Text(stringResource(R.string.setting_display_page_show_message_jumper_title)) },
                         supportingContent = { Text(stringResource(R.string.setting_display_page_show_message_jumper_desc)) },
                         trailingContent = {
