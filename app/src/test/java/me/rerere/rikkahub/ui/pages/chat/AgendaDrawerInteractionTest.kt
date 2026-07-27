@@ -124,6 +124,36 @@ class AgendaDrawerInteractionTest {
     }
 
     @Test
+    fun `disabled opening gesture keeps a closed right drawer closed`() {
+        assertEquals(
+            AgendaDrawerDragDecision.IGNORE,
+            agendaDrawerDragDecision(
+                drawerVisible = false,
+                gestureBlocked = false,
+                totalX = -20f,
+                totalY = 2f,
+                touchSlop = 8f,
+                openingGestureEnabled = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `disabled opening gesture still lets a visible right drawer close`() {
+        assertEquals(
+            AgendaDrawerDragDecision.START,
+            agendaDrawerDragDecision(
+                drawerVisible = true,
+                gestureBlocked = false,
+                totalX = 20f,
+                totalY = 2f,
+                touchSlop = 8f,
+                openingGestureEnabled = false,
+            ),
+        )
+    }
+
+    @Test
     fun `visible right drawer keeps ownership even when content gesture is blocked`() {
         assertEquals(
             AgendaDrawerDragDecision.START,

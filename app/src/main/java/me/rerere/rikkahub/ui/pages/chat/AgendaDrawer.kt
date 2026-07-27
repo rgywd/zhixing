@@ -243,6 +243,7 @@ internal fun rememberAgendaDrawerState(
 internal fun AgendaDrawerHost(
     drawerState: AgendaDrawerState,
     contentDrawerState: DrawerState? = null,
+    openingGestureEnabled: Boolean = true,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
@@ -261,6 +262,7 @@ internal fun AgendaDrawerHost(
                 drawerState = drawerState,
                 animationScope = scope,
                 velocityThresholdPx = velocityThresholdPx,
+                openingGestureEnabled = openingGestureEnabled,
                 gestureBlocked = {
                     contentDrawerState?.let {
                         it.currentValue == DrawerValue.Open ||
@@ -1056,11 +1058,12 @@ internal fun agendaDrawerDragDecision(
     totalX: Float,
     totalY: Float,
     touchSlop: Float,
+    openingGestureEnabled: Boolean = true,
 ): AgendaDrawerDragDecision {
     val horizontalGesture = abs(totalX) > touchSlop && abs(totalX) > abs(totalY)
     val verticalGesture = abs(totalY) > touchSlop && abs(totalY) >= abs(totalX)
     return when {
-        !drawerVisible && gestureBlocked -> AgendaDrawerDragDecision.IGNORE
+        !drawerVisible && (!openingGestureEnabled || gestureBlocked) -> AgendaDrawerDragDecision.IGNORE
         verticalGesture -> AgendaDrawerDragDecision.IGNORE
         !horizontalGesture -> AgendaDrawerDragDecision.WAIT
         drawerVisible || totalX < 0f -> AgendaDrawerDragDecision.START
@@ -1072,8 +1075,14 @@ private fun Modifier.agendaDrawerDragGesture(
     drawerState: AgendaDrawerState,
     animationScope: CoroutineScope,
     velocityThresholdPx: Float,
+    openingGestureEnabled: Boolean,
     gestureBlocked: () -> Boolean,
-): Modifier = pointerInput(drawerState, animationScope, velocityThresholdPx) {
+): Modifier = pointerInput(
+    drawerState,
+    animationScope,
+    velocityThresholdPx,
+    openingGestureEnabled,
+) {
     awaitEachGesture {
         val down = awaitFirstDown(
             requireUnconsumed = false,
@@ -1118,6 +1127,7 @@ private fun Modifier.agendaDrawerDragGesture(
                     totalX = totalX,
                     totalY = totalY,
                     touchSlop = viewConfiguration.touchSlop,
+                    openingGestureEnabled = openingGestureEnabled,
                 )
             ) {
                 AgendaDrawerDragDecision.WAIT -> continue

@@ -721,6 +721,8 @@
   <string name="setting_display_page_paste_long_text_threshold_title">Text Length Threshold</string>
   <string name="setting_display_page_send_on_enter_desc">Press Enter to send message instead of adding a new line</string>
   <string name="setting_display_page_send_on_enter_title">Send on Enter</string>
+  <string name="setting_display_page_agenda_drawer_gesture_desc">Swipe left on the chat page to open Life Overview. The top-bar button remains available when disabled.</string>
+  <string name="setting_display_page_agenda_drawer_gesture_title">Right Drawer Gesture</string>
   <string name="setting_display_page_show_assistant_bubble_desc">Whether to show bubble background for assistant messages</string>
   <string name="setting_display_page_show_assistant_bubble_title">Show Assistant Message Bubble</string>
   <string name="setting_display_page_show_datetime_in_message_desc">Show date and time below each message</string>
