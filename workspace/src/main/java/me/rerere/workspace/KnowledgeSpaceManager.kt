@@ -7,7 +7,8 @@ import java.nio.file.Paths
 
 data class KnowledgeSpaceStatus(
     val initialized: Boolean,
-    val sourceCount: Int,
+    val contentRoot: String,
+    val contentFileCount: Int,
     val indexedDocumentCount: Int,
 )
 
@@ -41,10 +42,11 @@ data class KnowledgeReadResult(
 )
 
 /**
- * File-backed project knowledge space built on top of [WorkspaceManager].
+ * File-backed OrbitOS CN vault built on top of [WorkspaceManager].
  *
- * All operations are local and work without a Rootfs. Original imports are the source of truth;
- * normalized Markdown and metadata under `.zhixing` are rebuildable derivatives.
+ * User-authored content lives under `/workspace/vault` and can be maintained by Git.
+ * Normalized text and metadata under the workspace-level `.zhixing` directory are local,
+ * rebuildable derivatives and never become the only source of truth.
  */
 class KnowledgeSpaceManager(
     private val workspaceManager: WorkspaceManager,
@@ -53,21 +55,21 @@ class KnowledgeSpaceManager(
         workspaceManager.ensureWorkspace(root)
         DIRECTORIES.forEach { workspaceManager.createDirectory(root, it) }
 
-        if (!workspaceManager.exists(root, PROJECT_FILE)) {
-            workspaceManager.writeText(
-                root = root,
-                path = PROJECT_FILE,
-                text = projectTemplate(displayName.trim().ifBlank { "未命名项目" }),
-                overwrite = false,
-            )
-        }
+        writeIfMissing(root, AGENTS_FILE, agentsTemplate(displayName.trim().ifBlank { "个人知识库" }))
+        writeIfMissing(root, "$VAULT_DIR/CLAUDE.md", bridgeTemplate("Claude Code"))
+        writeIfMissing(root, "$VAULT_DIR/GEMINI.md", bridgeTemplate("Gemini CLI"))
+        writeIfMissing(root, "$TOOLS_DIR/README.md", toolsReadme())
+        TEMPLATE_FILES.forEach { (path, text) -> writeIfMissing(root, path, text) }
+        GIT_KEEP_FILES.forEach { path -> writeIfMissing(root, path, "") }
+
         if (!workspaceManager.exists(root, MARKER_FILE)) {
             workspaceManager.writeText(
                 root = root,
                 path = MARKER_FILE,
                 text = buildJsonObject {
-                    put("formatVersion", 1)
-                    put("type", "project")
+                    put("formatVersion", 2)
+                    put("type", "orbitos-cn-vault")
+                    put("contentRoot", VAULT_DIR)
                 }.toString(),
                 overwrite = false,
             )
@@ -75,13 +77,22 @@ class KnowledgeSpaceManager(
         return status(root)
     }
 
+    /**
+     * An existing phone vault is adopted in place without requiring an app-local marker.
+     * `vault/AGENTS.md` is the stable, Git-synced identity and behavior contract.
+     */
+    fun isInitialized(root: String): Boolean =
+        workspaceManager.exists(root, VAULT_DIR) &&
+            workspaceManager.exists(root, AGENTS_FILE)
+
     fun status(root: String): KnowledgeSpaceStatus {
         workspaceManager.ensureWorkspace(root)
-        val initialized = workspaceManager.exists(root, MARKER_FILE)
+        val initialized = isInitialized(root)
         return KnowledgeSpaceStatus(
             initialized = initialized,
-            sourceCount = countFiles(root, SOURCES_DIR),
-            indexedDocumentCount = countFiles(root, NORMALIZED_DIR),
+            contentRoot = VAULT_DIR,
+            contentFileCount = if (initialized) countVaultContentFiles(root) else 0,
+            indexedDocumentCount = if (initialized) countSearchableDocuments(root) else 0,
         )
     }
 
@@ -91,18 +102,19 @@ class KnowledgeSpaceManager(
         inputStream: InputStream,
         normalizedText: String?,
     ): KnowledgeImportResult {
-        require(status(root).initialized) { "Knowledge space is not initialized" }
+        require(isInitialized(root)) { "Knowledge vault is not initialized" }
         val safeName = fileName.substringAfterLast('/').substringAfterLast('\\').trim()
         require(safeName.isNotBlank() && safeName != "." && safeName != "..") { "Invalid file name" }
 
         val source = workspaceManager.importFile(
             root = root,
-            destinationPath = SOURCES_DIR,
+            destinationPath = INBOX_DIR,
             fileName = safeName,
             inputStream = inputStream,
         )
+        val directlySearchable = isSearchableTextPath(source.path)
         val normalizedPath = normalizedText
-            ?.takeIf { it.isNotBlank() }
+            ?.takeIf { it.isNotBlank() && !directlySearchable }
             ?.let { text ->
                 val path = "$NORMALIZED_DIR/${source.name}.md"
                 workspaceManager.writeText(
@@ -113,52 +125,43 @@ class KnowledgeSpaceManager(
                 )
                 path
             }
+        val indexed = directlySearchable || normalizedPath != null
 
         val metadataName = source.name.replace(Regex("[^A-Za-z0-9._()\\-\\u4e00-\\u9fff]"), "_")
         workspaceManager.writeText(
             root = root,
             path = "$METADATA_DIR/$metadataName.json",
             text = buildJsonObject {
-                put("formatVersion", 1)
+                put("formatVersion", 2)
                 put("sourcePath", source.path)
                 normalizedPath?.let { put("normalizedPath", it) }
-                put("indexed", normalizedPath != null)
+                put("indexed", indexed)
             }.toString(),
             overwrite = false,
         )
         return KnowledgeImportResult(
             sourcePath = source.path,
             normalizedPath = normalizedPath,
-            indexed = normalizedPath != null,
+            indexed = indexed,
         )
     }
 
     fun search(root: String, query: String, limit: Int = DEFAULT_SEARCH_LIMIT): KnowledgeSearchResult {
         require(query.isNotBlank()) { "Search query is required" }
-        require(status(root).initialized) { "Knowledge space is not initialized" }
+        require(isInitialized(root)) { "Knowledge vault is not initialized" }
         val safeLimit = limit.coerceIn(1, MAX_SEARCH_LIMIT)
         val matches = mutableListOf<KnowledgeSearchMatch>()
 
-        for (path in SEARCH_PATHS) {
-            if (!workspaceManager.exists(root, path)) continue
-            val pathMatches = workspaceManager.grep(
-                root = root,
-                query = query,
-                path = path,
-                regex = false,
-                ignoreCase = true,
-            )
-            for (match in pathMatches) {
-                if (matches.size > safeLimit) break
-                matches += KnowledgeSearchMatch(
-                    path = match.path,
-                    sourcePath = sourcePath(root, match.path),
-                    line = match.line,
-                    excerpt = match.text.trim().take(MAX_EXCERPT_CHARS),
-                    citation = "workspace://${match.path}#L${match.line}",
-                )
-            }
-            if (matches.size > safeLimit) break
+        ROOT_GUIDANCE_FILES.forEach { path ->
+            if (!workspaceManager.exists(root, path) || matches.size > safeLimit) return@forEach
+            matches += searchPath(root, query, path, includeGlob = null)
+        }
+        SEARCH_DIRECTORIES.forEach { path ->
+            if (!workspaceManager.exists(root, path) || matches.size > safeLimit) return@forEach
+            matches += searchPath(root, query, path, includeGlob = SEARCHABLE_TEXT_GLOB)
+        }
+        if (workspaceManager.exists(root, NORMALIZED_DIR) && matches.size <= safeLimit) {
+            matches += searchPath(root, query, NORMALIZED_DIR, includeGlob = "**/*.md")
         }
 
         return KnowledgeSearchResult(
@@ -175,7 +178,9 @@ class KnowledgeSpaceManager(
         endLine: Int? = null,
     ): KnowledgeReadResult {
         val normalizedPath = normalizeKnowledgePath(path)
-        require(isReadableKnowledgePath(normalizedPath)) { "Path is outside the readable knowledge boundary: $path" }
+        require(isReadableKnowledgePath(normalizedPath)) {
+            "Path is outside the readable vault boundary: $path"
+        }
         require(startLine >= 1) { "startLine must be at least 1" }
         val lines = workspaceManager.readText(root, normalizedPath).lines()
         require(startLine <= lines.size) { "startLine exceeds file length" }
@@ -198,20 +203,65 @@ class KnowledgeSpaceManager(
         )
     }
 
+    private fun searchPath(
+        root: String,
+        query: String,
+        path: String,
+        includeGlob: String?,
+    ): List<KnowledgeSearchMatch> =
+        workspaceManager.grep(
+            root = root,
+            query = query,
+            path = path,
+            regex = false,
+            ignoreCase = true,
+            includeGlob = includeGlob,
+        ).map { match ->
+            KnowledgeSearchMatch(
+                path = match.path,
+                sourcePath = sourcePath(root, match.path),
+                line = match.line,
+                excerpt = match.text.trim().take(MAX_EXCERPT_CHARS),
+                citation = "workspace://${match.path}#L${match.line}",
+            )
+        }
+
     private fun sourcePath(root: String, path: String): String {
         if (!path.startsWith("$NORMALIZED_DIR/")) return path
         val firstLine = workspaceManager.readText(root, path).lineSequence().firstOrNull().orEmpty()
         return SOURCE_MARKER.matchEntire(firstLine)?.groupValues?.get(1) ?: path
     }
 
-    private fun countFiles(root: String, path: String): Int {
+    private fun countVaultContentFiles(root: String): Int =
+        CONTENT_DIRECTORIES.sumOf { path ->
+            countFiles(root, path, excludeNames = setOf(".gitkeep"))
+        } +
+            ROOT_GUIDANCE_FILES.count { workspaceManager.exists(root, it) }
+
+    private fun countSearchableDocuments(root: String): Int =
+        SEARCH_DIRECTORIES.sumOf { path ->
+            countFiles(root, path, includeExtensions = SEARCHABLE_TEXT_EXTENSIONS)
+        } +
+            ROOT_GUIDANCE_FILES.count { workspaceManager.exists(root, it) } +
+            countFiles(root, NORMALIZED_DIR, includeExtensions = setOf("md"))
+
+    private fun countFiles(
+        root: String,
+        path: String,
+        includeExtensions: Set<String>? = null,
+        excludeNames: Set<String> = emptySet(),
+    ): Int {
         if (!workspaceManager.exists(root, path)) return 0
-        return workspaceManager.glob(root, "$path/**")
-            .count { !it.isDirectory }
+        return workspaceManager.countFiles(root, path, includeExtensions, excludeNames)
     }
 
     private fun isReadableKnowledgePath(path: String): Boolean =
-        path == PROJECT_FILE || READABLE_PREFIXES.any { path.startsWith(it) }
+        (path in ROOT_GUIDANCE_FILES ||
+            READABLE_PREFIXES.any { path.startsWith(it) }) &&
+            isSearchableTextPath(path)
+
+    private fun isSearchableTextPath(path: String): Boolean =
+        path.substringAfterLast('.', "").lowercase() in SEARCHABLE_TEXT_EXTENSIONS
 
     private fun normalizeKnowledgePath(path: String): String {
         val candidate = path.replace('\\', '/').trim().trimStart('/')
@@ -223,26 +273,68 @@ class KnowledgeSpaceManager(
         return normalized
     }
 
-    private fun projectTemplate(name: String): String = """
-        # $name
+    private fun writeIfMissing(root: String, path: String, text: String) {
+        if (!workspaceManager.exists(root, path)) {
+            workspaceManager.writeText(root, path, text, overwrite = false)
+        }
+    }
 
-        ## 项目目标
+    private fun agentsTemplate(name: String): String = """
+        # $name — OrbitOS CN Vault
 
-        在这里记录项目要解决的问题和验收标准。
+        这是本知识库的维护契约。先捕获，再按目录职责归类；已有用户内容不得被覆盖。
 
-        ## 当前约束
+        ## 目录与命名
 
-        - 本空间中的项目事实应优先引用 `knowledge/` 下的资料。
-        - 重要结论写入 `knowledge/decisions/`，过程笔记写入 `knowledge/notes/`。
+        | 类型 | 目录 | frontmatter `type` | 命名 |
+        | --- | --- | --- | --- |
+        | 收件箱条目 | `00_收件箱/` | 不要求 | 随意，AI 后续归类 |
+        | 日记 | `10_日记/` | 不要求 | `YYYY-MM-DD.md` |
+        | 项目 | `20_项目/` | 不要求 | C.A.P.：Context / Actions / Progress |
+        | 研究主笔记 | `30_研究/<领域>/<主题>/` | `reference` | `<主题>.md` |
+        | 原子概念 | `40_知识库/<分类>/` | 不要求，使用 Wiki 模板 | `<概念名>.md` |
+        | 工具条目 | `60_工具/<类别>/` | `tool` | `<工具名>.md` |
+        | 计划 | `90_计划/` | 不要求 | `Plan_YYYY-MM-DD_<主题>.md` |
 
-        ## 工作方式
+        `50_资源/` 保存精选外部资源；`99_系统/` 保存模板、数据库视图和领域提示词。
 
-        先检索和阅读来源，再形成结论；没有资料支持时明确标注假设。
+        ## AI 工作方式
+
+        - 默认先把未分类内容放入 `00_收件箱/`，不要猜测归属。
+        - 研究主笔记和工具条目必须保留对应的 `type`。
+        - 项目使用 C.A.P. 结构，不按领域目录拆分。
+        - 使用 vault 相对路径与 Obsidian wikilink；不写入凭据，不改动 `.git/`。
+        - 工作流技能位于 `.agents/skills/<skill>/SKILL.md`，使用前先读取。
+        - 只有用户明确要求时才执行 Git 提交、拉取、推送或冲突处理。
+    """.trimIndent() + "\n"
+
+    private fun bridgeTemplate(client: String): String = """
+        # $client
+
+        维护本 vault 前先读取 `AGENTS.md`；工作流技能统一位于 `.agents/skills/`。
+    """.trimIndent() + "\n"
+
+    private fun toolsReadme(): String = """
+        # 工具库
+
+        `60_工具/<类别>/<工具名>.md` 同时承载在用工具的说明和待实现的工具创意。
+
+        每个工具条目使用：
+
+        ```yaml
+        ---
+        type: tool
+        ---
+        ```
+
+        工具条目应记录用途、入口、输入输出、限制和来源；脚本可以与条目放在同一类别目录，但不得写入凭据。
     """.trimIndent() + "\n"
 
     companion object {
-        const val PROJECT_FILE = "PROJECT.md"
-        const val SOURCES_DIR = "knowledge/sources"
+        const val VAULT_DIR = "vault"
+        const val AGENTS_FILE = "$VAULT_DIR/AGENTS.md"
+        const val INBOX_DIR = "$VAULT_DIR/00_收件箱"
+        const val TOOLS_DIR = "$VAULT_DIR/60_工具"
         const val NORMALIZED_DIR = ".zhixing/knowledge/normalized"
         const val METADATA_DIR = ".zhixing/knowledge/metadata"
         const val MARKER_FILE = ".zhixing/knowledge-space.json"
@@ -253,29 +345,93 @@ class KnowledgeSpaceManager(
         private const val MAX_READ_LINES = 200
         private const val MAX_EXCERPT_CHARS = 500
         private val SOURCE_MARKER = Regex("<!-- zhixing-source: (.+) -->")
-        private val DIRECTORIES = listOf(
-            SOURCES_DIR,
-            "knowledge/notes",
-            "knowledge/decisions",
-            "knowledge/outputs",
-            "knowledge/drafts",
+        private val CONTENT_DIRECTORIES = listOf(
+            "$VAULT_DIR/00_收件箱",
+            "$VAULT_DIR/10_日记",
+            "$VAULT_DIR/20_项目",
+            "$VAULT_DIR/30_研究",
+            "$VAULT_DIR/40_知识库",
+            "$VAULT_DIR/50_资源",
+            "$VAULT_DIR/60_工具",
+            "$VAULT_DIR/90_计划",
+            "$VAULT_DIR/99_系统",
+            "$VAULT_DIR/.agents/skills",
+        )
+        private val SEARCH_DIRECTORIES = CONTENT_DIRECTORIES
+        private val ROOT_GUIDANCE_FILES = listOf(
+            AGENTS_FILE,
+            "$VAULT_DIR/CLAUDE.md",
+            "$VAULT_DIR/GEMINI.md",
+        )
+        private val READABLE_PREFIXES = SEARCH_DIRECTORIES.map { "$it/" } +
+            "$NORMALIZED_DIR/"
+        private val DIRECTORIES = CONTENT_DIRECTORIES + listOf(
+            "$VAULT_DIR/99_系统/模板",
+            "$VAULT_DIR/99_系统/数据库",
+            "$VAULT_DIR/99_系统/提示词",
+            "$VAULT_DIR/.claude",
+            "$VAULT_DIR/.codex",
+            "$VAULT_DIR/.gemini/commands",
             NORMALIZED_DIR,
             METADATA_DIR,
         )
-        private val SEARCH_PATHS = listOf(
-            PROJECT_FILE,
-            "knowledge/notes",
-            "knowledge/decisions",
-            "knowledge/outputs",
-            "knowledge/drafts",
-            NORMALIZED_DIR,
+        private val GIT_KEEP_FILES = listOf(
+            "$VAULT_DIR/00_收件箱/.gitkeep",
+            "$VAULT_DIR/20_项目/.gitkeep",
+            "$VAULT_DIR/90_计划/.gitkeep",
         )
-        private val READABLE_PREFIXES = listOf(
-            "knowledge/notes/",
-            "knowledge/decisions/",
-            "knowledge/outputs/",
-            "knowledge/drafts/",
-            "$NORMALIZED_DIR/",
+        private val SEARCHABLE_TEXT_EXTENSIONS = setOf(
+            "md", "markdown", "txt", "csv", "tsv", "json", "jsonl", "xml", "html", "htm",
+            "kt", "kts", "java", "py", "js", "ts", "tsx", "jsx", "css", "scss", "sql", "sh",
+            "yaml", "yml", "toml", "ini", "properties", "log", "base",
+        )
+        private val SEARCHABLE_TEXT_GLOB =
+            "**/*.{${SEARCHABLE_TEXT_EXTENSIONS.sorted().joinToString(",")}}"
+        private val TEMPLATE_FILES = mapOf(
+            "$VAULT_DIR/99_系统/模板/Daily_Note.md" to """
+                # {{date:YYYY-MM-DD}}
+
+                ## 待办
+
+                ## 日志
+
+                ## AI 摘要
+
+                ## 相关项目
+            """.trimIndent() + "\n",
+            "$VAULT_DIR/99_系统/模板/Inbox_Template.md" to """
+                # {{title}}
+
+                ## 原始内容
+
+                ## 后续处理
+            """.trimIndent() + "\n",
+            "$VAULT_DIR/99_系统/模板/Project_Template.md" to """
+                # {{title}}
+
+                ## Context
+
+                ## Actions
+
+                ## Progress
+            """.trimIndent() + "\n",
+            "$VAULT_DIR/99_系统/模板/Wiki_Template.md" to """
+                # {{title}}
+
+                ## 定义
+
+                ## 关联
+            """.trimIndent() + "\n",
+            "$VAULT_DIR/99_系统/模板/Content_Template.md" to """
+                ---
+                type: reference
+                ---
+                # {{title}}
+
+                ## 摘要
+
+                ## 来源
+            """.trimIndent() + "\n",
         )
     }
 }

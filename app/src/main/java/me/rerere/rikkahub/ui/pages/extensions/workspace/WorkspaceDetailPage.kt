@@ -480,7 +480,7 @@ private fun KnowledgeSpaceCard(
                 Text(
                     text = stringResource(
                         R.string.workspace_detail_knowledge_counts,
-                        status.sourceCount,
+                        status.contentFileCount,
                         status.indexedDocumentCount,
                     ),
                     style = MaterialTheme.typography.bodyMedium,

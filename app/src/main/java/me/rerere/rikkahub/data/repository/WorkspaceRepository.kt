@@ -93,6 +93,11 @@ class WorkspaceRepository(
         knowledgeSpaceManager.status(workspace.root)
     }
 
+    suspend fun isKnowledgeVaultInitialized(id: String): Boolean = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: return@withContext false
+        knowledgeSpaceManager.isInitialized(workspace.root)
+    }
+
     suspend fun importKnowledgeSource(
         id: String,
         fileName: String,

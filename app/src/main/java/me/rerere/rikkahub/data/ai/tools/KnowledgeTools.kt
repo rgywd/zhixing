@@ -12,10 +12,6 @@ import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.knowledge.KnowledgeSpaceService
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
-import me.rerere.workspace.KnowledgeSpaceStatus
-
-internal fun KnowledgeSpaceStatus.hasSearchableKnowledge(): Boolean =
-    initialized && indexedDocumentCount > 0
 
 suspend fun createKnowledgeTools(
     workspaceId: String?,
@@ -24,29 +20,31 @@ suspend fun createKnowledgeTools(
 ): List<Tool> {
     if (workspaceId.isNullOrBlank()) return emptyList()
     val workspace = workspaceRepository.getById(workspaceId) ?: return emptyList()
-    val status = workspaceRepository.knowledgeSpaceStatus(workspaceId)
-    if (!status.hasSearchableKnowledge()) return emptyList()
+    if (!workspaceRepository.isKnowledgeVaultInitialized(workspaceId)) return emptyList()
     val approvals = workspace.toolApprovalOverrides()
     fun needsApproval(name: String) = resolveWorkspaceToolApproval(name, approvals)
 
     return listOf(
         Tool(
             name = "knowledge_status",
-            description = "Inspect the bound project's local knowledge space when the user asks about its indexed project materials. Works without Rootfs.",
+            description = "Inspect the bound OrbitOS CN vault at /workspace/vault, including local content and searchable document counts. Works without Rootfs.",
             parameters = { InputSchema.Obj(properties = buildJsonObject {}) },
             needsApproval = { needsApproval("knowledge_status") },
             execute = {
                 val status = workspaceRepository.knowledgeSpaceStatus(workspaceId)
                 listOf(UIMessagePart.Text(buildJsonObject {
                     put("initialized", status.initialized)
-                    put("sourceCount", status.sourceCount)
+                    put("contentRoot", status.contentRoot)
+                    put("contentFileCount", status.contentFileCount)
+                    // Keep the old field as an output alias for existing rendered tool history.
+                    put("sourceCount", status.contentFileCount)
                     put("indexedDocumentCount", status.indexedDocumentCount)
                 }.toString()))
             },
         ),
         Tool(
             name = "knowledge_search",
-            description = "Search indexed project materials only when the user explicitly asks to consult them or the current request clearly depends on those materials. Do not use this as a default preflight; zero matches must not block an ordinary answer. Returns line-level excerpts and source citations. Works without Rootfs.",
+            description = "Search the bound OrbitOS CN vault only when the user asks to consult it or the task clearly depends on it. Covers inbox, daily notes, C.A.P. projects, reference research, atomic wiki concepts, curated resources, tool entries, plans, system notes, and vault-local skills. Do not use this as a default preflight. Returns line-level excerpts and source citations. Works without Rootfs.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -81,7 +79,7 @@ suspend fun createKnowledgeTools(
         ),
         Tool(
             name = "knowledge_read",
-            description = "Read a precise line range from an indexed project material after knowledge_search found a relevant path. Do not use it as a default preflight. Works without Rootfs.",
+            description = "Read a precise line range from a searchable vault file after knowledge_search found a relevant path. Credential and Git internals are outside this tool's readable boundary. Do not use it as a default preflight. Works without Rootfs.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -111,7 +109,7 @@ suspend fun createKnowledgeTools(
         ),
         Tool(
             name = "knowledge_ingest",
-            description = "Persist a file from /upload into the bound project's knowledge/sources directory and build a local searchable representation when supported. This changes persistent project data.",
+            description = "Persist a file from /upload into /workspace/vault/00_收件箱 without overwriting an existing entry, and build a local searchable representation when needed. Classification is intentionally deferred. This changes persistent vault data.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
