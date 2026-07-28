@@ -198,6 +198,7 @@ function runtimeCatalog(source, config) {
       command: String(runtime.command ?? defaultRuntimeCommand(runtime.id)).trim(),
       models: [...(runtime.models ?? [])],
       reasoningEfforts: [...(runtime.reasoningEfforts ?? [])],
+      reasoningEffortsByModel: cloneReasoningEffortOverrides(runtime.reasoningEffortsByModel),
     }));
   }
   const models = source.models ?? config.defaultModels ?? [];
@@ -208,6 +209,7 @@ function runtimeCatalog(source, config) {
     command: String(config.codexCommand ?? "codex"),
     models,
     reasoningEfforts,
+    reasoningEffortsByModel: {},
   }];
 }
 
@@ -221,6 +223,7 @@ function validateRuntimeCatalog(runtimes, owner) {
       || !runtime.command
       || !runtime.models.length
       || !runtime.reasoningEfforts.length
+      || !validReasoningEffortOverrides(runtime)
       || seen.has(runtime.id)
     ) {
       throw new Error(`${owner} has an invalid runtime catalog`);
@@ -243,7 +246,31 @@ function publicRuntime(runtime) {
     name: runtime.name,
     models: runtime.models,
     reasoningEfforts: runtime.reasoningEfforts,
+    reasoningEffortsByModel: runtime.reasoningEffortsByModel ?? {},
   };
+}
+
+function cloneReasoningEffortOverrides(value) {
+  if (value == null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) return value;
+  return Object.fromEntries(Object.entries(value).map(([model, efforts]) => [
+    model,
+    Array.isArray(efforts) ? [...efforts] : efforts,
+  ]));
+}
+
+function validReasoningEffortOverrides(runtime) {
+  const overrides = runtime.reasoningEffortsByModel ?? {};
+  return (
+    typeof overrides === "object"
+    && !Array.isArray(overrides)
+    && Object.entries(overrides).every(([model, efforts]) =>
+      runtime.models.includes(model)
+      && Array.isArray(efforts)
+      && efforts.length > 0
+      && efforts.every((effort) => runtime.reasoningEfforts.includes(effort)),
+    )
+  );
 }
 
 function defaultRuntimeCommand(runtimeId) {

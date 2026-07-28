@@ -150,7 +150,7 @@ export class WorkRunner {
       !runtimeConfig
       || (previous.runtime && previous.runtime !== runtime)
       || !runtimeConfig.models.includes(model)
-      || !runtimeConfig.reasoningEfforts.includes(reasoningEffort)
+      || !effectiveReasoningEfforts(runtimeConfig, model).includes(reasoningEffort)
       || !sessionToken
     ) {
       await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", "Runner rejected the session snapshot"));
@@ -487,6 +487,10 @@ export class WorkRunner {
   logError(area, error) {
     console.error(`[${area}] ${safeError(error)}`);
   }
+}
+
+function effectiveReasoningEfforts(runtime, model) {
+  return runtime.reasoningEffortsByModel?.[model] ?? runtime.reasoningEfforts;
 }
 
 function validateConfig(config) {

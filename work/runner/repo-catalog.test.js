@@ -110,6 +110,42 @@ test("catalog validation accepts roots and fingerprints availability changes", (
   );
 });
 
+test("catalog preserves model-specific reasoning efforts and rejects invalid overrides", () => {
+  const runtime = {
+    id: "codex",
+    name: "Codex",
+    models: ["gpt-5.6-sol", "gpt-5.3-codex-spark"],
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    reasoningEffortsByModel: {
+      "gpt-5.3-codex-spark": ["low", "medium", "high", "xhigh"],
+    },
+  };
+  const config = {
+    defaultRuntimes: [runtime],
+    repos: [{ id: "repo", name: "Repo", path: process.cwd() }],
+  };
+
+  assert.doesNotThrow(() => validateRepositoryConfig(config));
+  assert.deepEqual(
+    buildRepositoryCatalog(config)[0].runtimes[0].reasoningEffortsByModel,
+    runtime.reasoningEffortsByModel,
+  );
+  assert.throws(() => validateRepositoryConfig({
+    ...config,
+    defaultRuntimes: [{
+      ...runtime,
+      reasoningEffortsByModel: { "unknown-model": ["high"] },
+    }],
+  }), /invalid runtime catalog/);
+  assert.throws(() => validateRepositoryConfig({
+    ...config,
+    defaultRuntimes: [{
+      ...runtime,
+      reasoningEffortsByModel: { "gpt-5.3-codex-spark": ["ultra"] },
+    }],
+  }), /invalid runtime catalog/);
+});
+
 test("runner republishes the catalog when a discovered directory changes", async () => {
   const directory = mkdtempSync(join(tmpdir(), "zhixing-catalog-refresh-"));
   try {

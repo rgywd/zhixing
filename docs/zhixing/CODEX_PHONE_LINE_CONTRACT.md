@@ -36,7 +36,15 @@ repo/runtime/model/effort 组合。仓库 catalog 项可携带可选 `group`、`
   "name": "zhixing",
   "available": true,
   "runtimes": [
-    { "id": "codex", "name": "Codex", "models": ["gpt-5.6-sol"], "reasoningEfforts": ["high"] },
+    {
+      "id": "codex",
+      "name": "Codex",
+      "models": ["gpt-5.6-sol", "gpt-5.3-codex-spark"],
+      "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"],
+      "reasoningEffortsByModel": {
+        "gpt-5.3-codex-spark": ["low", "medium", "high", "xhigh"]
+      }
+    },
     { "id": "claude-code", "name": "Claude Code", "models": ["sonnet"], "reasoningEfforts": ["high"] }
   ]
 }
@@ -47,6 +55,10 @@ repo/runtime/model/effort 组合。仓库 catalog 项可携带可选 `group`、`
 选择器按置顶、最近使用、其余分组展示且不重复。新会话只从仍可用的最近项或置顶项恢复默认，没有本地历史时保持
 未选择。该偏好不上传 Core，也不改变 catalog 或会话创建协议。创建后 runtime/model/effort 固定；旧客户端未提交
 `runtime` 时默认 `codex`。旧 Runner 的扁平 `models/reasoningEfforts` catalog 也继续映射为 Codex。
+
+`reasoningEffortsByModel` 是可选的按模型覆盖：键必须属于同一 runtime 的 `models`，值必须是
+`reasoningEfforts` 的非空子集。未提供覆盖的模型继续使用 runtime 级 `reasoningEfforts`。Android 在切换模型时
+立即收窄选择器并回落到该模型支持的档位；Core 和 Runner 都按同一有效组合校验，避免客户端绕过显示约束。
 
 Android 创建会话时可提交最多 80 字符的 `title`。当前客户端用已配置的快速模型根据首条文本生成标题；模型不可用、
 生成失败或仅发送图片时使用首条文本摘要或仓库名兜底。旧客户端未提交标题时，Core 使用 `repoName`，保持 v1 向后兼容。

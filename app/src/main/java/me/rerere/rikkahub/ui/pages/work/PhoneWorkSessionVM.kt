@@ -24,6 +24,7 @@ import me.rerere.rikkahub.data.work.PhoneWorkRuntime
 import me.rerere.rikkahub.data.work.PhoneWorkSession
 import me.rerere.rikkahub.data.work.PhoneWorkSessionCreator
 import me.rerere.rikkahub.data.work.chooseDefaultWorkRepo
+import me.rerere.rikkahub.data.work.effectiveReasoningEfforts
 import me.rerere.rikkahub.data.work.effectiveRuntimes
 
 class PhoneWorkSessionVM(
@@ -142,11 +143,27 @@ class PhoneWorkSessionVM(
     }
 
     fun selectModel(model: String) {
-        if (sessionId.value == null) selectedModel.value = model
+        if (sessionId.value != null) return
+        val runtime = selectedRepo.value?.effectiveRuntimes()
+            ?.firstOrNull { it.id == selectedRuntime.value }
+        if (runtime != null && model !in runtime.models) return
+        selectedModel.value = model
+        val efforts = runtime?.effectiveReasoningEfforts(model)
+            .orEmpty()
+            .ifEmpty { defaultReasoningEfforts(model) }
+        if (selectedEffort.value !in efforts) {
+            selectedEffort.value = preferredEffort(efforts)
+        }
     }
 
     fun selectEffort(effort: String) {
-        if (sessionId.value == null) selectedEffort.value = effort
+        if (sessionId.value != null) return
+        val efforts = selectedRepo.value?.effectiveRuntimes()
+            ?.firstOrNull { it.id == selectedRuntime.value }
+            ?.effectiveReasoningEfforts(selectedModel.value)
+            .orEmpty()
+            .ifEmpty { defaultReasoningEfforts(selectedModel.value) }
+        if (effort in efforts) selectedEffort.value = effort
     }
 
     fun send(text: String, imageUrls: List<String> = emptyList(), onAccepted: (String?) -> Unit = {}) {
@@ -242,10 +259,9 @@ class PhoneWorkSessionVM(
                 if (selectedModel.value !in runtime.models) {
                     selectedModel.value = runtime.models.firstOrNull() ?: DEFAULT_MODELS.first()
                 }
-                if (selectedEffort.value !in runtime.reasoningEfforts) {
-                    selectedEffort.value = runtime.reasoningEfforts.firstOrNull { it == "high" }
-                        ?: runtime.reasoningEfforts.firstOrNull()
-                        ?: "high"
+                val efforts = runtime.effectiveReasoningEfforts(selectedModel.value)
+                if (selectedEffort.value !in efforts) {
+                    selectedEffort.value = preferredEffort(efforts)
                 }
             }
         }
@@ -254,14 +270,22 @@ class PhoneWorkSessionVM(
     private fun applyRuntime(runtime: PhoneWorkRuntime) {
         selectedRuntime.value = runtime.id
         selectedModel.value = runtime.models.firstOrNull() ?: DEFAULT_MODELS.first()
-        selectedEffort.value = runtime.reasoningEfforts.firstOrNull { it == "high" }
-            ?: runtime.reasoningEfforts.firstOrNull()
-            ?: "high"
+        selectedEffort.value = preferredEffort(runtime.effectiveReasoningEfforts(selectedModel.value))
     }
 
     companion object {
-        val DEFAULT_MODELS = listOf("gpt-5.6-sol", "gpt-5.6-terra")
-        val DEFAULT_EFFORTS = listOf("medium", "high", "xhigh", "max")
+        const val SPARK_MODEL = "gpt-5.3-codex-spark"
+        val DEFAULT_MODELS = listOf("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", SPARK_MODEL)
+        val DEFAULT_EFFORTS = listOf("low", "medium", "high", "xhigh", "max")
+        val DEFAULT_REASONING_EFFORTS_BY_MODEL = mapOf(
+            SPARK_MODEL to listOf("low", "medium", "high", "xhigh"),
+        )
+
+        fun defaultReasoningEfforts(model: String): List<String> =
+            DEFAULT_REASONING_EFFORTS_BY_MODEL[model] ?: DEFAULT_EFFORTS
+
+        private fun preferredEffort(efforts: List<String>): String =
+            efforts.firstOrNull { it == "high" } ?: efforts.firstOrNull() ?: "high"
     }
 }
 

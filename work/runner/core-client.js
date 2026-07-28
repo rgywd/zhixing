@@ -54,6 +54,7 @@ export class CoreClient {
             name: runtime.name,
             models: runtime.models,
             reasoningEfforts: runtime.reasoningEfforts,
+            reasoningEffortsByModel: runtime.reasoningEffortsByModel ?? {},
           })),
           models: repo.models,
           reasoningEfforts: repo.reasoningEfforts,

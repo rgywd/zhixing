@@ -99,6 +99,7 @@ import me.rerere.rikkahub.data.work.PhoneWorkReportPayload
 import me.rerere.rikkahub.data.work.PhoneWorkRunStatePayload
 import me.rerere.rikkahub.data.work.PhoneWorkRuntime
 import me.rerere.rikkahub.data.work.PhoneWorkUserMessagePayload
+import me.rerere.rikkahub.data.work.effectiveReasoningEfforts
 import me.rerere.rikkahub.data.work.effectiveRuntimes
 import me.rerere.rikkahub.data.work.isPinned
 import me.rerere.rikkahub.data.work.key
@@ -301,8 +302,11 @@ fun PhoneWorkSessionPage(sessionId: String) {
                             )
                             WorkChoiceButton(
                                 label = selectedEffort,
-                                options = selectedRuntimeConfig?.reasoningEfforts.orEmpty().ifEmpty {
-                                    PhoneWorkSessionVM.DEFAULT_EFFORTS
+                                options = selectedRuntimeConfig
+                                    ?.effectiveReasoningEfforts(selectedModel)
+                                    .orEmpty()
+                                    .ifEmpty {
+                                        PhoneWorkSessionVM.defaultReasoningEfforts(selectedModel)
                                 },
                                 enabled = draft,
                                 icon = { Text("A", style = MaterialTheme.typography.labelLarge) },
