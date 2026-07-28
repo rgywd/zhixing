@@ -101,6 +101,29 @@ SettingsStore -> DataStore
   [`CODEX_PHONE_LINE_ARCHITECTURE.md`](./CODEX_PHONE_LINE_ARCHITECTURE.md)。
 - 若重新引入同步服务，客户端持有稳定对象 ID、版本与删除标记；协议必须版本化、幂等并有契约测试。
 
+## Workspace 安全变量
+
+绑定 Workspace 的普通 Chat 支持在消息开头声明安全环境变量，声明必须是连续的行首块，变量名遵循
+`[A-Za-z_][A-Za-z0-9_]*`：
+
+```text
+$TEMP_TOKEN=value
+$$USER_TOKEN=value
+
+使用这些变量完成后续命令
+```
+
+- `$NAME=value` 是当前会话、当前应用进程内的临时变量；退出应用进程后失效，不写入磁盘。
+- `$$NAME=value` 是用户变量；值由 Android Keystore 加密后写入 no-backup 文件，可供后续会话和 Workspace
+  使用，但不进入应用备份。
+- `$NAME=` 或 `$$NAME=` 删除对应作用域的变量。值是等号后的单行原文，可以继续包含等号。
+- 声明发送前会被替换为只含变量名、作用域和操作结果的安全说明；原值不进入 Room 消息、Provider 请求、
+  工具参数、日志或普通导出。
+- 变量只作为 `workspace_shell` 的进程环境注入。工具向模型公开可用变量名而不公开值，命令应以
+  `$NAME` 引用；stdout/stderr 在写回消息前按当前变量值再次脱敏。
+- 只有消息开头的声明块会被识别；普通文本、代码示例和声明块之后出现的 `$NAME=value` 保持原样。
+  `workspace_shell` 仍遵循既有审批策略，变量不会绕过命令审批或扩大工具权限。
+
 ## 隐私与兼容
 
 - 默认不启用第三方分析、远程配置或崩溃上传。

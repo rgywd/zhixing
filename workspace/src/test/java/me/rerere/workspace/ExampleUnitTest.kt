@@ -128,6 +128,25 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun commandReceivesPrivateEnvironmentSeparatelyFromCommandText() {
+        val baseDir = Files.createTempDirectory("workspace-command-environment-test").toFile()
+        val runner = RecordingShellRunner()
+        val manager = WorkspaceManager(baseDir, shellRunner = runner)
+        val root = "test-workspace"
+        manager.ensureWorkspace(root)
+
+        val result = manager.executeCommand(
+            root = root,
+            command = "curl -H \"Authorization: Bearer ${'$'}API_TOKEN\" https://example.com",
+            environment = mapOf("API_TOKEN" to "private-token"),
+        )
+
+        assertEquals(0, result.exitCode)
+        assertEquals("private-token", runner.context.environment["API_TOKEN"])
+        assertFalse(runner.context.command.contains("private-token"))
+    }
+
+    @Test
     fun programReceivesArgumentsAndPrivateEnvironmentWithoutShellQuoting() {
         val baseDir = Files.createTempDirectory("workspace-program-test").toFile()
         val runner = RecordingProgramRunner()
@@ -202,6 +221,18 @@ class ExampleUnitTest {
             this.context = context
             return WorkspaceCommandResult(exitCode = 0, stdout = "ok", stderr = "")
         }
+    }
+
+    private class RecordingShellRunner : WorkspaceShellRunner {
+        lateinit var context: WorkspaceShellContext
+
+        override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
+            this.context = context
+            return WorkspaceCommandResult(0, "", "")
+        }
+
+        override fun executeProgram(context: WorkspaceProgramContext): WorkspaceCommandResult =
+            error("Program execution was not expected")
     }
 
     @Test

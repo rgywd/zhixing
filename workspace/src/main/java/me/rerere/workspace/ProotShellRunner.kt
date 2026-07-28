@@ -17,24 +17,28 @@ class ProotShellRunner(
     private val extraBindMounts: List<WorkspaceBindMount> = emptyList(),
     private val patcher: RootfsPatcher = RootfsPatcher(),
 ) : WorkspaceShellRunner {
-    override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult = executeInRootfs(
-        linuxDir = context.linuxDir,
-        filesDir = context.filesDir,
-        tempDir = context.tempDir,
-        timeoutMillis = context.timeoutMillis,
-        stdin = context.stdin,
-        workingDirectory = context.prootCwd(),
-        command = baseEnvironment() + listOf(
-            "/bin/bash",
-            "-l",
-            "-c",
-            // 命令通过位置参数传入, 避免任何转义; eval "$2" 对命令文本只求值一次, 等价于 bash -c "$cmd"
-            "cd -- \"\$1\" && eval \"\$2\"",
-            "zhixing",
-            context.prootCwd(),
-            context.command,
-        ),
-    )
+    override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
+        val relay = relayProgramEnvironment(context.environment)
+        return executeInRootfs(
+            linuxDir = context.linuxDir,
+            filesDir = context.filesDir,
+            tempDir = context.tempDir,
+            timeoutMillis = context.timeoutMillis,
+            stdin = context.stdin,
+            workingDirectory = context.prootCwd(),
+            command = listOf(
+                "/bin/bash",
+                "-c",
+                SHELL_EXEC_SCRIPT,
+                "zhixing-shell",
+                context.prootCwd(),
+                context.command,
+                relay.names.size.toString(),
+            ) + relay.names.flatMap { listOf(it.target, it.relay) },
+            processEnvironment = relay.processEnvironment,
+            clearProcessEnvironment = true,
+        )
+    }
 
     override fun executeProgram(context: WorkspaceProgramContext): WorkspaceCommandResult {
         val relay = relayProgramEnvironment(context.environment)
@@ -136,16 +140,6 @@ class ProotShellRunner(
         return command
     }
 
-    private fun baseEnvironment(): List<String> = buildList {
-        add("/usr/bin/env")
-        add("-i")
-        add("HOME=/root")
-        add("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
-        add("TERM=xterm-256color")
-        add("LANG=C.UTF-8")
-        add("LC_ALL=C.UTF-8")
-    }
-
     private fun WorkspaceShellContext.prootCwd(): String {
         val normalized = cwd.trim().trim('/')
         return if (normalized.isBlank()) {
@@ -167,6 +161,27 @@ class ProotShellRunner(
         private const val PROOT_EXEC = "libproot_exec.so"
         private const val PROOT_LOADER = "libproot_loader.so"
         private const val WORKSPACE_DIR = "/workspace"
+        private val SHELL_EXEC_SCRIPT = """
+            cwd="${'$'}1"
+            command="${'$'}2"
+            relay_count="${'$'}3"
+            shift 3
+            forwarded=()
+            for ((i = 0; i < relay_count; i++)); do
+              target="${'$'}1"
+              relay="${'$'}2"
+              shift 2
+              forwarded+=("${'$'}target=${'$'}{!relay}")
+            done
+            exec /usr/bin/env -i \
+              HOME=/root \
+              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              TERM=xterm-256color \
+              LANG=C.UTF-8 \
+              LC_ALL=C.UTF-8 \
+              "${'$'}{forwarded[@]}" \
+              /bin/bash -l -c 'cd -- "$1" && eval "$2"' zhixing "${'$'}cwd" "${'$'}command"
+        """.trimIndent()
         private val PROGRAM_EXEC_SCRIPT = """
             program="${'$'}1"
             shift

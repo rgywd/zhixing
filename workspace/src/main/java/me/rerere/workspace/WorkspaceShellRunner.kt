@@ -14,6 +14,7 @@ interface WorkspaceShellRunner {
 data class WorkspaceShellContext(
     val root: String,
     val command: String,
+    val environment: Map<String, String> = emptyMap(),
     val cwd: String,
     val filesDir: File,
     val linuxDir: File,
@@ -42,6 +43,9 @@ class HostShellRunner : WorkspaceShellRunner {
         val process = ProcessBuilder(defaultShell(), "-c", context.command)
             .directory(context.workingDir)
             .redirectErrorStream(false)
+            .apply {
+                environment().putAll(context.environment)
+            }
             .start()
         return process.readResult(context.timeoutMillis, context.stdin)
     }
