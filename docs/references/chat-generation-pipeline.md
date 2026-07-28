@@ -93,6 +93,16 @@ Job finally
 对用户输入的 `UIMessagePart.Text` 执行 `Assistant.replaceRegexes(scope=USER)`，即助手配置中 `AffectScope.USER`
 的正则替换规则，用于规范化或脱敏输入文本。非文本 Part（图片、文档等）不参与处理。
 
+当普通 Chat 绑定 Workspace 时，正则替换前还会识别消息开头的安全变量声明块：
+
+- `$NAME=value` 写入当前会话的进程内临时环境；
+- `$$NAME=value` 写入 Android Keystore 加密的用户环境；
+- 空值删除对应变量；
+- 持久化消息只保留变量名和操作结果，不保留或发送变量值。
+
+`workspace_shell` 执行时取得用户变量与当前会话临时变量的快照，临时变量同名时优先。变量值通过进程环境
+传入，不拼接到工具参数或命令文本；工具 stdout/stderr 写回消息前会按变量值脱敏。
+
 ---
 
 ## 阶段二：InputMessage 变换管道
@@ -156,7 +166,8 @@ Job finally
   - `ScreenTime`：获取屏幕使用时间
 3. **Conversation Tools**（`createConversationTools`）— `enableRecentChatsReference = true` 时，查询历史对话
 4. **Knowledge Tools**（`createKnowledgeTools`）— 仅当绑定知识空间已初始化且存在可检索文档时注入；空库不向模型暴露工具
-5. **Workspace Tools**（`createWorkspaceToolsIfReady`）— Workspace Shell 就绪时注入，含 `workspace_shell`
+5. **Workspace Tools**（`createWorkspaceToolsIfReady`）— Workspace Shell 就绪时注入，含
+   `workspace_shell`；安全变量只向模型公开名称，并在工具执行时注入环境
 6. **Skill Tools**（`createSkillTools`）— 助手启用的 Skill 列表
 7. **MCP Tools** — 所有已连接 MCP 服务器的工具，命名格式 `mcp__{serverName}__{toolName}`
 8. **Memory Tools**（`buildMemoryTools`，内置于 GenerationHandler）— `enableMemory = true` 时，支持记忆的增删改

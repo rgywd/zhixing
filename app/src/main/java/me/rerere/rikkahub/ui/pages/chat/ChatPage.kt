@@ -329,6 +329,7 @@ private fun ChatPageContent(
                     loading = loadingJob != null,
                     settings = setting,
                     hazeState = hazeState,
+                    enableWorkspaceVariables = assistant.workspaceId != null,
                     completionProviders = completionProviders,
                     onCancelClick = {
                         vm.stopGeneration()

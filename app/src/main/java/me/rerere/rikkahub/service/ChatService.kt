@@ -94,6 +94,8 @@ import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.FolderRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.workspace.WorkspaceVariableStore
+import me.rerere.rikkahub.data.workspace.parseWorkspaceVariableDeclarations
 import me.rerere.rikkahub.web.BadRequestException
 import me.rerere.rikkahub.web.NotFoundException
 import me.rerere.rikkahub.utils.applyPlaceholders
@@ -163,6 +165,7 @@ class ChatService(
     private val skillManager: SkillManager,
     private val workspaceRepository: WorkspaceRepository,
     private val githubCliRunner: GitHubCliRunner,
+    private val workspaceVariableStore: WorkspaceVariableStore,
     private val knowledgeSpaceService: KnowledgeSpaceService,
     private val folderRepository: FolderRepository,
 ) {
@@ -354,7 +357,11 @@ class ChatService(
                 val settings = settingsStore.settingsFlow.first()
                 val assistant = settings.getAssistantById(currentConversation.assistantId)
                     ?: settings.getCurrentAssistant()
-                val processedContent = preprocessUserInputParts(content, assistant)
+                val processedContent = preprocessUserInputParts(
+                    parts = content,
+                    assistant = assistant,
+                    conversationId = conversationId,
+                )
 
                 // 添加消息到列表
                 val newConversation = currentConversation.copy(
@@ -379,12 +386,25 @@ class ChatService(
         session.setJob(job)
     }
 
-    private fun preprocessUserInputParts(parts: List<UIMessagePart>, assistant: Assistant): List<UIMessagePart> {
+    private suspend fun preprocessUserInputParts(
+        parts: List<UIMessagePart>,
+        assistant: Assistant,
+        conversationId: Uuid,
+    ): List<UIMessagePart> {
         return parts.map { part ->
             when (part) {
                 is UIMessagePart.Text -> {
+                    val variableResult = if (assistant.workspaceId != null) {
+                        parseWorkspaceVariableDeclarations(part.text).also { result ->
+                            if (result.declarations.isNotEmpty()) {
+                                workspaceVariableStore.apply(conversationId, result.declarations)
+                            }
+                        }
+                    } else {
+                        null
+                    }
                     part.copy(
-                        text = part.text.replaceRegexes(
+                        text = (variableResult?.safeText ?: part.text).replaceRegexes(
                             assistant = assistant,
                             scope = AssistantAffectScope.USER,
                             visual = false
@@ -591,7 +611,13 @@ class ChatService(
                         addAll(createConversationTools(conversationRepo, assistant.id))
                     }
                     addAll(createKnowledgeTools(assistant.workspaceId?.toString(), workspaceRepository, knowledgeSpaceService))
-                    addAll(createWorkspaceToolsIfReady(assistant.workspaceId?.toString(), conversation.workspaceCwd))
+                    addAll(
+                        createWorkspaceToolsIfReady(
+                            conversationId = conversationId,
+                            workspaceId = assistant.workspaceId?.toString(),
+                            cwd = conversation.workspaceCwd,
+                        )
+                    )
                     if (assistant.enabledSkills.isNotEmpty()) {
                         addAll(
                             createSkillTools(
@@ -864,7 +890,11 @@ class ChatService(
             .toList()
     }
 
-    private suspend fun createWorkspaceToolsIfReady(workspaceId: String?, cwd: String? = null): List<Tool> {
+    private suspend fun createWorkspaceToolsIfReady(
+        conversationId: Uuid,
+        workspaceId: String?,
+        cwd: String? = null,
+    ): List<Tool> {
         if (workspaceId.isNullOrBlank()) return emptyList()
         val workspace = workspaceRepository.getById(workspaceId) ?: return emptyList()
         if (workspace.shellStatus != WorkspaceShellStatus.READY.name) {
@@ -874,7 +904,15 @@ class ChatService(
             )
             return emptyList()
         }
-        return createWorkspaceTools(workspaceId, workspaceRepository, githubCliRunner, cwd)
+        return createWorkspaceTools(
+            workspaceId = workspaceId,
+            workspaceRepository = workspaceRepository,
+            githubCliRunner = githubCliRunner,
+            cwd = cwd,
+            shellEnvironment = {
+                workspaceVariableStore.environment(conversationId)
+            },
+        )
     }
 
     // ---- 检查无效消息 ----
@@ -1403,7 +1441,11 @@ class ChatService(
         val settings = settingsStore.settingsFlow.first()
         val assistant = settings.getAssistantById(currentConversation.assistantId)
             ?: settings.getCurrentAssistant()
-        val processedParts = preprocessUserInputParts(parts, assistant)
+        val processedParts = preprocessUserInputParts(
+            parts = parts,
+            assistant = assistant,
+            conversationId = conversationId,
+        )
         var edited = false
 
         val updatedNodes = currentConversation.messageNodes.map { node ->

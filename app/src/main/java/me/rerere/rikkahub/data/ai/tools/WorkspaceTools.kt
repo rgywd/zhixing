@@ -14,6 +14,7 @@ import me.rerere.ai.ui.toMetadata
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.github.GitHubCliRunner
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.workspace.redactWorkspaceVariableValues
 import me.rerere.rikkahub.utils.generateUnifiedDiff
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
@@ -44,6 +45,7 @@ suspend fun createWorkspaceTools(
     workspaceRepository: WorkspaceRepository,
     githubCliRunner: GitHubCliRunner,
     cwd: String? = null,
+    shellEnvironment: () -> Map<String, String> = { emptyMap() },
 ): List<Tool> {
     if (workspaceId.isNullOrBlank()) return emptyList()
     val approvalOverrides = workspaceRepository.getById(workspaceId)?.toolApprovalOverrides().orEmpty()
@@ -55,7 +57,13 @@ suspend fun createWorkspaceTools(
         createReadFileTool(workspaceId, ::needsApproval, workspaceRepository),
         createWriteFileTool(workspaceId, ::needsApproval, workspaceRepository),
         createEditFileTool(workspaceId, ::needsApproval, workspaceRepository),
-        createShellTool(workspaceId, ::needsApproval, workspaceRepository, shellCwd),
+        createShellTool(
+            workspaceId = workspaceId,
+            needsApproval = ::needsApproval,
+            workspaceRepository = workspaceRepository,
+            defaultCwd = shellCwd,
+            environment = shellEnvironment,
+        ),
         buildGitHubCliTool(workspaceId, shellCwd, githubCliRunner),
     )
 }
@@ -211,6 +219,7 @@ private fun createShellTool(
     needsApproval: (String) -> Boolean,
     workspaceRepository: WorkspaceRepository,
     defaultCwd: String? = null,
+    environment: () -> Map<String, String> = { emptyMap() },
 ) = Tool(
     name = "workspace_shell",
     description = buildString {
@@ -218,6 +227,14 @@ private fun createShellTool(
         append("Use cwd for a path relative to the workspace files root. ")
         if (!defaultCwd.isNullOrBlank()) {
             append("Defaults to '$defaultCwd'. ")
+        }
+        val variableNames = environment().keys.sorted()
+        if (variableNames.isNotEmpty()) {
+            append(
+                "Secret environment variables available by name: ${
+                    variableNames.joinToString(", ") { "${'$'}$it" }
+                }. Never print, persist, or reveal their values. "
+            )
         }
         append("Requires Rootfs to be installed and ready.")
     },
@@ -260,13 +277,26 @@ private fun createShellTool(
             ?.coerceIn(1L, SHELL_TIMEOUT_MAX_SECONDS)
             ?.times(1_000L)
             ?: WorkspaceManager.DEFAULT_COMMAND_TIMEOUT_MS
-        val result = workspaceRepository.executeCommand(workspaceId, command, cwd, timeoutMillis)
+        val shellEnvironment = environment()
+        val result = workspaceRepository.executeCommand(
+            id = workspaceId,
+            command = command,
+            cwd = cwd,
+            timeoutMillis = timeoutMillis,
+            environment = shellEnvironment,
+        )
         listOf(
             UIMessagePart.Text(
                 buildJsonObject {
                     put("exitCode", result.exitCode)
-                    put("stdout", result.stdout)
-                    put("stderr", result.stderr)
+                    put(
+                        "stdout",
+                        redactWorkspaceVariableValues(result.stdout, shellEnvironment.values),
+                    )
+                    put(
+                        "stderr",
+                        redactWorkspaceVariableValues(result.stderr, shellEnvironment.values),
+                    )
                     put("timedOut", result.timedOut)
                     if (result.truncated) put("truncated", true)
                 }.toString()

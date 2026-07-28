@@ -99,6 +99,8 @@ import me.rerere.rikkahub.data.datastore.getQuickMessagesOfAssistant
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.QuickMessage
+import me.rerere.rikkahub.data.workspace.WorkspaceVariableScope
+import me.rerere.rikkahub.data.workspace.parseWorkspaceVariableDeclarations
 import me.rerere.rikkahub.ui.components.ai.completion.ChatCompletionContext
 import me.rerere.rikkahub.ui.components.ai.completion.ChatCompletionItem
 import me.rerere.rikkahub.ui.components.ai.completion.ChatCompletionList
@@ -136,6 +138,7 @@ fun ChatInput(
     canSend: Boolean = !state.isEmpty(),
     customLeadingControls: (@Composable RowScope.() -> Unit)? = null,
     showMoreButton: Boolean = true,
+    enableWorkspaceVariables: Boolean = false,
 ) {
     val toaster = LocalToaster.current
     val assistant = settings.getCurrentAssistant()
@@ -240,6 +243,7 @@ fun ChatInput(
                     TextInputRow(
                         state = state,
                         completionProviders = completionProviders,
+                        enableWorkspaceVariables = enableWorkspaceVariables,
                         onSendMessage = { sendMessage() }
                     )
 
@@ -422,6 +426,7 @@ private fun ActionIconButton(
 internal fun TextInputRow(
     state: ChatInputState,
     completionProviders: List<ChatCompletionProvider>,
+    enableWorkspaceVariables: Boolean = false,
     onSendMessage: () -> Unit,
 ) {
     val settings = LocalSettings.current
@@ -590,6 +595,27 @@ internal fun TextInputRow(
                 }
             } else null,
         )
+        val variableDeclarations = if (enableWorkspaceVariables && !state.isEditing()) {
+            parseWorkspaceVariableDeclarations(state.textContent.text.toString()).declarations
+        } else {
+            emptyList()
+        }
+        if (variableDeclarations.isNotEmpty()) {
+            val labels = variableDeclarations
+                .distinctBy { it.scope to it.name }
+                .joinToString(" · ") { declaration ->
+                    when (declaration.scope) {
+                        WorkspaceVariableScope.TEMPORARY -> "${'$'}${declaration.name} 临时"
+                        WorkspaceVariableScope.USER -> "${'$'}${'$'}${declaration.name} 用户"
+                    }
+                }
+            Text(
+                text = "已识别安全变量：$labels；发送时变量值会从消息中移除",
+                modifier = Modifier.padding(horizontal = 16.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
         if (isFullScreen) {
             FullScreenEditor(state = state) {
                 isFullScreen = false

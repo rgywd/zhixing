@@ -169,6 +169,7 @@ val appModule = module {
             skillManager = get(),
             workspaceRepository = get(),
             githubCliRunner = get(),
+            workspaceVariableStore = get(),
             knowledgeSpaceService = get(),
             folderRepository = get()
         )
