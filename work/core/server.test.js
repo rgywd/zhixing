@@ -443,6 +443,66 @@ test("runtime catalog creates and resumes a Claude Code session without breaking
   assert.equal(resumeCommand.payload.model, "sonnet");
 });
 
+test("runtime catalog enforces model-specific reasoning efforts", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const registration = await request(baseUrl, "/v1/runner/register", {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      id: "runner-1",
+      instanceId: RUNNER_INSTANCE,
+      name: "Minecraft",
+      version: "test",
+      repos: [{
+        id: "zhixing",
+        name: "zhixing",
+        runtimes: [{
+          id: "codex",
+          name: "Codex",
+          models: ["gpt-5.6-sol", "gpt-5.3-codex-spark"],
+          reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+          reasoningEffortsByModel: {
+            "gpt-5.3-codex-spark": ["low", "medium", "high", "xhigh"],
+          },
+        }],
+      }],
+    },
+  });
+  assert.equal(registration.response.status, 200);
+
+  const repos = await request(baseUrl, "/v1/work/repos?runnerId=runner-1");
+  assert.deepEqual(
+    repos.payload.repos[0].runtimes[0].reasoningEffortsByModel,
+    { "gpt-5.3-codex-spark": ["low", "medium", "high", "xhigh"] },
+  );
+
+  const rejected = await request(baseUrl, "/v1/work/sessions", {
+    method: "POST",
+    idempotencyKey: "spark-max-rejected",
+    body: {
+      runnerId: "runner-1",
+      repoId: "zhixing",
+      model: "gpt-5.3-codex-spark",
+      reasoningEffort: "max",
+      message: "do not start",
+    },
+  });
+  assert.equal(rejected.response.status, 400);
+
+  const accepted = await request(baseUrl, "/v1/work/sessions", {
+    method: "POST",
+    idempotencyKey: "spark-xhigh-accepted",
+    body: {
+      runnerId: "runner-1",
+      repoId: "zhixing",
+      model: "gpt-5.3-codex-spark",
+      reasoningEffort: "xhigh",
+      message: "start",
+    },
+  });
+  assert.equal(accepted.response.status, 201);
+});
+
 test("runner assistant messages are allow-listed, idempotent and ordered", async (t) => {
   const { baseUrl } = await fixture(t);
   const { session } = await registerAndCreate(baseUrl);

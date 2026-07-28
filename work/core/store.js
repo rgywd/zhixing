@@ -29,17 +29,26 @@ function normalizeRuntimeCatalog(repo) {
     }];
   const seen = new Set();
   return runtimes.map((runtime) => {
+    const rawOverrides = runtime.reasoningEffortsByModel ?? {};
+    if (typeof rawOverrides !== "object" || Array.isArray(rawOverrides)) {
+      throw Object.assign(new Error("Runner advertised an invalid runtime catalog"), { statusCode: 400 });
+    }
     const normalized = {
       id: String(runtime.id ?? "").trim(),
       name: String(runtime.name ?? runtime.id ?? "").trim(),
       models: [...new Set((runtime.models ?? []).map(String).filter(Boolean))],
       reasoningEfforts: [...new Set((runtime.reasoningEfforts ?? []).map(String).filter(Boolean))],
+      reasoningEffortsByModel: Object.fromEntries(Object.entries(rawOverrides).map(([model, efforts]) => [
+        String(model),
+        [...new Set((Array.isArray(efforts) ? efforts : []).map(String).filter(Boolean))],
+      ])),
     };
     if (
       !normalized.id
       || !normalized.name
       || !normalized.models.length
       || !normalized.reasoningEfforts.length
+      || !validReasoningEffortOverrides(normalized)
       || seen.has(normalized.id)
     ) {
       throw Object.assign(new Error("Runner advertised an invalid runtime catalog"), { statusCode: 400 });
@@ -57,7 +66,20 @@ function runtimeCatalogFromRow(row) {
     name: "Codex",
     models: parseJson(row.models_json, []),
     reasoningEfforts: parseJson(row.efforts_json, []),
+    reasoningEffortsByModel: {},
   }];
+}
+
+function validReasoningEffortOverrides(runtime) {
+  return Object.entries(runtime.reasoningEffortsByModel ?? {}).every(([model, efforts]) =>
+    runtime.models.includes(model)
+    && efforts.length > 0
+    && efforts.every((effort) => runtime.reasoningEfforts.includes(effort)),
+  );
+}
+
+function effectiveReasoningEfforts(runtime, model) {
+  return runtime.reasoningEffortsByModel?.[model] ?? runtime.reasoningEfforts;
 }
 
 function id(prefix) {
@@ -449,7 +471,7 @@ export class WorkStore {
       if (
         !advertisedRuntime
         || !advertisedRuntime.models.includes(input.model)
-        || !advertisedRuntime.reasoningEfforts.includes(input.reasoningEffort)
+        || !effectiveReasoningEfforts(advertisedRuntime, input.model).includes(input.reasoningEffort)
       ) {
         throw Object.assign(
           new Error("Runtime, model or reasoning effort is not advertised by the runner"),

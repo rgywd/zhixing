@@ -84,6 +84,7 @@ claude -p "只回复 CLAUDE_WORK_READY" --model sonnet --effort low --tools ""
 
 2. 复制 `runner/work-runner.example.json` 为 `runner/work-runner.json`，填写 Core HTTPS 地址、Runner token
    和仓库白名单。token 不要提交到 Git。`defaultRuntimes` 定义手机可选择的运行时、模型和思考深度；
+   runtime 可用 `reasoningEffortsByModel` 为个别模型声明 `reasoningEfforts` 的非空子集；
    单个 `repos` 或 `repoRoots` 项也可用 `runtimes` 覆盖默认值。旧版 `defaultModels/models/reasoningEfforts`
    配置继续按 Codex catalog 读取。目录来源支持两种方式：
    - `repos`：固定目录，兼容已有配置；Runner 会实时校验目录是否仍然存在。

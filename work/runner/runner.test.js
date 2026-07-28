@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -238,6 +238,60 @@ test("phone Stop hook writes one small local marker and never emits output", () 
     turnId: "turn-1",
   });
   assert.ok(readFileSync(join(directory, files[0])).length < 1024);
+});
+
+test("runner rejects a reasoning effort that is unsupported by the selected model", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-model-effort-"));
+  try {
+    const state = new RunnerState(join(directory, "state.json"));
+    const acknowledgements = [];
+    const runner = new WorkRunner({
+      config: {
+        id: "runner",
+        coreUrl: "https://core",
+        stateFile: state.filename,
+        repos: [{
+          id: "repo",
+          name: "repo",
+          path: directory,
+          runtimes: [{
+            id: "codex",
+            name: "Codex",
+            models: ["gpt-5.6-sol", "gpt-5.3-codex-spark"],
+            reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+            reasoningEffortsByModel: {
+              "gpt-5.3-codex-spark": ["low", "medium", "high", "xhigh"],
+            },
+          }],
+        }],
+      },
+      state,
+      client: {
+        ack: async (...args) => acknowledgements.push(args),
+      },
+      spawnCodex: () => {
+        throw new Error("unsupported combinations must not start Codex");
+      },
+    });
+
+    await runner.startCommand({
+      id: "cmd-spark-max",
+      sessionId: "work-spark-max",
+      kind: "START",
+      payload: {
+        repoId: "repo",
+        model: "gpt-5.3-codex-spark",
+        reasoningEffort: "max",
+        sessionToken: "session-token",
+        message: "do not run",
+      },
+    });
+
+    assert.equal(acknowledgements.at(-1)[1], "FAILED");
+    assert.equal(acknowledgements.at(-1)[2].detail, "Runner rejected the session snapshot");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("runner downloads images for one Codex turn and removes the temporary files afterwards", async () => {

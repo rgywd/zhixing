@@ -18,6 +18,7 @@ data class PhoneWorkRuntime(
     val name: String,
     val models: List<String>,
     val reasoningEfforts: List<String>,
+    val reasoningEffortsByModel: Map<String, List<String>> = emptyMap(),
 )
 
 @Serializable
@@ -42,6 +43,9 @@ fun PhoneWorkRepo.effectiveRuntimes(): List<PhoneWorkRuntime> = runtimes.ifEmpty
         )
     )
 }
+
+fun PhoneWorkRuntime.effectiveReasoningEfforts(model: String): List<String> =
+    reasoningEffortsByModel[model].orEmpty().ifEmpty { reasoningEfforts }
 
 @Serializable
 data class PhoneWorkSession(
