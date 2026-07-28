@@ -58,6 +58,7 @@ class KnowledgeSpaceManager(
         writeIfMissing(root, AGENTS_FILE, agentsTemplate(displayName.trim().ifBlank { "个人知识库" }))
         writeIfMissing(root, "$VAULT_DIR/CLAUDE.md", bridgeTemplate("Claude Code"))
         writeIfMissing(root, "$VAULT_DIR/GEMINI.md", bridgeTemplate("Gemini CLI"))
+        writeIfMissing(root, "$VAULT_DIR/.gitignore", environmentGitIgnore())
         writeIfMissing(root, "$TOOLS_DIR/README.md", toolsReadme())
         TEMPLATE_FILES.forEach { (path, text) -> writeIfMissing(root, path, text) }
         GIT_KEEP_FILES.forEach { path -> writeIfMissing(root, path, "") }
@@ -94,6 +95,24 @@ class KnowledgeSpaceManager(
             contentFileCount = if (initialized) countVaultContentFiles(root) else 0,
             indexedDocumentCount = if (initialized) countSearchableDocuments(root) else 0,
         )
+    }
+
+    /**
+     * Lists user-visible vault content without exposing Git internals or local environment files.
+     *
+     * [path] is relative to `vault/`; returned entry paths remain workspace-relative so the
+     * existing preview/editor route can open them directly.
+     */
+    fun listContents(root: String, path: String = ""): List<WorkspaceFileEntry> {
+        require(isInitialized(root)) { "Knowledge vault is not initialized" }
+        val relativePath = normalizeVaultRelativePath(path)
+        val workspacePath = if (relativePath.isBlank()) {
+            VAULT_DIR
+        } else {
+            "$VAULT_DIR/$relativePath"
+        }
+        return workspaceManager.listFiles(root, workspacePath)
+            .filterNot { it.name.startsWith(".") }
     }
 
     fun importSource(
@@ -216,7 +235,9 @@ class KnowledgeSpaceManager(
             regex = false,
             ignoreCase = true,
             includeGlob = includeGlob,
-        ).map { match ->
+        ).filterNot { match ->
+            isSecretEnvironmentPath(match.path)
+        }.map { match ->
             KnowledgeSearchMatch(
                 path = match.path,
                 sourcePath = sourcePath(root, match.path),
@@ -258,7 +279,8 @@ class KnowledgeSpaceManager(
     private fun isReadableKnowledgePath(path: String): Boolean =
         (path in ROOT_GUIDANCE_FILES ||
             READABLE_PREFIXES.any { path.startsWith(it) }) &&
-            isSearchableTextPath(path)
+            isSearchableTextPath(path) &&
+            !isSecretEnvironmentPath(path)
 
     private fun isSearchableTextPath(path: String): Boolean =
         path.substringAfterLast('.', "").lowercase() in SEARCHABLE_TEXT_EXTENSIONS
@@ -272,6 +294,22 @@ class KnowledgeSpaceManager(
         }
         return normalized
     }
+
+    private fun normalizeVaultRelativePath(path: String): String {
+        val candidate = path.replace('\\', '/').trim().trim('/')
+        if (candidate.isBlank()) return ""
+        require(!candidate.contains('\u0000')) { "Invalid vault path: $path" }
+        val normalized = Paths.get(candidate).normalize().joinToString("/")
+        require(normalized == candidate && normalized != "." && !normalized.startsWith("../")) {
+            "Vault path must stay inside the content root: $path"
+        }
+        return normalized
+    }
+
+    private fun isSecretEnvironmentPath(path: String): Boolean =
+        path.replace('\\', '/')
+            .split('/')
+            .any { segment -> segment == ".env" || segment.startsWith(".env.") }
 
     private fun writeIfMissing(root: String, path: String, text: String) {
         if (!workspaceManager.exists(root, path)) {
@@ -304,6 +342,7 @@ class KnowledgeSpaceManager(
         - 研究主笔记和工具条目必须保留对应的 `type`。
         - 项目使用 C.A.P. 结构，不按领域目录拆分。
         - 使用 vault 相对路径与 Obsidian wikilink；不写入凭据，不改动 `.git/`。
+        - `.env` 只保存本地变量并由 Git 忽略；AI 只能按变量名调用，不得读取、显示或记录变量值。
         - 工作流技能位于 `.agents/skills/<skill>/SKILL.md`，使用前先读取。
         - 只有用户明确要求时才执行 Git 提交、拉取、推送或冲突处理。
     """.trimIndent() + "\n"
@@ -328,6 +367,13 @@ class KnowledgeSpaceManager(
         ```
 
         工具条目应记录用途、入口、输入输出、限制和来源；脚本可以与条目放在同一类别目录，但不得写入凭据。
+    """.trimIndent() + "\n"
+
+    private fun environmentGitIgnore(): String = """
+        # Local environment variables
+        .env
+        .env.*
+        !.env.example
     """.trimIndent() + "\n"
 
     companion object {

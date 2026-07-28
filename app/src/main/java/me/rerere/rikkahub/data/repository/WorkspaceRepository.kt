@@ -18,6 +18,9 @@ import me.rerere.workspace.KnowledgeReadResult
 import me.rerere.workspace.KnowledgeSearchResult
 import me.rerere.workspace.KnowledgeSpaceManager
 import me.rerere.workspace.KnowledgeSpaceStatus
+import me.rerere.workspace.VaultGitBindResult
+import me.rerere.workspace.VaultGitManager
+import me.rerere.workspace.VaultGitStatus
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceManager
@@ -35,6 +38,7 @@ class WorkspaceRepository(
     private val settingsStore: SettingsStore,
 ) {
     private val knowledgeSpaceManager = KnowledgeSpaceManager(manager)
+    private val vaultGitManager = VaultGitManager(manager)
 
     fun listFlow(): Flow<List<WorkspaceEntity>> = dao.listFlow()
 
@@ -96,6 +100,39 @@ class WorkspaceRepository(
     suspend fun isKnowledgeVaultInitialized(id: String): Boolean = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: return@withContext false
         knowledgeSpaceManager.isInitialized(workspace.root)
+    }
+
+    suspend fun listKnowledgeContents(
+        id: String,
+        path: String = "",
+    ): List<WorkspaceFileEntry> = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        knowledgeSpaceManager.listContents(workspace.root, path)
+    }
+
+    suspend fun vaultGitStatus(id: String): VaultGitStatus {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        return runInterruptible(Dispatchers.IO) {
+            vaultGitManager.status(workspace.root)
+        }
+    }
+
+    suspend fun installVaultGit(id: String): VaultGitStatus {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        return runInterruptible(Dispatchers.IO) {
+            vaultGitManager.installGit(workspace.root)
+        }
+    }
+
+    suspend fun bindVaultGitRemote(
+        id: String,
+        remoteUrl: String,
+        replaceExisting: Boolean = false,
+    ): VaultGitBindResult {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        return runInterruptible(Dispatchers.IO) {
+            vaultGitManager.bind(workspace.root, remoteUrl, replaceExisting)
+        }
     }
 
     suspend fun importKnowledgeSource(

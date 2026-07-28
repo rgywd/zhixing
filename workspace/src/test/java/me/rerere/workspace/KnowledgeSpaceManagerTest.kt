@@ -52,9 +52,32 @@ class KnowledgeSpaceManagerTest {
         assertTrue(fixture.workspace.exists(fixture.root, "vault/99_系统/模板/Daily_Note.md"))
         assertTrue(fixture.workspace.exists(fixture.root, "vault/99_系统/模板/Content_Template.md"))
         assertTrue(fixture.workspace.exists(fixture.root, "vault/60_工具/README.md"))
+        assertTrue(
+            fixture.workspace.readText(fixture.root, "vault/.gitignore")
+                .contains(".env.*")
+        )
         assertTrue(fixture.workspace.exists(fixture.root, KnowledgeSpaceManager.MARKER_FILE))
         assertFalse(fixture.workspace.exists(fixture.root, "PROJECT.md"))
         assertFalse(fixture.workspace.exists(fixture.root, "knowledge"))
+    }
+
+    @Test
+    fun listContentsShowsVaultFoldersButHidesDotFiles() {
+        val fixture = fixture()
+        fixture.knowledge.initialize(fixture.root, "个人知识库")
+        fixture.workspace.createDirectory(fixture.root, "vault/.git")
+        fixture.workspace.writeText(fixture.root, "vault/.env", "SECRET=value")
+        fixture.workspace.writeText(fixture.root, "vault/40_知识库/概念.md", "# 概念")
+
+        val rootEntries = fixture.knowledge.listContents(fixture.root)
+        val wikiEntries = fixture.knowledge.listContents(fixture.root, "40_知识库")
+
+        assertTrue(rootEntries.any { it.name == "40_知识库" && it.isDirectory })
+        assertFalse(rootEntries.any { it.name.startsWith(".") })
+        assertEquals(listOf("概念.md"), wikiEntries.map { it.name })
+        assertThrows(IllegalArgumentException::class.java) {
+            fixture.knowledge.listContents(fixture.root, "../.zhixing")
+        }
     }
 
     @Test
@@ -208,6 +231,7 @@ class KnowledgeSpaceManagerTest {
         fixture.workspace.writeText(fixture.root, "private.txt", "secret")
         fixture.workspace.writeText(fixture.root, "vault/.gemini/settings.json", """{"secret":"value"}""")
         fixture.workspace.writeText(fixture.root, "vault/.git/config", "credential = secret")
+        fixture.workspace.writeText(fixture.root, "vault/40_知识库/.env.json", """{"token":"secret"}""")
 
         assertThrows(IllegalArgumentException::class.java) {
             fixture.knowledge.read(fixture.root, "private.txt")
@@ -224,6 +248,10 @@ class KnowledgeSpaceManagerTest {
         assertThrows(IllegalArgumentException::class.java) {
             fixture.knowledge.read(fixture.root, "vault/.git/config")
         }
+        assertThrows(IllegalArgumentException::class.java) {
+            fixture.knowledge.read(fixture.root, "vault/40_知识库/.env.json")
+        }
+        assertTrue(fixture.knowledge.search(fixture.root, "secret").matches.isEmpty())
     }
 
     private fun fixture(): Fixture {

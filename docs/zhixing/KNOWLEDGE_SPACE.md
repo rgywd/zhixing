@@ -1,6 +1,6 @@
-# 知行 OrbitOS CN Vault v0.2
+# 知行 OrbitOS CN Vault v0.3
 
-状态：v0.2 已实现，本文是 vault 目录、导入、检索、引用和 AI 维护边界的现行契约。
+状态：v0.3 已实现，本文是 vault 目录、浏览、Git 绑定、导入、检索、引用和 AI 维护边界的现行契约。
 
 本结构基于 [MarsWang42/OrbitOS 的 CN 版](https://github.com/MarsWang42/OrbitOS/tree/main/CN)
 调整，以本文件记录的知行版本为准。知行版本新增 `60_工具/`，并采用用户已经迁移完成的
@@ -69,7 +69,7 @@ vault-only 模型，不保留旧 `PROJECT.md` 或 `knowledge/` 兼容层。
 - `.agents/skills/`；
 - `.zhixing/knowledge/normalized/` 中的派生 Markdown。
 
-只扫描受支持的文本扩展名和 `.base` 文件，不扫描图片、普通二进制、`.git/`、
+只扫描受支持的文本扩展名和 `.base` 文件，不扫描图片、普通二进制、`.git/`、`.env`、`.env.*`、
 `.obsidian/`、`.gemini/settings.json` 或其他客户端配置。符号链接桥不重复跟随，
 `.agents/skills/` 是技能检索的规范路径。
 
@@ -97,26 +97,50 @@ AI 只有在用户要求查阅 vault，或当前任务明确依赖 vault 内容�
 3. 研究主笔记使用 `type: reference`，工具条目使用 `type: tool`；
 4. 项目使用 C.A.P.，计划使用规定命名；
 5. vault-local skills 位于 `vault/.agents/skills/`；
-6. 不读取凭据、不修改 `.git/`，未获用户明确要求不执行 Git 写操作。
+6. `.env` 只作为本地变量来源；模型按已注入的变量名调用，不读取、显示或记录文件内容；
+7. 不读取凭据、不修改 `.git/`，未获用户明确要求不执行 Git 写操作。
 
 `60_工具/` 同时允许保存工具说明、在用脚本和工具创意。工具条目必须记录用途、入口、输入输出、限制与
 来源；credential 不得写入条目、脚本、日志或 Git。
 
-## 6. Git 与备份边界
+## 6. 知识库页面
 
-- Git 是用户显式控制的跨设备维护方式，不由知识空间自动初始化、提交、拉取、推送或解决冲突。
+Workspace 详情提供独立的“知识库”页面：
+
+- 从 `/workspace/vault` 根目录开始浏览文件夹和文件，不需要安装 RootFS；
+- 点文件和点目录不出现在此页面，尤其不得展示 `.git/`、`.env` 和客户端私有配置；
+- 文本复用现有编辑器打开，图片和其他文件复用现有本地预览能力；
+- 目录路径始终限制在 vault 内，拒绝 `..` 等路径逃逸；
+- 首版不在知识库页面提供删除、移动、批量重命名或冲突处理。
+
+普通 Workspace 文件页继续保留，负责完整的文件和 RootFS 管理；知识库页面是面向 vault 语义的安全入口，
+不是第二份文件状态。
+
+## 7. Git 与备份边界
+
+- 用户可以在知识库页面输入 HTTPS 或 SSH 仓库地址，显式为已有 vault 初始化 Git 并绑定 `origin`。
+- “绑定”只执行必要的 `git init` 和 `git remote add/set-url`，不得自动 clone、fetch、pull、merge、
+  commit、push 或解决冲突。
+- 已存在不同 `origin` 时必须再次确认；替换操作只改远程地址，不改本地文件和提交。
+- Git 绑定依赖 RootFS 内已安装 `git`；缺失时知识库页面提供显式安装动作，使用 RootFS 的
+  `apt-get` 安装，安装失败或未完成不影响 vault 浏览。
+- 仓库地址不得内嵌 HTTPS credential；知行不接管 Git token、密码、SSH 私钥或认证流程。
+- 初始化和绑定确保 `.gitignore` 包含 `.env`、`.env.*`，同时允许提交不含值的 `.env.example`。
 - 知行不得接管 Git 凭据，也不得把 `.git/` 暴露给知识读取工具。
 - vault 中已提交的文本可以随 Git 同步，但未提交内容、未跟踪资源和大文件策略仍由用户管理。
 - Git 不是知行完整备份的替代品；Workspace 文件备份与恢复仍遵循
   [`DATA_SAFETY_AND_BACKUP.md`](./DATA_SAFETY_AND_BACKUP.md)。
 
-## 7. v0.2 验收
+## 8. v0.3 验收
 
 1. 初始化空 Workspace 后只创建 `vault/`、本机 `.zhixing/` 和对应模板，不创建旧目录。
 2. 重复初始化不覆盖现有 `vault/AGENTS.md`、模板、技能或用户文件。
 3. 只要已有 `vault/AGENTS.md`，即使缺少本机 marker，也能原地识别并启用知识工具。
 4. 导入文件进入 `00_收件箱/`；文本不生成重复索引，二进制归一文本位于 vault 外。
 5. 中文查询能命中研究主笔记和 `60_工具/` 条目，并返回行号、原文路径和 citation。
-6. 读取拒绝 vault 外路径、路径逃逸、`.git/` 和客户端凭据配置。
-7. 未安装 RootFS 时 status/search/read 仍可使用；Git 和 Shell 能力按 RootFS 状态独立降级。
-8. UI 显示 OrbitOS Vault、内容文件数、可检索文档数和“导入到收件箱”。
+6. 读取拒绝 vault 外路径、路径逃逸、`.git/`、`.env` 和客户端凭据配置。
+7. 未安装 RootFS 时 status/search/read 仍可使用；Git 和 Shell 能力按 RootFS 状态独立降级；
+   RootFS 就绪但缺少 Git 时可从知识库页面安装。
+8. UI 的知识库页可以逐级打开编号目录和文件，且不显示点文件或点目录。
+9. 绑定空 vault 会初始化 `main` 分支并设置 `origin`，不执行任何同步命令。
+10. 已有不同 `origin` 时先确认再替换；无论绑定还是替换，都不修改用户内容。
