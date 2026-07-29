@@ -34,11 +34,17 @@ ChatService.sendMessage()
         GenerationHandler.generateText()   ← Flow<GenerationChunk>
             │  (最多 maxSteps=256 轮循环)
             │
-            ├─ [若无待处理 Tool] generateInternal()
-            │       ├── 构建 internalMessages
-            │       │       ├── System message（系统提示 + 记忆 + tool.systemPrompt）
-            │       │       ├── limitContext() 按 contextMessageSize 裁剪历史
-            │       │       └── InputTransformers 管道
+            ├─ [若无待处理 Tool] 构建 internalMessages
+            │       ├── 稳定层（系统提示 + 记忆 + tool.systemPrompt）
+            │       ├── 历史投影（最新 checkpoint + 最近完整轮次）
+            │       ├── limitContext() 按 contextMessageSize 裁剪投影后的历史
+            │       └── InputTransformers 管道
+            │
+            ├─ 首个 Step 请求前 token preflight
+            │       ├── < 262,000 → 继续
+            │       └── ≥ 262,000 → 自动生成 checkpoint、落库并重新构建请求
+            │
+            ├─ generateInternal()
             │       ├── 构建 TextGenerationParams
             │       └── 调用 Provider
             │               ├── stream=true → providerImpl.streamText() 逐 chunk emit
@@ -86,6 +92,26 @@ Job finally
 
 ---
 
+## 上下文检查点与 token preflight
+
+压缩只处理会话历史层。当前系统提示、助手配置、生效记忆、工具系统提示与 schema、Workspace、Mode
+Injection 和 Lorebook 等稳定请求内容由每次请求重新构建；它们参与 token preflight，但不会被写入摘要。
+
+`ContextCheckpoint` 作为 annotation 写在被覆盖历史的最后一条消息上。Room 与 UI 继续保留完整消息节点和
+兄弟分支；模型请求只取最新 checkpoint 摘要及其后的完整轮次。摘要以系统侧不可信历史上下文注入，不创建新的
+`USER` 消息。编辑、删除或切换消息分支时，应用清除可能失效的 checkpoint，下次请求重新使用原始历史。
+
+- 自动触发：输入 Transformer 完成后，对真正准备发送的消息及工具定义做保守估算，达到 262,000 token
+  后才触发；消息条数不参与触发条件。
+- 手动触发：用户随时从附件菜单创建 checkpoint；至少需要两个用户轮次，以确保最新完整轮次保留原文。
+- 历史选择：以用户消息为轮次边界，默认保留约 96,000 token 的最近完整轮次，不拆开最新轮次。
+- 摘要生成：默认目标 8,000 token，模型请求的 `maxTokens` 与 UI 预算一致；输入按 96,000 token 顺序
+  分块，并串行生成、逐层归并 checkpoint。
+- 估算与计费：本地估算以 UTF-8 字节、消息开销、工具 schema 和多媒体保留量计算，故意偏保守；
+  Provider 返回的 usage 才是账单和统计真值。
+
+---
+
 ## 阶段一：用户消息预处理
 
 **入口**：`ChatService.preprocessUserInputParts()`
@@ -107,7 +133,7 @@ Job finally
 
 ## 阶段二：InputMessage 变换管道
 
-**时机**：`generateInternal()` 构建 `internalMessages` 后，发送给 API 前调用。
+**时机**：`buildInternalMessages()` 构建请求时、token preflight 与 Provider 调用前执行。
 
 变换器按顺序执行（`fold`），每个变换器接收上一个的输出：
 
@@ -237,7 +263,9 @@ app/src/main/java/me/rerere/rikkahub/
 │   ├── ChatGenerationLeaseRegistry.kt # 并发租约状态
 │   └── ConversationSession.kt      # 会话状态容器
 └── data/ai/
+    ├── ContextCompaction.kt       # checkpoint 投影、轮次选择与 token 分块
     ├── GenerationHandler.kt        # 核心生成逻辑
+    ├── PromptTokenEstimator.kt     # Provider 无关的保守请求估算
     ├── transformers/
     │   ├── Transformer.kt          # 接口定义与扩展函数
     │   ├── PromptInjectionTransformer.kt

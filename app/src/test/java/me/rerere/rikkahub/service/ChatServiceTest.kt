@@ -19,10 +19,11 @@ class ChatServiceTest {
             customBodies = bodies,
         )
 
-        val params = backgroundTextGenerationParams(model)
+        val params = backgroundTextGenerationParams(model, maxTokens = 8_000)
 
         assertEquals(model, params.model)
         assertEquals(ReasoningLevel.AUTO, params.reasoningLevel)
+        assertEquals(8_000, params.maxTokens)
         assertEquals(headers, params.customHeaders)
         assertEquals(bodies, params.customBody)
     }

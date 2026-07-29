@@ -8,9 +8,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,16 +43,28 @@ import me.rerere.ai.ui.isEmptyInputMessage
 import me.rerere.common.android.Logging
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.AUTO_COMPACT_RECENT_TOKEN_BUDGET
+import me.rerere.rikkahub.data.ai.AUTO_COMPACT_SUMMARY_TOKENS
+import me.rerere.rikkahub.data.ai.AUTO_COMPACT_TOKEN_THRESHOLD
+import me.rerere.rikkahub.data.ai.ContextCompactionTrigger
 import me.rerere.rikkahub.data.ai.GenerationChunk
 import me.rerere.rikkahub.data.ai.GenerationHandler
 import me.rerere.rikkahub.data.ai.MonthlySpendingAttachmentCleanupCandidate
 import me.rerere.rikkahub.data.ai.MonthlySpendingToolCallRef
+import me.rerere.rikkahub.data.ai.PromptCompactionResult
+import me.rerere.rikkahub.data.ai.applyContextCheckpoint
 import me.rerere.rikkahub.data.ai.bindMonthlySpendingSaveSourceMessages
+import me.rerere.rikkahub.data.ai.buildContextCompactionPlan
+import me.rerere.rikkahub.data.ai.clearContextCheckpoints
 import me.rerere.rikkahub.data.ai.containsMonthlySpendingAttachmentUris
+import me.rerere.rikkahub.data.ai.estimatePromptTokens
 import me.rerere.rikkahub.data.ai.findReadyMonthlySpendingAttachmentCleanupCandidates
 import me.rerere.rikkahub.data.ai.isReadyForMonthlySpendingAttachmentCleanup
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.redactMonthlySpendingAttachments
+import me.rerere.rikkahub.data.ai.renderMessagesForCompaction
+import me.rerere.rikkahub.data.ai.shouldAutoCompactPrompt
+import me.rerere.rikkahub.data.ai.splitCompactionContent
 import me.rerere.rikkahub.data.ai.successfulMonthlySpendingSaveToolCalls
 import me.rerere.rikkahub.data.ai.tools.createConversationTools
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
@@ -110,9 +119,11 @@ private const val TAG = "ChatService"
 internal fun backgroundTextGenerationParams(
     model: Model,
     reasoningLevel: ReasoningLevel = ReasoningLevel.AUTO,
+    maxTokens: Int? = null,
 ): TextGenerationParams = TextGenerationParams(
     model = model,
     reasoningLevel = reasoningLevel,
+    maxTokens = maxTokens,
     customHeaders = model.customHeaders,
     customBody = model.customBodies,
 )
@@ -658,6 +669,38 @@ class ChatService(
                         )
                     }
                 },
+                onPromptPrepared = { estimatedTokens, generationMessages ->
+                    if (
+                        messageRange != null ||
+                        !shouldAutoCompactPrompt(estimatedTokens)
+                    ) {
+                        null
+                    } else {
+                        Log.i(
+                            TAG,
+                            "Auto context compaction triggered: estimatedTokens=$estimatedTokens"
+                        )
+                        session.processingStatus.value =
+                            context.getString(R.string.chat_page_compressing)
+                        try {
+                            PromptCompactionResult(
+                                messages = createContextCheckpoint(
+                                    conversationId = conversationId,
+                                    messages = generationMessages,
+                                    additionalPrompt = "",
+                                    targetTokens = AUTO_COMPACT_SUMMARY_TOKENS,
+                                    recentTokenBudget = AUTO_COMPACT_RECENT_TOKEN_BUDGET,
+                                    trigger = ContextCompactionTrigger.AUTO,
+                                    sourceTokenEstimate = estimatedTokens,
+                                    forceCompaction = false,
+                                ),
+                                maximumPromptTokens = AUTO_COMPACT_TOKEN_THRESHOLD,
+                            )
+                        } finally {
+                            session.processingStatus.value = null
+                        }
+                    }
+                },
             ).onCompletion {
                 // 可能被取消了，或者意外结束，兜底更新
                 withContext(NonCancellable) {
@@ -1136,11 +1179,40 @@ class ChatService(
 
     suspend fun compressConversation(
         conversationId: Uuid,
-        conversation: Conversation,
         additionalPrompt: String,
         targetTokens: Int,
-        keepRecentMessages: Int = 32
     ): Result<Unit> = runCatching {
+        val messages = getConversationFlow(conversationId).value.currentMessages
+        createContextCheckpoint(
+            conversationId = conversationId,
+            messages = messages,
+            additionalPrompt = additionalPrompt,
+            targetTokens = targetTokens,
+            recentTokenBudget = AUTO_COMPACT_RECENT_TOKEN_BUDGET,
+            trigger = ContextCompactionTrigger.MANUAL,
+            sourceTokenEstimate = estimatePromptTokens(messages, emptyList()),
+            forceCompaction = true,
+        )
+    }
+
+    private suspend fun createContextCheckpoint(
+        conversationId: Uuid,
+        messages: List<UIMessage>,
+        additionalPrompt: String,
+        targetTokens: Int,
+        recentTokenBudget: Int,
+        trigger: ContextCompactionTrigger,
+        sourceTokenEstimate: Int,
+        forceCompaction: Boolean,
+    ): List<UIMessage> {
+        val plan = buildContextCompactionPlan(
+            messages = messages,
+            recentTokenBudget = recentTokenBudget,
+            forceCompaction = forceCompaction,
+        ) ?: throw IllegalStateException(
+            context.getString(R.string.chat_page_compress_not_enough_turns)
+        )
+
         val settings = settingsStore.settingsFlow.first()
         val model = settings.findModelById(settings.compressModelId)
             ?: settings.getCurrentChatModel()
@@ -1149,38 +1221,12 @@ class ChatService(
             ?: throw IllegalStateException("Provider not found")
 
         val providerHandler = providerManager.getProviderByType(provider)
+        val safeTargetTokens = targetTokens.coerceIn(500, 16_000)
 
-        val maxMessagesPerChunk = 256
-        val allMessages = conversation.currentMessages
-
-        // Split messages into those to compress and those to keep
-        val messagesToCompress: List<UIMessage>
-        val messagesToKeep: List<UIMessage>
-
-        if (keepRecentMessages > 0 && allMessages.size > keepRecentMessages) {
-            messagesToCompress = allMessages.dropLast(keepRecentMessages)
-            messagesToKeep = allMessages.takeLast(keepRecentMessages)
-        } else if (keepRecentMessages > 0) {
-            // Not enough messages to compress while keeping recent ones
-            throw IllegalStateException(context.getString(R.string.chat_page_compress_not_enough_messages))
-        } else {
-            messagesToCompress = allMessages
-            messagesToKeep = emptyList()
-        }
-
-        fun splitMessages(messages: List<UIMessage>): List<List<UIMessage>> {
-            if (messages.size <= maxMessagesPerChunk) return listOf(messages)
-            val mid = messages.size / 2
-            val left = splitMessages(messages.subList(0, mid))
-            val right = splitMessages(messages.subList(mid, messages.size))
-            return left + right
-        }
-
-        suspend fun compressMessages(messages: List<UIMessage>): String {
-            val contentToCompress = messages.joinToString("\n\n") { it.summaryAsText(maxLength = 2000) }
+        suspend fun summarizeContent(contentToCompress: String): String {
             val prompt = settings.compressPrompt.applyPlaceholders(
                 "content" to contentToCompress,
-                "target_tokens" to targetTokens.toString(),
+                "target_tokens" to safeTargetTokens.toString(),
                 "additional_context" to if (additionalPrompt.isNotBlank()) {
                     "Additional instructions from user: $additionalPrompt"
                 } else "",
@@ -1190,32 +1236,72 @@ class ChatService(
             val result = providerHandler.generateText(
                 providerSetting = provider,
                 messages = listOf(UIMessage.user(prompt)),
-                params = backgroundTextGenerationParams(model),
+                params = backgroundTextGenerationParams(
+                    model = model,
+                    maxTokens = safeTargetTokens,
+                ),
             )
 
             return result.choices[0].message?.toText()?.trim()
-                ?: throw IllegalStateException("Failed to generate compressed summary")
+                ?.takeIf(String::isNotBlank)
+                ?: throw IllegalStateException(
+                    context.getString(R.string.chat_page_compress_empty_summary)
+                )
         }
 
-        val compressedSummaries = coroutineScope {
-            splitMessages(messagesToCompress)
-                .map { chunk -> async { compressMessages(chunk) } }
-                .awaitAll()
+        var summaries = splitCompactionContent(
+            renderMessagesForCompaction(
+                priorCheckpointSummary = plan.priorCheckpointSummary,
+                messages = plan.messagesToCompress,
+            )
+        ).map { chunk ->
+            summarizeContent(chunk)
         }
-
-        // Create new conversation with compressed history as multiple user messages + kept messages
-        val newMessageNodes = buildList {
-            compressedSummaries.forEach { summary ->
-                add(UIMessage.user(summary).toMessageNode())
+        while (summaries.size > 1) {
+            val mergeInput = summaries.mapIndexed { index, summary ->
+                "[PARTIAL CHECKPOINT ${index + 1}]\n$summary"
+            }.joinToString("\n\n")
+            summaries = splitCompactionContent(mergeInput).map { chunk ->
+                summarizeContent(chunk)
             }
-            addAll(messagesToKeep.map { it.toMessageNode() })
         }
-        val newConversation = conversation.copy(
-            messageNodes = newMessageNodes,
-            chatSuggestions = emptyList(),
+
+        val summary = summaries.singleOrNull()
+            ?: throw IllegalStateException(
+                context.getString(R.string.chat_page_compress_empty_summary)
+            )
+        val checkpointedMessages = applyContextCheckpoint(
+            messages = messages,
+            plan = plan,
+            summary = summary,
+            sourceTokenEstimate = sourceTokenEstimate,
+            trigger = trigger,
+            createdAtEpochMillis = System.currentTimeMillis(),
+        )
+        Log.i(
+            TAG,
+            "Context checkpoint prepared: trigger=${trigger.name.lowercase()}, " +
+                "sourceTokens=$sourceTokenEstimate, " +
+                "compressedMessages=${plan.messagesToCompress.size}, " +
+                "keptMessages=${plan.messagesToKeep.size}"
         )
 
-        saveConversation(conversationId, newConversation)
+        var persistedMessages: List<UIMessage>? = null
+        val expectedMessageIds = messages.map(UIMessage::id)
+        mutateAndSaveConversation(conversationId) { current ->
+            if (current.currentMessages.map(UIMessage::id) != expectedMessageIds) {
+                throw IllegalStateException(
+                    context.getString(R.string.chat_page_compress_conversation_changed)
+                )
+            }
+            current.updateCurrentMessages(checkpointedMessages)
+                .copy(chatSuggestions = emptyList())
+                .also { persistedMessages = it.currentMessages }
+        }
+        return persistedMessages
+            ?: throw IllegalStateException(
+                context.getString(R.string.chat_page_compress_conversation_changed)
+            )
     }
 
     // ---- 对话状态更新 ----
@@ -1465,7 +1551,10 @@ class ChatService(
 
         if (!edited) return
 
-        saveConversation(conversationId, currentConversation.copy(messageNodes = updatedNodes))
+        saveConversation(
+            conversationId,
+            currentConversation.copy(messageNodes = updatedNodes).withoutContextCheckpoints()
+        )
     }
 
     suspend fun forkConversationAtMessage(
@@ -1533,7 +1622,10 @@ class ChatService(
             }
         }
 
-        saveConversation(conversationId, currentConversation.copy(messageNodes = updatedNodes))
+        saveConversation(
+            conversationId,
+            currentConversation.copy(messageNodes = updatedNodes).withoutContextCheckpoints()
+        )
     }
 
     suspend fun deleteMessage(
@@ -1551,7 +1643,7 @@ class ChatService(
             return
         }
 
-        saveConversation(conversationId, updatedConversation)
+        saveConversation(conversationId, updatedConversation.withoutContextCheckpoints())
     }
 
     suspend fun deleteMessage(
@@ -1591,6 +1683,12 @@ class ChatService(
 
         return conversation.copy(messageNodes = updatedNodes)
     }
+
+    private fun Conversation.withoutContextCheckpoints(): Conversation = copy(
+        messageNodes = messageNodes.map { node ->
+            node.copy(messages = node.messages.clearContextCheckpoints())
+        }
+    )
 
     private fun UIMessagePart.copyWithForkedFileUrl(): UIMessagePart {
         fun copyLocalFileIfNeeded(url: String): String {
