@@ -21,8 +21,8 @@ android {
         applicationId = "dev.sundby.zhixing"
         minSdk = 26
         targetSdk = 37
-        versionCode = 33
-        versionName = "0.4.4"
+        versionCode = 34
+        versionName = "0.4.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["appScheme"] = "zhixing"
         buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"production\"")
