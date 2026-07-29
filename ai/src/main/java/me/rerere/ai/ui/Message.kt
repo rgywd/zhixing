@@ -774,6 +774,22 @@ sealed class UIMessageAnnotation {
         val title: String,
         val url: String
     ) : UIMessageAnnotation()
+
+    /**
+     * A durable checkpoint for the conversation prefix ending at this message.
+     *
+     * The original messages remain in Room and in the UI. Prompt construction uses the latest
+     * checkpoint summary plus messages after this boundary, so compaction is reversible and does
+     * not turn generated summaries into user-authored messages.
+     */
+    @Serializable
+    @SerialName("context_checkpoint")
+    data class ContextCheckpoint(
+        val summary: String,
+        val sourceTokenEstimate: Int = 0,
+        val createdAtEpochMillis: Long = 0,
+        val trigger: String = "manual",
+    ) : UIMessageAnnotation()
 }
 
 @Serializable
