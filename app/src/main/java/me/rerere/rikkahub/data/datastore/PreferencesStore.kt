@@ -104,6 +104,8 @@ class SettingsStore(
         val COMPRESS_MODEL = stringPreferencesKey("compress_model")
         val COMPRESS_PROMPT = stringPreferencesKey("compress_prompt")
         val ALLOW_AI_HEALTH_DATA = booleanPreferencesKey("allow_ai_health_data")
+        val LOCATION_TRAVEL_PRIVACY_CONSENT =
+            booleanPreferencesKey("location_travel_privacy_consent")
 
         // 提供商
         val PROVIDERS = stringPreferencesKey("providers")
@@ -206,6 +208,8 @@ class SettingsStore(
                 compressModelId = preferences[COMPRESS_MODEL]?.let { Uuid.parse(it) } ?: DEFAULT_AUTO_MODEL_ID,
                 compressPrompt = resolveCompressPrompt(preferences[COMPRESS_PROMPT]),
                 allowAiHealthData = preferences[ALLOW_AI_HEALTH_DATA] == true,
+                locationTravelPrivacyConsent =
+                    preferences[LOCATION_TRAVEL_PRIVACY_CONSENT] == true,
                 assistantId = preferences[SELECT_ASSISTANT]?.let { Uuid.parse(it) }
                     ?: DEFAULT_ASSISTANT_ID,
                 assistantTags = preferences[ASSISTANT_TAGS]?.let {
@@ -409,6 +413,8 @@ class SettingsStore(
             preferences[COMPRESS_MODEL] = settings.compressModelId.toString()
             preferences[COMPRESS_PROMPT] = settings.compressPrompt
             preferences[ALLOW_AI_HEALTH_DATA] = settings.allowAiHealthData
+            preferences[LOCATION_TRAVEL_PRIVACY_CONSENT] =
+                settings.locationTravelPrivacyConsent
 
             preferences[PROVIDERS] = JsonInstant.encodeToString(settings.providers)
 
@@ -570,6 +576,7 @@ data class Settings(
     val compressModelId: Uuid = Uuid.random(),
     val compressPrompt: String = DEFAULT_COMPRESS_PROMPT,
     val allowAiHealthData: Boolean = false,
+    val locationTravelPrivacyConsent: Boolean = false,
     val assistantId: Uuid = DEFAULT_ASSISTANT_ID,
     val providers: List<ProviderSetting> = DEFAULT_PROVIDERS,
     val assistants: List<Assistant> = DEFAULT_ASSISTANTS,

@@ -1365,4 +1365,19 @@
   <string name="chat_page_delete_folder_generating">Некоторые беседы в этой папке все еще генерируются. Пожалуйста, остановите их перед удалением.</string>
   <string name="setting_display_page_tts_read_outside_brackets_title">TTS не читает текст в скобках</string>
   <string name="setting_display_page_tts_read_outside_brackets_desc">Если включено, TTS не будет читать содержимое в скобках</string>
+  <string name="assistant_page_local_tools_location_travel_title">Местоположение и поездки</string>
+  <string name="assistant_page_local_tools_location_travel_desc">Разрешить ИИ запрашивать текущее местоположение, искать места поблизости и после подтверждения открывать навигацию AMap</string>
+  <string name="permission_location_approximate">Приблизительное местоположение</string>
+  <string name="permission_location_approximate_desc">Однократно получать местоположение при активном приложении для запросов адреса и мест поблизости</string>
+  <string name="permission_location_precise">Точное местоположение</string>
+  <string name="permission_location_precise_desc">Повышать точность однократного определения местоположения при активном приложении, если вы разрешите</string>
+  <string name="location_travel_privacy_dialog_title">Включить местоположение и поездки?</string>
+  <string name="location_travel_privacy_dialog_desc">Zhixing использует SDK местоположения и поиска AMap только после вашего подтверждения вызова инструмента геолокации. Данные о местоположении отправляются напрямую в AMap для однократного позиционирования и поиска поблизости. Фоновое отслеживание и история местоположений отсутствуют. По умолчанию координаты текущего местоположения скрыты от модели, но результаты поиска поблизости и пункты назначения могут быть включены в этот чат.</string>
+  <string name="location_travel_privacy_agree">Согласиться и продолжить</string>
+  <string name="location_travel_privacy_policy">Политика конфиденциальности AMap</string>
+  <string name="chat_message_tool_current_location">Получить текущее местоположение</string>
+  <string name="chat_message_tool_nearby_places">Искать поблизости: %1$s</string>
+  <string name="chat_message_tool_open_navigation">Открыть навигацию: %1$s</string>
+  <string name="tool_ui_navigation_amap_app">Открыто в AMap</string>
+  <string name="tool_ui_navigation_amap_web">Открыта веб-навигация AMap</string>
 </resources>

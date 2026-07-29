@@ -12,6 +12,16 @@ plugins {
     alias(libs.plugins.baselineprofile)
 }
 
+val amapProductionKey = providers.gradleProperty("AMAP_API_KEY_PRODUCTION")
+    .orElse(providers.environmentVariable("AMAP_API_KEY_PRODUCTION"))
+    .orElse("")
+val amapDebugKey = providers.gradleProperty("AMAP_API_KEY_DEBUG")
+    .orElse(providers.environmentVariable("AMAP_API_KEY_DEBUG"))
+    .orElse("")
+val amapStagingKey = providers.gradleProperty("AMAP_API_KEY_STAGING")
+    .orElse(providers.environmentVariable("AMAP_API_KEY_STAGING"))
+    .orElse("")
+
 android {
     namespace = "me.rerere.rikkahub"
     compileSdk = 37
@@ -25,6 +35,7 @@ android {
         versionName = "0.4.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["appScheme"] = "zhixing"
+        manifestPlaceholders["amapApiKey"] = amapProductionKey.get()
         buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"production\"")
         buildConfigField(
             "String",
@@ -32,6 +43,11 @@ android {
             "\"https://github.com/rgywd/zhixing-releases/releases/latest/download/latest.json\"",
         )
         buildConfigField("boolean", "STAGING_TEST_DRIVER_ENABLED", "false")
+        buildConfigField(
+            "boolean",
+            "AMAP_API_KEY_CONFIGURED",
+            amapProductionKey.map(String::isNotBlank).get().toString(),
+        )
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
@@ -74,11 +90,23 @@ android {
             )
             buildConfigField("String", "VERSION_NAME", "\"${android.defaultConfig.versionName}\"")
             buildConfigField("String", "VERSION_CODE", "\"${android.defaultConfig.versionCode}\"")
+            manifestPlaceholders["amapApiKey"] = amapProductionKey.get()
+            buildConfigField(
+                "boolean",
+                "AMAP_API_KEY_CONFIGURED",
+                amapProductionKey.map(String::isNotBlank).get().toString(),
+            )
         }
         debug {
             applicationIdSuffix = ".debug"
             buildConfigField("String", "VERSION_NAME", "\"${android.defaultConfig.versionName}\"")
             buildConfigField("String", "VERSION_CODE", "\"${android.defaultConfig.versionCode}\"")
+            manifestPlaceholders["amapApiKey"] = amapDebugKey.get()
+            buildConfigField(
+                "boolean",
+                "AMAP_API_KEY_CONFIGURED",
+                amapDebugKey.map(String::isNotBlank).get().toString(),
+            )
         }
         create("staging") {
             initWith(getByName("debug"))
@@ -89,6 +117,12 @@ android {
             buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"staging\"")
             buildConfigField("String", "UPDATE_FEED_URL", "\"\"")
             buildConfigField("boolean", "STAGING_TEST_DRIVER_ENABLED", "true")
+            manifestPlaceholders["amapApiKey"] = amapStagingKey.get()
+            buildConfigField(
+                "boolean",
+                "AMAP_API_KEY_CONFIGURED",
+                amapStagingKey.map(String::isNotBlank).get().toString(),
+            )
         }
     }
     compileOptions {
@@ -156,6 +190,8 @@ dependencies {
     implementation(libs.androidx.profileinstaller)
     implementation(libs.termux.terminal.view)
     implementation(libs.guava.listenablefuture)
+    // Official combined artifact avoids duplicate core classes between standalone location/search JARs.
+    implementation(libs.amap.sdk)
 
     // Compose
     implementation(libs.androidx.activity.compose)

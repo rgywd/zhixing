@@ -9,6 +9,8 @@
   <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
   <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -25,9 +27,7 @@
     android:name="android.permission.BLUETOOTH_ADMIN"
     android:maxSdkVersion="30" />
   <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-  <uses-permission
-    android:name="android.permission.ACCESS_FINE_LOCATION"
-    android:maxSdkVersion="30" />
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
   <uses-permission
     android:name="android.permission.BLUETOOTH_SCAN"
     android:usesPermissionFlags="neverForLocation"
@@ -47,6 +47,7 @@
     android:required="false" />
 
   <queries>
+    <package android:name="com.autonavi.minimap" />
     <intent>
       <action android:name="android.intent.action.TTS_SERVICE" />
     </intent>
@@ -76,6 +77,9 @@
     android:theme="@style/Theme.Rikkahub"
     android:usesCleartextTraffic="true"
     tools:targetApi="33">
+    <meta-data
+      android:name="com.amap.api.v2.apikey"
+      android:value="${amapApiKey}" />
     <activity
       android:name=".ui.activity.SafeModeActivity"
       android:exported="false"
@@ -170,6 +174,9 @@
         android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
         android:value="continue user-initiated AI response generation and local tool execution" />
     </service>
+    <service
+      android:name="com.amap.api.location.APSService"
+      android:exported="false" />
 
     <receiver
       android:name=".data.agenda.AgendaReminderReconcileReceiver"
