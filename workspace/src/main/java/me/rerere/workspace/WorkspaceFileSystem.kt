@@ -118,6 +118,27 @@ class WorkspaceFileSystem(
         }
     }
 
+    fun countFiles(
+        root: File,
+        path: String = "",
+        includeExtensions: Set<String>? = null,
+        excludeNames: Set<String> = emptySet(),
+    ): Int {
+        val start = resolvePath(root, path)
+        require(start.exists()) { "Path does not exist: $path" }
+        require(start.isDirectory) { "Path is not a directory: $path" }
+        val normalizedExtensions = includeExtensions?.mapTo(mutableSetOf()) { it.lowercase() }
+        return walk(start) { paths ->
+            paths.count { candidate ->
+                if (!Files.isRegularFile(candidate)) return@count false
+                val file = candidate.toFile()
+                !file.name.startsWith(".l2s.") &&
+                    file.name !in excludeNames &&
+                    (normalizedExtensions == null || file.extension.lowercase() in normalizedExtensions)
+            }
+        }
+    }
+
     fun grep(
         root: File,
         query: String,

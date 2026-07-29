@@ -126,6 +126,14 @@ class WorkspaceManager(
     fun glob(root: String, pattern: String, path: String = ""): List<WorkspaceFileEntry> =
         fileSystem.glob(filesDir(root), pattern, path)
 
+    fun countFiles(
+        root: String,
+        path: String = "",
+        includeExtensions: Set<String>? = null,
+        excludeNames: Set<String> = emptySet(),
+    ): Int =
+        fileSystem.countFiles(filesDir(root), path, includeExtensions, excludeNames)
+
     fun grep(
         root: String,
         query: String,
