@@ -9,6 +9,7 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -141,5 +142,31 @@ class MessageMetadataTest {
             metadata = DiffMetadata(diff = diff).toMetadata(),
         )
         assertEquals(diff, part.metadataAs<DiffMetadata>()?.diff)
+    }
+
+    @Test
+    fun `context checkpoint annotation round trip`() {
+        val json = Json { ignoreUnknownKeys = true }
+        val message = UIMessage.user("original").copy(
+            annotations = listOf(
+                UIMessageAnnotation.ContextCheckpoint(
+                    summary = "durable checkpoint",
+                    sourceTokenEstimate = 262_001,
+                    createdAtEpochMillis = 42L,
+                    trigger = "auto",
+                )
+            )
+        )
+
+        val restored = json.decodeFromString<UIMessage>(json.encodeToString(message))
+        val checkpoint = restored.annotations
+            .filterIsInstance<UIMessageAnnotation.ContextCheckpoint>()
+            .single()
+
+        assertEquals("durable checkpoint", checkpoint.summary)
+        assertEquals(262_001, checkpoint.sourceTokenEstimate)
+        assertEquals(42L, checkpoint.createdAtEpochMillis)
+        assertEquals("auto", checkpoint.trigger)
+        assertTrue(restored.id == message.id)
     }
 }

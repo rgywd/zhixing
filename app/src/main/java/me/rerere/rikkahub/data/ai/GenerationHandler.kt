@@ -105,6 +105,11 @@ sealed interface GenerationChunk {
     ) : GenerationChunk
 }
 
+data class PromptCompactionResult(
+    val messages: List<UIMessage>,
+    val maximumPromptTokens: Int,
+)
+
 class GenerationHandler(
     private val context: Context,
     private val providerManager: ProviderManager,
@@ -126,6 +131,8 @@ class GenerationHandler(
         conversationModeInjectionIds: Set<Uuid> = emptySet(),
         conversationLorebookIds: Set<Uuid> = emptySet(),
         workspaceCwd: String? = null,
+        onPromptPrepared: suspend (estimatedTokens: Int, messages: List<UIMessage>) -> PromptCompactionResult? =
+            { _, _ -> null },
     ): Flow<GenerationChunk> = flow {
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
         val providerImpl = providerManager.getProviderByType(provider)
@@ -193,10 +200,50 @@ class GenerationHandler(
 
             // Skip generation if we have approved/denied tool calls to handle
             if (pendingTools.isEmpty()) {
-                generateInternal(
+                var internalMessages = buildInternalMessages(
                     assistant = assistant,
                     settings = settings,
                     messages = messages,
+                    transformers = inputTransformers,
+                    model = model,
+                    tools = toolsInternal,
+                    memories = promptMemories,
+                    processingStatus = processingStatus,
+                    conversationSystemPrompt = conversationSystemPrompt,
+                    conversationModeInjectionIds = conversationModeInjectionIds,
+                    conversationLorebookIds = conversationLorebookIds,
+                    workspaceCwd = workspaceCwd,
+                )
+                if (stepIndex == 0) {
+                    val estimatedTokens = estimatePromptTokens(internalMessages, toolsInternal)
+                    onPromptPrepared(estimatedTokens, messages)?.let { compaction ->
+                        messages = sanitizeToolInputsForStorage(compaction.messages, toolsInternal)
+                        internalMessages = buildInternalMessages(
+                            assistant = assistant,
+                            settings = settings,
+                            messages = messages,
+                            transformers = inputTransformers,
+                            model = model,
+                            tools = toolsInternal,
+                            memories = promptMemories,
+                            processingStatus = processingStatus,
+                            conversationSystemPrompt = conversationSystemPrompt,
+                            conversationModeInjectionIds = conversationModeInjectionIds,
+                            conversationLorebookIds = conversationLorebookIds,
+                            workspaceCwd = workspaceCwd,
+                        )
+                        val compactedEstimate = estimatePromptTokens(internalMessages, toolsInternal)
+                        check(compactedEstimate < compaction.maximumPromptTokens) {
+                            "Context is still too large after compaction " +
+                                "($compactedEstimate >= ${compaction.maximumPromptTokens} tokens). " +
+                                "The latest turn or stable context must be reduced."
+                        }
+                    }
+                }
+                generateInternal(
+                    assistant = assistant,
+                    messages = messages,
+                    internalMessages = internalMessages,
                     onUpdateMessages = {
                         messages = sanitizeToolInputsForStorage(it, toolsInternal).transforms(
                             transformers = outputTransformers,
@@ -217,18 +264,11 @@ class GenerationHandler(
                             )
                         )
                     },
-                    transformers = inputTransformers,
                     model = model,
                     providerImpl = providerImpl,
                     provider = provider,
                     tools = toolsInternal,
-                    memories = promptMemories,
                     stream = assistant.streamOutput,
-                    processingStatus = processingStatus,
-                    conversationSystemPrompt = conversationSystemPrompt,
-                    conversationModeInjectionIds = conversationModeInjectionIds,
-                    conversationLorebookIds = conversationLorebookIds,
-                    workspaceCwd = workspaceCwd,
                 )
                 messages = messages.visualTransforms(
                     transformers = outputTransformers,
@@ -411,25 +451,22 @@ class GenerationHandler(
 
     }.flowOn(Dispatchers.IO)
 
-    private suspend fun generateInternal(
+    private suspend fun buildInternalMessages(
         assistant: Assistant,
         settings: Settings,
         messages: List<UIMessage>,
-        onUpdateMessages: suspend (List<UIMessage>) -> Unit,
         transformers: List<MessageTransformer>,
         model: Model,
-        providerImpl: Provider<ProviderSetting>,
-        provider: ProviderSetting,
         tools: List<Tool>,
         memories: List<AssistantMemory>,
-        stream: Boolean,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
         conversationSystemPrompt: String? = null,
         conversationModeInjectionIds: Set<Uuid> = emptySet(),
         conversationLorebookIds: Set<Uuid> = emptySet(),
         workspaceCwd: String? = null,
-    ) {
-        val internalMessages = buildList {
+    ): List<UIMessage> {
+        val projection = messages.projectContextForPrompt()
+        return buildList {
             val system = buildString {
                 val effectiveSystemPrompt =
                     if (assistant.allowConversationSystemPrompt && !conversationSystemPrompt.isNullOrBlank()) {
@@ -449,11 +486,15 @@ class GenerationHandler(
                 // 工具prompt
                 tools.forEach { tool ->
                     appendLine()
-                    append(tool.systemPrompt(model, messages))
+                    append(tool.systemPrompt(model, projection.messages))
+                }
+                projection.checkpointSummary?.let { summary ->
+                    appendLine()
+                    append(renderConversationCheckpoint(summary))
                 }
             }
             if (system.isNotBlank()) add(UIMessage.system(prompt = system))
-            addAll(messages.limitContext(assistant.contextMessageSize))
+            addAll(projection.messages.limitContext(assistant.contextMessageSize))
         }.transforms(
             transformers = transformers,
             context = context,
@@ -465,7 +506,19 @@ class GenerationHandler(
             processingStatus = processingStatus,
             workspaceCwd = workspaceCwd,
         )
+    }
 
+    private suspend fun generateInternal(
+        assistant: Assistant,
+        messages: List<UIMessage>,
+        internalMessages: List<UIMessage>,
+        onUpdateMessages: suspend (List<UIMessage>) -> Unit,
+        model: Model,
+        providerImpl: Provider<ProviderSetting>,
+        provider: ProviderSetting,
+        tools: List<Tool>,
+        stream: Boolean,
+    ) {
         var messages: List<UIMessage> = messages
         val params = TextGenerationParams(
             model = model,
