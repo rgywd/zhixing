@@ -31,10 +31,12 @@ object KnowledgeStatusToolUI : ToolUIRenderer {
     @Composable
     override fun Summary(context: ToolUIContext) {
         val initialized = context.content.getStringContent("initialized")?.toBooleanStrictOrNull() ?: false
-        val sources = context.content.getStringContent("sourceCount")?.toIntOrNull() ?: 0
+        val contentFiles = context.content.getStringContent("contentFileCount")?.toIntOrNull()
+            ?: context.content.getStringContent("sourceCount")?.toIntOrNull()
+            ?: 0
         val indexed = context.content.getStringContent("indexedDocumentCount")?.toIntOrNull() ?: 0
         Text(
-            if (initialized) stringResource(R.string.workspace_detail_knowledge_counts, sources, indexed)
+            if (initialized) stringResource(R.string.workspace_detail_knowledge_counts, contentFiles, indexed)
             else stringResource(R.string.workspace_detail_knowledge_not_initialized),
             style = MaterialTheme.typography.bodySmall,
         )

@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.ui.pages.extensions.workspace
 
 import android.content.Intent
+import android.os.Build
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
 import androidx.activity.compose.BackHandler
@@ -86,6 +87,8 @@ import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceShellStatus
 import me.rerere.workspace.WorkspaceStorageArea
 import me.rerere.workspace.KnowledgeSpaceStatus
+import me.rerere.workspace.VaultGitAvailability
+import me.rerere.workspace.VaultGitStatus
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -96,7 +99,7 @@ fun WorkspaceDetailPage(id: String) {
     val state by vm.state.collectAsStateWithLifecycle()
     val installProgress by vm.installProgress.collectAsStateWithLifecycle()
     val installError by vm.installError.collectAsStateWithLifecycle()
-    val pagerState = rememberPagerState { 2 }
+    val pagerState = rememberPagerState { 3 }
     val scope = rememberCoroutineScope()
     var deleteTarget by remember { mutableStateOf<WorkspaceFileEntry?>(null) }
     var showInstallDialog by remember { mutableStateOf(false) }
@@ -142,8 +145,15 @@ fun WorkspaceDetailPage(id: String) {
         vm.exportFile(entry, outputStream)
     }
 
-    BackHandler(enabled = pagerState.currentPage == 1 && state.path.isNotBlank()) {
-        vm.goUp()
+    BackHandler(
+        enabled = (pagerState.currentPage == 1 && state.path.isNotBlank()) ||
+            (pagerState.currentPage == 2 && state.vault.path.isNotBlank())
+    ) {
+        if (pagerState.currentPage == 2) {
+            vm.goUpVault()
+        } else {
+            vm.goUp()
+        }
     }
 
     Scaffold(
@@ -166,7 +176,15 @@ fun WorkspaceDetailPage(id: String) {
                             )
                         }
                     }
-                    IconButton(onClick = { vm.refresh() }) {
+                    IconButton(
+                        onClick = {
+                            if (pagerState.currentPage == 2) {
+                                vm.refreshVault()
+                            } else {
+                                vm.refresh()
+                            }
+                        }
+                    ) {
                         Icon(HugeIcons.Refresh01, contentDescription = null)
                     }
                     if (state.workspace?.shellStatus != WorkspaceShellStatus.DISABLED.name) {
@@ -191,6 +209,12 @@ fun WorkspaceDetailPage(id: String) {
                     label = { Text(stringResource(R.string.workspace_detail_tab_files)) },
                     icon = { Icon(HugeIcons.File02, contentDescription = null) },
                     onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
+                )
+                NavigationBarItem(
+                    selected = pagerState.currentPage == 2,
+                    label = { Text(stringResource(R.string.workspace_detail_tab_vault)) },
+                    icon = { Icon(HugeIcons.BookOpen01, contentDescription = null) },
+                    onClick = { scope.launch { pagerState.animateScrollToPage(2) } },
                 )
             }
         },
@@ -276,6 +300,60 @@ fun WorkspaceDetailPage(id: String) {
                         }
                     },
                 )
+
+                2 -> KnowledgeVaultPage(
+                    initialized = state.knowledgeStatus?.initialized == true,
+                    state = state.vault,
+                    onInitialize = vm::initializeKnowledgeSpace,
+                    onGoUp = vm::goUpVault,
+                    onOpen = { entry ->
+                        when {
+                            entry.isDirectory -> vm.openVault(entry)
+
+                            else -> when (entry.detectFileType()) {
+                                WorkspaceFileType.TEXT -> navController.navigate(
+                                    Screen.WorkspaceFileEditor(
+                                        id,
+                                        WorkspaceStorageArea.FILES.name,
+                                        entry.path,
+                                    )
+                                )
+
+                                WorkspaceFileType.IMAGE -> vm.exportToCacheFile(
+                                    entry = entry,
+                                    cacheDir = context.cacheDir,
+                                    area = WorkspaceStorageArea.FILES,
+                                ) { file ->
+                                    previewImageUri = file.absolutePath
+                                }
+
+                                WorkspaceFileType.OTHER -> vm.exportToCacheFile(
+                                    entry = entry,
+                                    cacheDir = context.cacheDir,
+                                    area = WorkspaceStorageArea.FILES,
+                                ) { file ->
+                                    val uri = FileProvider.getUriForFile(
+                                        context,
+                                        "${context.packageName}.fileprovider",
+                                        file,
+                                    )
+                                    val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(
+                                        file.extension.lowercase()
+                                    ) ?: "*/*"
+                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(uri, mime)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    runCatching {
+                                        context.startActivity(Intent.createChooser(intent, null))
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    onInstallGit = vm::installVaultGit,
+                    onBindGit = vm::bindVaultGitRemote,
+                )
             }
         }
     }
@@ -327,6 +405,24 @@ fun WorkspaceDetailPage(id: String) {
         ) {
             Text(stringResource(R.string.workspace_detail_will_delete, entry.path))
         }
+    }
+
+    state.vault.pendingRemoteUrl?.let {
+        AlertDialog(
+            onDismissRequest = vm::dismissVaultGitRemoteConflict,
+            title = { Text(stringResource(R.string.workspace_detail_vault_git_replace_title)) },
+            text = { Text(stringResource(R.string.workspace_detail_vault_git_replace_desc)) },
+            dismissButton = {
+                TextButton(onClick = vm::dismissVaultGitRemoteConflict) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = vm::replaceVaultGitRemote) {
+                    Text(stringResource(R.string.workspace_detail_vault_git_replace_confirm))
+                }
+            },
+        )
     }
 }
 
@@ -480,7 +576,7 @@ private fun KnowledgeSpaceCard(
                 Text(
                     text = stringResource(
                         R.string.workspace_detail_knowledge_counts,
-                        status.sourceCount,
+                        status.contentFileCount,
                         status.indexedDocumentCount,
                     ),
                     style = MaterialTheme.typography.bodyMedium,
@@ -511,6 +607,233 @@ private fun KnowledgeSpaceCard(
                 }
             }
 
+            if (busy) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
+}
+
+@Composable
+private fun KnowledgeVaultPage(
+    initialized: Boolean,
+    state: KnowledgeVaultState,
+    onInitialize: () -> Unit,
+    onGoUp: () -> Unit,
+    onOpen: (WorkspaceFileEntry) -> Unit,
+    onInstallGit: () -> Unit,
+    onBindGit: (String) -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        state.error?.let { message ->
+            item { ErrorCard(message) }
+        }
+
+        if (!initialized) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CustomColors.cardColorsOnSurfaceContainer,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.workspace_detail_knowledge_title),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = stringResource(R.string.workspace_detail_knowledge_not_initialized),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(
+                            onClick = onInitialize,
+                            enabled = !state.loading,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.workspace_detail_knowledge_initialize))
+                        }
+                    }
+                }
+            }
+        } else {
+            item {
+                VaultGitBindingCard(
+                    status = state.gitStatus,
+                    busy = state.gitBusy,
+                    onInstallGit = onInstallGit,
+                    onBind = onBindGit,
+                )
+            }
+            item {
+                WorkspacePathBar(
+                    path = buildString {
+                        append("/workspace/vault")
+                        if (state.path.isNotBlank()) append("/${state.path}")
+                    },
+                    canGoUp = state.path.isNotBlank(),
+                    onGoUp = onGoUp,
+                )
+            }
+
+            if (state.loading) {
+                item {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            } else if (state.entries.isEmpty() && state.error == null) {
+                item {
+                    EmptyDirectoryState()
+                }
+            }
+
+            items(state.entries, key = { "vault:${it.path}" }) { entry ->
+                WorkspaceFileCard(
+                    entry = entry,
+                    onOpen = { onOpen(entry) },
+                    onDelete = {},
+                    onExport = {},
+                    onShare = {},
+                    showActions = false,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VaultGitBindingCard(
+    status: VaultGitStatus?,
+    busy: Boolean,
+    onInstallGit: () -> Unit,
+    onBind: (String) -> Unit,
+) {
+    var remoteUrl by rememberSaveable { mutableStateOf("") }
+    val canBind = status?.availability == VaultGitAvailability.READY && !busy
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CustomColors.cardColorsOnSurfaceContainer,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(HugeIcons.Folder01, contentDescription = null)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = stringResource(R.string.workspace_detail_vault_git_title),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = stringResource(R.string.workspace_detail_vault_git_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            when (status?.availability) {
+                null -> Text(
+                    text = stringResource(R.string.workspace_detail_vault_git_checking),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                VaultGitAvailability.ROOTFS_REQUIRED -> Text(
+                    text = stringResource(R.string.workspace_detail_vault_git_rootfs_required),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                VaultGitAvailability.GIT_REQUIRED -> {
+                    Text(
+                        text = stringResource(R.string.workspace_detail_vault_git_missing),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Button(
+                        onClick = onInstallGit,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            stringResource(
+                                if (busy) {
+                                    R.string.workspace_detail_vault_git_installing
+                                } else {
+                                    R.string.workspace_detail_vault_git_install
+                                }
+                            )
+                        )
+                    }
+                }
+
+                VaultGitAvailability.READY -> {
+                    val statusText = when {
+                        status.isBound -> stringResource(
+                            R.string.workspace_detail_vault_git_bound,
+                            status.remoteUrl.orEmpty(),
+                            status.branch ?: "main",
+                        )
+
+                        status.isRepository ->
+                            stringResource(R.string.workspace_detail_vault_git_repo_only)
+
+                        else -> stringResource(R.string.workspace_detail_vault_git_unbound)
+                    }
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (status.hasChanges) {
+                        Text(
+                            text = stringResource(R.string.workspace_detail_vault_git_has_changes),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                value = remoteUrl,
+                onValueChange = { remoteUrl = it },
+                enabled = canBind,
+                singleLine = true,
+                label = { Text(stringResource(R.string.workspace_detail_vault_git_remote_label)) },
+                placeholder = { Text("https://github.com/owner/vault.git") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = { onBind(remoteUrl) },
+                enabled = canBind && remoteUrl.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    stringResource(
+                        if (status?.isBound == true) {
+                            R.string.workspace_detail_vault_git_update
+                        } else {
+                            R.string.workspace_detail_vault_git_bind
+                        }
+                    )
+                )
+            }
             if (busy) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
@@ -814,6 +1137,7 @@ private fun WorkspaceFileCard(
     onDelete: () -> Unit,
     onExport: () -> Unit,
     onShare: () -> Unit,
+    showActions: Boolean = true,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -859,56 +1183,63 @@ private fun WorkspaceFileCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(HugeIcons.MoreVertical, contentDescription = null)
-                }
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false },
-                ) {
-                    if (!entry.isDirectory) {
+            if (showActions) {
+                Box {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(HugeIcons.MoreVertical, contentDescription = null)
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        if (!entry.isDirectory) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.common_export)) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = HugeIcons.FileImport,
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onExport()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.common_share)) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = HugeIcons.Share08,
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onShare()
+                                },
+                            )
+                        }
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.common_export)) },
+                            text = {
+                                Text(
+                                    stringResource(R.string.common_delete),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            },
                             leadingIcon = {
                                 Icon(
-                                    imageVector = HugeIcons.FileImport,
+                                    imageVector = HugeIcons.Delete01,
                                     contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
                                 )
                             },
                             onClick = {
                                 menuExpanded = false
-                                onExport()
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.common_share)) },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = HugeIcons.Share08,
-                                    contentDescription = null,
-                                )
-                            },
-                            onClick = {
-                                menuExpanded = false
-                                onShare()
+                                onDelete()
                             },
                         )
                     }
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = HugeIcons.Delete01,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            onDelete()
-                        },
-                    )
                 }
             }
         }
@@ -962,5 +1293,12 @@ internal fun String.toShellStatusLabel(): String = when (this) {
     else -> lowercase()
 }
 
-private const val DEFAULT_ROOTFS_URL =
-    "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-arm64.tar.gz"
+private val DEFAULT_ROOTFS_URL: String
+    get() {
+        val archiveArchitecture = when {
+            Build.SUPPORTED_ABIS.any { it == "x86_64" } -> "amd64"
+            else -> "arm64"
+        }
+        return "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/" +
+            "ubuntu-base-24.04.3-base-$archiveArchitecture.tar.gz"
+    }

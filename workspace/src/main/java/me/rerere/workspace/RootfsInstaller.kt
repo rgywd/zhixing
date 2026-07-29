@@ -8,6 +8,8 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.util.ArrayDeque
 import java.util.Locale
 import java.util.zip.GZIPInputStream
 import org.tukaani.xz.XZInputStream
@@ -141,10 +143,18 @@ class RootfsInstaller(
                 val target = targetDir.safeResolve(header.name)
                 target.parentFile?.mkdirs()
                 when (header.type) {
-                    TarEntryType.DIRECTORY -> target.mkdirs()
+                    TarEntryType.DIRECTORY -> {
+                        if (Files.isSymbolicLink(target.toPath())) {
+                            Files.delete(target.toPath())
+                        }
+                        target.mkdirs()
+                    }
                     TarEntryType.SYMLINK -> createSymlink(targetDir, target, header.linkName)
                     TarEntryType.HARDLINK -> createHardLink(targetDir, target, header.linkName)
                     TarEntryType.FILE -> {
+                        if (Files.isSymbolicLink(target.toPath())) {
+                            Files.delete(target.toPath())
+                        }
                         target.outputStream().use { output ->
                             input.copyExactly(output, header.size)
                         }
@@ -162,7 +172,7 @@ class RootfsInstaller(
                     input.skipFully(header.size)
                 }
                 input.skipFully(header.size.paddingSize())
-                if (header.modTime > 0 && header.type != TarEntryType.SYMLINK) {
+                if (header.modTime > 0 && header.type in MATERIALIZED_ENTRY_TYPES) {
                     target.setLastModified(header.modTime * 1000)
                 }
                 entries++
@@ -180,22 +190,23 @@ class RootfsInstaller(
     private fun createSymlink(root: File, target: File, linkName: String) {
         if (linkName.isBlank()) return
         val unixAbsoluteLinkTarget = linkName.startsWith('/')
-        val absoluteLinkTarget = unixAbsoluteLinkTarget || File(linkName).isAbsolute
-        val materializedSource = if (absoluteLinkTarget) {
-            root.safeResolve(linkName)
+        val materializedSource = if (unixAbsoluteLinkTarget) {
+            root.resolveRootfsLinkPath(linkName)
         } else {
-            val resolved = File(target.parentFile ?: root, linkName).canonicalFile
-            val rootFile = root.canonicalFile
-            require(resolved.path == rootFile.path || resolved.path.startsWith(rootFile.path + File.separator)) {
+            val rootPath = root.canonicalFile.toPath().normalize()
+            val resolved = (target.parentFile ?: root).toPath()
+                .resolve(linkName)
+                .normalize()
+            require(resolved.startsWith(rootPath)) {
                 "Symlink escapes rootfs: ${target.name}"
             }
-            resolved
+            resolved.toFile()
         }
         val linkTarget = if (unixAbsoluteLinkTarget && File.separatorChar == '\\') {
             (target.parentFile ?: root).toPath()
                 .relativize(materializedSource.toPath())
                 .toFile()
-        } else if (absoluteLinkTarget) {
+        } else if (unixAbsoluteLinkTarget) {
             File(linkName)
         } else {
             (target.parentFile ?: root).toPath()
@@ -212,20 +223,24 @@ class RootfsInstaller(
             ) {
                 throw error
             }
-            if (!materializedSource.isFile) {
-                throw error
+            if (materializedSource.isDirectory) {
+                target.mkdirs()
+            } else {
+                if (!materializedSource.isFile) {
+                    throw error
+                }
+                materializedSource.copyTo(target, overwrite = true)
+                target.setReadable(materializedSource.canRead(), false)
+                target.setWritable(materializedSource.canWrite(), true)
+                target.setExecutable(materializedSource.canExecute(), false)
             }
-            materializedSource.copyTo(target, overwrite = true)
-            target.setReadable(materializedSource.canRead(), false)
-            target.setWritable(materializedSource.canWrite(), true)
-            target.setExecutable(materializedSource.canExecute(), false)
         }.getOrThrow()
     }
 
     private fun createHardLink(root: File, target: File, linkName: String) {
         if (linkName.isBlank()) return
-        val source = root.safeResolve(linkName)
-        if (!source.exists()) return
+        val source = root.resolveRootfsLinkPath(linkName)
+        if (!Files.isRegularFile(source.toPath(), LinkOption.NOFOLLOW_LINKS)) return
         target.delete()
         runCatching {
             Files.createLink(target.toPath(), source.toPath())
@@ -346,13 +361,70 @@ class RootfsInstaller(
     }
 
     private fun File.safeResolve(path: String): File {
+        return resolveGuestPath(path, followFinalSymlink = false)
+    }
+
+    /**
+     * Resolves a tar link target inside the staged RootFS without following links that were
+     * extracted earlier. Absolute Unix paths belong to the guest RootFS, not the Android host.
+     */
+    private fun File.resolveRootfsLinkPath(path: String): File {
+        return resolveGuestPath(path, followFinalSymlink = true)
+    }
+
+    /**
+     * Resolves path components through symlinks already materialized in the staged RootFS.
+     * Guest-absolute symlinks restart at [rootPath], never at the Android host root.
+     */
+    private fun File.resolveGuestPath(
+        path: String,
+        followFinalSymlink: Boolean,
+    ): File {
         val normalized = normalizeTarPath(path)
-        val root = canonicalFile
-        val target = File(root, normalized).canonicalFile
-        require(target.path == root.path || target.path.startsWith(root.path + File.separator)) {
-            "Rootfs entry escapes target directory: $path"
+        val rootPath = canonicalFile.toPath().normalize()
+        val pending = ArrayDeque(normalized.split('/'))
+        var current = rootPath
+        var followedSymlinks = 0
+        while (pending.isNotEmpty()) {
+            val component = pending.removeFirst()
+            when (component) {
+                "", "." -> continue
+                ".." -> {
+                    require(current != rootPath) {
+                        "Rootfs entry escapes target directory: $path"
+                    }
+                    current = current.parent
+                    continue
+                }
+            }
+
+            val candidate = current.resolve(component).normalize()
+            require(candidate.startsWith(rootPath)) {
+                "Rootfs entry escapes target directory: $path"
+            }
+            val shouldFollow = followFinalSymlink || pending.isNotEmpty()
+            if (shouldFollow && Files.isSymbolicLink(candidate)) {
+                followedSymlinks++
+                require(followedSymlinks <= MAX_FOLLOWED_SYMLINKS) {
+                    "Rootfs symlink chain is too deep: $path"
+                }
+                val link = Files.readSymbolicLink(candidate)
+                val linkText = link.toString().replace('\\', '/')
+                current = if (linkText.startsWith('/')) {
+                    rootPath
+                } else {
+                    candidate.parent
+                }
+                linkText
+                    .trimStart('/')
+                    .split('/')
+                    .asReversed()
+                    .forEach(pending::addFirst)
+            } else {
+                current = candidate
+            }
         }
-        return target
+        return current.toFile()
     }
 
     private fun File.applyMode(mode: Int) {
@@ -438,6 +510,12 @@ class RootfsInstaller(
     }
 
     companion object {
+        private val MATERIALIZED_ENTRY_TYPES = setOf(
+            TarEntryType.DIRECTORY,
+            TarEntryType.FILE,
+            TarEntryType.HARDLINK,
+        )
+        private const val MAX_FOLLOWED_SYMLINKS = 40
         private const val TAR_BLOCK_SIZE = 512
         private const val BUFFER_SIZE = 64 * 1024
         private const val PROGRESS_STEP_BYTES = 512 * 1024

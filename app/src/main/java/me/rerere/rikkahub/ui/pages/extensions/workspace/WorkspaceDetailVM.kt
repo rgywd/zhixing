@@ -17,6 +17,8 @@ import me.rerere.rikkahub.data.knowledge.KnowledgeSpaceService
 import me.rerere.workspace.KnowledgeSpaceStatus
 import me.rerere.workspace.RootfsInstallProgress
 import me.rerere.workspace.RootfsInstallStage
+import me.rerere.workspace.VaultGitRemoteConflictException
+import me.rerere.workspace.VaultGitStatus
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceStorageArea
@@ -41,6 +43,7 @@ class WorkspaceDetailVM(
     init {
         loadWorkspace()
         refresh()
+        refreshVault()
     }
 
     fun selectArea(area: WorkspaceStorageArea) {
@@ -72,6 +75,39 @@ class WorkspaceDetailVM(
             )
         }
         refresh()
+    }
+
+    fun openVault(entry: WorkspaceFileEntry) {
+        if (!entry.isDirectory) return
+        val relativePath = entry.path
+            .removePrefix("vault/")
+            .takeUnless { it == "vault" }
+            .orEmpty()
+        _state.update {
+            it.copy(
+                vault = it.vault.copy(
+                    path = relativePath,
+                    entries = emptyList(),
+                    error = null,
+                )
+            )
+        }
+        refreshVault()
+    }
+
+    fun goUpVault() {
+        val path = state.value.vault.path
+        if (path.isBlank()) return
+        _state.update {
+            it.copy(
+                vault = it.vault.copy(
+                    path = path.substringBeforeLast('/', missingDelimiterValue = ""),
+                    entries = emptyList(),
+                    error = null,
+                )
+            )
+        }
+        refreshVault()
     }
 
     fun refresh() {
@@ -139,6 +175,7 @@ class WorkspaceDetailVM(
             runCatching { repository.initializeKnowledgeSpace(id) }
                 .onSuccess { status ->
                     _state.update { it.copy(knowledgeStatus = status, knowledgeBusy = false) }
+                    refreshVault()
                     refresh()
                 }
                 .onFailure { error ->
@@ -159,6 +196,7 @@ class WorkspaceDetailVM(
                 knowledgeSpaceService.importDocument(id, fileName, mimeType, inputStream)
             }.onSuccess {
                 refreshKnowledgeStatus()
+                refreshVault()
                 refresh()
                 _state.update { it.copy(knowledgeBusy = false) }
             }.onFailure { error ->
@@ -191,7 +229,12 @@ class WorkspaceDetailVM(
      * 把当前区域下的文件导出到 cacheDir 的临时文件, 完成后回调 [onReady].
      * 供分享 / 图片预览 / 交给系统应用打开等复用 (它们都需要一个 FileProvider 可访问的真实 File).
      */
-    fun exportToCacheFile(entry: WorkspaceFileEntry, cacheDir: File, onReady: (File) -> Unit) {
+    fun exportToCacheFile(
+        entry: WorkspaceFileEntry,
+        cacheDir: File,
+        area: WorkspaceStorageArea = state.value.area,
+        onReady: (File) -> Unit,
+    ) {
         viewModelScope.launch {
             runCatching {
                 val dir = File(cacheDir, "workspace_share").apply { mkdirs() }
@@ -199,7 +242,7 @@ class WorkspaceDetailVM(
                 file.outputStream().use { output ->
                     repository.exportFile(
                         id = id,
-                        area = state.value.area,
+                        area = area,
                         path = entry.path,
                         outputStream = output,
                     )
@@ -230,6 +273,7 @@ class WorkspaceDetailVM(
                 }
                 loadWorkspace()
                 refresh()
+                refreshVault()
             } catch (e: CancellationException) {
                 throw e
             } catch (error: Throwable) {
@@ -242,6 +286,147 @@ class WorkspaceDetailVM(
 
     fun dismissInstallError() {
         _installError.value = null
+    }
+
+    fun refreshVault() {
+        viewModelScope.launch {
+            _state.update {
+                it.copy(vault = it.vault.copy(loading = true, error = null))
+            }
+            runCatching {
+                val status = repository.knowledgeSpaceStatus(id)
+                if (!status.initialized) {
+                    null
+                } else {
+                    repository.listKnowledgeContents(id, state.value.vault.path) to
+                        repository.vaultGitStatus(id)
+                }
+            }.onSuccess { result ->
+                _state.update {
+                    it.copy(
+                        vault = it.vault.copy(
+                            entries = result?.first.orEmpty(),
+                            gitStatus = result?.second,
+                            loading = false,
+                            error = null,
+                        )
+                    )
+                }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        vault = it.vault.copy(
+                            entries = emptyList(),
+                            loading = false,
+                            error = error.message ?: "加载知识库失败",
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun bindVaultGitRemote(remoteUrl: String, replaceExisting: Boolean = false) {
+        val normalizedRemote = remoteUrl.trim()
+        if (normalizedRemote.isBlank()) {
+            _state.update {
+                it.copy(vault = it.vault.copy(error = "请输入 Git 仓库地址"))
+            }
+            return
+        }
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    vault = it.vault.copy(
+                        gitBusy = true,
+                        error = null,
+                        pendingRemoteUrl = null,
+                    )
+                )
+            }
+            runCatching {
+                repository.bindVaultGitRemote(
+                    id = id,
+                    remoteUrl = normalizedRemote,
+                    replaceExisting = replaceExisting,
+                )
+            }.onSuccess { result ->
+                _state.update {
+                    it.copy(
+                        vault = it.vault.copy(
+                            gitStatus = result.status,
+                            gitBusy = false,
+                            error = null,
+                            pendingRemoteUrl = null,
+                        )
+                    )
+                }
+                refreshVault()
+            }.onFailure { error ->
+                if (error is VaultGitRemoteConflictException) {
+                    _state.update {
+                        it.copy(
+                            vault = it.vault.copy(
+                                gitBusy = false,
+                                error = null,
+                                pendingRemoteUrl = normalizedRemote,
+                            )
+                        )
+                    }
+                } else {
+                    _state.update {
+                        it.copy(
+                            vault = it.vault.copy(
+                                gitBusy = false,
+                                error = error.message ?: "绑定 Git 仓库失败",
+                                pendingRemoteUrl = null,
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun installVaultGit() {
+        viewModelScope.launch {
+            _state.update {
+                it.copy(vault = it.vault.copy(gitBusy = true, error = null))
+            }
+            runCatching {
+                repository.installVaultGit(id)
+            }.onSuccess { status ->
+                _state.update {
+                    it.copy(
+                        vault = it.vault.copy(
+                            gitStatus = status,
+                            gitBusy = false,
+                            error = null,
+                        )
+                    )
+                }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        vault = it.vault.copy(
+                            gitBusy = false,
+                            error = error.message ?: "安装 Git 失败",
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun replaceVaultGitRemote() {
+        val remoteUrl = state.value.vault.pendingRemoteUrl ?: return
+        bindVaultGitRemote(remoteUrl, replaceExisting = true)
+    }
+
+    fun dismissVaultGitRemoteConflict() {
+        _state.update {
+            it.copy(vault = it.vault.copy(pendingRemoteUrl = null))
+        }
     }
 
     fun executeTerminalCommand(command: String) {
@@ -313,6 +498,17 @@ data class WorkspaceDetailState(
     val error: String? = null,
     val knowledgeStatus: KnowledgeSpaceStatus? = null,
     val knowledgeBusy: Boolean = false,
+    val vault: KnowledgeVaultState = KnowledgeVaultState(),
+)
+
+data class KnowledgeVaultState(
+    val path: String = "",
+    val entries: List<WorkspaceFileEntry> = emptyList(),
+    val gitStatus: VaultGitStatus? = null,
+    val loading: Boolean = false,
+    val gitBusy: Boolean = false,
+    val error: String? = null,
+    val pendingRemoteUrl: String? = null,
 )
 
 data class WorkspaceTerminalState(

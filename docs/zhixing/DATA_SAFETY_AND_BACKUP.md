@@ -21,7 +21,8 @@
 - Room 存在连续迁移注册，未启用 destructive fallback。
 - v40→v41 只新增月度收支与渠道汇总表及索引；v39→v40 扩展 Work 运行时身份，两次迁移均保留
   既有会话、事项、长期计划与其他用户数据。
-- Workspace 用户文件位于 `files/workspaces/<root>/files`，与可替换的 `linux` RootFS 分离。
+- Workspace 用户文件位于 `files/workspaces/<root>/files`，OrbitOS 知识库位于其中的 `vault/`，
+  二者都与可替换的 `linux` RootFS 分离。
 - WebDAV、S3、手动导入导出和备份提醒已有基础实现。
 - WebDAV/S3 新建数据库备份使用 `zhixing.db`、`zhixing-wal`、`zhixing-shm`；恢复优先识别该命名，
   同时将旧备份中的 `rikka_hub.db`、`rikka_hub-wal`、`rikka_hub-shm` 映射回当前逻辑库。
@@ -50,11 +51,11 @@ P0 缺口：
 | --- | --- | --- | --- |
 | 会话、消息、记忆、待办、月度收支汇总、工作区元数据 | Room `zhixing` | 必须保留 | 必须 |
 | Provider、助手、外观、同步配置 | DataStore | 必须保留 | 必须 |
-| 普通上传附件、Skills、Workspace 用户文件与知识原文 | 应用 `files/` | 必须保留 | 必须 |
+| 普通上传附件、Skills、Workspace 用户文件与 `vault/` 原文 | 应用 `files/` | 必须保留 | 必须 |
 | 成功保存月度汇总后的账单附件与对应 OCR 缓存 | 临时输入 | 按月度汇总契约清理 | 不作为持久备份对象 |
 | Workspace RootFS、派生索引、缓存和临时工具输出 | 可重建数据 | 可重建 | 默认不备份 |
 
-知识原文不得只存放在 RootFS 的 `/root`、`/var` 或 `/tmp`。
+知识原文必须位于持久 `/workspace/vault`，不得只存放在 RootFS 的 `/root`、`/var` 或 `/tmp`。
 
 月度账单上传是一个明确例外：当同一来源批次关联的月度汇总保存全部成功且来源消息脱敏已落库后，
 应用会从来源消息移除附件引用，并尝试删除位于受管上传目录中的原附件与对应 OCR 缓存。物理文件仍被
