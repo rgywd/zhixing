@@ -45,3 +45,12 @@
 -keepattributes Signature, InnerClasses, EnclosingMethod
 -keep class com.fasterxml.jackson.** { *; }
 -keep class com.auth0.jwt.** { *; }
+
+# AMap Location and Search SDK
+-keep class com.amap.api.maps.** { *; }
+-keep class com.amap.api.trace.** { *; }
+-keep class com.amap.api.location.** { *; }
+-keep class com.amap.api.fence.** { *; }
+-keep class com.loc.** { *; }
+-keep class com.autonavi.** { *; }
+-keep class com.amap.api.services.** { *; }

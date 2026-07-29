@@ -1,21 +1,30 @@
 package me.rerere.rikkahub.ui.pages.assistant.detail
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LargeFlexibleTopAppBar
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
@@ -46,6 +55,7 @@ fun AssistantLocalToolPage(id: String) {
         }
     )
     val assistant by vm.assistant.collectAsStateWithLifecycle()
+    val settings by vm.settings.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
@@ -67,7 +77,9 @@ fun AssistantLocalToolPage(id: String) {
         AssistantLocalToolContent(
             innerPadding = innerPadding,
             assistant = assistant,
-            onUpdate = { vm.update(it) }
+            hasLocationTravelPrivacyConsent = settings.locationTravelPrivacyConsent,
+            onAcceptLocationTravelPrivacyConsent = vm::acceptLocationTravelPrivacyConsent,
+            onUpdate = { vm.update(it) },
         )
     }
 }
@@ -76,12 +88,16 @@ fun AssistantLocalToolPage(id: String) {
 private fun AssistantLocalToolContent(
     innerPadding: PaddingValues,
     assistant: Assistant,
+    hasLocationTravelPrivacyConsent: Boolean,
+    onAcceptLocationTravelPrivacyConsent: () -> Unit,
     onUpdate: (Assistant) -> Unit
 ) {
     val context = LocalContext.current
     val toaster = LocalToaster.current
     val permissionRequiredText =
         stringResource(R.string.assistant_page_local_tools_screen_time_permission_required)
+    var showLocationTravelPrivacyDialog by remember { mutableStateOf(false) }
+    var pendingLocationTravelEnable by remember { mutableStateOf(false) }
 
     val calendarPermissionState = rememberPermissionState(
         permissions = setOf(
@@ -101,6 +117,46 @@ private fun AssistantLocalToolContent(
     )
     PermissionManager(permissionState = calendarPermissionState)
 
+    val locationPermissionState = rememberPermissionState(
+        permissions = setOf(
+            PermissionInfo(
+                permission = Manifest.permission.ACCESS_COARSE_LOCATION,
+                displayName = { Text(stringResource(R.string.permission_location_approximate)) },
+                usage = { Text(stringResource(R.string.permission_location_approximate_desc)) },
+                required = true,
+            ),
+            PermissionInfo(
+                permission = Manifest.permission.ACCESS_FINE_LOCATION,
+                displayName = { Text(stringResource(R.string.permission_location_precise)) },
+                usage = { Text(stringResource(R.string.permission_location_precise_desc)) },
+                required = false,
+            ),
+        ),
+    )
+    PermissionManager(permissionState = locationPermissionState)
+
+    fun enableLocationTravel() {
+        onUpdate(
+            assistant.copy(
+                localTools = assistant.localTools + LocalToolOption.LocationTravel,
+            ),
+        )
+        pendingLocationTravelEnable = false
+    }
+
+    LaunchedEffect(
+        pendingLocationTravelEnable,
+        locationPermissionState.allRequiredPermissionsGranted,
+        assistant.localTools,
+    ) {
+        if (pendingLocationTravelEnable &&
+            locationPermissionState.allRequiredPermissionsGranted &&
+            LocalToolOption.LocationTravel !in assistant.localTools
+        ) {
+            enableLocationTravel()
+        }
+    }
+
     fun toggleLocalTool(option: LocalToolOption, enabled: Boolean) {
         if (enabled && option == LocalToolOption.ScreenTime && !context.hasUsageStatsPermission()) {
             toaster.show(message = permissionRequiredText, type = ToastType.Warning)
@@ -109,6 +165,18 @@ private fun AssistantLocalToolContent(
         if (enabled && option == LocalToolOption.Calendar && !calendarPermissionState.allPermissionsGranted) {
             calendarPermissionState.requestPermissions()
             return
+        }
+        if (option == LocalToolOption.LocationTravel) {
+            if (!enabled) {
+                pendingLocationTravelEnable = false
+            } else if (!hasLocationTravelPrivacyConsent) {
+                showLocationTravelPrivacyDialog = true
+                return
+            } else if (!locationPermissionState.allRequiredPermissionsGranted) {
+                pendingLocationTravelEnable = true
+                locationPermissionState.requestPermissions()
+                return
+            }
         }
         val newLocalTools = if (enabled) {
             assistant.localTools + option
@@ -226,6 +294,71 @@ private fun AssistantLocalToolContent(
                     )
                 }
             )
+            item(
+                headlineContent = {
+                    Text(stringResource(R.string.assistant_page_local_tools_location_travel_title))
+                },
+                supportingContent = {
+                    Text(stringResource(R.string.assistant_page_local_tools_location_travel_desc))
+                },
+                trailingContent = {
+                    Switch(
+                        checked = assistant.localTools.contains(LocalToolOption.LocationTravel),
+                        onCheckedChange = {
+                            toggleLocalTool(LocalToolOption.LocationTravel, it)
+                        },
+                    )
+                },
+            )
         }
+    }
+
+    if (showLocationTravelPrivacyDialog) {
+        AlertDialog(
+            onDismissRequest = { showLocationTravelPrivacyDialog = false },
+            title = {
+                Text(stringResource(R.string.location_travel_privacy_dialog_title))
+            },
+            text = {
+                Text(stringResource(R.string.location_travel_privacy_dialog_desc))
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onAcceptLocationTravelPrivacyConsent()
+                        showLocationTravelPrivacyDialog = false
+                        pendingLocationTravelEnable = true
+                        if (locationPermissionState.allRequiredPermissionsGranted) {
+                            enableLocationTravel()
+                        } else {
+                            locationPermissionState.requestPermissions()
+                        }
+                    },
+                ) {
+                    Text(stringResource(R.string.location_travel_privacy_agree))
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(
+                                        Intent.ACTION_VIEW,
+                                        Uri.parse("https://lbs.amap.com/pages/privacy/"),
+                                    ),
+                                )
+                            }
+                        },
+                    ) {
+                        Text(stringResource(R.string.location_travel_privacy_policy))
+                    }
+                    TextButton(onClick = { showLocationTravelPrivacyDialog = false }) {
+                        Text(stringResource(R.string.common_cancel))
+                    }
+                }
+            },
+        )
     }
 }

@@ -1365,4 +1365,19 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="chat_page_delete_folder_generating">フォルダ内の一部の会話がまだ生成中です。削除する前にそれらを停止してください。</string>
   <string name="setting_display_page_tts_read_outside_brackets_title">TTS 括弧内を読み上げない</string>
   <string name="setting_display_page_tts_read_outside_brackets_desc">有効にすると、TTS は括弧内の内容を読み上げません</string>
+  <string name="assistant_page_local_tools_location_travel_title">位置情報と移動</string>
+  <string name="assistant_page_local_tools_location_travel_desc">AI が現在地を取得し、周辺スポットを検索し、確認後に AMap ナビを開けるようにします</string>
+  <string name="permission_location_approximate">おおよその位置情報</string>
+  <string name="permission_location_approximate_desc">住所と周辺スポットのリクエストのために、フォアグラウンドで 1 回だけ位置情報を取得します</string>
+  <string name="permission_location_precise">正確な位置情報</string>
+  <string name="permission_location_precise_desc">許可した場合、フォアグラウンドでの 1 回限りの測位精度を向上させます</string>
+  <string name="location_travel_privacy_dialog_title">位置情報と移動を有効にしますか？</string>
+  <string name="location_travel_privacy_dialog_desc">知行は位置情報ツールの呼び出しを承認した後にのみ、AMap の位置情報・検索 SDK を使用します。位置情報は 1 回限りの測位と周辺検索のため AMap へ直接送信されます。バックグラウンド追跡や位置履歴の保存は行いません。現在地の座標は既定でモデルに表示されませんが、周辺検索結果と目的地はこのチャットに含まれる場合があります。</string>
+  <string name="location_travel_privacy_agree">同意して続行</string>
+  <string name="location_travel_privacy_policy">AMap プライバシーポリシー</string>
+  <string name="chat_message_tool_current_location">現在地を取得</string>
+  <string name="chat_message_tool_nearby_places">周辺を検索：%1$s</string>
+  <string name="chat_message_tool_open_navigation">ナビを開く：%1$s</string>
+  <string name="tool_ui_navigation_amap_app">AMap で開きました</string>
+  <string name="tool_ui_navigation_amap_web">AMap Web ナビを開きました</string>
 </resources>

@@ -105,6 +105,9 @@ SettingsStore -> DataStore
   [`KNOWLEDGE_SPACE.md`](./KNOWLEDGE_SPACE.md)。
 - Agenda 以本地待办和长期计划为事实来源，系统日历只读投影见
   [`AGENDA_AND_CALENDAR.md`](./AGENDA_AND_CALENDAR.md)。
+- 位置与出行是用户按助手启用的前台工具组。定位和附近检索直接调用高德服务，默认不向模型返回用户坐标，
+  不申请后台权限、不建立位置历史，打开导航前始终需要用户确认；见
+  [`LOCATION_AND_TRAVEL.md`](./LOCATION_AND_TRAVEL.md)。
 - 邮件与飞书监控是可选只读云能力：Life Gateway 持有连接器与事件事实，Work Core 只做经过用户鉴权的固定
   schema 薄代理，Android 不保存消息正文或第二份事件真相；见
   [`INFORMATION_MONITOR.md`](./INFORMATION_MONITOR.md)。

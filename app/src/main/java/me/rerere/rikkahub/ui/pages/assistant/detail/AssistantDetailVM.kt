@@ -228,6 +228,14 @@ class AssistantDetailVM(
         }
     }
 
+    fun acceptLocationTravelPrivacyConsent() {
+        viewModelScope.launch {
+            settingsStore.update { current ->
+                current.copy(locationTravelPrivacyConsent = true)
+            }
+        }
+    }
+
     fun addMemory(memory: AssistantMemory) {
         viewModelScope.launch {
             val memoryAssistantId = if (assistant.value.useGlobalMemory) {

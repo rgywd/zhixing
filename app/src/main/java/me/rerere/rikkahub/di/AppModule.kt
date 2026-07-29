@@ -3,7 +3,11 @@ package me.rerere.rikkahub.di
 import kotlinx.serialization.json.Json
 import me.rerere.highlight.Highlighter
 import me.rerere.rikkahub.AppScope
+import me.rerere.rikkahub.BuildConfig
+import me.rerere.rikkahub.data.ai.tools.local.LocationTravelGateway
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
+import me.rerere.rikkahub.data.ai.tools.local.NavigationLauncher
+import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.device.lenovo.LenovoWatchConnectionManager
 import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbe
@@ -34,6 +38,8 @@ import me.rerere.rikkahub.data.work.PhoneWorkTitleGenerator
 import me.rerere.rikkahub.data.github.GitHubCliRunner
 import me.rerere.rikkahub.data.github.GitHubIssueCredentialStore
 import me.rerere.rikkahub.data.github.GitHubIssueTokenProvider
+import me.rerere.rikkahub.data.location.AmapLocationTravelGateway
+import me.rerere.rikkahub.data.location.AndroidAmapNavigationLauncher
 import me.rerere.rikkahub.service.ChatGenerationForegroundController
 import me.rerere.rikkahub.service.ChatNotificationManager
 import me.rerere.rikkahub.service.ChatService
@@ -92,17 +98,32 @@ val appModule = module {
 
     single { TodayOverviewProvider(get(), get(), get(), get()) }
 
+    single<LocationTravelGateway> {
+        val settingsStore = get<SettingsStore>()
+        AmapLocationTravelGateway(get()) {
+            settingsStore.settingsFlow.value.locationTravelPrivacyConsent
+        }
+    }
+    single<NavigationLauncher> { AndroidAmapNavigationLauncher(get()) }
+
     single {
+        val settingsStore = get<SettingsStore>()
         LocalTools(
             context = get(),
             eventBus = get(),
             ttsManager = get(),
-            settingsStore = get(),
+            settingsStore = settingsStore,
             agendaTaskRepository = get(),
             agendaPlanRepository = get(),
             monthlyLedgerRepository = get(),
             phoneWorkApiClient = get(),
             phoneWorkCredentialStore = get(),
+            locationTravelGateway = get(),
+            navigationLauncher = get(),
+            isLocationTravelConfigured = { BuildConfig.AMAP_API_KEY_CONFIGURED },
+            hasLocationTravelPrivacyConsent = {
+                settingsStore.settingsFlow.value.locationTravelPrivacyConsent
+            },
         )
     }
 

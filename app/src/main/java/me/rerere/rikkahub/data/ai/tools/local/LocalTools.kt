@@ -21,6 +21,10 @@ class LocalTools(
     private val monthlyLedgerRepository: MonthlyLedgerRepository,
     private val phoneWorkApiClient: PhoneWorkApiClient,
     private val phoneWorkCredentialStore: PhoneWorkCredentialStore,
+    private val locationTravelGateway: LocationTravelGateway,
+    private val navigationLauncher: NavigationLauncher,
+    private val isLocationTravelConfigured: () -> Boolean,
+    private val hasLocationTravelPrivacyConsent: () -> Boolean,
 ) {
     val javascriptTool by lazy { buildJavascriptTool() }
 
@@ -48,6 +52,15 @@ class LocalTools(
 
     val inboxMonitorTool by lazy {
         buildInboxMonitorTool(phoneWorkApiClient, phoneWorkCredentialStore)
+    }
+
+    val locationTravelTools by lazy {
+        buildLocationTravelTools(
+            gateway = locationTravelGateway,
+            navigationLauncher = navigationLauncher,
+            isConfigured = isLocationTravelConfigured,
+            hasPrivacyConsent = hasLocationTravelPrivacyConsent,
+        )
     }
 
     fun getTools(options: List<LocalToolOption>): List<Tool> {
@@ -78,6 +91,9 @@ class LocalTools(
         if (options.contains(LocalToolOption.Calendar)) {
             tools.add(calendarQueryTool)
             tools.add(calendarCreateTool)
+        }
+        if (options.contains(LocalToolOption.LocationTravel)) {
+            tools.addAll(locationTravelTools)
         }
         return tools
     }
