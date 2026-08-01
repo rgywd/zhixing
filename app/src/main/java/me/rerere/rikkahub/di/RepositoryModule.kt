@@ -10,6 +10,7 @@ import me.rerere.rikkahub.data.repository.AgendaPlanRepository
 import me.rerere.rikkahub.data.agenda.AgendaPlanReminderGateway
 import me.rerere.rikkahub.data.agenda.AgendaPlanReminderScheduler
 import me.rerere.rikkahub.data.agenda.AgendaReminderScheduler
+import me.rerere.rikkahub.data.agenda.AgendaTaskReminderGateway
 import me.rerere.rikkahub.data.agenda.DeviceCalendarRepository
 import me.rerere.rikkahub.data.repository.FavoriteRepository
 import me.rerere.rikkahub.data.repository.FolderRepository
@@ -27,7 +28,7 @@ import org.koin.dsl.module
 import java.io.File
 
 val repositoryModule = module {
-    single { AgendaReminderScheduler(get()) }
+    single<AgendaTaskReminderGateway> { AgendaReminderScheduler(get()) }
 
     single { AgendaTaskRepository(get(), get()) }
 

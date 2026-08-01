@@ -71,6 +71,7 @@ import me.rerere.rikkahub.data.agenda.buildAgendaFutureTimeline
 import me.rerere.rikkahub.data.agenda.buildAgendaProjection
 import me.rerere.rikkahub.data.agenda.resolveAgendaTaskSave
 import me.rerere.rikkahub.data.model.AgendaPlanStageStatus
+import me.rerere.rikkahub.data.model.AgendaRecurrence
 import me.rerere.rikkahub.data.model.AgendaPlanSource
 import me.rerere.rikkahub.data.model.AgendaTask
 import me.rerere.rikkahub.data.model.AgendaTaskStatus
@@ -378,7 +379,7 @@ fun AgendaPage(initialTaskId: String? = null) {
         AgendaTaskEditorSheet(
             task = editorTask,
             onDismiss = { editorOpen = false },
-            onSave = { title, note, dueAt, reminderEnabled ->
+            onSave = { title, note, dueAt, reminderEnabled, recurrenceFrequency, recurrenceInterval ->
                 val task = editorTask
                 val save = resolveAgendaTaskSave(
                     AgendaTaskSaveInput(
@@ -393,10 +394,24 @@ fun AgendaPage(initialTaskId: String? = null) {
                 )
                 scope.launch {
                     try {
+                        val recurrence = recurrenceFrequency?.let { AgendaRecurrence(it, recurrenceInterval) }
                         if (task == null) {
-                            taskRepository.create(save.title, save.note, save.dueAt, save.reminderAt)
+                            taskRepository.create(
+                                save.title,
+                                save.note,
+                                save.dueAt,
+                                save.reminderAt,
+                                recurrence = recurrence,
+                            )
                         } else {
-                            taskRepository.update(task.id, save.title, save.note, save.dueAt, save.reminderAt)
+                            taskRepository.update(
+                                task.id,
+                                save.title,
+                                save.note,
+                                save.dueAt,
+                                save.reminderAt,
+                                recurrence,
+                            )
                         }
                         if (save.reminderAt != null && !notificationPermission.allPermissionsGranted) {
                             notificationPermission.requestPermissions()

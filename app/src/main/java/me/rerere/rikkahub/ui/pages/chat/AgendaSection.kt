@@ -7,14 +7,17 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -68,8 +72,11 @@ import me.rerere.rikkahub.data.agenda.buildAgendaProjection
 import me.rerere.rikkahub.data.agenda.resolveAgendaTaskSave
 import me.rerere.rikkahub.data.model.AgendaPlanStageStatus
 import me.rerere.rikkahub.data.model.AgendaPlanWithStages
+import me.rerere.rikkahub.data.model.AgendaRecurrence
+import me.rerere.rikkahub.data.model.AgendaRecurrenceFrequency
 import me.rerere.rikkahub.data.model.AgendaTask
 import me.rerere.rikkahub.data.model.AgendaTaskStatus
+import me.rerere.rikkahub.data.model.MAX_AGENDA_RECURRENCE_INTERVAL
 import me.rerere.rikkahub.data.repository.AgendaPlanRepository
 import me.rerere.rikkahub.data.repository.AgendaTaskRepository
 import me.rerere.rikkahub.Screen
@@ -264,7 +271,7 @@ internal fun AgendaOverviewSection() {
         AgendaTaskEditorSheet(
             task = editorTask,
             onDismiss = { editorOpen = false },
-            onSave = { title, note, dueAt, reminderEnabled ->
+            onSave = { title, note, dueAt, reminderEnabled, recurrenceFrequency, recurrenceInterval ->
                 val task = editorTask
                 val save = resolveAgendaTaskSave(
                     AgendaTaskSaveInput(
@@ -278,10 +285,17 @@ internal fun AgendaOverviewSection() {
                     )
                 )
                 scope.launch {
+                    val recurrence = recurrenceFrequency?.let { AgendaRecurrence(it, recurrenceInterval) }
                     if (task == null) {
-                        repository.create(save.title, save.note, save.dueAt, save.reminderAt)
+                        repository.create(
+                            save.title,
+                            save.note,
+                            save.dueAt,
+                            save.reminderAt,
+                            recurrence = recurrence,
+                        )
                     } else {
-                        repository.update(task.id, save.title, save.note, save.dueAt, save.reminderAt)
+                        repository.update(task.id, save.title, save.note, save.dueAt, save.reminderAt, recurrence)
                     }
                     if (save.reminderAt != null && !notificationPermission.allPermissionsGranted) {
                         notificationPermission.requestPermissions()
@@ -605,7 +619,14 @@ private fun CalendarPermissionCard(onConnect: () -> Unit) {
 internal fun AgendaTaskEditorSheet(
     task: AgendaTask?,
     onDismiss: () -> Unit,
-    onSave: (title: String, note: String, dueAt: Long?, reminderEnabled: Boolean) -> Unit,
+    onSave: (
+        title: String,
+        note: String,
+        dueAt: Long?,
+        reminderEnabled: Boolean,
+        recurrenceFrequency: AgendaRecurrenceFrequency?,
+        recurrenceInterval: Int,
+    ) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
     val context = LocalContext.current
@@ -614,10 +635,19 @@ internal fun AgendaTaskEditorSheet(
     var note by remember(task?.id) { mutableStateOf(task?.note.orEmpty()) }
     var dueAt by remember(task?.id) { mutableStateOf(task?.dueAt) }
     var reminderEnabled by remember(task?.id) { mutableStateOf(task?.reminderAt != null) }
+    var recurrenceFrequency by remember(task?.id) { mutableStateOf(task?.recurrence?.frequency) }
+    var recurrenceIntervalText by remember(task?.id) {
+        mutableStateOf((task?.recurrence?.interval ?: 1).toString())
+    }
     var deleteConfirmationOpen by remember(task?.id) { mutableStateOf(false) }
     val nowMillis = System.currentTimeMillis()
     val existingReminderEligible = task?.reminderAt?.let { it > nowMillis } == true
     val reminderEligible = dueAt?.let { it > nowMillis } == true || existingReminderEligible
+    val recurrenceInterval = recurrenceIntervalText.toIntOrNull()
+    val recurrenceValid = recurrenceFrequency == null || (
+        recurrenceInterval != null && recurrenceInterval in 1..MAX_AGENDA_RECURRENCE_INTERVAL &&
+            (dueAt != null || existingReminderEligible)
+        )
 
     fun pickTime() {
         val initial = dueAt?.let { Instant.ofEpochMilli(it).atZone(zone) } ?: ZonedDateTime.now(zone).plusHours(1)
@@ -705,6 +735,49 @@ internal fun AgendaTaskEditorSheet(
                     enabled = reminderEligible,
                 )
             }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("重复", style = MaterialTheme.typography.bodyLarge)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    listOf(
+                        null to "不重复",
+                        AgendaRecurrenceFrequency.DAILY to "每天",
+                        AgendaRecurrenceFrequency.WEEKLY to "每周",
+                        AgendaRecurrenceFrequency.MONTHLY to "每月",
+                    ).forEach { (frequency, label) ->
+                        FilterChip(
+                            selected = recurrenceFrequency == frequency,
+                            onClick = { recurrenceFrequency = frequency },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+                if (recurrenceFrequency != null) {
+                    OutlinedTextField(
+                        value = recurrenceIntervalText,
+                        onValueChange = { value ->
+                            if (value.length <= 3 && value.all(Char::isDigit)) recurrenceIntervalText = value
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("重复间隔") },
+                        supportingText = {
+                            Text(
+                                if (dueAt == null && !existingReminderEligible) {
+                                    "周期待办需要设置时间"
+                                } else {
+                                    "1-$MAX_AGENDA_RECURRENCE_INTERVAL"
+                                }
+                            )
+                        },
+                        suffix = { Text(recurrenceFrequency!!.intervalUnitLabel()) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        isError = !recurrenceValid,
+                    )
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -716,9 +789,18 @@ internal fun AgendaTaskEditorSheet(
                     }
                 }
                 Button(
-                    onClick = { onSave(title, note, dueAt, reminderEnabled) },
+                    onClick = {
+                        onSave(
+                            title,
+                            note,
+                            dueAt,
+                            reminderEnabled,
+                            recurrenceFrequency,
+                            recurrenceInterval ?: 1,
+                        )
+                    },
                     modifier = Modifier.weight(1f),
-                    enabled = title.isNotBlank(),
+                    enabled = title.isNotBlank() && recurrenceValid,
                 ) { Text("保存") }
             }
             Text(
@@ -798,9 +880,24 @@ private fun isOverdue(task: AgendaTask): Boolean =
 
 private fun taskTimeLabel(task: AgendaTask): String = when {
     task.status == AgendaTaskStatus.COMPLETED -> "已完成"
-    task.dueAt == null -> "无截止时间"
-    isOverdue(task) -> "${formatTaskDateTime(task.dueAt)} · 已逾期"
-    else -> formatTaskDateTime(task.dueAt)
+    task.dueAt == null -> "无截止时间${task.recurrenceLabelSuffix()}"
+    isOverdue(task) -> "${formatTaskDateTime(task.dueAt)} · 已逾期${task.recurrenceLabelSuffix()}"
+    else -> "${formatTaskDateTime(task.dueAt)}${task.recurrenceLabelSuffix()}"
+}
+
+private fun AgendaTask.recurrenceLabelSuffix(): String = recurrence?.let {
+    val label = when (it.frequency) {
+        AgendaRecurrenceFrequency.DAILY -> if (it.interval == 1) "每天" else "每 ${it.interval} 天"
+        AgendaRecurrenceFrequency.WEEKLY -> if (it.interval == 1) "每周" else "每 ${it.interval} 周"
+        AgendaRecurrenceFrequency.MONTHLY -> if (it.interval == 1) "每月" else "每 ${it.interval} 月"
+    }
+    " · $label"
+}.orEmpty()
+
+private fun AgendaRecurrenceFrequency.intervalUnitLabel(): String = when (this) {
+    AgendaRecurrenceFrequency.DAILY -> "天"
+    AgendaRecurrenceFrequency.WEEKLY -> "周"
+    AgendaRecurrenceFrequency.MONTHLY -> "月"
 }
 
 private fun calendarTimeLabel(event: DeviceCalendarEvent): String {

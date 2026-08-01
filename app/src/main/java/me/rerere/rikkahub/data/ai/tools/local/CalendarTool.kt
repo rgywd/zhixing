@@ -17,6 +17,11 @@ import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.agenda.calendarEventDuration
+import me.rerere.rikkahub.data.agenda.parseAgendaRecurrence
+import me.rerere.rikkahub.data.agenda.toRRule
+import me.rerere.rikkahub.data.model.AgendaRecurrenceFrequency
+import me.rerere.rikkahub.data.model.MAX_AGENDA_RECURRENCE_INTERVAL
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -225,50 +230,14 @@ internal fun buildCalendarCreateTool(context: Context): Tool = Tool(
     description = """
         Create a new calendar event on the user's device.
         Requires title and start time at minimum. End time defaults to 1 hour after start.
+        Optional recurrence_frequency supports DAILY, WEEKLY, or MONTHLY with recurrence_interval.
         The device timezone is '${ZoneId.systemDefault()}' (UTC offset ${OffsetDateTime.now().offset});
         times without an explicit offset are interpreted in this timezone.
         Requires the 'Calendar' permission; if it is not granted, an error is returned and the
         permission request is triggered automatically.
     """.trimIndent().replace("\n", " "),
     needsApproval = { true },
-    parameters = {
-        InputSchema.Obj(
-            properties = buildJsonObject {
-                put("title", buildJsonObject {
-                    put("type", "string")
-                    put("description", "Event title.")
-                })
-                put("description", buildJsonObject {
-                    put("type", "string")
-                    put("description", "Event description or notes.")
-                })
-                put("location", buildJsonObject {
-                    put("type", "string")
-                    put("description", "Event location.")
-                })
-                put("start", buildJsonObject {
-                    put("type", "string")
-                    put(
-                        "description",
-                        "Start time. Accepts an ISO-8601 date 'yyyy-MM-dd', a local " +
-                            "date-time 'yyyy-MM-ddTHH:mm:ss', an offset date-time, or epoch milliseconds."
-                    )
-                })
-                put("end", buildJsonObject {
-                    put("type", "string")
-                    put(
-                        "description",
-                        "End time, same formats as 'start'. Defaults to 1 hour after start."
-                    )
-                })
-                put("all_day", buildJsonObject {
-                    put("type", "boolean")
-                    put("description", "Whether this is an all-day event. Default false.")
-                })
-            },
-            required = listOf("title", "start")
-        )
-    },
+    parameters = ::calendarCreateInputSchema,
     execute = { args ->
         if (!hasCalendarWritePermission(context)) {
             val payload = buildJsonObject {
@@ -292,6 +261,31 @@ internal fun buildCalendarCreateTool(context: Context): Tool = Tool(
             val payload = buildJsonObject {
                 put("error", "MISSING_REQUIRED")
                 put("message", "Both 'title' and 'start' are required.")
+            }
+            return@Tool listOf(UIMessagePart.Text(payload.toString()))
+        }
+
+        val recurrence = try {
+            val interval = if (params.containsKey("recurrence_interval")) {
+                params["recurrence_interval"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                    ?: error("recurrence_interval must be an integer")
+            } else {
+                null
+            }
+            parseAgendaRecurrence(
+                frequency = params["recurrence_frequency"]?.jsonPrimitive?.contentOrNull,
+                interval = interval,
+            )
+        } catch (error: IllegalArgumentException) {
+            val payload = buildJsonObject {
+                put("error", "INVALID_RECURRENCE")
+                put("message", error.message ?: "Invalid recurrence")
+            }
+            return@Tool listOf(UIMessagePart.Text(payload.toString()))
+        } catch (error: IllegalStateException) {
+            val payload = buildJsonObject {
+                put("error", "INVALID_RECURRENCE")
+                put("message", error.message ?: "Invalid recurrence")
             }
             return@Tool listOf(UIMessagePart.Text(payload.toString()))
         }
@@ -364,8 +358,13 @@ internal fun buildCalendarCreateTool(context: Context): Tool = Tool(
             put(CalendarContract.Events.DESCRIPTION, description)
             put(CalendarContract.Events.EVENT_LOCATION, location)
             put(CalendarContract.Events.DTSTART, eventStartMillis)
-            put(CalendarContract.Events.DTEND, eventEndMillis)
             put(CalendarContract.Events.EVENT_TIMEZONE, eventTimeZone)
+            if (recurrence == null) {
+                put(CalendarContract.Events.DTEND, eventEndMillis)
+            } else {
+                put(CalendarContract.Events.DURATION, calendarEventDuration(eventStartMillis, eventEndMillis, allDay))
+                put(CalendarContract.Events.RRULE, recurrence.toRRule())
+            }
             if (allDay) {
                 put(CalendarContract.Events.ALL_DAY, 1)
             }
@@ -389,10 +388,65 @@ internal fun buildCalendarCreateTool(context: Context): Tool = Tool(
             put("end", endTime.withNano(0).toString())
             put("all_day", allDay)
             put("location", location)
+            recurrence?.let {
+                put("recurrence_frequency", it.frequency.name)
+                put("recurrence_interval", it.interval)
+            }
         }
         listOf(UIMessagePart.Text(payload.toString()))
     }
 )
+
+internal fun calendarCreateInputSchema(): InputSchema.Obj =
+    InputSchema.Obj(
+        properties = buildJsonObject {
+            put("title", buildJsonObject {
+                put("type", "string")
+                put("description", "Event title.")
+            })
+            put("description", buildJsonObject {
+                put("type", "string")
+                put("description", "Event description or notes.")
+            })
+            put("location", buildJsonObject {
+                put("type", "string")
+                put("description", "Event location.")
+            })
+            put("start", buildJsonObject {
+                put("type", "string")
+                put(
+                    "description",
+                    "Start time. Accepts an ISO-8601 date 'yyyy-MM-dd', a local " +
+                        "date-time 'yyyy-MM-ddTHH:mm:ss', an offset date-time, or epoch milliseconds."
+                )
+            })
+            put("end", buildJsonObject {
+                put("type", "string")
+                put(
+                    "description",
+                    "End time, same formats as 'start'. Defaults to 1 hour after start."
+                )
+            })
+            put("all_day", buildJsonObject {
+                put("type", "boolean")
+                put("description", "Whether this is an all-day event. Default false.")
+            })
+            put("recurrence_frequency", buildJsonObject {
+                put("type", "string")
+                put("description", "Optional recurrence frequency.")
+                put("enum", buildJsonArray {
+                    AgendaRecurrenceFrequency.entries.forEach { add(it.name) }
+                })
+            })
+            put("recurrence_interval", buildJsonObject {
+                put("type", "integer")
+                put("description", "Optional recurrence interval. Defaults to 1.")
+                put("minimum", 1)
+                put("maximum", MAX_AGENDA_RECURRENCE_INTERVAL)
+            })
+        },
+        required = listOf("title", "start")
+    )
 
 private fun hasCalendarReadPermission(context: Context): Boolean =
     ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
