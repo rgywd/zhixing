@@ -13,9 +13,12 @@ import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.agenda.parseAgendaTime
+import me.rerere.rikkahub.data.model.AgendaRecurrence
+import me.rerere.rikkahub.data.model.AgendaRecurrenceFrequency
 import me.rerere.rikkahub.data.model.AgendaTask
 import me.rerere.rikkahub.data.model.AgendaTaskSource
 import me.rerere.rikkahub.data.model.AgendaTaskStatus
+import me.rerere.rikkahub.data.model.MAX_AGENDA_RECURRENCE_INTERVAL
 import me.rerere.rikkahub.data.repository.AgendaTaskRepository
 import java.time.Instant
 import java.time.ZoneId
@@ -52,6 +55,7 @@ private fun buildTaskCreateTool(repository: AgendaTaskRepository) = Tool(
                 stringProperty("note", "Optional task note.")
                 stringProperty("due_at", "Optional due time.")
                 stringProperty("reminder_at", "Optional notification time. Usually equal to or earlier than due_at.")
+                recurrenceProperties()
             },
             required = listOf("title"),
         )
@@ -67,6 +71,7 @@ private fun buildTaskCreateTool(repository: AgendaTaskRepository) = Tool(
                 dueAt = input.optionalTime("due_at"),
                 reminderAt = input.optionalTime("reminder_at"),
                 source = AgendaTaskSource.CHAT,
+                recurrence = input.recurrenceOrExisting(null),
             )
         }.fold(
             onSuccess = { task -> toolResult { put("success", true); put("task", task.toJson()) } },
@@ -87,6 +92,10 @@ private fun buildTaskUpdateTool(repository: AgendaTaskRepository) = Tool(
                 stringProperty("note", "Optional replacement note.")
                 stringProperty("due_at", "Optional replacement due time; empty clears it.")
                 stringProperty("reminder_at", "Optional replacement reminder time; empty clears it.")
+                recurrenceProperties(
+                    frequencyDescription = "Optional recurrence frequency. Omit to keep it; empty clears recurrence.",
+                    intervalDescription = "Optional replacement recurrence interval.",
+                )
             },
             required = listOf("id"),
         )
@@ -102,6 +111,7 @@ private fun buildTaskUpdateTool(repository: AgendaTaskRepository) = Tool(
                 note = input["note"]?.jsonPrimitive?.contentOrNull ?: old.note,
                 dueAt = input.timeOrExisting("due_at", old.dueAt),
                 reminderAt = input.timeOrExisting("reminder_at", old.reminderAt),
+                recurrence = input.recurrenceOrExisting(old.recurrence),
             )
         }.fold(
             onSuccess = { task -> toolResult { put("success", true); put("task", task.toJson()) } },
@@ -162,8 +172,53 @@ private fun kotlinx.serialization.json.JsonObject.timeOrExisting(name: String, o
     return optionalTime(name)
 }
 
+private fun kotlinx.serialization.json.JsonObject.recurrenceOrExisting(
+    old: AgendaRecurrence?,
+): AgendaRecurrence? {
+    val hasFrequency = containsKey("recurrence_frequency")
+    val hasInterval = containsKey("recurrence_interval")
+    if (!hasFrequency && !hasInterval) return old
+
+    val rawFrequency = this["recurrence_frequency"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+    if (hasFrequency && rawFrequency.isEmpty()) return null
+    val frequency = if (hasFrequency) {
+        runCatching { AgendaRecurrenceFrequency.valueOf(rawFrequency.uppercase()) }
+            .getOrElse { error("recurrence_frequency must be DAILY, WEEKLY, or MONTHLY") }
+    } else {
+        old?.frequency ?: error("recurrence_interval requires recurrence_frequency")
+    }
+    val interval = if (hasInterval) {
+        this["recurrence_interval"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+            ?: error("recurrence_interval must be an integer")
+    } else if (hasFrequency && old?.frequency != frequency) {
+        1
+    } else {
+        old?.interval ?: 1
+    }
+    return AgendaRecurrence(frequency, interval)
+}
+
 private fun kotlinx.serialization.json.JsonObjectBuilder.stringProperty(name: String, description: String) {
     put(name, buildJsonObject { put("type", "string"); put("description", description) })
+}
+
+private fun kotlinx.serialization.json.JsonObjectBuilder.recurrenceProperties(
+    frequencyDescription: String = "Optional recurrence frequency. Requires due_at or reminder_at.",
+    intervalDescription: String = "Optional recurrence interval. Defaults to 1.",
+) {
+    put("recurrence_frequency", buildJsonObject {
+        put("type", "string")
+        put("description", frequencyDescription)
+        put("enum", buildJsonArray {
+            AgendaRecurrenceFrequency.entries.forEach { add(it.name) }
+        })
+    })
+    put("recurrence_interval", buildJsonObject {
+        put("type", "integer")
+        put("description", intervalDescription)
+        put("minimum", 1)
+        put("maximum", MAX_AGENDA_RECURRENCE_INTERVAL)
+    })
 }
 
 private fun AgendaTask.toJson() = buildJsonObject {
@@ -181,6 +236,8 @@ private fun AgendaTask.toJson() = buildJsonObject {
     )
     put("source", source.name)
     put("completed", status == AgendaTaskStatus.COMPLETED)
+    put("recurrence_frequency", recurrence?.frequency?.name?.let(::JsonPrimitive) ?: JsonNull)
+    put("recurrence_interval", recurrence?.interval?.let(::JsonPrimitive) ?: JsonNull)
 }
 
 private fun toolResult(content: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit) =

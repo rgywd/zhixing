@@ -8,8 +8,14 @@ import me.rerere.rikkahub.data.model.AgendaTask
 import me.rerere.rikkahub.data.model.AgendaTaskStatus
 import java.util.concurrent.TimeUnit
 
-class AgendaReminderScheduler(private val context: Context) {
-    fun sync(task: AgendaTask) {
+interface AgendaTaskReminderGateway {
+    fun sync(task: AgendaTask)
+
+    fun cancel(taskId: String)
+}
+
+class AgendaReminderScheduler(private val context: Context) : AgendaTaskReminderGateway {
+    override fun sync(task: AgendaTask) {
         cancel(task.id)
         val reminderAt = task.reminderAt ?: return
         if (task.status != AgendaTaskStatus.PENDING) return
@@ -32,7 +38,7 @@ class AgendaReminderScheduler(private val context: Context) {
         )
     }
 
-    fun cancel(taskId: String) {
+    override fun cancel(taskId: String) {
         WorkManager.getInstance(context).cancelUniqueWork(workName(taskId))
     }
 

@@ -5,6 +5,8 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import me.rerere.rikkahub.data.model.AgendaTask
+import me.rerere.rikkahub.data.model.AgendaRecurrence
+import me.rerere.rikkahub.data.model.AgendaRecurrenceFrequency
 import me.rerere.rikkahub.data.model.AgendaTaskSource
 import me.rerere.rikkahub.data.model.AgendaTaskStatus
 
@@ -34,6 +36,10 @@ data class AgendaTaskEntity(
     val updatedAt: Long,
     @ColumnInfo("completed_at")
     val completedAt: Long? = null,
+    @ColumnInfo("recurrence_frequency")
+    val recurrenceFrequency: String? = null,
+    @ColumnInfo("recurrence_interval")
+    val recurrenceInterval: Int = 1,
 )
 
 fun AgendaTaskEntity.toAgendaTask(): AgendaTask = AgendaTask(
@@ -48,6 +54,14 @@ fun AgendaTaskEntity.toAgendaTask(): AgendaTask = AgendaTask(
     createdAt = createdAt,
     updatedAt = updatedAt,
     completedAt = completedAt,
+    recurrence = recurrenceFrequency?.let { frequency ->
+        runCatching {
+            AgendaRecurrence(
+                frequency = AgendaRecurrenceFrequency.valueOf(frequency),
+                interval = recurrenceInterval,
+            )
+        }.getOrNull()
+    },
 )
 
 fun AgendaTask.toEntity(): AgendaTaskEntity = AgendaTaskEntity(
@@ -62,4 +76,6 @@ fun AgendaTask.toEntity(): AgendaTaskEntity = AgendaTaskEntity(
     createdAt = createdAt,
     updatedAt = updatedAt,
     completedAt = completedAt,
+    recurrenceFrequency = recurrence?.frequency?.name,
+    recurrenceInterval = recurrence?.interval ?: 1,
 )

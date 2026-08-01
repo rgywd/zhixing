@@ -40,7 +40,7 @@ import me.rerere.rikkahub.data.db.migrations.Migration_8_9
 import me.rerere.rikkahub.utils.JsonInstant
 
 internal const val APP_DATABASE_NAME = "zhixing"
-internal const val APP_DATABASE_VERSION = 41
+internal const val APP_DATABASE_VERSION = 42
 
 @Database(
     entities = [
