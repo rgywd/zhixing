@@ -118,6 +118,9 @@ v0.1 不包含后台或持续定位、轨迹和位置历史、地理围栏、到
 | staging | `AMAP_API_KEY_STAGING` | `dev.sundby.zhixing.staging` |
 | release | `AMAP_API_KEY_PRODUCTION` | `dev.sundby.zhixing` |
 
+正式发布 workflow 从私有仓库的同名 Actions Secret 注入 `AMAP_API_KEY_PRODUCTION`，并在签名构建前校验
+其非空；不得依赖签名用的 `local.properties` 间接提供该值。
+
 缺少 Key 时仍必须可以编译和运行；位置与附近检索返回 `CONFIGURATION_REQUIRED`，普通聊天和其他本地工具
 保持可用。Key 不得进入 Git、文档、测试快照、命令输出或日志。
 
