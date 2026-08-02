@@ -178,7 +178,11 @@ jobs:
           printf '%s\n' "${SIGNING_CONFIG}" > local.properties
 
       - name: Build signed release APKs
-        run: ./gradlew :app:assembleRelease
+        env:
+          AMAP_API_KEY_PRODUCTION: ${{ secrets.AMAP_API_KEY_PRODUCTION }}
+        run: |
+          test -n "${AMAP_API_KEY_PRODUCTION}" || { echo "Missing AMAP_API_KEY_PRODUCTION secret" >&2; exit 1; }
+          ./gradlew :app:assembleRelease
 
       - name: Upload signed release APK
         uses: actions/upload-artifact@v4

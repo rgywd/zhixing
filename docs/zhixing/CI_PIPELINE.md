@@ -46,7 +46,8 @@ GitHub 私有仓当前没有平台级分支保护，因此 `main` push 不能被
 正式 tag 触发后：
 
 1. `Resolve release` 校验 tag、版本号和 `origin/main` 祖先关系；
-2. `Release tests` 与 `Signed release APK` 在独立 runner 上并行；
+2. `Release tests` 与 `Signed release APK` 在独立 runner 上并行；签名构建会注入并校验正式版所需的
+   生产服务配置，缺失时在构建前失败；
 3. 两者都成功后，`Publish public release` 下载同一次运行的签名 APK，生成源码、更新清单和校验和；
 4. 正式资产只发布到 `rgywd/zhixing-releases`。
 
