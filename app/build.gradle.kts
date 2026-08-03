@@ -192,6 +192,8 @@ dependencies {
     implementation(libs.guava.listenablefuture)
     // Official combined artifact avoids duplicate core classes between standalone location/search JARs.
     implementation(libs.amap.sdk)
+    // The combined AMap POM omits this runtime dependency even though its request encoder calls FastMath.
+    implementation(libs.jafama)
 
     // Compose
     implementation(libs.androidx.activity.compose)

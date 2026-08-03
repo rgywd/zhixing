@@ -54,3 +54,5 @@
 -keep class com.loc.** { *; }
 -keep class com.autonavi.** { *; }
 -keep class com.amap.api.services.** { *; }
+# Optional soft-RTK module referenced by the combined SDK but not shipped in its artifact.
+-dontwarn com.amap.ams.gnss.GnssSoftLocator

@@ -12,3 +12,8 @@ The optional Location & Travel feature includes the official combined AMap Andro
 (`com.amap.api:3dmap-location-search`). Its use is subject to the
 [AMap Platform Service Agreement](https://lbs.amap.com/pages/terms/) and
 [AMap Open Platform Privacy Policy](https://lbs.amap.com/pages/privacy/).
+
+## Jafama
+
+The AMap request encoder uses Java Fast Math (`net.jafama:jafama`), distributed under the
+[Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
