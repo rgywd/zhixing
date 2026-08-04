@@ -40,8 +40,12 @@ jobs:
       - name: Test CI planning rules
         run: >-
           node --test
+          .github/scripts/check-skill-parity.test.mjs
           .github/scripts/ci-plan.test.mjs
           .github/scripts/check-release-metadata.test.mjs
+
+      - name: Validate agent skill mirrors
+        run: node .github/scripts/check-skill-parity.mjs
 
       - name: Plan required checks
         id: plan

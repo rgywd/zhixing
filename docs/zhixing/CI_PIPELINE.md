@@ -7,7 +7,8 @@
 
 ## PR 门禁
 
-`Plan CI` 先判断改动类型，普通 PR 并行运行：
+`Plan CI` 先运行自身规则测试，并校验 `.agents/skills` 与 `.claude/skills` 的完整文件集合和文件内容
+逐字节一致，再判断改动类型。普通 PR 并行运行：
 
 - `Work and JS tests`
 - `Android unit tests`
