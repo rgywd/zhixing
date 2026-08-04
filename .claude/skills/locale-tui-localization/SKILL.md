@@ -47,6 +47,7 @@ uv run --directory locale-tui src/main.py list-keys [-m module]
 ## Options
 
 ### add
+
 - `--module, -m`: Specify module name (defaults to first module in config)
 - `--skip-translate`: Add only to source language and skip translations
 
@@ -57,6 +58,6 @@ uv run --directory locale-tui src/main.py list-keys [-m module]
 
 ## Constraints
 
-- Input value should be English.
+- The source value passed to `add` should be English; `set` should use the requested target language.
 - If user explicitly requests localization, ensure all configured languages are updated.
 - Do not commit secrets or API keys.

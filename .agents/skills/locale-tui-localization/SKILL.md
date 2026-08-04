@@ -31,15 +31,33 @@ uv run --directory locale-tui src/main.py add <key> "<English Value>" [OPTIONS]
 uv run --directory locale-tui src/main.py add hello_world "Hello, World!"
 uv run --directory locale-tui src/main.py add greeting "Welcome" -m app
 uv run --directory locale-tui src/main.py add test_key "Test" --skip-translate
+
+# Manually set a string value for a specific language
+uv run --directory locale-tui src/main.py set <key> "<Value>" [OPTIONS]
+
+# Examples
+uv run --directory locale-tui src/main.py set hello_world "你好，世界！" -l values-zh
+uv run --directory locale-tui src/main.py set greeting "Welcome" -l values
+uv run --directory locale-tui src/main.py set test_key "テスト" -l values-ja -m app
+
+# List all string resource keys
+uv run --directory locale-tui src/main.py list-keys [-m module]
 ```
 
 ## Options
 
+### add
+
 - `--module, -m`: Specify module name (defaults to first module in config)
 - `--skip-translate`: Add only to source language and skip translations
 
+### set
+
+- `--lang, -l`: Specify language code (e.g., values, values-zh, values-ja), defaults to source language (values)
+- `--module, -m`: Specify module name (defaults to first module in config)
+
 ## Constraints
 
-- Input value should be English.
+- The source value passed to `add` should be English; `set` should use the requested target language.
 - If user explicitly requests localization, ensure all configured languages are updated.
 - Do not commit secrets or API keys.
