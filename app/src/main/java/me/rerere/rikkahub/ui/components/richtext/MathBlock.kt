@@ -13,6 +13,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.takeOrElse
+import me.rerere.rikkahub.ui.context.LocalDrawerGestureExclusion
+import me.rerere.rikkahub.ui.context.excludeDrawerGesturesWhilePressed
 
 @Composable
 fun MathInline(
@@ -36,6 +38,7 @@ fun MathBlock(
     fontSize: TextUnit = TextUnit.Unspecified
 ) {
     val proceededLatex = latex
+    val drawerGestureExclusion = LocalDrawerGestureExclusion.current
     Box(
         modifier = modifier.padding(8.dp)
     ) {
@@ -45,6 +48,7 @@ fun MathBlock(
             fontSize = fontSize.takeOrElse { LocalTextStyle.current.fontSize },
             modifier = Modifier
                 .align(Alignment.Center)
+                .excludeDrawerGesturesWhilePressed(drawerGestureExclusion)
                 .horizontalScroll(
                     rememberScrollState()
                 ),

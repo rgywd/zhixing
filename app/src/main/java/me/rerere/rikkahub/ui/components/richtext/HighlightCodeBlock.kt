@@ -73,9 +73,11 @@ import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.ui.components.webview.WebView
 import me.rerere.rikkahub.ui.components.webview.WebViewContentCache
 import me.rerere.rikkahub.ui.components.webview.rememberWebViewState
+import me.rerere.rikkahub.ui.context.LocalDrawerGestureExclusion
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.Navigator
+import me.rerere.rikkahub.ui.context.excludeDrawerGesturesWhilePressed
 import me.rerere.rikkahub.ui.modifier.onClick
 import me.rerere.rikkahub.ui.theme.AtomOneDarkPalette
 import me.rerere.rikkahub.ui.theme.AtomOneLightPalette
@@ -305,12 +307,14 @@ private fun CodeBlockDefault(
     showLineNumbers: Boolean,
     scrollState: ScrollState,
 ) {
+    val drawerGestureExclusion = LocalDrawerGestureExclusion.current
     Row(
         modifier = Modifier.then(
             if (autoWrap) {
                 Modifier
             } else {
-                Modifier.horizontalScroll(scrollState)
+                Modifier.excludeDrawerGesturesWhilePressed(drawerGestureExclusion)
+                    .horizontalScroll(scrollState)
             }
         )
     ) {

@@ -110,8 +110,10 @@ import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionRecordAudio
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalASRState
+import me.rerere.rikkahub.ui.context.LocalDrawerGestureExclusion
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
+import me.rerere.rikkahub.ui.context.excludeDrawerGesturesWhilePressed
 import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.utils.SoundEffectPlayer
 import org.koin.compose.koinInject
@@ -142,6 +144,7 @@ fun ChatInput(
 ) {
     val toaster = LocalToaster.current
     val assistant = settings.getCurrentAssistant()
+    val drawerGestureExclusion = LocalDrawerGestureExclusion.current
     val hazeTintColor = MaterialTheme.colorScheme.surfaceContainerLow
     val inputHazeStyle = HazeMaterials.thin(containerColor = hazeTintColor)
 
@@ -257,6 +260,7 @@ fun ChatInput(
                         Row(
                             modifier = Modifier
                                 .weight(1f)
+                                .excludeDrawerGesturesWhilePressed(drawerGestureExclusion)
                                 .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(2.dp)
                         ) {

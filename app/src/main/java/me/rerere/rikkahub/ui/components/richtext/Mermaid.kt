@@ -32,8 +32,10 @@ import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.ui.components.webview.WebView
 import me.rerere.rikkahub.ui.components.webview.WebViewContentCache
 import me.rerere.rikkahub.ui.components.webview.rememberWebViewState
+import me.rerere.rikkahub.ui.context.LocalDrawerGestureExclusion
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
+import me.rerere.rikkahub.ui.context.excludeDrawerGesturesWhilePressed
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.utils.escapeHtml
 import me.rerere.rikkahub.utils.exportImage
@@ -51,6 +53,7 @@ fun Mermaid(
     val activity = LocalActivity.current
     val toaster = LocalToaster.current
     val navController = LocalNavController.current
+    val drawerGestureExclusion = LocalDrawerGestureExclusion.current
 
     val jsInterface = remember {
         MermaidInterface(
@@ -114,6 +117,7 @@ fun Mermaid(
             state = webViewState,
             modifier = Modifier
                 .clip(RoundedCornerShape(4.dp))
+                .excludeDrawerGesturesWhilePressed(drawerGestureExclusion)
                 .height(200.dp),
         )
 

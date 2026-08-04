@@ -176,6 +176,53 @@ class AgendaDrawerInteractionTest {
         assertTrue(lifeOverviewGreeting(2) == "夜深了")
     }
 
+    @Test
+    fun `drawer gesture exclusion modifier is shared in the context file`() {
+        val source = drawerGestureExclusionSource()
+        assertTrue(source.contains("internal fun Modifier.excludeDrawerGesturesWhilePressed("))
+        assertTrue(source.contains("LocalDrawerGestureExclusion"))
+    }
+
+    @Test
+    fun `data table does not keep a private copy of the exclusion modifier`() {
+        val source = dataTableSource()
+        assertFalse(source.contains("private fun Modifier.excludeDrawerGesturesWhilePressed("))
+        assertTrue(source.contains(".excludeDrawerGesturesWhilePressed("))
+        assertTrue(source.contains("import me.rerere.rikkahub.ui.context.excludeDrawerGesturesWhilePressed"))
+    }
+
+    @Test
+    fun `horizontally scrollable markdown content excludes drawer gestures`() {
+        val expectations = listOf(
+            "HighlightCodeBlock.kt" to ".excludeDrawerGesturesWhilePressed(drawerGestureExclusion)",
+            "MathBlock.kt" to ".excludeDrawerGesturesWhilePressed(drawerGestureExclusion)",
+            "DiffView.kt" to ".excludeDrawerGesturesWhilePressed(drawerGestureExclusion)",
+        )
+        expectations.forEach { (fileName, marker) ->
+            val source = sourceFile("ui/components/richtext/$fileName")
+            assertTrue("$fileName should exclude drawer gestures", source.contains(marker))
+            assertTrue("$fileName should apply the exclusion before horizontalScroll", source.indexOf(marker) < source.indexOf("horizontalScroll("))
+        }
+    }
+
+    @Test
+    fun `chat suggestions row and input toolbar exclude drawer gestures`() {
+        val chatList = sourceFile("ui/pages/chat/ChatList.kt")
+        assertTrue(chatList.contains("excludeDrawerGesturesWhilePressed(drawerGestureExclusion)"))
+        // ChatSuggestionsRow 是 LazyRow,源码里没有 horizontalScroll 字样,只断言调用点存在
+        assertTrue(chatList.indexOf("excludeDrawerGesturesWhilePressed(") > chatList.indexOf("ChatSuggestionsRow("))
+
+        val chatInput = sourceFile("ui/components/ai/ChatInput.kt")
+        assertTrue(chatInput.contains("excludeDrawerGesturesWhilePressed(drawerGestureExclusion)"))
+        assertTrue(chatInput.indexOf("excludeDrawerGesturesWhilePressed(") < chatInput.indexOf("horizontalScroll("))
+    }
+
+    @Test
+    fun `mermaid webview excludes drawer gestures`() {
+        val source = sourceFile("ui/components/richtext/Mermaid.kt")
+        assertTrue(source.contains(".excludeDrawerGesturesWhilePressed(drawerGestureExclusion)"))
+    }
+
     private fun agendaDrawerSource(): String {
         val workingDirectory = File(requireNotNull(System.getProperty("user.dir")))
         val relativePath = "src/main/java/me/rerere/rikkahub/ui/pages/chat/AgendaDrawer.kt"
@@ -185,5 +232,20 @@ class AgendaDrawerInteractionTest {
         ).firstOrNull(File::isFile)
         checkNotNull(source) { "Unable to locate AgendaDrawer.kt from $workingDirectory" }
         return source.readText()
+    }
+
+    private fun drawerGestureExclusionSource(): String = sourceFile("ui/context/DrawerGestureExclusion.kt")
+
+    private fun dataTableSource(): String = sourceFile("ui/components/table/DataTable.kt")
+
+    private fun sourceFile(relative: String): String {
+        val workingDirectory = File(requireNotNull(System.getProperty("user.dir")))
+        val path = "src/main/java/me/rerere/rikkahub/$relative"
+        val file = sequenceOf(
+            File(workingDirectory, path),
+            File(workingDirectory, "app/$path"),
+        ).firstOrNull(File::isFile)
+        checkNotNull(file) { "Unable to locate $relative from $workingDirectory" }
+        return file.readText()
     }
 }
