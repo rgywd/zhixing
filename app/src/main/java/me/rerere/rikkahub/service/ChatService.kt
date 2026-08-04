@@ -329,10 +329,13 @@ class ChatService(
     // ---- 初始化对话 ----
 
     suspend fun initializeConversation(conversationId: Uuid) {
-        getOrCreateSession(conversationId) // 确保 session 存在
+        val session = getOrCreateSession(conversationId) // 确保 session 存在
         val conversation = conversationRepo.getConversationById(conversationId)
         if (conversation != null) {
-            updateConversation(conversationId, conversation)
+            // 生成中保留内存态(含流式回复), 避免被数据库旧内容覆盖导致切回时 UI 空白
+            if (!session.isGenerating) {
+                updateConversation(conversationId, conversation)
+            }
             settingsStore.updateAssistant(conversation.assistantId)
         } else {
             // 新建对话, 并添加预设消息
