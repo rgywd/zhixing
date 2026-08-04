@@ -20,6 +20,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEach
+import me.rerere.rikkahub.ui.context.LocalDrawerGestureExclusion
+import me.rerere.rikkahub.ui.context.excludeDrawerGesturesWhilePressed
 
 internal val DiffAddedColor = Color(0xFF4CAF50)
 internal val DiffRemovedColor = Color(0xFFEF5350)
@@ -65,11 +67,13 @@ fun DiffView(
     }
     val lines = remember(allLines, maxLines) { allLines.take(maxLines) }
     val truncated = allLines.size - lines.size
+    val drawerGestureExclusion = LocalDrawerGestureExclusion.current
 
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .excludeDrawerGesturesWhilePressed(drawerGestureExclusion)
             .horizontalScroll(rememberScrollState())
             .width(IntrinsicSize.Max)
             .padding(vertical = 4.dp),
