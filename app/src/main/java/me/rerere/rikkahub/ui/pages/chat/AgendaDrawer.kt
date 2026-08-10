@@ -90,6 +90,7 @@ import me.rerere.rikkahub.data.quota.orderQuotaChannels
 import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbe
 import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbeState
 import me.rerere.rikkahub.data.today.TodayOverviewProvider
+import me.rerere.rikkahub.data.today.TodayItem
 import me.rerere.rikkahub.data.work.PhoneWorkSession
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.ui.context.LocalDrawerGestureExclusion
@@ -101,6 +102,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import java.util.Locale
+import kotlin.uuid.Uuid
+import me.rerere.rikkahub.utils.navigateToChatPage
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -345,6 +348,7 @@ private fun LifeOverviewDrawerContent(
 
     val todayProvider: TodayOverviewProvider = koinInject()
     val todaySnapshot by todayProvider.state.collectAsStateWithLifecycle()
+    val navigator = LocalNavController.current
     LaunchedEffect(todayProvider) { todayProvider.onVisible() }
 
     Column(modifier = modifier.fillMaxHeight()) {
@@ -361,6 +365,27 @@ private fun LifeOverviewDrawerContent(
                 )
             }
             item(key = "my-status") { MyStatusCard() }
+
+            todaySnapshot.items.filterIsInstance<TodayItem.AssistantTask>().forEach { taskItem ->
+                item(key = taskItem.stableId) {
+                    AssistantTaskCard(
+                        task = taskItem.task,
+                        onClick = {
+                            taskItem.task.conversationId
+                                ?.let { runCatching { Uuid.parse(it) }.getOrNull() }
+                                ?.let { chatId ->
+                                    navigateToChatPage(
+                                        navigator = navigator,
+                                        chatId = chatId,
+                                        nodeId = taskItem.task.anchorNodeId
+                                            ?.let { runCatching { Uuid.parse(it) }.getOrNull() },
+                                        preserveBackStack = true,
+                                    )
+                                }
+                        },
+                    )
+                }
+            }
 
             if (todaySnapshot.waitingSessions.isNotEmpty()) {
                 item(key = "work-waiting") {

@@ -64,6 +64,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -94,6 +95,7 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
+import me.rerere.rikkahub.data.task.AssistantTaskRepository
 import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.ui.components.message.ChatMessage
 import me.rerere.rikkahub.ui.components.ui.ErrorCardsDisplay
@@ -107,6 +109,7 @@ import me.rerere.rikkahub.ui.theme.ChatFontProvider
 import me.rerere.rikkahub.utils.plus
 import kotlin.math.roundToInt
 import kotlin.uuid.Uuid
+import org.koin.compose.koinInject
 
 private const val TAG = "ChatList"
 private const val LoadingIndicatorKey = "LoadingIndicator"
@@ -220,6 +223,13 @@ private fun ChatListNormal(
     runtimeContext: UIMessageAnnotation.RuntimeContext? = null,
     onDismissRuntimeContext: () -> Unit = {},
 ) {
+    val assistantTaskRepository: AssistantTaskRepository = koinInject()
+    val assistantTasks by remember(assistantTaskRepository) {
+        assistantTaskRepository.observeTasks()
+    }.collectAsStateWithLifecycle(emptyList())
+    val conversationTask = assistantTasks
+        .filter { it.conversationId == conversation.id.toString() }
+        .maxByOrNull { it.updatedAt }
     val scope = rememberCoroutineScope()
     val loadingState by rememberUpdatedState(loading)
     var isRecentScroll by remember { mutableStateOf(false) }
@@ -378,6 +388,12 @@ private fun ChatListNormal(
                             lastMessage = index == lastMessageIndex,
                         )
                     }
+                }
+            }
+
+            conversationTask?.let { task ->
+                item(key = "AssistantTask:${task.id}") {
+                    AssistantTaskCard(task = task, onClick = {})
                 }
             }
 

@@ -68,7 +68,8 @@ import me.rerere.rikkahub.data.agenda.AgendaTimelineTime
 import me.rerere.rikkahub.data.agenda.DeviceCalendarEvent
 import me.rerere.rikkahub.data.agenda.DeviceCalendarRepository
 import me.rerere.rikkahub.data.agenda.buildAgendaFutureTimeline
-import me.rerere.rikkahub.data.agenda.buildAgendaProjection
+import me.rerere.rikkahub.data.today.TodayOverviewProvider
+import me.rerere.rikkahub.data.today.TodayItem
 import me.rerere.rikkahub.data.agenda.resolveAgendaTaskSave
 import me.rerere.rikkahub.data.model.AgendaPlanStageStatus
 import me.rerere.rikkahub.data.model.AgendaRecurrence
@@ -85,29 +86,33 @@ import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.pages.chat.AgendaTaskEditorSheet
+import me.rerere.rikkahub.ui.pages.chat.AssistantTaskCard
+import me.rerere.rikkahub.utils.navigateToChatPage
 import org.koin.compose.koinInject
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlin.uuid.Uuid
 
 @Composable
 fun AgendaPage(initialTaskId: String? = null) {
     val taskRepository: AgendaTaskRepository = koinInject()
     val planRepository: AgendaPlanRepository = koinInject()
     val calendarRepository: DeviceCalendarRepository = koinInject()
+    val todayProvider: TodayOverviewProvider = koinInject()
     val navigator = LocalNavController.current
     val toaster = LocalToaster.current
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val tasks by taskRepository.observeVisibleTasks().collectAsStateWithLifecycle(emptyList())
     val plans by planRepository.observeVisiblePlans().collectAsStateWithLifecycle(emptyList())
+    val todaySnapshot by todayProvider.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var lifecycleResumeRevision by remember { mutableIntStateOf(0) }
     var agendaNowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    val projection = remember(tasks, plans, agendaNowMillis) {
-        buildAgendaProjection(tasks, plans, nowMillis = agendaNowMillis)
-    }
+    val projection = todaySnapshot.agendaProjection
+    val assistantTaskItems = todaySnapshot.items.filterIsInstance<TodayItem.AssistantTask>()
     val notificationPermission = rememberPermissionState(
         permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             setOf(PermissionNotification)
@@ -254,6 +259,28 @@ fun AgendaPage(initialTaskId: String? = null) {
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (assistantTaskItems.isNotEmpty()) {
+                agendaSectionHeader("正在处理", assistantTaskItems.size)
+                items(assistantTaskItems, key = TodayItem::stableId) { taskItem ->
+                    AssistantTaskCard(
+                        task = taskItem.task,
+                        onClick = {
+                            taskItem.task.conversationId
+                                ?.let { runCatching { Uuid.parse(it) }.getOrNull() }
+                                ?.let { chatId ->
+                                    navigateToChatPage(
+                                        navigator = navigator,
+                                        chatId = chatId,
+                                        nodeId = taskItem.task.anchorNodeId
+                                            ?.let { runCatching { Uuid.parse(it) }.getOrNull() },
+                                        preserveBackStack = true,
+                                    )
+                                }
+                        },
+                    )
+                }
+            }
+
             if (hasPendingReminder && !notificationAccessGranted) {
                 item("notification-permission") {
                     AgendaNotificationAccessRow(

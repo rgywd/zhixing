@@ -68,7 +68,7 @@ import me.rerere.rikkahub.data.agenda.AgendaAction
 import me.rerere.rikkahub.data.agenda.AgendaTaskBucket
 import me.rerere.rikkahub.data.agenda.AgendaTaskSaveInput
 import me.rerere.rikkahub.data.agenda.agendaTaskBucket
-import me.rerere.rikkahub.data.agenda.buildAgendaProjection
+import me.rerere.rikkahub.data.today.TodayOverviewProvider
 import me.rerere.rikkahub.data.agenda.resolveAgendaTaskSave
 import me.rerere.rikkahub.data.model.AgendaPlanStageStatus
 import me.rerere.rikkahub.data.model.AgendaPlanWithStages
@@ -96,11 +96,13 @@ import java.time.format.DateTimeFormatter
 internal fun AgendaOverviewSection() {
     val repository: AgendaTaskRepository = koinInject()
     val planRepository: AgendaPlanRepository = koinInject()
+    val todayProvider: TodayOverviewProvider = koinInject()
     val navigator = LocalNavController.current
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val tasks by repository.observeVisibleTasks().collectAsStateWithLifecycle(emptyList())
     val plans by planRepository.observeVisiblePlans().collectAsStateWithLifecycle(emptyList())
+    val todaySnapshot by todayProvider.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var lifecycleResumeRevision by remember { mutableIntStateOf(0) }
     var agendaNowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -144,9 +146,7 @@ internal fun AgendaOverviewSection() {
         }
     }
 
-    val projection = remember(tasks, plans, agendaNowMillis) {
-        buildAgendaProjection(tasks, plans, nowMillis = agendaNowMillis)
-    }
+    val projection = todaySnapshot.agendaProjection
     val previewPlan = remember(projection) {
         (projection.waitingPlans + projection.upcomingPlans).minByOrNull { it.nextAt ?: Long.MAX_VALUE }
     }
