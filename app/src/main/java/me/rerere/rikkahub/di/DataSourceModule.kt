@@ -12,6 +12,7 @@ import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.AppIdentity
 import me.rerere.rikkahub.data.ai.AIRequestInterceptor
 import me.rerere.rikkahub.data.ai.RequestLoggingInterceptor
+import me.rerere.rikkahub.data.ai.SENSITIVE_HTTP_HEADER_NAMES
 import me.rerere.rikkahub.data.ai.transformers.AssistantTemplateLoader
 import me.rerere.rikkahub.data.ai.GenerationHandler
 import me.rerere.rikkahub.data.ai.transformers.TemplateTransformer
@@ -163,6 +164,7 @@ val dataSourceModule = module {
             .addNetworkInterceptor(RequestLoggingInterceptor())
             .addInterceptor(AIRequestInterceptor())
             .addInterceptor(HttpLoggingInterceptor().apply {
+                SENSITIVE_HTTP_HEADER_NAMES.forEach(::redactHeader)
                 level = HttpLoggingInterceptor.Level.HEADERS
             })
             .build().also { SearchService.init(it, get()) }

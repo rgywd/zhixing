@@ -107,6 +107,7 @@ import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.task.AssistantTaskRepository
 import me.rerere.rikkahub.data.task.AssistantTaskStep
+import me.rerere.rikkahub.data.task.naturalizeAssistantTaskTitle
 import me.rerere.rikkahub.data.task.progressText
 import me.rerere.rikkahub.data.task.requiresDurableTask
 import me.rerere.rikkahub.data.task.requiresVisibleTask
@@ -621,7 +622,7 @@ class ChatService(
                 val sourceNode = sourceMessage?.let(initialConversation::getMessageNodeByMessage)
                 val created = runCatching {
                     assistantTaskRepository.create(
-                        title = sourceMessage?.toText().orEmpty(),
+                        title = naturalizeAssistantTaskTitle(sourceMessage?.toText().orEmpty()),
                         conversationId = conversationId.toString(),
                         anchorMessageId = sourceMessage?.id?.toString(),
                         anchorNodeId = sourceNode?.id?.toString(),
