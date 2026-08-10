@@ -19,7 +19,8 @@ class AgendaTaskToolsTest {
         val dao = FakeAgendaTaskDao()
         val now = 1_800_000_000_000L
         val repository = AgendaTaskRepository(dao, FakeAgendaTaskReminderGateway()) { now }
-        val create = buildAgendaTaskTools(repository).single { it.name == "task_create" }
+        val create = buildAgendaTaskTools(repository, conversationId = "conversation-1")
+            .single { it.name == "task_create" }
         val schema = create.parameters() as InputSchema.Obj
 
         assertTrue(schema.properties.containsKey("recurrence_frequency"))
@@ -35,6 +36,7 @@ class AgendaTaskToolsTest {
         val stored = dao.tasks.values.single()
         assertEquals(AgendaRecurrenceFrequency.DAILY.name, stored.recurrenceFrequency)
         assertEquals(2, stored.recurrenceInterval)
+        assertEquals("conversation-1", stored.conversationId)
     }
 
     @Test

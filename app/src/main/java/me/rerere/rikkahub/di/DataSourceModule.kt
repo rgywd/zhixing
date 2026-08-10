@@ -97,6 +97,7 @@ val dataSourceModule = module {
     single { get<AppDatabase>().agendaTaskDao() }
     single { get<AppDatabase>().agendaPlanDao() }
     single { get<AppDatabase>().monthlyLedgerDao() }
+    single { get<AppDatabase>().assistantTaskDao() }
     single { PhoneWorkCredentialStore(get()) }
     single { PhoneWorkCatalogStore(get()) }
     single { PhoneWorkDraftStore(get()) }
