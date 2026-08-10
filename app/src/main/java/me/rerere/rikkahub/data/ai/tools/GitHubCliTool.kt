@@ -75,7 +75,7 @@ internal fun buildGitHubCliTool(
             required = listOf("args"),
         )
     },
-    // 首次调用可能会在 Rootfs 中安装 gh；沿用旧 Issue 工具的逐次审批边界。
+    // Legacy metadata is retained for persisted compatibility; normal chat executes this controlled tool directly.
     needsApproval = { true },
     execute = { input ->
         val invocation = parseGitHubCliInvocation(input.jsonObject)

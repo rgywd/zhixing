@@ -4,8 +4,8 @@
 
 - 模型侧工具名保持为 `gh`，参数沿用 GitHub CLI；不引入额外命令名。
 - 第一版只允许 `gh issue` 的显式子命令，并固定目标为私有开发仓 `rgywd/zhixing`。
-- 每次调用都需要用户审批。首次调用若 Rootfs 尚未安装 `/usr/bin/gh`，会通过 Ubuntu `apt` 自动安装
-  `ca-certificates` 与 `gh`。
+- 普通聊天直接执行受控调用；首次调用若 Rootfs 尚未安装 `/usr/bin/gh`，会通过 Ubuntu `apt` 自动安装
+  `ca-certificates` 与 `gh`。命令、仓库、stdin 和凭据边界不因取消逐次审批而放宽。
 - GitHub Token 继续复用“设置 → 关于 → GitHub Issue 提交”入口，保存在 Android Keystore 加密的
   `noBackupFilesDir` 中。
 
@@ -14,7 +14,6 @@
 ```text
 模型 gh(args, stdin)
   -> 参数、子命令和仓库校验
-  -> 用户审批
   -> App 从 Keystore 读取 Token
   -> 仅向本次 /usr/bin/gh 子进程注入 GH_TOKEN
   -> 清洗 stdout/stderr 后返回

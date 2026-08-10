@@ -73,7 +73,7 @@ SettingsStore -> DataStore
 4. GenerationHandler 对最终请求做保守 token 估算；普通回复达到 262,000 token 时，在付费 Provider
    请求前自动创建上下文检查点并重新构建请求。
 5. ProviderManager 发起流式生成，GenerationHandler 合并文本、推理和工具增量。
-6. 需要授权的工具进入等待；工具结果回到同一生成循环。
+6. 普通工具直接执行并将结果回到同一生成循环；只有 `ask_user` 这类显式业务问答进入“等待你回答”。
 7. 输出 Transformer 完成显示与持久化处理。
 8. 完成、停止、失败和可恢复进度都写回仓库，已有部分结果不得丢失。
 
@@ -106,7 +106,7 @@ SettingsStore -> DataStore
 - Agenda 以本地待办和长期计划为事实来源，系统日历只读投影见
   [`AGENDA_AND_CALENDAR.md`](./AGENDA_AND_CALENDAR.md)。
 - 位置与出行是用户按助手启用的前台工具组。定位和附近检索直接调用高德服务，默认不向模型返回用户坐标，
-  不申请后台权限、不建立位置历史，打开导航前始终需要用户确认；见
+  不申请后台权限、不建立位置历史，打开导航由已启用工具直接执行；见
   [`LOCATION_AND_TRAVEL.md`](./LOCATION_AND_TRAVEL.md)。
 - 邮件与飞书监控是可选只读云能力：Life Gateway 持有连接器与事件事实，Work Core 只做经过用户鉴权的固定
   schema 薄代理，Android 不保存消息正文或第二份事件真相；见
@@ -137,11 +137,14 @@ $$USER_TOKEN=value
 - 变量只作为 `workspace_shell` 的进程环境注入。工具向模型公开可用变量名而不公开值，命令应以
   `$NAME` 引用；stdout/stderr 在写回消息前按当前变量值再次脱敏。
 - 只有消息开头的声明块会被识别；普通文本、代码示例和声明块之后出现的 `$NAME=value` 保持原样。
-  `workspace_shell` 仍遵循既有审批策略，变量不会绕过命令审批或扩大工具权限。
+  `workspace_shell` 不因每次调用弹出审批；变量不会绕过 Rootfs、路径、命令白名单或输出脱敏边界。
 
 ## 隐私与兼容
 
 - 默认不启用第三方分析、远程配置或崩溃上传。
+- 普通聊天工具不进行逐次审批。`ToolApprovalState`、历史审批消息、Web approval route 和 Workspace
+  `tool_approvals` 仅为兼容旧数据保留，新运行时忽略普通工具的 legacy approval 值。`ask_user` 的业务
+  问答、Android 系统权限、位置隐私同意、OAuth/Keystore/连接配置和工具启用开关仍各自生效。
 - API Key 不进入日志、崩溃报告或普通导出；敏感上下文遵守最小必要原则。
 - 永久删除记忆会清空正文和来源引文；内部只允许保留不含用户内容的抑制标记，用于防止自动画像立刻复活。
 - 自动维护与用户侧记忆变更共享串行写入边界；`DELETED` 为单调终态。历史页的 Undo 窗口结束前只在 UI

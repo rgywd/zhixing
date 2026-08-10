@@ -19,7 +19,7 @@ import org.junit.Test
 
 class GitHubCliToolTest {
     @Test
-    fun `all gh commands require approval`() {
+    fun `legacy gh approval metadata remains compatible`() {
         val tool = buildGitHubCliTool { successfulExecution() }
 
         assertTrue(tool.needsApproval(input("issue", "list")))

@@ -187,7 +187,7 @@ class MemoryToolsTest {
     }
 
     @Test
-    fun lifecycleAndDeleteActionsRequireApproval() {
+    fun `lifecycle and delete legacy approval metadata remains compatible`() {
         val tool = memoryTool()
 
         assertFalse(tool.needsApproval(actionInput("create")))

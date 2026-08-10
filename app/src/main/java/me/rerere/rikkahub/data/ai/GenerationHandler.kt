@@ -59,6 +59,45 @@ private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
 
 internal fun toolExecutionLogMessage(toolName: String) = "generateText: executing tool $toolName"
 
+internal data class ToolInteractionPreparation(
+    val tools: List<UIMessagePart.Tool>,
+    val isWaitingForUserAnswer: Boolean,
+)
+
+/**
+ * Normal chat only pauses for an explicit business question. `needsApproval` remains on [Tool]
+ * for persisted legacy configuration, but must not create a new approval stop in this runtime.
+ */
+internal fun prepareToolsForUserAnswer(
+    tools: List<UIMessagePart.Tool>,
+    definitions: List<Tool>,
+): ToolInteractionPreparation {
+    val definitionsByName = definitions.associateBy(Tool::name)
+    var isWaitingForUserAnswer = false
+    val prepared = tools.map { tool ->
+        val requiresUserAnswer = definitionsByName[tool.toolName]?.requiresUserAnswer == true
+        when {
+            requiresUserAnswer && tool.approvalState is ToolApprovalState.Auto -> {
+                isWaitingForUserAnswer = true
+                tool.copy(approvalState = ToolApprovalState.Pending)
+            }
+
+            requiresUserAnswer && tool.approvalState is ToolApprovalState.Pending -> {
+                isWaitingForUserAnswer = true
+                tool
+            }
+
+            // A persisted ordinary-tool Pending state was created by the retired approval flow.
+            // Normalize it so resuming old conversations cannot leave a tool permanently stuck.
+            !requiresUserAnswer && tool.approvalState is ToolApprovalState.Pending ->
+                tool.copy(approvalState = ToolApprovalState.Auto)
+
+            else -> tool
+        }
+    }
+    return ToolInteractionPreparation(prepared, isWaitingForUserAnswer)
+}
+
 internal fun sanitizeToolInputsForStorage(
     messages: List<UIMessage>,
     tools: List<Tool>,
@@ -296,26 +335,8 @@ class GenerationHandler(
                     break
                 }
 
-                // Check for tools that need approval
-                var hasPendingApproval = false
-                val updatedTools = tools.map { tool ->
-                    val toolDef = toolsInternal.find { it.name == tool.toolName }
-                    when {
-                        // Tool needs approval and state is Auto -> set to Pending
-                        toolDef?.needsApproval(tool.inputAsJson()) == true &&
-                            tool.approvalState is ToolApprovalState.Auto -> {
-                            hasPendingApproval = true
-                            tool.copy(approvalState = ToolApprovalState.Pending)
-                        }
-                        // State is Pending -> keep waiting
-                        tool.approvalState is ToolApprovalState.Pending -> {
-                            hasPendingApproval = true
-                            tool
-                        }
-
-                        else -> tool
-                    }
-                }
+                val interaction = prepareToolsForUserAnswer(tools, toolsInternal)
+                val updatedTools = interaction.tools
 
                 // If any tools were updated to Pending, update the message and break
                 if (updatedTools != tools) {
@@ -331,9 +352,10 @@ class GenerationHandler(
                     emit(GenerationChunk.Messages(messages))
                 }
 
-                // If there are pending approvals, break and wait for user
-                if (hasPendingApproval) {
-                    Log.i(TAG, "generateText: waiting for tool approval")
+                // Only a business question pauses normal chat. Permissions and connection setup
+                // stay inside their respective tool/platform boundaries.
+                if (interaction.isWaitingForUserAnswer) {
+                    Log.i(TAG, "generateText: waiting for tool user answer")
                     break
                 }
 

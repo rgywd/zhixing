@@ -26,6 +26,7 @@ import java.io.ByteArrayOutputStream
 private const val SHELL_TIMEOUT_MAX_SECONDS = 600L
 private const val MAX_READ_FILE_BYTES = 8L * 1024 * 1024
 
+/** Persisted compatibility defaults for the retired per-workspace approval UI. Ignored at runtime. */
 val WorkspaceToolDefaultApprovals: Map<String, Boolean> = mapOf(
     "workspace_read_file" to false,
     "workspace_write_file" to false,
@@ -48,18 +49,14 @@ suspend fun createWorkspaceTools(
     shellEnvironment: () -> Map<String, String> = { emptyMap() },
 ): List<Tool> {
     if (workspaceId.isNullOrBlank()) return emptyList()
-    val approvalOverrides = workspaceRepository.getById(workspaceId)?.toolApprovalOverrides().orEmpty()
-    fun needsApproval(name: String) = resolveWorkspaceToolApproval(name, approvalOverrides)
-
     val shellCwd = cwd?.removePrefix("/workspace/")?.removePrefix("/workspace")
 
     return listOf(
-        createReadFileTool(workspaceId, ::needsApproval, workspaceRepository),
-        createWriteFileTool(workspaceId, ::needsApproval, workspaceRepository),
-        createEditFileTool(workspaceId, ::needsApproval, workspaceRepository),
+        createReadFileTool(workspaceId, workspaceRepository),
+        createWriteFileTool(workspaceId, workspaceRepository),
+        createEditFileTool(workspaceId, workspaceRepository),
         createShellTool(
             workspaceId = workspaceId,
-            needsApproval = ::needsApproval,
             workspaceRepository = workspaceRepository,
             defaultCwd = shellCwd,
             environment = shellEnvironment,
@@ -75,7 +72,6 @@ private fun String.isImagePath(): Boolean =
 
 private fun createReadFileTool(
     workspaceId: String,
-    needsApproval: (String) -> Boolean,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
     name = "workspace_read_file",
@@ -92,7 +88,6 @@ private fun createReadFileTool(
             required = listOf("path"),
         )
     },
-    needsApproval = { needsApproval("workspace_read_file") },
     execute = {
         val path = it.jsonObject.absolutePath("path")
         if (path.isImagePath()) {
@@ -113,7 +108,6 @@ private fun createReadFileTool(
 
 private fun createWriteFileTool(
     workspaceId: String,
-    needsApproval: (String) -> Boolean,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
     name = "workspace_write_file",
@@ -137,10 +131,10 @@ private fun createWriteFileTool(
             required = listOf("path", "text"),
         )
     },
-    needsApproval = { needsApproval("workspace_write_file") || it.pathOutsideWritableRoots("path") },
     execute = {
         val params = it.jsonObject
         val path = params.absolutePath("path")
+        requireWritablePath(path)
         val text = params.string("text") ?: error("text is required")
         val overwrite = params["overwrite"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: true
         val entry = workspaceRepository.writeTextInRootfs(workspaceId, path, text, overwrite)
@@ -150,7 +144,6 @@ private fun createWriteFileTool(
 
 private fun createEditFileTool(
     workspaceId: String,
-    needsApproval: (String) -> Boolean,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
     name = "workspace_edit_file",
@@ -180,10 +173,10 @@ private fun createEditFileTool(
             required = listOf("path", "old_text", "new_text"),
         )
     },
-    needsApproval = { needsApproval("workspace_edit_file") || it.pathOutsideWritableRoots("path") },
     execute = {
         val params = it.jsonObject
         val path = params.absolutePath("path")
+        requireWritablePath(path)
         val oldText = params.string("old_text") ?: error("old_text is required")
         val newText = params.string("new_text") ?: error("new_text is required")
         val replaceAll = params["replace_all"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
@@ -216,7 +209,6 @@ private fun createEditFileTool(
 
 private fun createShellTool(
     workspaceId: String,
-    needsApproval: (String) -> Boolean,
     workspaceRepository: WorkspaceRepository,
     defaultCwd: String? = null,
     environment: () -> Map<String, String> = { emptyMap() },
@@ -267,7 +259,6 @@ private fun createShellTool(
             required = listOf("command"),
         )
     },
-    needsApproval = { needsApproval("workspace_shell") },
     execute = {
         val params = it.jsonObject
         val command = params.string("command") ?: error("command is required")
@@ -446,16 +437,18 @@ private fun kotlinx.serialization.json.JsonObject.absolutePath(name: String): St
     return path
 }
 
-// 免强制审批的可写安全区: 工作区文件目录, 以及临时目录 /tmp
+// 可写安全区: 工作区文件目录, 以及临时目录 /tmp。越界写入稳定拒绝，不再交给审批 UI 放行。
 private val WRITABLE_ROOT_PREFIXES = listOf("/workspace", "/tmp")
 
-private fun kotlinx.serialization.json.JsonElement.pathOutsideWritableRoots(name: String): Boolean =
-    runCatching {
-        jsonObject.absolutePath(name).isOutsideWritableRoots()
-    }.getOrDefault(true)
+private fun requireWritablePath(path: String) {
+    require(!path.isOutsideWritableRoots()) {
+        "path must be inside an allowed writable root: /workspace or /tmp"
+    }
+}
 
 private fun String.isOutsideWritableRoots(): Boolean {
     val normalized = trimEnd('/').ifBlank { "/" }
+    if (normalized.split('/').any { it == "." || it == ".." }) return true
     return WRITABLE_ROOT_PREFIXES.none { prefix ->
         normalized == prefix || normalized.startsWith("$prefix/")
     }

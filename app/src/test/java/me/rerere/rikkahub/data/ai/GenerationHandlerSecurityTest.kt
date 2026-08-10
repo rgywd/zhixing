@@ -3,6 +3,7 @@ package me.rerere.rikkahub.data.ai
 import kotlinx.coroutines.runBlocking
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.Tool
+import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.model.AssistantMemory
@@ -13,6 +14,77 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GenerationHandlerSecurityTest {
+    @Test
+    fun `legacy approval tools execute while ask user remains waiting for an answer`() {
+        var legacyExecuteCalled = false
+        val legacyTool = Tool(
+            name = "legacy_write",
+            description = "",
+            needsApproval = { true },
+            execute = {
+                legacyExecuteCalled = true
+                emptyList()
+            },
+        )
+        val askUserTool = Tool(
+            name = "ask_user",
+            description = "",
+            requiresUserAnswer = true,
+            execute = { error("ask_user execute must not be called") },
+        )
+        val prepared = prepareToolsForUserAnswer(
+            tools = listOf(
+                UIMessagePart.Tool("legacy", legacyTool.name, "{}"),
+                UIMessagePart.Tool("question", askUserTool.name, "{}"),
+            ),
+            definitions = listOf(legacyTool, askUserTool),
+        )
+
+        assertFalse(prepared.tools.single { it.toolName == legacyTool.name }.isPending)
+        assertTrue(prepared.tools.single { it.toolName == askUserTool.name }.isPending)
+        assertTrue(prepared.isWaitingForUserAnswer)
+        assertFalse(legacyExecuteCalled)
+
+        val resumed = prepareToolsForUserAnswer(
+            tools = listOf(
+                UIMessagePart.Tool(
+                    toolCallId = "question",
+                    toolName = askUserTool.name,
+                    input = "{}",
+                    approvalState = ToolApprovalState.Answered("{\"answers\":{\"q1\":\"yes\"}}"),
+                ),
+            ),
+            definitions = listOf(askUserTool),
+        )
+        assertFalse(resumed.isWaitingForUserAnswer)
+        assertTrue(resumed.tools.single().approvalState is ToolApprovalState.Answered)
+    }
+
+    @Test
+    fun `legacy pending ordinary tool is normalized for execution`() {
+        val tool = Tool(
+            name = "legacy_write",
+            description = "",
+            needsApproval = { true },
+            execute = { emptyList() },
+        )
+
+        val prepared = prepareToolsForUserAnswer(
+            tools = listOf(
+                UIMessagePart.Tool(
+                    toolCallId = "legacy",
+                    toolName = tool.name,
+                    input = "{}",
+                    approvalState = ToolApprovalState.Pending,
+                ),
+            ),
+            definitions = listOf(tool),
+        )
+
+        assertFalse(prepared.isWaitingForUserAnswer)
+        assertTrue(prepared.tools.single().approvalState is ToolApprovalState.Auto)
+    }
+
     @Test
     fun toolExecutionLogContainsOnlyToolIdentity() {
         val message = toolExecutionLogMessage("memory_tool")

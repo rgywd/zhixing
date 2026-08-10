@@ -6,7 +6,7 @@ import org.junit.Test
 
 class KnowledgeToolsTest {
     @Test
-    fun readOnlyKnowledgeToolsDoNotNeedApprovalButIngestDoes() {
+    fun `legacy knowledge approval defaults remain readable`() {
         assertFalse(resolveWorkspaceToolApproval("knowledge_status", emptyMap()))
         assertFalse(resolveWorkspaceToolApproval("knowledge_search", emptyMap()))
         assertFalse(resolveWorkspaceToolApproval("knowledge_read", emptyMap()))
@@ -14,7 +14,7 @@ class KnowledgeToolsTest {
     }
 
     @Test
-    fun workspaceOverrideCanDisableIngestApproval() {
+    fun `legacy workspace override remains readable`() {
         assertFalse(
             resolveWorkspaceToolApproval(
                 "knowledge_ingest",

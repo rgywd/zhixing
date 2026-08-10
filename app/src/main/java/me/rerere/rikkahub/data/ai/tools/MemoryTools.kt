@@ -55,7 +55,7 @@ fun buildMemoryTools(
             - No longer active but worth retaining: `archive` + `id`
             - User asks to reactivate an archived record: `restore` + `id`
             - User explicitly asks to forget/delete permanently: `delete` + `id`
-            Archive, restore, and delete require user approval before execution.
+            Archive, restore, and delete execute directly after the user asks for them.
             Memories are retrieved automatically in later conversations; do not ask for separate memory tools.
             `PROFILE` is a user-directed profile entry. Create or edit it only when the user explicitly asks
             to remember a durable fact/preference or corrects an existing profile. Ordinary conversation is

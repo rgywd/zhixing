@@ -27,7 +27,7 @@ import org.junit.Test
 
 class MonthlySpendingSummaryToolTest {
     @Test
-    fun `one action tool exposes the frozen schema and safe approval matrix`() {
+    fun `one action tool exposes the frozen schema and legacy approval matrix`() {
         val tool = ToolHarness().tool
 
         assertEquals("monthly_spending_summary", tool.name)

@@ -7,7 +7,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import me.rerere.ai.core.MessageRole
-import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.model.Conversation
@@ -117,7 +116,7 @@ internal fun Conversation.bindMonthlySpendingSaveSourceMessages(): Conversation 
  * Finds cleanup batches that are safe to finalize.
  *
  * A batch is ready only when every monthly-save tool bound to the same source messages is an
- * approved, strict business success and the selected branch has no unexecuted tool of any kind.
+ * strict business success and the selected branch has no unexecuted tool of any kind.
  * Tool identity includes the containing assistant-message ID, so provider-local call IDs cannot
  * collide with an older response or a sibling branch.
  */
@@ -163,8 +162,7 @@ internal fun Conversation.findReadyMonthlySpendingAttachmentCleanupCandidates(
                 sourceMessageIds.isEmpty() ||
                 tools.isEmpty() ||
                 tools.any { marked ->
-                    marked.tool.approvalState !is ToolApprovalState.Approved ||
-                        !marked.tool.hasSuccessfulMonthlySpendingSaveOutput()
+                    !marked.tool.hasSuccessfulMonthlySpendingSaveOutput()
                 }
             ) {
                 return@mapNotNull null
@@ -192,7 +190,6 @@ internal fun Conversation.successfulMonthlySpendingSaveToolCalls():
             .filter { tool ->
                 tool.isMonthlySpendingSave() &&
                     tool.sourceMessageIdsOrNull() != null &&
-                    tool.approvalState is ToolApprovalState.Approved &&
                     tool.hasSuccessfulMonthlySpendingSaveOutput()
             }
             .map { tool ->

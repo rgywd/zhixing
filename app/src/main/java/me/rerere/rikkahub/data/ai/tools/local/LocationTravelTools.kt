@@ -111,7 +111,7 @@ private fun buildCurrentLocationTool(
 ) = Tool(
     name = "get_current_location",
     description = """
-        Get one foreground location fix for the user after explicit approval. By default this returns only a structured
+        Get one foreground location fix after the user has enabled this tool and granted location privacy consent. By default this returns only a structured
         address, accuracy and observation time. Set include_coordinates=true only when exact coordinates are essential
         to the user's request. Never infer that this is a background or continuously updated location.
     """.trimIndent().replace("\n", " "),
@@ -167,7 +167,7 @@ private fun buildNearbySearchTool(
 ) = Tool(
     name = "search_nearby_places",
     description = """
-        Search for nearby places around a one-time foreground location after explicit approval. The user's search-center
+        Search for nearby places around a one-time foreground location after the user has enabled this tool and granted location privacy consent. The user's search-center
         coordinates are intentionally withheld; returned latitude and longitude identify public destination places and
         may be passed to open_navigation. Results use the GCJ-02 coordinate system.
     """.trimIndent().replace("\n", " "),

@@ -17,7 +17,7 @@ import org.junit.Test
 
 class LocationTravelToolsTest {
     @Test
-    fun `schemas are closed and every location tool requires approval`() {
+    fun `schemas are closed and legacy location approval metadata remains compatible`() {
         val tools = Harness().tools.associateBy { it.name }
 
         assertEquals(
