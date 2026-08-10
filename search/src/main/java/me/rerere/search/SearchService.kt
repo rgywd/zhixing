@@ -12,6 +12,7 @@ import me.rerere.ai.util.KeyRoulette
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.Response
 import okhttp3.internal.closeQuietly
 import okio.IOException
@@ -25,6 +26,8 @@ interface SearchService<T : SearchServiceOptions> {
     fun parameters(options: T): InputSchema?
 
     fun scrapingParameters(options: T): InputSchema?
+
+    fun imageParameters(options: T): InputSchema? = null
 
     @Composable
     fun Description()
@@ -40,6 +43,14 @@ interface SearchService<T : SearchServiceOptions> {
         commonOptions: SearchCommonOptions,
         serviceOptions: T
     ): Result<ScrapedResult>
+
+    suspend fun searchImages(
+        params: JsonObject,
+        commonOptions: SearchCommonOptions,
+        serviceOptions: T
+    ): Result<ImageSearchResult> = Result.failure(
+        UnsupportedOperationException("Image search is not supported by $name")
+    )
 
     companion object {
         @Suppress("UNCHECKED_CAST")
@@ -95,14 +106,21 @@ interface SearchService<T : SearchServiceOptions> {
 
 @Serializable
 data class SearchCommonOptions(
-    val resultSize: Int = 10
-)
+    val resultSize: Int = 10,
+    val searchTimeoutSeconds: Int = 8,
+    val scrapeTimeoutSeconds: Int = 15,
+) {
+    fun searchTimeoutMillis(): Long = searchTimeoutSeconds.coerceIn(1, 60) * 1_000L
+
+    fun scrapeTimeoutMillis(): Long = scrapeTimeoutSeconds.coerceIn(5, 120) * 1_000L
+}
 
 @Serializable
 data class SearchResult(
     val answer: String? = null,
     val items: List<SearchResultItem>,
     val images: List<String> = emptyList(),
+    val requestId: String? = null,
 ) {
     @Serializable
     data class SearchResultItem(
@@ -113,9 +131,35 @@ data class SearchResult(
 }
 
 @Serializable
+data class ImageSearchResult(
+    val items: List<ImageSearchItem>,
+    val requestId: String? = null,
+)
+
+@Serializable
+data class ImageSearchItem(
+    val imageUrl: String,
+    val sourceUrl: String? = null,
+    val title: String? = null,
+    val siteName: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val shape: String? = null,
+    val rankScore: Double? = null,
+    val watermark: Boolean? = null,
+    val blurDescription: String? = null,
+)
+
+@Serializable
 data class ScrapedResult(
     val urls: List<ScrapedResultUrl>,
+    val requestId: String? = null,
 )
+
+class SearchProviderException(
+    val code: String,
+    val requestId: String? = null,
+) : Exception(code)
 
 @Serializable
 data class ScrapedResultUrl(
@@ -361,6 +405,7 @@ function search(query, resultSize) {
 
 internal suspend fun Call.await(): Response {
     return suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { cancel() }
         enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 if (continuation.isActive) {
@@ -369,10 +414,19 @@ internal suspend fun Call.await(): Response {
             }
 
             override fun onResponse(call: Call, response: Response) {
-                continuation.resume(response) { cause, _, _ ->
+                if (continuation.isActive) {
+                    continuation.resume(response) { _, _, _ ->
+                        response.closeQuietly()
+                    }
+                } else {
                     response.closeQuietly()
                 }
             }
         })
     }
 }
+
+internal fun OkHttpClient.newCall(request: Request, timeoutMillis: Long): Call =
+    newCall(request).also { call ->
+        call.timeout().timeout(timeoutMillis.coerceAtLeast(1L), TimeUnit.MILLISECONDS)
+    }

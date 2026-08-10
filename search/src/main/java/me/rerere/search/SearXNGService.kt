@@ -87,14 +87,13 @@ object SearXNGService : SearchService<SearchServiceOptions.SearXNGOptions> {
 
             Log.i(TAG, "search: $url")
 
-            val response = httpClient.newCall(request).await()
+            val response = httpClient.newCall(request, commonOptions.searchTimeoutMillis()).await()
             if (response.isSuccessful) {
                 val bodyRaw = response.body.string()
                 val searchResponse = runCatching {
                     json.decodeFromString<SearXNGResponse>(bodyRaw)
                 }.onFailure {
                     it.printStackTrace()
-                    println("SearXNG response body: $bodyRaw")
                     error("Failed to decode SearXNG response: ${it.message}")
                 }.getOrThrow()
 

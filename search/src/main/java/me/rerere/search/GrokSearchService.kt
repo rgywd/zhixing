@@ -99,7 +99,7 @@ object GrokSearchService : SearchService<SearchServiceOptions.GrokOptions> {
                 .addHeader("Content-Type", "application/json")
                 .build()
 
-            val response = httpClient.newCall(request).await()
+            val response = httpClient.newCall(request, commonOptions.searchTimeoutMillis()).await()
             if (response.isSuccessful) {
                 val responseBody = response.body.string().let {
                     json.decodeFromString<GrokResponse>(it)

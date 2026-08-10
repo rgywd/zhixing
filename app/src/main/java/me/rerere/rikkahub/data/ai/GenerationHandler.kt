@@ -4,10 +4,13 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.supervisorScope
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.Serializable
@@ -18,6 +21,8 @@ import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.Tool
+import me.rerere.ai.core.ToolExecutionMode
+import me.rerere.ai.core.ToolExecutionException
 import me.rerere.ai.core.merge
 import me.rerere.ai.provider.CustomBody
 import me.rerere.ai.provider.Model
@@ -121,6 +126,27 @@ internal fun sanitizeToolInputsForStorage(
     }
 }
 
+internal suspend fun <T, R> executeInOrderedBatches(
+    items: List<T>,
+    canRunInParallel: (T) -> Boolean,
+    execute: suspend (T) -> R,
+): List<R> {
+    val results = arrayListOf<R>()
+    var index = 0
+    while (index < items.size) {
+        val current = items[index]
+        if (!canRunInParallel(current)) {
+            results += execute(current)
+            index++
+            continue
+        }
+        val batch = items.drop(index).takeWhile(canRunInParallel)
+        results += supervisorScope { batch.map { item -> async { execute(item) } }.awaitAll() }
+        index += batch.size
+    }
+    return results
+}
+
 internal class MemoryPromptSnapshot(initialMemories: List<AssistantMemory>) {
     private var currentMemories = initialMemories
     private var invalidated = false
@@ -222,7 +248,7 @@ class GenerationHandler(
             }
 
             val toolsInternal = buildList {
-                Log.i(TAG, "generateInternal: build tools($assistant)")
+                Log.i(TAG, "generateInternal: build tools")
                 if (memoryAssistantId != null) {
                     val memoryToolScope = MemoryToolScope(memoryAssistantId)
                     buildMemoryTools(
@@ -396,14 +422,13 @@ class GenerationHandler(
 
             reportTaskSteps(toolsToProcess, toolsInternal)
 
-            // Handle tools (execute approved tools, handle denied tools)
-            val executedTools = arrayListOf<UIMessagePart.Tool>()
-            toolsToProcess.forEach { tool ->
-                when (tool.approvalState) {
+            // Handle tools. Stateful tools preserve their original serial order; consecutive
+            // explicitly read-only tools may execute together and are reassembled in model order.
+            suspend fun executeTool(tool: UIMessagePart.Tool): UIMessagePart.Tool? {
+                return when (tool.approvalState) {
                     is ToolApprovalState.Denied -> {
-                        // Tool was denied by user
                         val reason = (tool.approvalState as ToolApprovalState.Denied).reason
-                        executedTools += tool.copy(
+                        tool.copy(
                             output = listOf(
                                 UIMessagePart.Text(
                                     json.encodeToString(
@@ -420,22 +445,14 @@ class GenerationHandler(
                     }
 
                     is ToolApprovalState.Answered -> {
-                        // Tool was answered by user (e.g., ask_user tool)
                         val answer = (tool.approvalState as ToolApprovalState.Answered).answer
-                        executedTools += tool.copy(
-                            output = listOf(
-                                UIMessagePart.Text(answer)
-                            )
-                        )
+                        tool.copy(output = listOf(UIMessagePart.Text(answer)))
                     }
 
-                    is ToolApprovalState.Pending -> {
-                        // Should not reach here, but just in case
-                    }
+                    is ToolApprovalState.Pending -> null
 
                     else -> {
-                        // Auto or Approved - execute the tool
-                        runCatching {
+                        try {
                             val toolDef = toolsInternal.find { toolDef -> toolDef.name == tool.toolName }
                                 ?: error("Tool ${tool.toolName} not found")
                             val args = runCatching {
@@ -446,24 +463,24 @@ class GenerationHandler(
                             Log.i(TAG, toolExecutionLogMessage(toolDef.name))
                             val result = toolDef.execute(args)
                             val hasShellAccess = toolsInternal.any { it.name == "workspace_shell" }
-                            executedTools += tool.copy(
+                            tool.copy(
                                 output = maybeTruncateToolOutput(tool.toolCallId, result, hasShellAccess)
                             )
-                        }.onFailure {
-                            // 取消必须向上传播，否则停止生成会被误报为工具执行错误
-                            if (it is CancellationException) throw it
-                            Log.e(TAG, "Tool execution failed: ${tool.toolName}", it)
-                            executedTools += tool.copy(
+                        } catch (throwable: Throwable) {
+                            if (throwable is CancellationException) throw throwable
+                            Log.w(TAG, "generateText: tool ${tool.toolName} failed")
+                            val errorCode = (throwable as? ToolExecutionException)?.code
+                                ?: "TOOL_EXECUTION_FAILED"
+                            tool.copy(
                                 output = listOf(
                                     UIMessagePart.Text(
                                         json.encodeToString(
                                             buildJsonObject {
                                                 put(
                                                     "error",
-                                                    JsonPrimitive(buildString {
-                                                        append("[TOOL_EXECUTION_FAILED] ")
-                                                        append("工具执行失败，请检查连接、权限或输入后重试")
-                                                    })
+                                                    JsonPrimitive(
+                                                        "[$errorCode] 工具执行失败，请检查连接、权限或输入后重试"
+                                                    )
                                                 )
                                             }
                                         )
@@ -474,6 +491,18 @@ class GenerationHandler(
                     }
                 }
             }
+
+            val executedTools = executeInOrderedBatches(
+                items = toolsToProcess,
+                canRunInParallel = { candidate ->
+                    val candidateDef = toolsInternal.find { it.name == candidate.toolName }
+                    candidate.approvalState !is ToolApprovalState.Denied &&
+                        candidate.approvalState !is ToolApprovalState.Answered &&
+                        candidate.approvalState !is ToolApprovalState.Pending &&
+                        candidateDef?.executionMode == ToolExecutionMode.PARALLEL_READ_ONLY
+                },
+                execute = { executeTool(it) },
+            ).filterNotNull()
 
             if (executedTools.isEmpty()) {
                 // No results to add (all tools were pending)

@@ -6,7 +6,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.ui.UIMessagePart
 
-private val RESEARCH_TOOL_NAMES = setOf("search_web", "scrape_web")
+private val RESEARCH_TOOL_NAMES = setOf("search_web", "search_images", "scrape_web")
 
 /**
  * 思考步骤类型，用于分组 Reasoning 和 Tool

@@ -1,6 +1,9 @@
 package me.rerere.rikkahub.data.ai
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withTimeout
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.ToolApprovalState
@@ -92,6 +95,31 @@ class GenerationHandlerSecurityTest {
         assertEquals("generateText: executing tool memory_tool", message)
         assertFalse(message.contains("content"))
         assertFalse(message.contains("args"))
+    }
+
+    @Test
+    fun readOnlyBatchRunsConcurrentlyAndSerialBoundaryKeepsOrder() = runBlocking {
+        val bothStarted = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var started = 0
+        val execution = async {
+            executeInOrderedBatches(
+                items = listOf("read-1", "read-2", "write", "read-3"),
+                canRunInParallel = { it.startsWith("read") },
+                execute = { item ->
+                    if (item == "read-1" || item == "read-2") {
+                        started++
+                        if (started == 2) bothStarted.complete(Unit)
+                        release.await()
+                    }
+                    item
+                },
+            )
+        }
+
+        withTimeout(1_000) { bothStarted.await() }
+        release.complete(Unit)
+        assertEquals(listOf("read-1", "read-2", "write", "read-3"), execution.await())
     }
 
     @Test

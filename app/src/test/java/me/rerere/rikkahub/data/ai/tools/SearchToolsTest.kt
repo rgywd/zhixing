@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.ai.tools
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -10,6 +11,9 @@ import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.search.SearchCommonOptions
+import me.rerere.search.ImageSearchItem
+import me.rerere.search.ImageSearchResult
+import me.rerere.search.SearchService
 import me.rerere.search.SearchResult
 import me.rerere.search.SearchServiceOptions
 import org.junit.Assert.assertEquals
@@ -42,6 +46,19 @@ class SearchToolsTest {
             assertTrue(schema.properties.containsKey(providerParameter))
             assertTrue(schema.required.orEmpty().contains(providerParameter))
         }
+    }
+
+    @Test
+    fun `image capable providers expose image search with purpose`() {
+        val anySearch: SearchServiceOptions = SearchServiceOptions.AnySearchOptions()
+        val settings = Settings(
+            searchServices = listOf(anySearch),
+            searchServiceSelectedIds = setOf(anySearch.id),
+        )
+        val tool = createSearchTools(settings).single { it.name == "search_images" }
+        val schema = tool.parameters() as InputSchema.Obj
+
+        assertTrue(schema.required.orEmpty().containsAll(listOf("query", "purpose")))
     }
 
     @Test
@@ -86,6 +103,32 @@ class SearchToolsTest {
     }
 
     @Test
+    fun `deadline returns completed provider and cancels slow provider`() = runBlocking {
+        val slowCancelled = CompletableDeferred<Unit>()
+        val result = executeMultiSearch(
+            params = params,
+            commonOptions = SearchCommonOptions(),
+            options = listOf(first, second),
+            search = { options, _, _ ->
+                if (options.id == first.id) {
+                    Result.success(resultFor(options.displayName))
+                } else {
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        slowCancelled.complete(Unit)
+                    }
+                }
+            },
+            timeoutMillis = 50,
+        )
+
+        assertEquals(1, result.items.size)
+        assertEquals("TIMEOUT", result.failures.single().code)
+        withTimeout(1_000) { slowCancelled.await() }
+    }
+
+    @Test
     fun `all provider failures surface an aggregate error`() {
         val error = assertThrows(IllegalStateException::class.java) {
             runBlocking {
@@ -94,8 +137,7 @@ class SearchToolsTest {
                 }
             }
         }
-        assertTrue(error.message.orEmpty().contains("Bing"))
-        assertTrue(error.message.orEmpty().contains("豆包搜索"))
+        assertEquals("SEARCH_UNAVAILABLE", error.message)
     }
 
     @Test
@@ -119,6 +161,57 @@ class SearchToolsTest {
         assertEquals(listOf(firstProvider, secondProvider), result.items.first().providers)
         assertEquals("First extra", result.items[1].title)
         assertEquals("Second extra", result.items[2].title)
+    }
+
+    @Test
+    fun `aggregate applies global result and text limits`() {
+        val provider = SearchProvider(first.id.toString(), first.displayName)
+        val result = aggregateSearchResults(
+            outcomes = listOf(
+                ProviderSearchOutcome(
+                    provider,
+                    Result.success(
+                        SearchResult(
+                            items = (1..5).map { item("Item $it", "https://example.com/$it").copy(text = "x".repeat(2_000)) }
+                        )
+                    )
+                )
+            ),
+            resultLimit = 2,
+        )
+
+        assertEquals(2, result.items.size)
+        assertEquals(1_200, result.items.single { it.index == 1 }.text.length)
+    }
+
+    @Test
+    fun `image aggregation keeps metadata and caps global images`() = runBlocking {
+        val anySearch: SearchServiceOptions = SearchServiceOptions.AnySearchOptions()
+        val searcher = ImageSearcher(anySearch, SearchService.getService(anySearch))
+        val result = executeMultiImageSearch(
+            params = params,
+            commonOptions = SearchCommonOptions(resultSize = 20),
+            searchers = listOf(searcher),
+        ) { _, _, options ->
+            assertEquals(5, options.resultSize)
+            Result.success(
+                ImageSearchResult(
+                    items = (1..6).map { index ->
+                        ImageSearchItem(
+                            imageUrl = "https://img.example.com/$index.jpg",
+                            sourceUrl = "https://example.com/$index",
+                            title = "Image $index",
+                            width = 1200,
+                            height = 800,
+                        )
+                    }
+                )
+            )
+        }
+
+        assertEquals(5, result.items.size)
+        assertEquals(1200, result.items.first().width)
+        assertEquals(result.items.map { it.imageUrl }, result.images)
     }
 
     private fun resultFor(provider: String) = SearchResult(

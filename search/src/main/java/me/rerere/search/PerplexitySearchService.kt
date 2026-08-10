@@ -81,7 +81,7 @@ object PerplexitySearchService : SearchService<SearchServiceOptions.PerplexityOp
                 }
             }
 
-            Log.i(TAG, "search: $body")
+            Log.i(TAG, "search: request prepared")
 
             val request = Request.Builder()
                 .url(PERPLEXITY_ENDPOINT)
@@ -90,7 +90,7 @@ object PerplexitySearchService : SearchService<SearchServiceOptions.PerplexityOp
                 .addHeader("Content-Type", "application/json")
                 .build()
 
-            val response = httpClient.newCall(request).await()
+            val response = httpClient.newCall(request, commonOptions.searchTimeoutMillis()).await()
             if (response.isSuccessful) {
                 val responseBody = response.body.string().let {
                     json.decodeFromString<PerplexityResponse>(it)

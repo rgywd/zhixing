@@ -274,6 +274,8 @@
   <string name="chat_message_tool_search_prefix">搜尋: %1$s</string>
   <string name="chat_message_tool_search_results_count">共 %1$d 條結果</string>
   <string name="chat_message_tool_search_web">搜尋網頁: %1$s</string>
+  <string name="chat_message_tool_search_images">搜尋圖片: %1$s</string>
+  <string name="chat_message_tool_search_images_count">%1$d 張圖片</string>
   <string name="chat_message_tool_submit">提交</string>
   <string name="chat_page_cancel">取消</string>
   <string name="chat_page_check_title_model_settings">檢查標題模型設定</string>
@@ -578,6 +580,7 @@
   <string name="safe_mode_title">安全模式</string>
   <string name="search_ability_scrape">爬取</string>
   <string name="search_ability_search">搜尋</string>
+  <string name="search_ability_image">圖片</string>
   <string name="search_detail_api_key">API 金鑰</string>
   <string name="search_detail_api_url">API URL</string>
   <string name="search_detail_custom_search_placeholder">我的自訂搜尋</string>
@@ -838,6 +841,10 @@
   <string name="setting_page_search_config">設定</string>
   <string name="setting_page_search_delete_provider">刪除提供商</string>
   <string name="setting_page_search_result_size">結果數量</string>
+  <string name="setting_page_search_timeout">搜尋逾時（秒）</string>
+  <string name="setting_page_search_timeout_description">網頁與圖片搜尋共用的截止時間，可設定為 1 到 60 秒。</string>
+  <string name="setting_page_scrape_timeout">網頁擷取逾時（秒）</string>
+  <string name="setting_page_scrape_timeout_description">完整網頁擷取的截止時間，可設定為 5 到 120 秒。</string>
   <string name="setting_page_search_service">搜尋服務</string>
   <string name="setting_page_search_service_desc">設定搜尋服務</string>
   <string name="setting_page_search_test">測試搜尋</string>

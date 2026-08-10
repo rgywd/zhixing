@@ -10,6 +10,7 @@ import kotlinx.serialization.json.buildJsonObject
 import okio.Buffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -44,7 +45,7 @@ class DoubaoSearchServiceTest {
     }
 
     @Test
-    fun responseParsesOfficialNestedResultAndPrefersSummaryThenSnippetThenContent() {
+    fun responseParsesOfficialNestedResultAndPrefersSummaryThenContentThenSnippet() {
         val result = parseDoubaoSearchResponse(
             """
                 {
@@ -85,8 +86,9 @@ class DoubaoSearchServiceTest {
 
         assertEquals(3, result.items.size)
         assertEquals("summary text", result.items[0].text)
-        assertEquals("snippet fallback", result.items[1].text)
+        assertEquals("content text", result.items[1].text)
         assertEquals("content fallback", result.items[2].text)
+        assertEquals("test-request", result.requestId)
     }
 
     @Test
@@ -107,6 +109,56 @@ class DoubaoSearchServiceTest {
 
         assertEquals(1, result.items.size)
         assertEquals("Legacy result", result.items.single().title)
+    }
+
+    @Test
+    fun imageRequestAndResponseUseOfficialImageShape() {
+        val request = buildDoubaoSearchRequest(
+            query = "北京城市风景",
+            resultSize = 99,
+            apiKey = "test-key",
+            searchType = DoubaoSearchType.IMAGE,
+        )
+        val buffer = Buffer()
+        request.body!!.writeTo(buffer)
+        val body = SearchService.json.parseToJsonElement(buffer.readUtf8()).jsonObject
+        assertEquals("image", body.getValue("SearchType").jsonPrimitive.content)
+        assertEquals(50, body.getValue("Count").jsonPrimitive.int)
+        assertTrue("image request must not send web-only Filter", !body.containsKey("Filter"))
+
+        val result = parseDoubaoImageSearchResponse(
+            """
+                {
+                  "Result": {
+                    "ImageResults": [{
+                      "Title": "Beijing",
+                      "SiteName": "Example",
+                      "Url": "https://example.com/source",
+                      "Image": {"Url":"https://img.example.com/a.jpg","Width":1200,"Height":800,"Shape":"horizontal"},
+                      "RankScore": 0.9,
+                      "Watermark": false
+                    }]
+                  }
+                }
+            """.trimIndent()
+        )
+        val item = result.items.single()
+        assertEquals("https://img.example.com/a.jpg", item.imageUrl)
+        assertEquals("https://example.com/source", item.sourceUrl)
+        assertEquals(1200, item.width)
+        assertEquals(false, item.watermark)
+    }
+
+    @Test
+    fun responseMetadataBusinessErrorIsReportedWithoutLeakingMessage() {
+        val error = assertThrows(SearchProviderException::class.java) {
+            parseDoubaoSearchResponse(
+                """{"ResponseMetadata":{"RequestId":"request-1","Error":{"Code":"700429","Message":"secret detail"}}}"""
+            )
+        }
+        assertEquals("700429", error.code)
+        assertEquals("request-1", error.requestId)
+        assertTrue(!error.message.orEmpty().contains("secret detail"))
     }
 
     @Test

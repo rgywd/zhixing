@@ -276,6 +276,8 @@
   <string name="chat_message_tool_search_prefix">Search: %1$s</string>
   <string name="chat_message_tool_search_results_count">%1$d results</string>
   <string name="chat_message_tool_search_web">Search web: %1$s</string>
+  <string name="chat_message_tool_search_images">Search images: %1$s</string>
+  <string name="chat_message_tool_search_images_count">%1$d images</string>
   <string name="chat_message_tool_submit">Submit</string>
   <string name="chat_page_cancel">Cancel</string>
   <string name="chat_page_check_title_model_settings">Check title model settings</string>
@@ -585,6 +587,7 @@
   <string name="safe_mode_title">Safe Mode</string>
   <string name="search_ability_scrape">Scrape</string>
   <string name="search_ability_search">Search</string>
+  <string name="search_ability_image">Images</string>
   <string name="search_detail_api_key">API Key</string>
   <string name="search_detail_api_url">API URL</string>
   <string name="search_detail_custom_search_placeholder">My Custom Search</string>
@@ -888,6 +891,10 @@
   <string name="setting_page_search_config">Configuration</string>
   <string name="setting_page_search_delete_provider">Delete Provider</string>
   <string name="setting_page_search_result_size">Result Size</string>
+  <string name="setting_page_search_timeout">Search timeout (seconds)</string>
+  <string name="setting_page_search_timeout_description">Shared deadline for web and image search, from 1 to 60 seconds.</string>
+  <string name="setting_page_scrape_timeout">Page extraction timeout (seconds)</string>
+  <string name="setting_page_scrape_timeout_description">Deadline for full-page extraction, from 5 to 120 seconds.</string>
   <string name="setting_page_search_service">Search Service</string>
   <string name="setting_page_search_service_desc">Set up search service</string>
   <string name="setting_page_search_test">Test Search</string>

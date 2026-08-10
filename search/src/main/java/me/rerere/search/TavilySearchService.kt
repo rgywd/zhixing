@@ -102,7 +102,7 @@ object TavilySearchService : SearchService<SearchServiceOptions.TavilyOptions> {
                 .post(body.toString().toRequestBody())
                 .addHeader("Authorization", "Bearer $apiKey")
                 .build()
-            val response = httpClient.newCall(request).await()
+            val response = httpClient.newCall(request, commonOptions.searchTimeoutMillis()).await()
             if (response.isSuccessful) {
                 val response = response.body.string().let {
                     json.decodeFromString<SearchResponse>(it)
@@ -144,7 +144,7 @@ object TavilySearchService : SearchService<SearchServiceOptions.TavilyOptions> {
                 .post(body.toString().toRequestBody())
                 .addHeader("Authorization", "Bearer $apiKey")
                 .build()
-            val response = httpClient.newCall(request).await()
+            val response = httpClient.newCall(request, commonOptions.scrapeTimeoutMillis()).await()
             if (response.isSuccessful) {
                 val response = response.body.string().let {
                     json.decodeFromString<ScrapeResponse>(it)

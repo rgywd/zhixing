@@ -771,6 +771,13 @@ private fun ChainOfThoughtScope.ExportedToolStep(
             stringResource(R.string.chat_message_tool_search_web, query)
         }
 
+        "search_images" -> {
+            val query = runCatching {
+                tool.inputAsJson().jsonObject["query"]?.jsonPrimitiveOrNull?.contentOrNull ?: ""
+            }.getOrDefault("")
+            stringResource(R.string.chat_message_tool_search_images, query)
+        }
+
         "scrape_web" -> stringResource(R.string.chat_message_tool_scrape_web)
         else -> stringResource(R.string.chat_message_tool_call_generic, tool.toolName)
     }
@@ -787,6 +794,7 @@ private fun ChainOfThoughtScope.ExportedToolStep(
                     }
 
                     "search_web" -> HugeIcons.Search01
+                    "search_images" -> HugeIcons.Search01
                     "scrape_web" -> HugeIcons.Earth
                     else -> HugeIcons.Wrench01
                 },

@@ -29,8 +29,17 @@ data class Tool(
      * deserialize without a migration; ordinary chat no longer consults it before execution.
      */
     val needsApproval: (JsonElement) -> Boolean = { false },
+    val executionMode: ToolExecutionMode = ToolExecutionMode.SERIAL,
     val execute: suspend (JsonElement) -> List<UIMessagePart>
 )
+
+@Serializable
+enum class ToolExecutionMode {
+    SERIAL,
+    PARALLEL_READ_ONLY,
+}
+
+class ToolExecutionException(val code: String) : IllegalStateException(code)
 
 @Serializable
 sealed class InputSchema {
