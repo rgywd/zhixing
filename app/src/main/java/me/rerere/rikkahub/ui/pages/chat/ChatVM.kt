@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.isEmptyInputMessage
 import me.rerere.rikkahub.R
@@ -173,11 +174,15 @@ class ChatVM(
      * @param content 消息内容
      * @param answer 是否触发消息生成，如果为false，则仅添加消息到消息列表中
      */
-    fun handleMessageSend(content: List<UIMessagePart>,answer: Boolean = true) {
+    fun handleMessageSend(
+        content: List<UIMessagePart>,
+        answer: Boolean = true,
+        runtimeContext: UIMessageAnnotation.RuntimeContext? = null,
+    ) {
         if (content.isEmptyInputMessage()) return
         analytics.logEvent("ai_send_message")
 
-        chatService.sendMessage(_conversationId, content, answer)
+        chatService.sendMessage(_conversationId, content, answer, runtimeContext)
     }
 
     fun handleMessageEdit(parts: List<UIMessagePart>, messageId: Uuid) {

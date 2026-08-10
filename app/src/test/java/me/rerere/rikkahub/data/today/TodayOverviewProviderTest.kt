@@ -22,6 +22,21 @@ class TodayOverviewProviderTest {
         assertTrue(snapshot.isEmpty)
         assertEquals(0, snapshot.agendaActionCount)
         assertEquals(0, snapshot.agendaOverdueCount)
+        assertFalse(snapshot.workConfigured)
+    }
+
+    @Test
+    fun `work connection is exposed without turning shortcut into attention`() {
+        val snapshot = buildTodaySnapshot(
+            sessions = emptyList(),
+            tasks = emptyList(),
+            plans = emptyList(),
+            nowMillis = now,
+            workConfigured = true,
+        )
+
+        assertTrue(snapshot.workConfigured)
+        assertTrue(snapshot.isEmpty)
     }
 
     @Test

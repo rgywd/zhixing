@@ -50,6 +50,7 @@ import kotlinx.coroutines.launch
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.LeftToRightListBullet
@@ -78,6 +79,7 @@ import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.ui.hooks.EditStateContent
 import me.rerere.rikkahub.ui.hooks.useEditState
 import me.rerere.rikkahub.utils.base64Decode
+import me.rerere.rikkahub.utils.decodeRuntimeContext
 import me.rerere.rikkahub.utils.navigateToChatPage
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -85,7 +87,13 @@ import org.koin.core.parameter.parametersOf
 import kotlin.uuid.Uuid
 
 @Composable
-fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
+fun ChatPage(
+    id: Uuid,
+    text: String?,
+    files: List<Uri>,
+    nodeId: Uuid? = null,
+    runtimeContext: String? = null,
+) {
     val vm: ChatVM = koinViewModel(
         parameters = {
             parametersOf(id.toString())
@@ -140,6 +148,10 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     }
 
     val inputState = vm.inputState
+    var pendingRuntimeContextPayload by rememberSaveable(id) { mutableStateOf(runtimeContext) }
+    val pendingRuntimeContext = remember(pendingRuntimeContextPayload) {
+        decodeRuntimeContext(pendingRuntimeContextPayload)
+    }
 
     // 初始化输入状态（处理传入的 files 和 text 参数）
     LaunchedEffect(files, text) {
@@ -215,6 +227,8 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
                         currentChatModel = currentChatModel,
                         bigScreen = true,
                         errors = errors,
+                        runtimeContext = pendingRuntimeContext,
+                        onDismissRuntimeContext = { pendingRuntimeContextPayload = null },
                         onOpenAgenda = openAgendaDrawer,
                         onDismissError = { vm.dismissError(it) },
                         onClearAllErrors = { vm.clearAllErrors() },
@@ -248,6 +262,8 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
                         currentChatModel = currentChatModel,
                         bigScreen = false,
                         errors = errors,
+                        runtimeContext = pendingRuntimeContext,
+                        onDismissRuntimeContext = { pendingRuntimeContextPayload = null },
                         onOpenAgenda = openAgendaDrawer,
                         onDismissError = { vm.dismissError(it) },
                         onClearAllErrors = { vm.clearAllErrors() },
@@ -273,6 +289,8 @@ private fun ChatPageContent(
     enableWebSearch: Boolean,
     currentChatModel: Model?,
     errors: List<ChatError>,
+    runtimeContext: UIMessageAnnotation.RuntimeContext?,
+    onDismissRuntimeContext: () -> Unit,
     onOpenAgenda: () -> Unit,
     onDismissError: (Uuid) -> Unit,
     onClearAllErrors: () -> Unit,
@@ -360,7 +378,15 @@ private fun ChatPageContent(
                                 messageId = inputState.editingMessage!!,
                             )
                         } else {
-                            vm.handleMessageSend(inputState.getContents())
+                            val contextForSend = runtimeContext?.takeIf {
+                                it.validUntilEpochMillis > System.currentTimeMillis()
+                            }
+                            if (runtimeContext != null && contextForSend == null) {
+                                toaster.show("当前状态已过期，请返回更新后再试", type = ToastType.Warning)
+                                return@ChatInput
+                            }
+                            vm.handleMessageSend(inputState.getContents(), runtimeContext = contextForSend)
+                            onDismissRuntimeContext()
                             scope.launch {
                                 chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
                             }
@@ -374,7 +400,19 @@ private fun ChatPageContent(
                                 messageId = inputState.editingMessage!!,
                             )
                         } else {
-                            vm.handleMessageSend(content = inputState.getContents(), answer = false)
+                            val contextForSend = runtimeContext?.takeIf {
+                                it.validUntilEpochMillis > System.currentTimeMillis()
+                            }
+                            if (runtimeContext != null && contextForSend == null) {
+                                toaster.show("当前状态已过期，请返回更新后再试", type = ToastType.Warning)
+                                return@ChatInput
+                            }
+                            vm.handleMessageSend(
+                                content = inputState.getContents(),
+                                answer = false,
+                                runtimeContext = contextForSend,
+                            )
+                            onDismissRuntimeContext()
                             scope.launch {
                                 chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
                             }
@@ -491,6 +529,8 @@ private fun ChatPageContent(
                     vm.saveConversationAsync()
                 },
                 onOpenAgenda = onOpenAgenda,
+                runtimeContext = runtimeContext,
+                onDismissRuntimeContext = onDismissRuntimeContext,
             )
     }
 

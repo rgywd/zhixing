@@ -4,10 +4,13 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import me.rerere.ai.ui.RuntimeContextEvidence
+import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.MemoryKind
 import me.rerere.rikkahub.data.model.MemoryState
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -17,7 +20,6 @@ import kotlin.math.floor
 
 internal const val MY_STATUS_VALIDITY_MS = 60 * 60 * 1_000L
 internal const val MY_STATUS_REFRESH_DEBOUNCE_MS = 30 * 1_000L
-private val DISCUSSION_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm VV")
 
 @Serializable
 internal enum class MyStatusConfidence {
@@ -163,6 +165,7 @@ internal data class MyStatusInterventionPolicy(
     val quietHours: Boolean,
     val shouldGenerateInterpretation: Boolean,
     val recommendationAllowed: Boolean,
+    val outdoorActivityRestricted: Boolean = false,
     val allowedInsightEvidenceIds: List<String>,
     val allowedRecommendationEvidenceIds: List<String>,
 )
@@ -264,6 +267,7 @@ internal fun buildMyStatusInterventionPolicy(
     val quietHours = hour in QUIET_HOURS
     val insightIds = linkedSetOf<String>()
     val recommendationIds = linkedSetOf<String>()
+    var outdoorActivityRestricted = false
 
     facts.agenda?.let { agenda ->
         agenda.nextItems.forEach { item ->
@@ -291,22 +295,32 @@ internal fun buildMyStatusInterventionPolicy(
     }
 
     facts.body?.let { body ->
-        if (body.sleepMinutes != null && body.sleepMinutes < 360) {
+        val sleepIsFresh = isObservedWithin(body.observedAt, facts.observedAtEpochMillis, BODY_SLEEP_MAX_AGE)
+        val currentBodyIsFresh = isSameLocalDayAndWithin(
+            observedAt = body.observedAt,
+            nowEpochMillis = facts.observedAtEpochMillis,
+            zoneId = zoneId,
+            maxAge = BODY_CURRENT_MAX_AGE,
+        )
+        if (sleepIsFresh && body.sleepMinutes != null && body.sleepMinutes < 360) {
             insightIds += "body.sleep"
             if (!quietHours) recommendationIds += "body.sleep"
         }
-        if (body.bloodOxygenPercent != null && body.bloodOxygenPercent < 95) {
+        if (currentBodyIsFresh && body.bloodOxygenPercent != null && body.bloodOxygenPercent < 95) {
             insightIds += "body.bloodOxygen"
             recommendationIds += "body.bloodOxygen"
         }
-        if (body.steps != null && hour >= 18 && body.steps < 3_000) {
+        if (currentBodyIsFresh && body.steps != null && hour >= 18 && body.steps < 3_000) {
             insightIds += "body.steps"
             if (!quietHours) recommendationIds += "body.steps"
         }
     }
 
-    facts.weather?.let { weather ->
+    facts.weather
+        ?.takeIf { isObservedWithin(it.observedAt, facts.observedAtEpochMillis, WEATHER_MAX_AGE) }
+        ?.let { weather ->
         if (weather.apparentTemperatureCelsius >= 32.0) {
+            outdoorActivityRestricted = true
             insightIds += "weather.apparentTemperature"
             if (!quietHours) recommendationIds += "weather.apparentTemperature"
         }
@@ -320,6 +334,7 @@ internal fun buildMyStatusInterventionPolicy(
         quietHours = quietHours,
         shouldGenerateInterpretation = insightIds.isNotEmpty(),
         recommendationAllowed = recommendationIds.isNotEmpty(),
+        outdoorActivityRestricted = outdoorActivityRestricted,
         allowedInsightEvidenceIds = insightIds.toList(),
         allowedRecommendationEvidenceIds = recommendationIds.toList(),
     )
@@ -335,13 +350,27 @@ internal fun enforceMyStatusInterventionPolicy(
         insights = snapshot.insights.filter { insight ->
             insight.evidenceIds.isNotEmpty() && insight.evidenceIds.all(allowedInsights::contains)
         },
-        recommendation = snapshot.recommendation?.takeIf { recommendation ->
-            policy.recommendationAllowed &&
-                recommendation.evidenceIds.isNotEmpty() &&
-                recommendation.evidenceIds.all(allowedRecommendations::contains)
-        },
+        recommendation = snapshot.recommendation
+            ?.takeIf { recommendation ->
+                policy.recommendationAllowed &&
+                    recommendation.evidenceIds.isNotEmpty() &&
+                    recommendation.evidenceIds.all(allowedRecommendations::contains)
+            }
+            ?.let { recommendation ->
+                if (policy.outdoorActivityRestricted && recommendation.suggestsImmediateOutdoorActivity()) {
+                    MyStatusRecommendation(
+                        text = "当前体感温度较高，优先选择室内活动；如需外出，等更凉爽时段并及时补水。",
+                        evidenceIds = listOf("weather.apparentTemperature"),
+                    )
+                } else {
+                    recommendation
+                }
+            },
     )
 }
+
+private fun MyStatusRecommendation.suggestsImmediateOutdoorActivity(): Boolean =
+    IMMEDIATE_OUTDOOR_ACTIVITY_TERMS.any { text.contains(it, ignoreCase = true) }
 
 /**
  * Only semantically meaningful buckets participate in the fingerprint. Sensor jitter and tiny
@@ -625,10 +654,11 @@ internal fun buildLocalMyStatusFallback(
     )
 }
 
-internal fun buildMyStatusDiscussionDraft(
+internal fun buildMyStatusRuntimeContext(
     snapshot: MyStatusSnapshot,
-    zoneId: ZoneId = ZoneId.systemDefault(),
-): String {
+    nowEpochMillis: Long = System.currentTimeMillis(),
+): UIMessageAnnotation.RuntimeContext? {
+    if (snapshot.validUntilEpochMillis <= nowEpochMillis) return null
     val allowedEvidenceIds = snapshot.discussionEvidenceIds.toSet()
     val safeEvidence = snapshot.evidence.filter { it.id in allowedEvidenceIds }
     val safeSummary = snapshot.summary.takeIf {
@@ -647,57 +677,49 @@ internal fun buildMyStatusDiscussionDraft(
         recommendation.evidenceIds.isNotEmpty() &&
             recommendation.evidenceIds.all(allowedEvidenceIds::contains)
     }
-    val omittedForPrivacy = safeSummary == null ||
-        safeInsights.size != snapshot.insights.size ||
-        safeRecommendation != snapshot.recommendation ||
-        safeEvidence.size != snapshot.evidence.size
-    val generatedAt = Instant.ofEpochMilli(snapshot.generatedAtEpochMillis)
-        .atZone(zoneId)
-        .format(DISCUSSION_TIME_FORMATTER)
+    val summary = safeSummary
+        ?: safeInsights.firstOrNull()?.text
+        ?: "我想聊聊刚才的当前状态。"
+    return UIMessageAnnotation.RuntimeContext(
+        kind = "current_status",
+        title = "当前状态",
+        summary = summary,
+        recommendation = safeRecommendation?.text,
+        generatedAtEpochMillis = snapshot.generatedAtEpochMillis,
+        validUntilEpochMillis = snapshot.validUntilEpochMillis,
+        evidence = safeEvidence.map { evidence ->
+            RuntimeContextEvidence(
+                label = evidence.label,
+                value = evidence.value,
+                observedAtEpochMillis = evidence.observedAt
+                    ?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() },
+                freshness = evidence.freshness,
+            )
+        },
+        privacyScope = "conversation",
+    )
+}
 
-    return buildString {
-        appendLine("我想聊聊右栏中的这条当前状态。")
-        appendLine()
-        appendLine("状态记录 ID：my-status-${snapshot.generatedAtEpochMillis}")
-        appendLine("生成时间：$generatedAt")
-        snapshot.locationArea?.takeIf(String::isNotBlank)?.let {
-            appendLine("大致位置：$it")
-        }
-        snapshot.contextMemoryIds
-            .filter { it > 0 }
-            .distinct()
-            .sorted()
-            .takeIf { it.isNotEmpty() }
-            ?.let { appendLine("相关记忆 ID：${it.joinToString()}") }
-        safeSummary?.let {
-            appendLine()
-            appendLine("状态概括：$it")
-        }
-        if (safeInsights.isNotEmpty()) {
-            appendLine()
-            appendLine("状态洞察：")
-            safeInsights.forEach { insight ->
-                appendLine("- ${insight.kind.displayName}：${insight.text}（依据：${insight.evidenceIds.joinToString()}）")
-            }
-        }
-        safeRecommendation?.let {
-            appendLine()
-            appendLine("当前建议：${it.text}（依据：${it.evidenceIds.joinToString()}）")
-        }
-        if (safeEvidence.isNotEmpty()) {
-            appendLine()
-            appendLine("可讨论依据：")
-            safeEvidence.forEach { evidence ->
-                appendLine("- ${evidence.id}｜${evidence.label}：${evidence.value}（${evidence.freshness}）")
-            }
-        }
-        if (omittedForPrivacy) {
-            appendLine()
-            appendLine("部分状态因隐私设置未带入。")
-        }
-        appendLine()
-        append("请基于以上信息与我讨论。如果我纠正了长期信息，请在确认后更新对应记忆；不要把单次状态直接写成长期记忆。")
-    }
+private fun isObservedWithin(
+    observedAt: String?,
+    nowEpochMillis: Long,
+    maxAge: Duration,
+): Boolean {
+    val observed = observedAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return false
+    val age = Duration.between(observed, Instant.ofEpochMilli(nowEpochMillis))
+    return !age.isNegative && age <= maxAge
+}
+
+private fun isSameLocalDayAndWithin(
+    observedAt: String?,
+    nowEpochMillis: Long,
+    zoneId: ZoneId,
+    maxAge: Duration,
+): Boolean {
+    val observed = observedAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return false
+    val now = Instant.ofEpochMilli(nowEpochMillis)
+    return observed.atZone(zoneId).toLocalDate() == now.atZone(zoneId).toLocalDate() &&
+        isObservedWithin(observedAt, nowEpochMillis, maxAge)
 }
 
 internal fun timePeriod(hour: Int): String = when (hour) {
@@ -747,6 +769,10 @@ private val FORBIDDEN_MEDICAL_TERMS = listOf(
 )
 
 private val QUIET_HOURS = 0..5
+private val WEATHER_MAX_AGE: Duration = Duration.ofHours(1)
+private val BODY_CURRENT_MAX_AGE: Duration = Duration.ofHours(2)
+private val BODY_SLEEP_MAX_AGE: Duration = Duration.ofHours(36)
+private val IMMEDIATE_OUTDOOR_ACTIVITY_TERMS = listOf("出门", "户外", "散步", "跑步", "骑行")
 private val ACTIONABLE_AGENDA_TIMINGS = setOf(
     MyStatusAgendaTiming.OVERDUE,
     MyStatusAgendaTiming.DUE_SOON,

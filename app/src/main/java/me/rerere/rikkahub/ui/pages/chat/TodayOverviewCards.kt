@@ -28,17 +28,16 @@ import com.composables.icons.lucide.MessageCircleQuestion
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.status.MyStatusCoordinator
 import me.rerere.rikkahub.data.status.MyStatusSnapshot
-import me.rerere.rikkahub.data.status.buildMyStatusDiscussionDraft
+import me.rerere.rikkahub.data.status.buildMyStatusRuntimeContext
 import me.rerere.rikkahub.data.today.TodayOverviewProvider
 import me.rerere.rikkahub.data.work.PhoneWorkSession
 import me.rerere.rikkahub.ui.context.LocalNavController
-import me.rerere.rikkahub.utils.base64Encode
 import me.rerere.rikkahub.utils.navigateToChatPage
 import org.koin.compose.koinInject
 
 /**
- * 空会话态的「现在值得注意」卡片组:Work 等待、事项行动、当前状态摘要。
- * 没有任何值得注意的内容时整体不渲染,保持空态留白。
+ * 空会话态的统一入口:Work、事项行动与当前状态摘要。
+ * Work 始终存在，但继续使用独立的 Phone-line 运行时和页面。
  */
 @Composable
 internal fun TodayOverviewCards(
@@ -52,7 +51,6 @@ internal fun TodayOverviewCards(
     LaunchedEffect(provider) { provider.onVisible() }
 
     val statusSnapshot = statusState.snapshot
-    if (snapshot.isEmpty && statusSnapshot == null) return
 
     Column(
         modifier = modifier
@@ -60,9 +58,10 @@ internal fun TodayOverviewCards(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (snapshot.waitingSessions.isNotEmpty()) {
-            WorkWaitingCard(waitingSessions = snapshot.waitingSessions)
-        }
+        WorkEntryCard(
+            waitingSessions = snapshot.waitingSessions,
+            configured = snapshot.workConfigured,
+        )
         if (snapshot.agendaActionCount > 0) {
             AgendaActionBar(
                 actionCount = snapshot.agendaActionCount,
@@ -77,7 +76,10 @@ internal fun TodayOverviewCards(
 }
 
 @Composable
-private fun WorkWaitingCard(waitingSessions: List<PhoneWorkSession>) {
+private fun WorkEntryCard(
+    waitingSessions: List<PhoneWorkSession>,
+    configured: Boolean,
+) {
     val navigator = LocalNavController.current
     Surface(
         modifier = Modifier
@@ -105,7 +107,11 @@ private fun WorkWaitingCard(waitingSessions: List<PhoneWorkSession>) {
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "${waitingSessions.size} 个会话等你回答",
+                    text = when {
+                        waitingSessions.isNotEmpty() -> "有 ${waitingSessions.size} 个任务等你回复"
+                        configured -> "打开 Work"
+                        else -> "连接开发机"
+                    },
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onTertiaryContainer,
@@ -114,6 +120,14 @@ private fun WorkWaitingCard(waitingSessions: List<PhoneWorkSession>) {
                     val session = waitingSessions.single()
                     Text(
                         text = session.title.ifBlank { session.repoName },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                } else if (waitingSessions.isEmpty()) {
+                    Text(
+                        text = if (configured) "继续开发机上的任务" else "配置 Work 后从手机发起开发任务",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
                         maxLines = 1,
@@ -188,6 +202,7 @@ private fun CompactStatusCard(
     coordinator: MyStatusCoordinator = koinInject(),
 ) {
     val navigator = LocalNavController.current
+    val expired = snapshot.validUntilEpochMillis <= System.currentTimeMillis()
     LaunchedEffect(coordinator) { coordinator.onVisible() }
 
     Surface(
@@ -211,13 +226,22 @@ private fun CompactStatusCard(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            snapshot.recommendation?.let { recommendation ->
+            if (expired) {
                 Text(
-                    text = recommendation.text,
+                    text = "状态可能已过时，请先更新。",
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+            } else {
+                snapshot.recommendation?.let { recommendation ->
+                    Text(
+                        text = recommendation.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -225,13 +249,19 @@ private fun CompactStatusCard(
             ) {
                 TextButton(
                     onClick = {
-                        navigateToChatPage(
-                            navigator = navigator,
-                            initText = buildMyStatusDiscussionDraft(snapshot).base64Encode(),
-                        )
+                        val runtimeContext = buildMyStatusRuntimeContext(snapshot)
+                        if (runtimeContext == null) {
+                            coordinator.refreshNow()
+                        } else {
+                            navigateToChatPage(
+                                navigator = navigator,
+                                runtimeContext = runtimeContext,
+                                preserveBackStack = true,
+                            )
+                        }
                     },
                 ) {
-                    Text("聊聊")
+                    Text(if (expired) "更新状态" else "聊聊")
                 }
             }
         }

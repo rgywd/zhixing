@@ -314,7 +314,7 @@ class MyStatusModelsTest {
     }
 
     @Test
-    fun discussionDraftCarriesOnlyAllowedEvidenceAndMemoryReferences() {
+    fun runtimeContextCarriesOnlyAllowedEvidenceWithoutTechnicalIds() {
         val snapshot = buildLocalMyStatusFallback(sampleFacts(), NOW, ZONE).copy(
             discussionEvidenceIds = listOf(
                 "weather.apparentTemperature",
@@ -323,20 +323,25 @@ class MyStatusModelsTest {
             contextMemoryIds = listOf(9, 7, 9),
         )
 
-        val draft = buildMyStatusDiscussionDraft(snapshot, ZONE)
+        val context = requireNotNull(buildMyStatusRuntimeContext(snapshot, NOW))
+        val visible = buildString {
+            append(context.title)
+            append(context.summary)
+            append(context.recommendation)
+            context.evidence.forEach { append("${it.label}:${it.value}") }
+        }
 
-        assertTrue(draft.contains("状态记录 ID：my-status-$NOW"))
-        assertTrue(draft.contains("相关记忆 ID：7, 9"))
-        assertTrue(draft.contains("weather.apparentTemperature"))
-        assertTrue(draft.contains("agenda.pending"))
-        assertFalse(draft.contains("body.sleep"))
-        assertFalse(draft.contains("body.heartRate"))
-        assertFalse(draft.contains("5小时30分"))
-        assertFalse(draft.contains("72 bpm"))
+        assertEquals(listOf("体感温度", "待处理"), context.evidence.map { it.label })
+        assertFalse(visible.contains("my-status"))
+        assertFalse(visible.contains("memory"))
+        assertFalse(visible.contains("weather.apparentTemperature"))
+        assertFalse(visible.contains("agenda.pending"))
+        assertFalse(visible.contains("5小时30分"))
+        assertFalse(visible.contains("72 bpm"))
     }
 
     @Test
-    fun discussionDraftOmitsPrivateInsightAndRecommendation() {
+    fun runtimeContextOmitsPrivateInsightAndRecommendation() {
         val snapshot = MyStatusSnapshot(
             summary = "昨晚睡眠不足，恢复可能偏弱。",
             insights = listOf(
@@ -364,23 +369,80 @@ class MyStatusModelsTest {
             discussionEvidenceIds = listOf("weather.apparentTemperature"),
         )
 
-        val draft = buildMyStatusDiscussionDraft(snapshot, ZONE)
+        val context = requireNotNull(buildMyStatusRuntimeContext(snapshot, NOW))
 
-        assertFalse(draft.contains("昨晚睡眠不足"))
-        assertFalse(draft.contains("昨晚睡眠偏短"))
-        assertFalse(draft.contains("把高强度安排缩短一些"))
-        assertTrue(draft.contains("当前体感偏热"))
-        assertTrue(draft.contains("部分状态因隐私设置未带入"))
+        assertFalse(context.summary.contains("昨晚睡眠不足"))
+        assertFalse(context.summary.contains("昨晚睡眠偏短"))
+        assertNull(context.recommendation)
+        assertTrue(context.summary.contains("当前体感偏热"))
     }
 
     @Test
-    fun discussionDraftTreatsUnmarkedPersistedEvidenceAsPrivate() {
+    fun runtimeContextTreatsUnmarkedPersistedEvidenceAsPrivate() {
         val snapshot = buildLocalMyStatusFallback(sampleFacts(), NOW, ZONE)
-        val draft = buildMyStatusDiscussionDraft(snapshot, ZONE)
+        val context = requireNotNull(buildMyStatusRuntimeContext(snapshot, NOW))
 
-        assertFalse(draft.contains(snapshot.summary))
-        assertFalse(draft.contains("5小时30分"))
-        assertTrue(draft.contains("部分状态因隐私设置未带入"))
+        assertFalse(context.summary.contains(snapshot.summary))
+        assertTrue(context.evidence.isEmpty())
+        assertNull(context.recommendation)
+    }
+
+    @Test
+    fun runtimeContextRejectsExpiredSnapshot() {
+        val snapshot = buildLocalMyStatusFallback(sampleFacts(), NOW, ZONE).copy(
+            validUntilEpochMillis = NOW,
+            discussionEvidenceIds = listOf("weather.apparentTemperature"),
+        )
+
+        assertNull(buildMyStatusRuntimeContext(snapshot, NOW))
+    }
+
+    @Test
+    fun staleDailyActivityCannotTriggerCurrentRecommendation() {
+        val now = ZonedDateTime.of(2026, 8, 10, 18, 30, 0, 0, ZONE).toInstant().toEpochMilli()
+        val facts = sampleFacts().copy(
+            observedAtEpochMillis = now,
+            weather = null,
+            body = MyStatusBodyFacts(
+                steps = 0,
+                observedAt = formatInstant(now - 18 * 60 * 60 * 1_000L),
+            ),
+        )
+
+        val policy = buildMyStatusInterventionPolicy(facts, ZONE)
+
+        assertFalse(policy.allowedInsightEvidenceIds.contains("body.steps"))
+        assertFalse(policy.allowedRecommendationEvidenceIds.contains("body.steps"))
+    }
+
+    @Test
+    fun highHeatReplacesImmediateOutdoorRecommendation() {
+        val now = ZonedDateTime.of(2026, 8, 10, 18, 30, 0, 0, ZONE).toInstant().toEpochMilli()
+        val observedAt = formatInstant(now - 10 * 60 * 1_000L)
+        val facts = sampleFacts().copy(
+            observedAtEpochMillis = now,
+            weather = requireNotNull(sampleFacts().weather).copy(
+                apparentTemperatureCelsius = 34.0,
+                observedAt = observedAt,
+            ),
+            body = MyStatusBodyFacts(steps = 0, observedAt = observedAt),
+        )
+        val policy = buildMyStatusInterventionPolicy(facts, ZONE)
+        val guarded = enforceMyStatusInterventionPolicy(
+            snapshot = buildLocalMyStatusFallback(facts, now, ZONE).copy(
+                recommendation = MyStatusRecommendation(
+                    text = "现在可以出门散步。",
+                    evidenceIds = listOf("body.steps", "weather.apparentTemperature"),
+                )
+            ),
+            policy = policy,
+        )
+
+        assertTrue(policy.outdoorActivityRestricted)
+        assertEquals(
+            "当前体感温度较高，优先选择室内活动；如需外出，等更凉爽时段并及时补水。",
+            guarded.recommendation?.text,
+        )
     }
 
     @Test

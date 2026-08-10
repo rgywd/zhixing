@@ -176,6 +176,11 @@ internal class MyStatusCoordinator(
         requestRefresh(MyStatusRefreshTrigger.USER_VISIBLE)
     }
 
+    fun refreshNow() {
+        start()
+        requestRefresh(MyStatusRefreshTrigger.USER_VISIBLE, force = true)
+    }
+
     fun onLocationPermissionResult() {
         requestRefresh(MyStatusRefreshTrigger.LOCATION_PERMISSION, force = true)
     }

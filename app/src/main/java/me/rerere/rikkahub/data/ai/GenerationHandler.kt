@@ -514,6 +514,12 @@ class GenerationHandler(
                     appendLine()
                     append(renderConversationCheckpoint(summary))
                 }
+                messages.latestRuntimeContext()
+                    ?.let(::renderRuntimeContextForPrompt)
+                    ?.let { runtimeContext ->
+                        appendLine()
+                        append(runtimeContext)
+                    }
             }
             if (system.isNotBlank()) add(UIMessage.system(prompt = system))
             addAll(projection.messages.limitContext(assistant.contextMessageSize))
