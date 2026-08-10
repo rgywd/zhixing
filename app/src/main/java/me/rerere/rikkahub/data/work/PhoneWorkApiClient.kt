@@ -3,6 +3,7 @@ package me.rerere.rikkahub.data.work
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
@@ -122,17 +123,21 @@ class PhoneWorkApiClient(
         )
     }
 
-    suspend fun uploadImage(uriString: String): PhoneWorkAttachment = withContext(Dispatchers.IO) {
-        val uri = Uri.parse(uriString)
-        val fileName = queryFileName(uri) ?: uri.lastPathSegment?.substringAfterLast('/') ?: "image"
-        val mimeType = context.contentResolver.getType(uri)
+    suspend fun uploadAttachment(attachment: PhoneWorkPendingAttachment): PhoneWorkAttachment = withContext(Dispatchers.IO) {
+        val uri = attachment.uri.toUri()
+        val fileName = attachment.fileName
+            ?: queryFileName(uri)
+            ?: uri.lastPathSegment?.substringAfterLast('/')
+            ?: "attachment"
+        val mimeType = attachment.mimeType
+            ?: context.contentResolver.getType(uri)
             ?: URLConnection.guessContentTypeFromName(fileName)
-            ?: throw PhoneWorkApiException("无法识别图片格式")
-        if (mimeType !in SUPPORTED_IMAGE_TYPES) {
-            throw PhoneWorkApiException("Work 仅支持 PNG、JPEG、WebP 和 GIF 图片")
+            ?: "application/octet-stream"
+        if (!isAllowedWorkAttachmentType(fileName, mimeType)) {
+            throw PhoneWorkApiException("Work 不支持该附件格式：$fileName")
         }
-        val data = context.contentResolver.openInputStream(uri)?.use(::readImageBytes)
-            ?: throw PhoneWorkApiException("无法读取图片")
+        val data = context.contentResolver.openInputStream(uri)?.use(::readAttachmentBytes)
+            ?: throw PhoneWorkApiException("无法读取附件")
         val builder = Request.Builder()
             .url(url("/v1/work/attachments"))
             .header("X-File-Name", Uri.encode(fileName))
@@ -252,7 +257,7 @@ class PhoneWorkApiClient(
         if (cursor.moveToFirst()) cursor.getString(0) else null
     }
 
-    private fun readImageBytes(input: java.io.InputStream): ByteArray {
+    private fun readAttachmentBytes(input: java.io.InputStream): ByteArray {
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         var total = 0
@@ -260,7 +265,7 @@ class PhoneWorkApiClient(
             val read = input.read(buffer)
             if (read < 0) break
             total += read
-            if (total > MAX_IMAGE_BYTES) throw PhoneWorkApiException("单张图片不能超过 10 MiB")
+            if (total > MAX_ATTACHMENT_BYTES) throw PhoneWorkApiException("单个附件不能超过 10 MiB")
             output.write(buffer, 0, read)
         }
         return output.toByteArray()
@@ -268,8 +273,7 @@ class PhoneWorkApiClient(
 
     private companion object {
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
-        val SUPPORTED_IMAGE_TYPES = setOf("image/png", "image/jpeg", "image/webp", "image/gif")
-        const val MAX_IMAGE_BYTES = 10 * 1024 * 1024
+        const val MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
         const val INFORMATION_MONITOR_CACHE_HEADER = "X-Zhixing-Life-Cache"
     }
 }

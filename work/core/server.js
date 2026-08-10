@@ -1,9 +1,9 @@
 import { createServer } from "node:http";
+import { createReadStream } from "node:fs";
 import sanitizeHtml from "sanitize-html";
+import { inspectAttachment, MAX_ATTACHMENT_BYTES } from "../attachments.js";
 
 const PROTOCOL_VERSION = "1";
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 
 function sendJson(response, statusCode, body, headers = {}) {
   response.writeHead(statusCode, {
@@ -212,7 +212,11 @@ export function createWorkServer({
           "cache-control": "private, no-store",
           "x-content-type-options": "nosniff",
         });
-        return response.end(attachment.data);
+        if (attachment.data) return response.end(attachment.data);
+        const stream = createReadStream(attachment.filePath);
+        stream.on("error", () => response.destroy());
+        stream.pipe(response);
+        return;
       }
 
       if (request.method === "GET" && url.pathname === "/v1/work/runners") {
@@ -233,22 +237,20 @@ export function createWorkServer({
       }
       if (request.method === "POST" && url.pathname === "/v1/work/attachments") {
         requireUser(store, request);
-        const mimeType = String(request.headers["content-type"] ?? "").split(";", 1)[0].trim().toLowerCase();
-        if (!IMAGE_TYPES.has(mimeType)) {
-          throw Object.assign(new Error("Only PNG, JPEG, WebP and GIF images are supported"), { statusCode: 415 });
-        }
-        const data = await readBytes(request, MAX_IMAGE_BYTES);
-        if (!data.length) throw Object.assign(new Error("Image is empty"), { statusCode: 400 });
-        if (!hasImageSignature(data, mimeType)) {
-          throw Object.assign(new Error("Image content does not match its content type"), { statusCode: 415 });
-        }
-        let fileName = "image";
+        const mimeType = String(request.headers["content-type"] ?? "application/octet-stream");
+        const data = await readBytes(request, MAX_ATTACHMENT_BYTES);
+        let fileName = "attachment";
         try {
-          fileName = decodeURIComponent(String(request.headers["x-file-name"] ?? "image"));
+          fileName = decodeURIComponent(String(request.headers["x-file-name"] ?? "attachment"));
         } catch {
-          throw Object.assign(new Error("Invalid image file name"), { statusCode: 400 });
+          throw Object.assign(new Error("Invalid attachment file name"), { statusCode: 400 });
         }
-        return sendJson(response, 201, store.createAttachment({ fileName, mimeType, data }));
+        const inspected = inspectAttachment({ fileName, mimeType, data });
+        return sendJson(response, 201, store.createAttachment({
+          ...inspected,
+          data,
+          storeOnDisk: inspected.kind === "file",
+        }));
       }
       if (request.method === "POST" && url.pathname === "/v1/work/sessions") {
         requireUser(store, request);
@@ -360,16 +362,6 @@ export function createWorkServer({
     }
   });
   return server;
-}
-
-function hasImageSignature(data, mimeType) {
-  if (mimeType === "image/png") return data.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"));
-  if (mimeType === "image/jpeg") return data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff;
-  if (mimeType === "image/gif") return ["GIF87a", "GIF89a"].includes(data.subarray(0, 6).toString("ascii"));
-  if (mimeType === "image/webp") {
-    return data.subarray(0, 4).toString("ascii") === "RIFF" && data.subarray(8, 12).toString("ascii") === "WEBP";
-  }
-  return false;
 }
 
 function waitForAnswer(store, askId, timeoutMs, response) {

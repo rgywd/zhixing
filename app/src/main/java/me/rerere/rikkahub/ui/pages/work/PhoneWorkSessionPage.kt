@@ -61,6 +61,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chrisbanes.haze.rememberHazeState
 import java.time.Instant
@@ -81,6 +82,8 @@ import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Folder01
+import me.rerere.hugeicons.stroke.Files02
+import me.rerere.hugeicons.stroke.Image02
 import me.rerere.hugeicons.stroke.Book03
 import me.rerere.hugeicons.stroke.Pin
 import me.rerere.hugeicons.stroke.PinOff
@@ -92,6 +95,7 @@ import me.rerere.rikkahub.data.work.PhoneWorkAssistantMessagePayload
 import me.rerere.rikkahub.data.work.PhoneWorkEvent
 import me.rerere.rikkahub.data.work.PhoneWorkHtmlReportPayload
 import me.rerere.rikkahub.data.work.PhoneWorkQuestion
+import me.rerere.rikkahub.data.work.PhoneWorkPendingAttachment
 import me.rerere.rikkahub.data.work.PhoneWorkRepo
 import me.rerere.rikkahub.data.work.PhoneWorkRepoKey
 import me.rerere.rikkahub.data.work.PhoneWorkRepoPreferences
@@ -102,7 +106,9 @@ import me.rerere.rikkahub.data.work.PhoneWorkUserMessagePayload
 import me.rerere.rikkahub.data.work.effectiveReasoningEfforts
 import me.rerere.rikkahub.data.work.effectiveRuntimes
 import me.rerere.rikkahub.data.work.isPinned
+import me.rerere.rikkahub.data.work.isAllowedWorkAttachmentType
 import me.rerere.rikkahub.data.work.key
+import me.rerere.rikkahub.data.work.supportsFileAttachments
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.ui.components.ai.ChatInput
@@ -134,11 +140,40 @@ fun PhoneWorkSessionPage(sessionId: String) {
     val inputState = remember { ChatInputState() }
     val filesManager: FilesManager = koinInject()
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
-        val currentImages = inputState.messageContent.filterIsInstance<UIMessagePart.Image>().size
-        val available = (4 - currentImages).coerceAtLeast(0)
+        val currentAttachments = inputState.messageContent.count {
+            it is UIMessagePart.Image || it is UIMessagePart.Document
+        }
+        val available = (4 - currentAttachments).coerceAtLeast(0)
         if (available > 0) {
             inputState.addImages(filesManager.createChatFilesByContents(uris.take(available)))
+        } else if (uris.isNotEmpty()) {
+            Toast.makeText(context, "每条 Work 消息最多发送 4 个附件", Toast.LENGTH_SHORT).show()
         }
+    }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        val currentAttachments = inputState.messageContent.count {
+            it is UIMessagePart.Image || it is UIMessagePart.Document
+        }
+        val available = (4 - currentAttachments).coerceAtLeast(0)
+        if (available == 0 && uris.isNotEmpty()) {
+            Toast.makeText(context, "每条 Work 消息最多发送 4 个附件", Toast.LENGTH_SHORT).show()
+        }
+        val documents = uris.take(available).mapNotNull { uri ->
+            val name = filesManager.getFileNameFromUri(uri) ?: uri.lastPathSegment ?: "file"
+            val mimeType = filesManager.getFileMimeType(uri) ?: "application/octet-stream"
+            if (!isAllowedWorkAttachmentType(name, mimeType)) {
+                Toast.makeText(context, "Work 不支持该附件格式：$name", Toast.LENGTH_SHORT).show()
+                return@mapNotNull null
+            }
+            val localUri = filesManager.createChatFilesByContents(listOf(uri)).firstOrNull()
+            if (localUri == null) {
+                Toast.makeText(context, "无法读取附件：$name", Toast.LENGTH_SHORT).show()
+                null
+            } else {
+                UIMessagePart.Document(localUri.toString(), name, mimeType)
+            }
+        }
+        if (documents.isNotEmpty()) inputState.addFiles(documents)
     }
     val session by vm.session.collectAsStateWithLifecycle()
     val events by vm.events.collectAsStateWithLifecycle()
@@ -155,7 +190,10 @@ fun PhoneWorkSessionPage(sessionId: String) {
     val selectedRuntimeConfig = selectedRepo
         ?.effectiveRuntimes()
         ?.firstOrNull { it.id == selectedRuntime }
+    val selectedRunnerId = session?.runnerId ?: selectedRepo?.runnerId
+    val fileAttachmentsSupported = catalog.supportsFileAttachments(selectedRunnerId)
     val canCompose = session?.status != "COMPLETED" && session?.archivedAt == null
+    var showAttachmentPicker by remember { mutableStateOf(false) }
     var messageActionTarget by remember { mutableStateOf<WorkMessageActionTarget?>(null) }
     var statusClockMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val statusPresentation = remember(session, catalog, events, statusClockMillis) {
@@ -184,11 +222,20 @@ fun PhoneWorkSessionPage(sessionId: String) {
 
     fun sendCurrentInput() {
         val text = inputState.textContent.text.toString().trim()
-        val imageUrls = inputState.messageContent
-            .filterIsInstance<UIMessagePart.Image>()
-            .map { it.url }
-        if (text.isNotEmpty() || imageUrls.isNotEmpty()) {
-            vm.send(text, imageUrls) { createdId ->
+        val attachments = inputState.messageContent.mapNotNull { part ->
+            when (part) {
+                is UIMessagePart.Image -> PhoneWorkPendingAttachment(uri = part.url)
+                is UIMessagePart.Document -> PhoneWorkPendingAttachment(
+                    uri = part.url,
+                    fileName = part.fileName,
+                    mimeType = part.mime,
+                )
+                else -> null
+            }
+        }
+        if (text.isNotEmpty() || attachments.isNotEmpty()) {
+            vm.send(text, attachments) { createdId ->
+                filesManager.deleteChatFiles(attachments.map { it.uri.toUri() })
                 inputState.clearInput()
                 if (createdId != null) {
                     navigator.navigate(Screen.PhoneWorkSession(createdId)) {
@@ -272,12 +319,17 @@ fun PhoneWorkSessionPage(sessionId: String) {
                         onUpdateChatModel = {},
                         onUpdateAssistant = {},
                         onUpdateSearchService = { _, _ -> },
-                        onMoreClick = { imagePicker.launch("image/*") },
+                        onMoreClick = { showAttachmentPicker = true },
                         onCancelClick = {},
                         onSendClick = ::sendCurrentInput,
                         onLongSendClick = {},
-                        canSend = (!inputState.isEmpty() || inputState.messageContent.any { it is UIMessagePart.Image }) &&
-                            selectedRepo != null,
+                        canSend = (
+                            !inputState.isEmpty() || inputState.messageContent.any {
+                                it is UIMessagePart.Image || it is UIMessagePart.Document
+                            }
+                        ) && selectedRepo != null && (
+                            fileAttachmentsSupported || inputState.messageContent.none { it is UIMessagePart.Document }
+                        ),
                         showMoreButton = true,
                         customLeadingControls = {
                             WorkChoiceButton(
@@ -359,6 +411,45 @@ fun PhoneWorkSessionPage(sessionId: String) {
                 messageActionTarget = null
             },
         )
+    }
+
+    if (showAttachmentPicker) {
+        ModalBottomSheet(onDismissRequest = { showAttachmentPicker = false }) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilledTonalButton(
+                    onClick = {
+                        showAttachmentPicker = false
+                        imagePicker.launch("image/*")
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(HugeIcons.Image02, contentDescription = null)
+                    Text("选择图片", modifier = Modifier.padding(start = 8.dp))
+                }
+                FilledTonalButton(
+                    onClick = {
+                        showAttachmentPicker = false
+                        filePicker.launch(arrayOf("*/*"))
+                    },
+                    enabled = fileAttachmentsSupported,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(HugeIcons.Files02, contentDescription = null)
+                    Text("选择文件", modifier = Modifier.padding(start = 8.dp))
+                }
+                if (!fileAttachmentsSupported) {
+                    Text(
+                        "当前开发机 Runner 尚未支持普通文件；更新 Runner 后会自动启用。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+            }
+        }
     }
 }
 

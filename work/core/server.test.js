@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { createWorkServer } from "./server.js";
 import { WorkStore } from "./store.js";
@@ -13,10 +14,13 @@ const RUNNER_INSTANCE = "runner-instance-1";
 const PROTOCOL = { "x-zhixing-work-protocol": "1" };
 
 async function fixture(t, askTimeoutMs = 150, quotaProxy = null, informationMonitorProxy = null) {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-core-test-"));
+  const attachmentRoot = join(directory, "attachments");
   const store = new WorkStore({
     userToken: USER_TOKEN,
     runnerTokens: { "runner-1": RUNNER_TOKEN, "runner-2": "runner-2-token" },
     sessionSecret: "test-session-secret-at-least-32-bytes",
+    attachmentRoot,
   });
   const server = createWorkServer({ store, askTimeoutMs, quotaProxy, informationMonitorProxy });
   let port;
@@ -33,8 +37,9 @@ async function fixture(t, askTimeoutMs = 150, quotaProxy = null, informationMoni
     server.close();
     await once(server, "close");
     store.close();
+    rmSync(directory, { recursive: true, force: true });
   });
-  return { store, baseUrl: `http://127.0.0.1:${port}` };
+  return { store, attachmentRoot, baseUrl: `http://127.0.0.1:${port}` };
 }
 
 // Fetch follows the browser's unsafe-port list even for loopback URLs. An
@@ -65,7 +70,7 @@ async function request(baseUrl, path, { token = USER_TOKEN, method = "GET", body
   return { response, payload };
 }
 
-async function uploadImage(baseUrl, data, { fileName = "screen.png", mimeType = "image/png" } = {}) {
+async function uploadAttachment(baseUrl, data, { fileName = "screen.png", mimeType = "image/png" } = {}) {
   const response = await fetch(`${baseUrl}/v1/work/attachments`, {
     method: "POST",
     headers: {
@@ -77,6 +82,10 @@ async function uploadImage(baseUrl, data, { fileName = "screen.png", mimeType = 
     body: data,
   });
   return { response, payload: await response.json() };
+}
+
+async function uploadImage(baseUrl, data, options) {
+  return uploadAttachment(baseUrl, data, options);
 }
 
 async function registerAndCreate(baseUrl) {
@@ -623,6 +632,138 @@ test("image attachments are durable, scoped to their runner and included in Code
   assert.equal(crossRunner.status, 404);
 });
 
+test("ordinary and archive attachments live on disk and require runner capability", async (t) => {
+  const { baseUrl, store, attachmentRoot } = await fixture(t);
+  await request(baseUrl, "/v1/runner/register", {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      id: "runner-1",
+      instanceId: RUNNER_INSTANCE,
+      name: "Minecraft",
+      version: "test",
+      capabilities: { codex: true, phoneLineProtocol: 1, fileAttachments: 1 },
+      repos: [{
+        id: "zhixing",
+        name: "zhixing",
+        models: ["gpt-5.6-sol"],
+        reasoningEfforts: ["high"],
+      }],
+    },
+  });
+  const gzipBytes = Buffer.from("1f8b0800000000000003", "hex");
+  const uploaded = await uploadAttachment(baseUrl, gzipBytes, {
+    fileName: "logs.tar.gz",
+    mimeType: "application/gzip",
+  });
+  assert.equal(uploaded.response.status, 201);
+  assert.equal(uploaded.payload.fileName, "logs.tar.gz");
+  assert.equal(uploaded.payload.mimeType, "application/gzip");
+
+  const stored = store.db.prepare("SELECT data, storage_key FROM attachments WHERE id=?").get(uploaded.payload.id);
+  assert.equal(stored.data, null);
+  assert.ok(stored.storage_key);
+  assert.equal(stored.storage_key.includes("logs.tar.gz"), false);
+  assert.equal(stored.storage_key.includes(attachmentRoot), false);
+  const storedPath = join(attachmentRoot, ...stored.storage_key.split("/"));
+  assert.equal(existsSync(storedPath), true);
+  assert.deepEqual(readFileSync(storedPath), gzipBytes);
+
+  const created = await request(baseUrl, "/v1/work/sessions", {
+    method: "POST",
+    idempotencyKey: "archive-session",
+    body: {
+      runnerId: "runner-1",
+      repoId: "zhixing",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      message: "",
+      attachmentIds: [uploaded.payload.id],
+    },
+  });
+  assert.equal(created.response.status, 201);
+  const download = await fetch(
+    `${baseUrl}/v1/runner/attachments/${uploaded.payload.id}?runnerId=runner-1`,
+    { headers: { ...PROTOCOL, authorization: `Bearer ${RUNNER_TOKEN}` } },
+  );
+  assert.equal(download.status, 200);
+  assert.deepEqual(Buffer.from(await download.arrayBuffer()), gzipBytes);
+
+  await request(baseUrl, "/v1/runner/register", {
+    token: "runner-2-token",
+    method: "POST",
+    body: {
+      id: "runner-2",
+      instanceId: "runner-2-instance",
+      name: "Legacy runner",
+      version: "old",
+      capabilities: { codex: true, phoneLineProtocol: 1 },
+      repos: [{
+        id: "zhixing",
+        name: "zhixing",
+        models: ["gpt-5.6-sol"],
+        reasoningEfforts: ["high"],
+      }],
+    },
+  });
+  const second = await uploadAttachment(baseUrl, Buffer.from("PK\u0003\u0004"), {
+    fileName: "source.zip",
+    mimeType: "application/zip",
+  });
+  assert.equal(second.response.status, 201);
+  const rejected = await request(baseUrl, "/v1/work/sessions", {
+    method: "POST",
+    idempotencyKey: "legacy-file-session",
+    body: {
+      runnerId: "runner-2",
+      repoId: "zhixing",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      message: "inspect",
+      attachmentIds: [second.payload.id],
+    },
+  });
+  assert.equal(rejected.response.status, 409);
+  assert.match(rejected.payload.message, /does not support file attachments/i);
+});
+
+test("expired unbound external attachments are removed from disk and SQLite together", async (t) => {
+  const { baseUrl, store, attachmentRoot } = await fixture(t);
+  const stale = await uploadAttachment(baseUrl, Buffer.from("1f8b08", "hex"), {
+    fileName: "stale.gz",
+    mimeType: "application/gzip",
+  });
+  assert.equal(stale.response.status, 201);
+  const stored = store.db.prepare("SELECT storage_key FROM attachments WHERE id=?").get(stale.payload.id);
+  const storedPath = join(attachmentRoot, ...stored.storage_key.split("/"));
+  store.db.prepare("UPDATE attachments SET created_at='2000-01-01T00:00:00.000Z' WHERE id=?")
+    .run(stale.payload.id);
+
+  const trigger = await uploadAttachment(baseUrl, Buffer.from("504b0304", "hex"), {
+    fileName: "next.zip",
+    mimeType: "application/zip",
+  });
+
+  assert.equal(trigger.response.status, 201);
+  assert.equal(store.db.prepare("SELECT id FROM attachments WHERE id=?").get(stale.payload.id), undefined);
+  assert.equal(existsSync(storedPath), false);
+});
+
+test("attachment upload rejects spoofed archives and executable file types", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const spoofed = await uploadAttachment(baseUrl, Buffer.from("not-a-zip"), {
+    fileName: "source.zip",
+    mimeType: "application/zip",
+  });
+  assert.equal(spoofed.response.status, 415);
+
+  const executable = await uploadAttachment(baseUrl, Buffer.from("MZ"), {
+    fileName: "setup.exe",
+    mimeType: "application/octet-stream",
+  });
+  assert.equal(executable.response.status, 415);
+});
+
 test("ask timeout settles with the recommended options and a late answer is ignored", async (t) => {
   const { baseUrl } = await fixture(t, 40);
   const { session, sessionToken } = await registerAndCreate(baseUrl);
@@ -882,6 +1023,7 @@ test("Core restart settles an interrupted ask with its recommended options and r
   const filename = join(directory, "core.sqlite");
   const options = {
     filename,
+    attachmentRoot: join(directory, "attachments"),
     userToken: USER_TOKEN,
     runnerTokens: { "runner-1": RUNNER_TOKEN },
     sessionSecret: "test-session-secret-at-least-32-bytes",
@@ -928,6 +1070,49 @@ test("Core restart settles an interrupted ask with its recommended options and r
     assert.equal(store.getSession(session.id).status, "IDLE");
     const settled = store.getEvents(session.id).find((event) => event.type === "ASK_ANSWERED");
     assert.equal(settled.payload.source, "timeout_default");
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Core migrates legacy attachment blobs without losing existing images", () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-core-attachment-migration-"));
+  const filename = join(directory, "core.sqlite");
+  const legacy = new DatabaseSync(filename);
+  legacy.exec(`
+    CREATE TABLE attachments (
+      id TEXT PRIMARY KEY,
+      session_id TEXT,
+      file_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      sha256 TEXT NOT NULL,
+      data BLOB NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
+  const bytes = Buffer.from("89504e470d0a1a0a", "hex");
+  legacy.prepare(`
+    INSERT INTO attachments(id, session_id, file_name, mime_type, size, sha256, data, created_at)
+    VALUES ('att_legacy', NULL, 'legacy.png', 'image/png', ?, 'legacy-hash', ?, '2026-08-10T00:00:00Z')
+  `).run(bytes.length, bytes);
+  legacy.close();
+
+  const store = new WorkStore({
+    filename,
+    attachmentRoot: join(directory, "attachments"),
+    userToken: USER_TOKEN,
+    runnerTokens: { "runner-1": RUNNER_TOKEN },
+    sessionSecret: "test-session-secret-at-least-32-bytes",
+  });
+  try {
+    const columns = store.db.prepare("PRAGMA table_info(attachments)").all();
+    assert.equal(columns.find((column) => column.name === "data").notnull, 0);
+    assert.ok(columns.some((column) => column.name === "storage_key"));
+    const migrated = store.db.prepare("SELECT data, storage_key FROM attachments WHERE id='att_legacy'").get();
+    assert.deepEqual(Buffer.from(migrated.data), bytes);
+    assert.equal(migrated.storage_key, null);
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });

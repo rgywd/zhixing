@@ -1,5 +1,10 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { isImageMimeType, MAX_ATTACHMENTS_PER_MESSAGE } from "../attachments.js";
+import { AttachmentFileStore } from "./attachment-file-store.js";
 
 const SESSION_TERMINAL = new Set(["COMPLETED"]);
 const SESSION_ACTIVE = new Set(["QUEUED", "RUNNING", "WAITING_FOR_USER"]);
@@ -87,7 +92,7 @@ function id(prefix) {
 }
 
 export class WorkStore {
-  constructor({ filename = ":memory:", userToken, runnerTokens, sessionSecret }) {
+  constructor({ filename = ":memory:", attachmentRoot = null, userToken, runnerTokens, sessionSecret }) {
     if (!userToken || !runnerTokens || !Object.keys(runnerTokens).length || !sessionSecret) {
       throw new Error("userToken, runnerTokens and sessionSecret are required");
     }
@@ -95,6 +100,12 @@ export class WorkStore {
     this.userTokenHash = tokenHash(userToken);
     this.runnerTokenHashes = new Map(Object.entries(runnerTokens).map(([runnerId, token]) => [runnerId, tokenHash(token)]));
     this.sessionSecret = sessionSecret;
+    this.ownsAttachmentRoot = !attachmentRoot && filename === ":memory:";
+    const resolvedAttachmentRoot = attachmentRoot
+      ?? (this.ownsAttachmentRoot
+        ? mkdtempSync(join(tmpdir(), "zhixing-work-attachments-"))
+        : resolve(dirname(filename), "attachments"));
+    this.attachmentFiles = new AttachmentFileStore(resolvedAttachmentRoot);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
     this.migrate();
   }
@@ -155,8 +166,10 @@ export class WorkStore {
         mime_type TEXT NOT NULL,
         size INTEGER NOT NULL,
         sha256 TEXT NOT NULL,
-        data BLOB NOT NULL,
-        created_at TEXT NOT NULL
+        data BLOB,
+        storage_key TEXT,
+        created_at TEXT NOT NULL,
+        CHECK ((data IS NOT NULL AND storage_key IS NULL) OR (data IS NULL AND storage_key IS NOT NULL))
       );
       CREATE TABLE IF NOT EXISTS commands (
         id TEXT PRIMARY KEY,
@@ -203,6 +216,7 @@ export class WorkStore {
         PRIMARY KEY (scope, key)
       );
     `);
+    this.migrateAttachments();
     this.ensureColumn("commands", "claimed_by", "TEXT");
     this.ensureColumn("commands", "lease_until", "TEXT");
     this.ensureColumn("runners", "instance_id", "TEXT");
@@ -219,6 +233,35 @@ export class WorkStore {
     this.recoverInterruptedAsks();
   }
 
+  migrateAttachments() {
+    const columns = this.db.prepare("PRAGMA table_info(attachments)").all();
+    const dataColumn = columns.find((column) => column.name === "data");
+    const hasStorageKey = columns.some((column) => column.name === "storage_key");
+    if (dataColumn?.notnull === 0 && hasStorageKey) return;
+    const storageKeyExpression = hasStorageKey ? "storage_key" : "NULL";
+    this.db.exec(`
+      BEGIN IMMEDIATE;
+      CREATE TABLE attachments_v2 (
+        id TEXT PRIMARY KEY,
+        session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        sha256 TEXT NOT NULL,
+        data BLOB,
+        storage_key TEXT,
+        created_at TEXT NOT NULL,
+        CHECK ((data IS NOT NULL AND storage_key IS NULL) OR (data IS NULL AND storage_key IS NOT NULL))
+      );
+      INSERT INTO attachments_v2(id, session_id, file_name, mime_type, size, sha256, data, storage_key, created_at)
+      SELECT id, session_id, file_name, mime_type, size, sha256, data, ${storageKeyExpression}, created_at
+      FROM attachments;
+      DROP TABLE attachments;
+      ALTER TABLE attachments_v2 RENAME TO attachments;
+      COMMIT;
+    `);
+  }
+
   ensureColumn(table, column, definition) {
     const existing = this.db.prepare(`PRAGMA table_info(${table})`).all().some((row) => row.name === column);
     if (!existing) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
@@ -231,6 +274,7 @@ export class WorkStore {
 
   close() {
     this.db.close();
+    if (this.ownsAttachmentRoot) rmSync(this.attachmentFiles.root, { recursive: true, force: true });
   }
 
   authenticateUser(token) {
@@ -397,18 +441,48 @@ export class WorkStore {
     }));
   }
 
-  createAttachment({ fileName, mimeType, data }) {
-    const safeName = String(fileName ?? "image").replace(/[\\/\0-\x1f]/g, "_").slice(0, 160) || "image";
+  createAttachment({ fileName, mimeType, data, storeOnDisk = false }) {
+    const safeName = String(fileName ?? "attachment").replace(/[\\/\0-\x1f]/g, "_").slice(0, 160) || "attachment";
     const bytes = Buffer.from(data ?? []);
     const attachmentId = id("att");
     const now = new Date().toISOString();
-    this.db.prepare("DELETE FROM attachments WHERE session_id IS NULL AND created_at<?")
-      .run(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
-    this.db.prepare(`
-      INSERT INTO attachments(id, session_id, file_name, mime_type, size, sha256, data, created_at)
-      VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
-    `).run(attachmentId, safeName, mimeType, bytes.length, createHash("sha256").update(bytes).digest("hex"), bytes, now);
+    this.purgeExpiredUnboundAttachments();
+    const storageKey = storeOnDisk ? this.attachmentFiles.put(attachmentId, bytes) : null;
+    try {
+      this.db.prepare(`
+        INSERT INTO attachments(id, session_id, file_name, mime_type, size, sha256, data, storage_key, created_at)
+        VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        attachmentId,
+        safeName,
+        mimeType,
+        bytes.length,
+        createHash("sha256").update(bytes).digest("hex"),
+        storeOnDisk ? null : bytes,
+        storageKey,
+        now,
+      );
+    } catch (error) {
+      if (storageKey) this.attachmentFiles.remove(storageKey);
+      throw error;
+    }
     return this.attachmentMetadata(attachmentId);
+  }
+
+  purgeExpiredUnboundAttachments() {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const expired = this.db.prepare(`
+      SELECT id, storage_key FROM attachments WHERE session_id IS NULL AND created_at<?
+    `).all(cutoff);
+    for (const attachment of expired) {
+      try {
+        this.attachmentFiles.remove(attachment.storage_key);
+        this.db.prepare("DELETE FROM attachments WHERE id=? AND session_id IS NULL AND created_at<?")
+          .run(attachment.id, cutoff);
+      } catch {
+        // Keep the row so a later upload can retry both parts of the cleanup.
+      }
+    }
   }
 
   attachmentMetadata(attachmentId) {
@@ -428,34 +502,49 @@ export class WorkStore {
       JOIN sessions s ON s.id=a.session_id
       WHERE a.id=? AND s.runner_id=?
     `).get(attachmentId, runnerId);
-    return row ? {
+    if (!row) return null;
+    const filePath = row.storage_key ? this.attachmentFiles.existingPath(row.storage_key) : null;
+    if (row.storage_key && !filePath) return null;
+    return {
       id: row.id,
       fileName: row.file_name,
       mimeType: row.mime_type,
       size: row.size,
       sha256: row.sha256,
       data: row.data,
-    } : null;
+      filePath,
+    };
   }
 
-  validateAttachments(attachmentIds) {
+  validateAttachments(attachmentIds, runnerId = null) {
     if (attachmentIds == null) return [];
     if (!Array.isArray(attachmentIds) || attachmentIds.some((attachmentId) => typeof attachmentId !== "string")) {
       throw Object.assign(new Error("attachmentIds must be an array of IDs"), { statusCode: 400 });
     }
     const ids = [...new Set(attachmentIds)];
-    if (ids.length > 4) throw Object.assign(new Error("At most 4 images are allowed per message"), { statusCode: 400 });
+    if (ids.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+      throw Object.assign(new Error(`At most ${MAX_ATTACHMENTS_PER_MESSAGE} attachments are allowed per message`), { statusCode: 400 });
+    }
     return ids.map((attachmentId) => {
-      const row = this.db.prepare("SELECT session_id FROM attachments WHERE id=?").get(attachmentId);
+      const row = this.db.prepare("SELECT session_id, mime_type FROM attachments WHERE id=?").get(attachmentId);
       if (!row || row.session_id) {
         throw Object.assign(new Error("Attachment is missing or already used"), { statusCode: 409 });
+      }
+      if (runnerId && !isImageMimeType(row.mime_type) && !this.runnerSupportsFileAttachments(runnerId)) {
+        throw Object.assign(new Error("Selected runner does not support file attachments"), { statusCode: 409 });
       }
       return this.attachmentMetadata(attachmentId);
     });
   }
 
-  bindAttachments(sessionId, attachmentIds) {
-    const metadata = this.validateAttachments(attachmentIds);
+  runnerSupportsFileAttachments(runnerId) {
+    const row = this.db.prepare("SELECT capabilities_json FROM runners WHERE id=?").get(runnerId);
+    const version = Number(parseJson(row?.capabilities_json, {}).fileAttachments ?? 0);
+    return Number.isFinite(version) && version >= 1;
+  }
+
+  bindAttachments(sessionId, attachmentIds, runnerId = null) {
+    const metadata = this.validateAttachments(attachmentIds, runnerId);
     for (const attachment of metadata) {
       this.db.prepare("UPDATE attachments SET session_id=? WHERE id=? AND session_id IS NULL").run(sessionId, attachment.id);
     }
@@ -479,7 +568,7 @@ export class WorkStore {
         );
       }
       if (!String(input.message ?? "").trim() && !(input.attachmentIds?.length)) {
-        throw Object.assign(new Error("First message or image is required"), { statusCode: 400 });
+        throw Object.assign(new Error("First message or attachment is required"), { statusCode: 400 });
       }
       if (input.title != null && typeof input.title !== "string") {
         throw Object.assign(new Error("Session title must be a string"), { statusCode: 400 });
@@ -488,7 +577,7 @@ export class WorkStore {
       if (title.length > 80) {
         throw Object.assign(new Error("Session title must not exceed 80 characters"), { statusCode: 400 });
       }
-      this.validateAttachments(input.attachmentIds);
+      this.validateAttachments(input.attachmentIds, input.runnerId);
       const sessionId = id("work");
       const now = new Date().toISOString();
       this.db.prepare(`
@@ -507,7 +596,7 @@ export class WorkStore {
         now,
         now,
       );
-      const attachments = this.bindAttachments(sessionId, input.attachmentIds);
+      const attachments = this.bindAttachments(sessionId, input.attachmentIds, input.runnerId);
       const firstMessage = this.appendEvent(sessionId, "USER_MESSAGE", {
         text: input.message ?? "",
         attachments,
@@ -615,9 +704,9 @@ export class WorkStore {
       if (session.archivedAt) throw Object.assign(new Error("Restore the archived session before sending"), { statusCode: 409 });
       if (SESSION_TERMINAL.has(session.status)) throw Object.assign(new Error("Session is completed"), { statusCode: 409 });
       if (!String(input.text ?? "").trim() && !(input.attachmentIds?.length)) {
-        throw Object.assign(new Error("Message or image is required"), { statusCode: 400 });
+        throw Object.assign(new Error("Message or attachment is required"), { statusCode: 400 });
       }
-      const attachments = this.bindAttachments(sessionId, input.attachmentIds);
+      const attachments = this.bindAttachments(sessionId, input.attachmentIds, session.runnerId);
       const event = this.appendEvent(sessionId, "USER_MESSAGE", {
         text: input.text ?? "",
         attachments,

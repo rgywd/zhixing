@@ -55,6 +55,24 @@ class PhoneWorkSessionCreatorTest {
     }
 
     @Test
+    fun `pending files are forwarded without losing their original metadata`() = runBlocking {
+        val gateway = RecordingGateway()
+        val creator = PhoneWorkSessionCreator(
+            gateway = gateway,
+            titleGenerator = PhoneWorkTitleGenerator { null },
+        )
+        val attachment = PhoneWorkPendingAttachment(
+            uri = "file:///upload/opaque-id.7z",
+            fileName = "source.7z",
+            mimeType = "application/x-7z-compressed",
+        )
+
+        creator.create(REPO, "gpt-5.6-sol", "high", "", attachments = listOf(attachment))
+
+        assertEquals(listOf(attachment), gateway.attachments)
+    }
+
+    @Test
     fun `legacy repository catalog exposes Codex runtime`() {
         val runtime = REPO.effectiveRuntimes().single()
 
@@ -65,12 +83,14 @@ class PhoneWorkSessionCreatorTest {
 
     private class RecordingGateway : PhoneWorkSessionGateway {
         var request: CreateSessionRequest? = null
+        var attachments: List<PhoneWorkPendingAttachment> = emptyList()
 
         override suspend fun createSession(
             request: CreateSessionRequest,
-            imageUrls: List<String>,
+            attachments: List<PhoneWorkPendingAttachment>,
         ): PhoneWorkSession {
             this.request = request
+            this.attachments = attachments
             return PhoneWorkSession(
                 id = "work-1",
                 runnerId = request.runnerId,
