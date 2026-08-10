@@ -88,6 +88,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.getAssistantById
@@ -138,6 +139,8 @@ fun ChatList(
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
     onOpenAgenda: () -> Unit = {},
+    runtimeContext: UIMessageAnnotation.RuntimeContext? = null,
+    onDismissRuntimeContext: () -> Unit = {},
 ) {
     AnimatedContent(
         targetState = previewMode,
@@ -181,6 +184,8 @@ fun ChatList(
                 onToggleFavorite = onToggleFavorite,
                 onConversationSystemPromptChange = onConversationSystemPromptChange,
                 onOpenAgenda = onOpenAgenda,
+                runtimeContext = runtimeContext,
+                onDismissRuntimeContext = onDismissRuntimeContext,
             )
         }
     }
@@ -212,6 +217,8 @@ private fun ChatListNormal(
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
     onOpenAgenda: () -> Unit = {},
+    runtimeContext: UIMessageAnnotation.RuntimeContext? = null,
+    onDismissRuntimeContext: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val loadingState by rememberUpdatedState(loading)
@@ -532,10 +539,18 @@ private fun ChatListNormal(
 
             // 空会话态:现在值得注意
             if (conversation.messageNodes.isEmpty() && !loading && conversation.chatSuggestions.isEmpty() && !captureProgress) {
-                TodayOverviewCards(
-                    onOpenAgenda = onOpenAgenda,
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                )
+                if (runtimeContext != null) {
+                    RuntimeContextCard(
+                        context = runtimeContext,
+                        onDismiss = onDismissRuntimeContext,
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
+                } else {
+                    TodayOverviewCards(
+                        onOpenAgenda = onOpenAgenda,
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
+                }
             }
         }
     }

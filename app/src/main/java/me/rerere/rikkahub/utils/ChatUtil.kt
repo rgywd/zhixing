@@ -3,7 +3,10 @@ package me.rerere.rikkahub.utils
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.ui.context.Navigator
 import kotlin.uuid.Uuid
@@ -16,17 +19,24 @@ fun navigateToChatPage(
     initText: String? = null,
     initFiles: List<Uri> = emptyList(),
     nodeId: Uuid? = null,
+    runtimeContext: UIMessageAnnotation.RuntimeContext? = null,
+    preserveBackStack: Boolean = false,
 ) {
     Log.i(TAG, "navigateToChatPage: navigate to $chatId")
-    navigator.clearAndNavigate(
-        Screen.Chat(
-            id = chatId.toString(),
-            text = initText,
-            files = initFiles.map { it.toString() },
-            nodeId = nodeId?.toString(),
-        )
+    val screen = Screen.Chat(
+        id = chatId.toString(),
+        text = initText,
+        files = initFiles.map { it.toString() },
+        nodeId = nodeId?.toString(),
+        runtimeContext = runtimeContext
+            ?.let { JsonInstant.encodeToString(it).base64Encode() },
     )
+    if (preserveBackStack) navigator.navigate(screen) else navigator.clearAndNavigate(screen)
 }
+
+fun decodeRuntimeContext(value: String?): UIMessageAnnotation.RuntimeContext? = value
+    ?.let { runCatching { it.base64Decode() }.getOrNull() }
+    ?.let { runCatching { JsonInstant.decodeFromString<UIMessageAnnotation.RuntimeContext>(it) }.getOrNull() }
 
 fun Context.copyMessageToClipboard(message: UIMessage) {
     this.writeClipboardText(message.toText())

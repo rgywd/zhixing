@@ -790,7 +790,36 @@ sealed class UIMessageAnnotation {
         val createdAtEpochMillis: Long = 0,
         val trigger: String = "manual",
     ) : UIMessageAnnotation()
+
+    /**
+     * Hidden, user-selected context for a single chat turn.
+     *
+     * It is persisted with the user message so regeneration is deterministic, but renderers and
+     * copy/export text helpers deliberately ignore annotations. The generation runtime projects
+     * this value as untrusted factual context instead of pretending it is user-authored text.
+     */
+    @Serializable
+    @SerialName("runtime_context")
+    data class RuntimeContext(
+        val kind: String,
+        val title: String,
+        val summary: String,
+        val recommendation: String? = null,
+        val generatedAtEpochMillis: Long,
+        val validUntilEpochMillis: Long,
+        val evidence: List<RuntimeContextEvidence> = emptyList(),
+        val privacyScope: String = "conversation",
+        val version: Int = 1,
+    ) : UIMessageAnnotation()
 }
+
+@Serializable
+data class RuntimeContextEvidence(
+    val label: String,
+    val value: String,
+    val observedAtEpochMillis: Long? = null,
+    val freshness: String,
+)
 
 @Serializable
 data class MessageChunk(

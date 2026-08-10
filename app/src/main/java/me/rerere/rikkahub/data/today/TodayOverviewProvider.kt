@@ -20,6 +20,7 @@ import me.rerere.rikkahub.data.work.PhoneWorkSession
 
 internal data class TodaySnapshot(
     val waitingSessions: List<PhoneWorkSession>,
+    val workConfigured: Boolean,
     val agendaActionCount: Int,
     val agendaOverdueCount: Int,
 ) {
@@ -29,6 +30,7 @@ internal data class TodaySnapshot(
     companion object {
         val EMPTY = TodaySnapshot(
             waitingSessions = emptyList(),
+            workConfigured = false,
             agendaActionCount = 0,
             agendaOverdueCount = 0,
         )
@@ -40,11 +42,13 @@ internal fun buildTodaySnapshot(
     tasks: List<AgendaTask>,
     plans: List<AgendaPlanWithStages>,
     nowMillis: Long = System.currentTimeMillis(),
+    workConfigured: Boolean = false,
 ): TodaySnapshot {
     val projection = buildAgendaProjection(tasks = tasks, plans = plans, nowMillis = nowMillis)
     return TodaySnapshot(
         // observeActiveSessions 已按 updated_at DESC 排序，过滤后保序
         waitingSessions = sessions.filter { it.status == "WAITING_FOR_USER" },
+        workConfigured = workConfigured,
         agendaActionCount = projection.actions.size,
         agendaOverdueCount = projection.actions.count { it.dueAt != null && it.dueAt!! < nowMillis },
     )
@@ -64,13 +68,18 @@ internal class TodayOverviewProvider(
         }
     }
 
-    val state: StateFlow<TodaySnapshot> = combine(
+    private val workState = combine(
+        phoneWorkRepository.credentials.connection,
         phoneWorkRepository.observeActiveSessions(),
+    ) { connection, sessions -> connection.configured to sessions }
+
+    val state: StateFlow<TodaySnapshot> = combine(
+        workState,
         agendaTaskRepository.observeVisibleTasks(),
         agendaPlanRepository.observeVisiblePlans(),
         agendaNow,
-    ) { sessions, tasks, plans, now ->
-        buildTodaySnapshot(sessions, tasks, plans, now)
+    ) { (workConfigured, sessions), tasks, plans, now ->
+        buildTodaySnapshot(sessions, tasks, plans, now, workConfigured)
     }.stateIn(appScope, SharingStarted.WhileSubscribed(5_000), TodaySnapshot.EMPTY)
 
     private val refreshMutex = Mutex()

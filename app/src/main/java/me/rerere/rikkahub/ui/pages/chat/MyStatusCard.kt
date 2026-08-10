@@ -30,9 +30,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.rikkahub.data.status.MyStatusCoordinator
 import me.rerere.rikkahub.data.status.MyStatusInsight
 import me.rerere.rikkahub.data.status.MyStatusSnapshot
-import me.rerere.rikkahub.data.status.buildMyStatusDiscussionDraft
+import me.rerere.rikkahub.data.status.buildMyStatusRuntimeContext
 import me.rerere.rikkahub.ui.context.LocalNavController
-import me.rerere.rikkahub.utils.base64Encode
 import me.rerere.rikkahub.utils.navigateToChatPage
 import org.koin.compose.koinInject
 import java.time.Instant
@@ -79,6 +78,7 @@ internal fun MyStatusCard(
                     Text("正在形成当前状态…", style = MaterialTheme.typography.bodyMedium)
                 }
             } else {
+                val expired = snapshot.validUntilEpochMillis <= System.currentTimeMillis()
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text(
                         "现在最值得注意",
@@ -104,7 +104,11 @@ internal fun MyStatusCard(
                         color = MaterialTheme.colorScheme.primary,
                     )
                     Text(
-                        snapshot.recommendation?.text ?: "当前没有需要介入的事情，按自己的节奏即可。",
+                        when {
+                            expired -> "状态可能已过时，请先更新。"
+                            snapshot.recommendation != null -> snapshot.recommendation.text
+                            else -> "当前没有需要介入的事情，按自己的节奏即可。"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
@@ -123,13 +127,25 @@ internal fun MyStatusCard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         TextButton(
                             onClick = {
-                                navigateToChatPage(
-                                    navigator = navigator,
-                                    initText = buildMyStatusDiscussionDraft(snapshot).base64Encode(),
-                                )
+                                val runtimeContext = buildMyStatusRuntimeContext(snapshot)
+                                if (runtimeContext == null) {
+                                    coordinator.refreshNow()
+                                } else {
+                                    navigateToChatPage(
+                                        navigator = navigator,
+                                        runtimeContext = runtimeContext,
+                                        preserveBackStack = true,
+                                    )
+                                }
                             },
                         ) {
-                            Text("聊聊")
+                            Text(
+                                if (expired) {
+                                    "更新状态"
+                                } else {
+                                    "聊聊"
+                                }
+                            )
                         }
                         TextButton(onClick = { evidenceExpanded = !evidenceExpanded }) {
                             Text(if (evidenceExpanded) "收起依据" else "查看依据")
