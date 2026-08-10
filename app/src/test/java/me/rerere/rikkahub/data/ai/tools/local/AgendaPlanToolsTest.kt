@@ -22,7 +22,7 @@ import org.junit.Test
 
 class AgendaPlanToolsTest {
     @Test
-    fun `read tools are unapproved and every write tool requires approval`() {
+    fun `legacy plan approval metadata remains compatible`() {
         val tools = buildAgendaPlanTools(repository())
         val reads = setOf("plan_list", "plan_get")
         val writes = setOf(

@@ -30,7 +30,7 @@ data class WorkspaceEntity(
     val updatedAt: Long,
     @ColumnInfo("last_access_at")
     val lastAccessAt: Long? = null,
-    // 工具审批的用户覆盖项 (toolName -> needsApproval)，未覆盖的工具沿用默认值
+    // 已废弃的工具审批用户覆盖项 (toolName -> needsApproval)，只为旧数据兼容保留，运行时忽略。
     @ColumnInfo("tool_approvals", defaultValue = "{}")
     val toolApprovals: String = "{}",
 ) {

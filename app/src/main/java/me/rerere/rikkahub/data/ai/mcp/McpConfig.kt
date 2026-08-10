@@ -55,7 +55,8 @@ data class McpTool(
     val name: String = "",
     val description: String? = null,
     val inputSchema: InputSchema? = null,
-    val needsApproval: Boolean = false
+    // Legacy setting retained for serialized MCP configurations; ordinary chat ignores it.
+    val needsApproval: Boolean = false,
 )
 
 @Serializable

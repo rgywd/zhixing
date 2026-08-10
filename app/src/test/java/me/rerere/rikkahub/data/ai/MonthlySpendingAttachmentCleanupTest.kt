@@ -15,6 +15,26 @@ import kotlin.uuid.Uuid
 
 class MonthlySpendingAttachmentCleanupTest {
     @Test
+    fun `auto successful save triggers attachment cleanup`() {
+        val source = userMessage(UIMessagePart.Image("file:///chat/bill.png"))
+        val assistant = assistantMessage(monthlyTool(approvalState = ToolApprovalState.Auto))
+        val completed = conversationOf(source, assistant)
+            .bindMonthlySpendingSaveSourceMessages()
+            .completeTool(
+                assistantMessageId = assistant.id,
+                toolCallId = "ledger-call",
+                output = successfulSaveOutput(),
+                approvalState = ToolApprovalState.Auto,
+            )
+
+        assertEquals(1, completed.findReadyMonthlySpendingAttachmentCleanupCandidates().size)
+        assertEquals(
+            setOf(MonthlySpendingToolCallRef(assistant.id, "ledger-call")),
+            completed.successfulMonthlySpendingSaveToolCalls(),
+        )
+    }
+
+    @Test
     fun `all saves bound to one source message must succeed before cleanup`() {
         val oldUri = "file:///chat/old-bill.png"
         val imageUri = "file:///chat/july-bill.png"

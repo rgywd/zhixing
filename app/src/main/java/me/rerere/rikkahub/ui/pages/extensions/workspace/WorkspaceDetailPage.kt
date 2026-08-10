@@ -70,7 +70,6 @@ import me.rerere.hugeicons.stroke.Refresh01
 import me.rerere.hugeicons.stroke.Settings03
 import me.rerere.hugeicons.stroke.Share08
 import me.rerere.rikkahub.Screen
-import me.rerere.rikkahub.data.ai.tools.resolveWorkspaceToolApproval
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import androidx.compose.ui.res.stringResource
 import me.rerere.rikkahub.R
@@ -236,7 +235,6 @@ fun WorkspaceDetailPage(id: String) {
                     onInitializeKnowledge = vm::initializeKnowledgeSpace,
                     onImportKnowledge = { knowledgePicker.launch(arrayOf("*/*")) },
                     onInstallRootfs = { showInstallDialog = true },
-                    onToolApprovalChange = vm::setToolApproval,
                 )
 
                 1 -> WorkspaceFilesPage(
@@ -436,7 +434,6 @@ private fun WorkspaceBasicPage(
     onInitializeKnowledge: () -> Unit,
     onImportKnowledge: () -> Unit,
     onInstallRootfs: () -> Unit,
-    onToolApprovalChange: (String, Boolean) -> Unit,
 ) {
     val shellStatus = workspace?.shellStatus
     val installing = installProgress != null || shellStatus == WorkspaceShellStatus.INSTALLING.name
@@ -527,12 +524,6 @@ private fun WorkspaceBasicPage(
             }
         }
 
-        item {
-            WorkspaceToolApprovalCard(
-                workspace = workspace,
-                onToolApprovalChange = onToolApprovalChange,
-            )
-        }
     }
 }
 
@@ -840,80 +831,6 @@ private fun VaultGitBindingCard(
         }
     }
 }
-
-@Composable
-private fun WorkspaceToolApprovalCard(
-    workspace: WorkspaceEntity?,
-    onToolApprovalChange: (String, Boolean) -> Unit,
-) {
-    val overrides = workspace?.toolApprovalOverrides().orEmpty()
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CustomColors.cardColorsOnSurfaceContainer,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = stringResource(R.string.workspace_detail_tool_approval),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    text = stringResource(R.string.workspace_detail_tool_approval_desc),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            workspaceToolApprovalItems().forEach { (toolName, label) ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            text = toolName,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Switch(
-                        checked = resolveWorkspaceToolApproval(toolName, overrides),
-                        onCheckedChange = { onToolApprovalChange(toolName, it) },
-                        enabled = workspace != null,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun workspaceToolApprovalItems() = listOf(
-    "knowledge_status" to stringResource(R.string.workspace_detail_tool_knowledge_status),
-    "knowledge_search" to stringResource(R.string.workspace_detail_tool_knowledge_search),
-    "knowledge_read" to stringResource(R.string.workspace_detail_tool_knowledge_read),
-    "knowledge_ingest" to stringResource(R.string.workspace_detail_tool_knowledge_ingest),
-    "workspace_read_file" to stringResource(R.string.workspace_detail_tool_read_file),
-    "workspace_write_file" to stringResource(R.string.workspace_detail_tool_write_file),
-    "workspace_edit_file" to stringResource(R.string.workspace_detail_tool_edit_file),
-    "workspace_shell" to stringResource(R.string.workspace_detail_tool_shell),
-)
 
 @Composable
 private fun WorkspaceInfoRow(

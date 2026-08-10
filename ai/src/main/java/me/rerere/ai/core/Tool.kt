@@ -19,6 +19,15 @@ data class Tool(
      * the sanitized value is also used for approval and execution, so required fields must be preserved.
      */
     val sanitizeInputForStorage: (String) -> String = { it },
+    /**
+     * Pauses ordinary chat only when the tool needs an answer from the user before it can continue.
+     * This is intentionally distinct from system permissions, privacy consent, and connection setup.
+     */
+    val requiresUserAnswer: Boolean = false,
+    /**
+     * Legacy per-tool approval policy. Kept so existing assistant/workspace/MCP configuration can
+     * deserialize without a migration; ordinary chat no longer consults it before execution.
+     */
     val needsApproval: (JsonElement) -> Boolean = { false },
     val execute: suspend (JsonElement) -> List<UIMessagePart>
 )

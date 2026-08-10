@@ -19,17 +19,14 @@ suspend fun createKnowledgeTools(
     knowledgeSpaceService: KnowledgeSpaceService,
 ): List<Tool> {
     if (workspaceId.isNullOrBlank()) return emptyList()
-    val workspace = workspaceRepository.getById(workspaceId) ?: return emptyList()
+    workspaceRepository.getById(workspaceId) ?: return emptyList()
     if (!workspaceRepository.isKnowledgeVaultInitialized(workspaceId)) return emptyList()
-    val approvals = workspace.toolApprovalOverrides()
-    fun needsApproval(name: String) = resolveWorkspaceToolApproval(name, approvals)
 
     return listOf(
         Tool(
             name = "knowledge_status",
             description = "Inspect the bound OrbitOS CN vault at /workspace/vault, including local content and searchable document counts. Works without Rootfs.",
             parameters = { InputSchema.Obj(properties = buildJsonObject {}) },
-            needsApproval = { needsApproval("knowledge_status") },
             execute = {
                 val status = workspaceRepository.knowledgeSpaceStatus(workspaceId)
                 listOf(UIMessagePart.Text(buildJsonObject {
@@ -54,7 +51,6 @@ suspend fun createKnowledgeTools(
                     required = listOf("query"),
                 )
             },
-            needsApproval = { needsApproval("knowledge_search") },
             execute = { input ->
                 val params = input.jsonObject
                 val query = params["query"]?.jsonPrimitive?.contentOrNull ?: error("query is required")
@@ -90,7 +86,6 @@ suspend fun createKnowledgeTools(
                     required = listOf("path"),
                 )
             },
-            needsApproval = { needsApproval("knowledge_read") },
             execute = { input ->
                 val params = input.jsonObject
                 val path = params["path"]?.jsonPrimitive?.contentOrNull ?: error("path is required")
@@ -119,7 +114,6 @@ suspend fun createKnowledgeTools(
                     required = listOf("upload_name"),
                 )
             },
-            needsApproval = { needsApproval("knowledge_ingest") },
             execute = { input ->
                 val params = input.jsonObject
                 val name = params["upload_name"]?.jsonPrimitive?.contentOrNull ?: error("upload_name is required")

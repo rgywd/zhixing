@@ -664,7 +664,6 @@ class ChatService(
                                 name = "mcp__${serverName}__${tool.name}",
                                 description = tool.description ?: "",
                                 parameters = { tool.inputSchema },
-                                needsApproval = { tool.needsApproval },
                                 execute = {
                                     mcpManager.callTool(serverId, tool.name, it.jsonObject)
                                 },
@@ -987,7 +986,7 @@ class ChatService(
                     return@mapIndexed node
                 }
 
-                // Remove messages that still have unresolved tool approvals.
+                // Remove messages that still have unresolved user-answer tool calls.
                 return@mapIndexed node.copy(
                     messages = node.messages.filter { it.id != node.currentMessage.id },
                     selectIndex = node.selectIndex - 1
