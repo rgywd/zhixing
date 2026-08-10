@@ -156,3 +156,19 @@ $$USER_TOKEN=value
   隐藏待删会话，不撤销画像证据；确认删除后，会话与证据撤销在同一个 Room 事务内完成。
 - `dev.sundby.zhixing`、正式签名和数据库逻辑名称 `zhixing` 是稳定升级身份。
 - 从首个公开稳定包起，后续版本必须支持可验证的覆盖升级，不得要求用户卸载、清数据或静默重建数据库。
+
+## 普通聊天任务与 Today
+
+- Room schema 43 新增 `assistant_tasks`、`assistant_task_events`、`assistant_task_links` 和
+  `assistant_runtime_contexts`。迁移 42→43 为纯新增且不回填旧会话、旧事项或 Work 数据。
+- 一轮普通聊天始终有内部生成运行，但只有写入/外部副作用、`ask_user`、产物步骤或第二个工具步骤才创建
+  用户可见任务。任务状态只使用 `RUNNING`、`WAITING_FOR_INPUT`、`COMPLETED`、
+  `FAILED_RETRYABLE`、`STOPPED`；工具调用是顺序事件，不创建子任务。
+- 任务事件只保存短自然语言进度、受限结果引用、错误码、时间和幂等键，不保存完整参数、密钥或远端正文。
+  GitHub、MCP、Knowledge 等仍使用原协议，关联只写本地软链接。外部写入结果不确定时进入
+  `WAITING_FOR_INPUT`，不得盲目重试。
+- 启动恢复把遗留 `RUNNING` 任务转为 `FAILED_RETRYABLE` 并追加恢复事件；显式重试沿用同一任务并增加
+  attempt。终态不可倒退。停止只取消后续步骤，不声称撤销已发生的外部操作。
+- `TodayOverviewProvider` 是空白 Chat、右栏 Agenda 行动和 Agenda 页的共享投影时钟。排序固定为等待输入、
+  可重试、执行中、当前状态、Agenda 行动、独立 Work 提醒；当天完成项单独折叠。Work 只适配提醒，
+  Phone-line session/event/ask/report 数据不复制到普通任务表。

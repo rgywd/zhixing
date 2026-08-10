@@ -4,6 +4,8 @@ import me.rerere.rikkahub.data.model.AgendaTask
 import me.rerere.rikkahub.data.model.AgendaTaskSource
 import me.rerere.rikkahub.data.model.AgendaTaskStatus
 import me.rerere.rikkahub.data.work.PhoneWorkSession
+import me.rerere.rikkahub.data.db.entity.AssistantTaskEntity
+import me.rerere.rikkahub.data.task.AssistantTaskStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -87,6 +89,48 @@ class TodayOverviewProviderTest {
         assertTrue(snapshot.waitingSessions.isEmpty())
     }
 
+    @Test
+    fun `assistant attention is ordered before agenda and independent work reminders`() {
+        val snapshot = buildTodaySnapshot(
+            sessions = listOf(session("work", "WAITING_FOR_USER")),
+            tasks = listOf(task("agenda", dueAt = now + 60_000)),
+            plans = emptyList(),
+            nowMillis = now,
+            assistantTasks = listOf(
+                assistantTask("running", AssistantTaskStatus.RUNNING),
+                assistantTask("failed", AssistantTaskStatus.FAILED_RETRYABLE),
+                assistantTask("waiting", AssistantTaskStatus.WAITING_FOR_INPUT),
+            ),
+            zoneId = zone,
+        )
+
+        assertEquals(
+            listOf("waiting", "failed", "running"),
+            snapshot.items.filterIsInstance<TodayItem.AssistantTask>().map { it.task.id },
+        )
+        assertTrue(snapshot.items[3] is TodayItem.Agenda)
+        assertTrue(snapshot.items[4] is TodayItem.WorkAttention)
+    }
+
+    @Test
+    fun `only local-day completed tasks appear in folded history`() {
+        val yesterday = assistantTask("old", AssistantTaskStatus.COMPLETED).copy(
+            finishedAt = now - 24 * 60 * 60 * 1_000L,
+        )
+        val today = assistantTask("today", AssistantTaskStatus.COMPLETED).copy(finishedAt = now)
+
+        val snapshot = buildTodaySnapshot(
+            sessions = emptyList(),
+            tasks = emptyList(),
+            plans = emptyList(),
+            nowMillis = now,
+            assistantTasks = listOf(yesterday, today),
+            zoneId = zone,
+        )
+
+        assertEquals(listOf("today"), snapshot.completedItems.map { it.task.id })
+    }
+
     private fun session(id: String, status: String) = PhoneWorkSession(
         id = id,
         runnerId = "runner",
@@ -112,5 +156,24 @@ class TodayOverviewProviderTest {
         createdAt = now,
         updatedAt = now,
         completedAt = null,
+    )
+
+    private fun assistantTask(id: String, status: AssistantTaskStatus) = AssistantTaskEntity(
+        id = id,
+        title = id,
+        status = status.name,
+        attempt = 1,
+        conversationId = "00000000-0000-0000-0000-000000000001",
+        anchorMessageId = null,
+        anchorNodeId = null,
+        summary = null,
+        resultKind = null,
+        resultRef = null,
+        errorCode = null,
+        attentionReason = null,
+        createdAt = now,
+        updatedAt = now,
+        startedAt = now,
+        finishedAt = if (status == AssistantTaskStatus.COMPLETED) now else null,
     )
 }

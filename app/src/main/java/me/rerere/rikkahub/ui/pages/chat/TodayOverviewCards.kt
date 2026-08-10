@@ -15,8 +15,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -30,10 +34,14 @@ import me.rerere.rikkahub.data.status.MyStatusCoordinator
 import me.rerere.rikkahub.data.status.MyStatusSnapshot
 import me.rerere.rikkahub.data.status.buildMyStatusRuntimeContext
 import me.rerere.rikkahub.data.today.TodayOverviewProvider
+import me.rerere.rikkahub.data.today.TodayItem
+import me.rerere.rikkahub.data.db.entity.AssistantTaskEntity
+import me.rerere.rikkahub.data.task.AssistantTaskStatus
 import me.rerere.rikkahub.data.work.PhoneWorkSession
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.utils.navigateToChatPage
 import org.koin.compose.koinInject
+import kotlin.uuid.Uuid
 
 /**
  * 空会话态的统一入口:Work、事项行动与当前状态摘要。
@@ -44,13 +52,12 @@ internal fun TodayOverviewCards(
     onOpenAgenda: () -> Unit,
     modifier: Modifier = Modifier,
     provider: TodayOverviewProvider = koinInject(),
-    coordinator: MyStatusCoordinator = koinInject(),
 ) {
     val snapshot by provider.state.collectAsStateWithLifecycle()
-    val statusState by coordinator.state.collectAsStateWithLifecycle()
     LaunchedEffect(provider) { provider.onVisible() }
-
-    val statusSnapshot = statusState.snapshot
+    val navigator = LocalNavController.current
+    val uriHandler = LocalUriHandler.current
+    var showCompleted by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -58,10 +65,44 @@ internal fun TodayOverviewCards(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        WorkEntryCard(
-            waitingSessions = snapshot.waitingSessions,
-            configured = snapshot.workConfigured,
-        )
+        snapshot.items.filterIsInstance<TodayItem.AssistantTask>().forEach { item ->
+            AssistantTaskCard(
+                task = item.task,
+                onClick = {
+                    item.task.conversationId?.let { conversationId ->
+                        runCatching { Uuid.parse(conversationId) }.getOrNull()?.let { chatId ->
+                            navigateToChatPage(
+                                navigator = navigator,
+                                chatId = chatId,
+                                nodeId = item.task.anchorNodeId
+                                    ?.let { runCatching { Uuid.parse(it) }.getOrNull() },
+                                preserveBackStack = true,
+                            )
+                        }
+                    }
+                },
+                resultActionLabel = when (item.task.resultKind) {
+                    "AGENDA_TASK", "AGENDA_PLAN" -> "打开创建的事项"
+                    "GITHUB" -> "查看 Issue"
+                    else -> null
+                },
+                onResultClick = when (item.task.resultKind) {
+                    "AGENDA_TASK" -> item.task.resultRef?.let { id ->
+                        { navigator.navigate(Screen.AgendaTaskDetail(id)) }
+                    }
+                    "AGENDA_PLAN" -> item.task.resultRef?.let { id ->
+                        { navigator.navigate(Screen.AgendaPlanDetail(id)) }
+                    }
+                    "GITHUB" -> item.task.resultRef?.let { url ->
+                        { runCatching { uriHandler.openUri(url) } }
+                    }
+                    else -> null
+                },
+            )
+        }
+        snapshot.items.filterIsInstance<TodayItem.CurrentStatus>()
+            .firstOrNull()
+            ?.let { CompactStatusCard(snapshot = it.snapshot) }
         if (snapshot.agendaActionCount > 0) {
             AgendaActionBar(
                 actionCount = snapshot.agendaActionCount,
@@ -69,8 +110,91 @@ internal fun TodayOverviewCards(
                 onClick = onOpenAgenda,
             )
         }
-        if (statusSnapshot != null) {
-            CompactStatusCard(snapshot = statusSnapshot)
+        WorkEntryCard(
+            waitingSessions = snapshot.waitingSessions,
+            configured = snapshot.workConfigured,
+        )
+        if (snapshot.completedItems.isNotEmpty()) {
+            TextButton(onClick = { showCompleted = !showCompleted }) {
+                Text(if (showCompleted) "收起今天已完成" else "今天已完成 ${snapshot.completedItems.size} 项")
+            }
+            if (showCompleted) {
+                snapshot.completedItems.forEach { item ->
+                    AssistantTaskCard(task = item.task, onClick = {})
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun AssistantTaskCard(
+    task: AssistantTaskEntity,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    resultActionLabel: String? = null,
+    onResultClick: (() -> Unit)? = null,
+) {
+    val waiting = task.status == AssistantTaskStatus.WAITING_FOR_INPUT.name
+    val failed = task.status == AssistantTaskStatus.FAILED_RETRYABLE.name
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(enabled = task.conversationId != null, onClick = onClick),
+        shape = MaterialTheme.shapes.large,
+        color = when {
+            waiting -> MaterialTheme.colorScheme.secondaryContainer
+            failed -> MaterialTheme.colorScheme.errorContainer
+            else -> MaterialTheme.colorScheme.surfaceContainerLow
+        },
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = when (task.status) {
+                    AssistantTaskStatus.WAITING_FOR_INPUT.name -> "等待你回答"
+                    AssistantTaskStatus.FAILED_RETRYABLE.name -> "可以重试"
+                    AssistantTaskStatus.RUNNING.name -> "正在处理"
+                    AssistantTaskStatus.COMPLETED.name -> "已完成"
+                    else -> "已停止"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = when {
+                    failed -> MaterialTheme.colorScheme.onErrorContainer
+                    waiting -> MaterialTheme.colorScheme.onSecondaryContainer
+                    else -> MaterialTheme.colorScheme.primary
+                },
+            )
+            Text(
+                text = task.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            task.summary?.let { summary ->
+                Text(
+                    text = summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (task.conversationId != null && task.status != AssistantTaskStatus.COMPLETED.name) {
+                Text(
+                    text = if (failed) "回到原聊天后可重新尝试" else "点按回到原聊天继续",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            if (resultActionLabel != null && onResultClick != null) {
+                TextButton(onClick = onResultClick) {
+                    Text(resultActionLabel)
+                }
+            }
         }
     }
 }
