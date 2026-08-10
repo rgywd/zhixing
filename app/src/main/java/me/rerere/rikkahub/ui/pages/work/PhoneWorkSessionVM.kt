@@ -18,6 +18,7 @@ import me.rerere.rikkahub.data.work.PhoneWorkCatalog
 import me.rerere.rikkahub.data.work.PhoneWorkEvent
 import me.rerere.rikkahub.data.work.PhoneWorkDraftStore
 import me.rerere.rikkahub.data.work.PhoneWorkRepo
+import me.rerere.rikkahub.data.work.PhoneWorkPendingAttachment
 import me.rerere.rikkahub.data.work.PhoneWorkRepoPreferenceStore
 import me.rerere.rikkahub.data.work.PhoneWorkRepository
 import me.rerere.rikkahub.data.work.PhoneWorkRuntime
@@ -166,8 +167,12 @@ class PhoneWorkSessionVM(
         if (effort in efforts) selectedEffort.value = effort
     }
 
-    fun send(text: String, imageUrls: List<String> = emptyList(), onAccepted: (String?) -> Unit = {}) {
-        if ((text.isBlank() && imageUrls.isEmpty()) || sending.value) return
+    fun send(
+        text: String,
+        attachments: List<PhoneWorkPendingAttachment> = emptyList(),
+        onAccepted: (String?) -> Unit = {},
+    ) {
+        if ((text.isBlank() && attachments.isEmpty()) || sending.value) return
         viewModelScope.launch {
             sending.value = true
             sendError.value = null
@@ -182,13 +187,13 @@ class PhoneWorkSessionVM(
                         model = selectedModel.value,
                         reasoningEffort = selectedEffort.value,
                         message = text,
-                        imageUrls = imageUrls,
+                        attachments = attachments,
                     ).also {
                         sessionId.value = it.id
                         onAccepted(it.id)
                     }
                 } else {
-                    repository.sendMessage(id, text, imageUrls)
+                    repository.sendMessage(id, text, attachments)
                     repository.refreshEvents(id)
                     onAccepted(null)
                 }

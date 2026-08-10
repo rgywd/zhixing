@@ -44,6 +44,7 @@ export class CoreClient {
           codex: config.repos.some((repo) => repo.runtimes.some((runtime) => runtime.id === "codex")),
           claudeCode: config.repos.some((repo) => repo.runtimes.some((runtime) => runtime.id === "claude-code")),
           phoneLineProtocol: 1,
+          fileAttachments: 1,
         },
         repos: config.repos.map((repo) => ({
           id: repo.id,

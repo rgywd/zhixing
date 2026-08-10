@@ -16,8 +16,16 @@ docker compose up -d --build
 curl http://127.0.0.1:8787/healthz
 ```
 
-SQLite 数据位于 Docker volume `work-core-data`。备份时先停止容器，再复制 volume 中的
-`work-core.sqlite`；恢复时使用相同协议版本启动后再开放 HTTPS 入口。
+SQLite 数据与普通文件附件都位于 Docker volume `work-core-data`。普通文件默认写入
+`/data/attachments`（可用 `WORK_CORE_ATTACHMENT_DIR` 调整），SQLite 只保存相对存储键和元数据；兼容既有数据的
+图片仍保存在 SQLite BLOB 中。备份时先停止容器并复制整个 volume，不能只复制 `work-core.sqlite`；恢复时保持
+SQLite 与附件目录来自同一份快照，使用相同协议版本启动后再开放 HTTPS 入口。
+
+每条消息最多 4 个附件、单个最大 10 MiB。支持 PNG/JPEG/WebP/GIF、常见 UTF-8 文本与源码、PDF、Office/EPUB，
+以及 ZIP、7z、GZip。Core 会按类型组合校验文件名、MIME、文件签名或 UTF-8 内容，拒绝伪装格式、可执行二进制和
+安装包；文本脚本只作为非可信输入交付，不会自动执行。压缩包保持原样，由 Codex 或 Claude Code 在任务确有需要时
+检查或解压，Core 不主动展开。未绑定到会话的上传会在后续上传时清理
+超过 24 小时的记录和外置文件；绑定后与会话一同保留，归档不会删除附件。
 
 ### 套餐余量代理
 

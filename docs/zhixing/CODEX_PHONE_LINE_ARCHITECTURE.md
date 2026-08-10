@@ -1,6 +1,6 @@
 # Work Phone-line v1：Codex / Claude Code 手机电话线架构
 
-状态：v1 现行架构契约（2026-07-26 核对）
+状态：v1 现行架构契约（2026-08-10 核对）
 
 ## 1. 问题与设计原则
 
@@ -35,8 +35,9 @@ Phone-line MCP（report / ask / report_html）
 ```
 
 Core 可以部署在 VPS，但不持有 OpenAI/Anthropic 登录态、CLI 凭据、仓库文件或 shell 能力。Core 可以耐久保存用户主动发送的
-受限图片附件；附件不等同于仓库文件，只能由所属会话的 Runner 凭据下载。开发机永远主动出站，不暴露端口，也不依赖
-手机与 Tailscale/VPN 共存。
+受限附件；附件不等同于仓库文件，只能由所属会话的 Runner 凭据下载。普通文件字节位于 Core 管理的固定目录，SQLite
+只保存相对存储键与元数据，不保存或下发 Core 的绝对路径。开发机永远主动出站，不暴露端口，也不依赖手机与
+Tailscale/VPN 共存。
 
 ## 3. 组件职责
 
@@ -56,12 +57,18 @@ Core 可以部署在 VPS，但不持有 OpenAI/Anthropic 登录态、CLI 凭据�
 - Work 消息必须具备普通聊天的基础操作：用户与 AI 文本均可选择和复制全文，代码块保留独立复制入口，消息可引用到输入框；
   用户消息可载入输入框修改后作为新消息发送，不改写已执行历史。
 - 文本草稿按 Work 会话保存在本机，发送被 Core 耐久接受后才清除；失败时保留正文和本轮附件并提供原地重试。
+- 图片与文件共用每条消息最多 4 个、单个最大 10 MiB 的限制。只有 Runner 声明 `fileAttachments >= 1` 时才开放
+  普通文件选择；旧 Runner 继续保持图片能力。
 - 打开会话仍定位最新进展；用户上滑阅读历史时，新事件不得强制抢回底部，而应显示“新消息/跳到最新”入口。
 
 ### Work Core
 
 - 是 Work 会话、消息、问题、答案、报告和命令的事实来源。
-- 保存用户图片附件及摘要，并只向所属 Runner 提供鉴权下载。
+- 保存用户附件及摘要，并只向所属 Runner 提供鉴权下载。图片沿用 SQLite BLOB；普通文件写入
+  `WORK_CORE_ATTACHMENT_DIR`，SQLite 只存相对 `storage_key`、文件名、MIME、大小和 SHA-256。
+- 按类型组合校验附件扩展名、MIME、文件签名或 UTF-8 文本内容；拒绝伪装文件、可执行二进制与安装包。文本脚本
+  只作为非可信输入交付。ZIP、7z、GZip 保持原样，Core 不主动解压。超过 24 小时仍未绑定会话的上传在后续上传时
+  清理；已绑定附件随会话保留，归档不删除。
 - 对 Android、Runner 和单个 CLI session 使用不同作用域的 token。
 - 为所有写请求提供客户端 ID/幂等键，保证重试不重复创建消息或答案。
 - 只存仓库显示名、可选分组与 Runner 内部 repo ID，不接收真实路径和源码。
@@ -78,8 +85,10 @@ Core 可以部署在 VPS，但不持有 OpenAI/Anthropic 登录态、CLI 凭据�
 - Runner 启动及配置的刷新周期内重新校验目录。新增目录自动加入 catalog，删除的固定目录标为不可用，删除的发现目录
   从 catalog 移除；符号链接或 junction 不得借机越过授权根目录。
 - 拉取启动、继续、停止命令；在仓库目录启动会话已固定的 Codex 或 Claude Code CLI。
-- 把会话图片下载到单轮临时目录并校验摘要。Codex 使用 `--image`；Claude Code 只授权该临时目录并在提示中要求
-  读取附件。CLI 退出后立即清理副本。
+- 把会话附件下载到单轮临时目录并校验摘要。Codex 图片使用 `--image`，普通文件通过提示中的精确路径读取，START
+  额外用 `--add-dir` 授权附件目录；当前 `codex exec resume` 不支持 `--add-dir`，但 Work 固定的
+  `danger-full-access` 允许其按绝对路径读取。Claude Code 用 `--add-dir` 授权目录。两种运行时都收到结构化附件清单，
+  压缩包只在任务需要时检查或解压，绝不因被附加就执行；CLI 退出后立即清理副本。
 - 保存 Work session 与通用 `runtimeSessionId` 映射，并在重启后恢复；`codexSessionId` 只作为旧客户端兼容别名。
 - 消费 `codex exec --json` 或 `claude -p --output-format stream-json` 的公开事件，只把完成的 assistant 文本映射成
   普通 AI 消息；不上传 reasoning、命令正文、工具参数或原始工具输出。
@@ -178,6 +187,7 @@ Runner 离线是连接状态，不改写会话状态。手机允许排队发送�
 - `/v1/life/*` 上游同样必须使用 HTTPS 或 loopback 加密隧道，禁止携带服务 token 跟随重定向；上游响应按固定
   schema 重建，原始正文、provider ID、credentials 和契约外字段不得穿过 Core。
 - Runner 只接受预登记 repo ID，不允许手机提交任意路径、命令、环境变量或 MCP 配置。
+- 附件是非可信输入。Core 与 Runner 都校验类型和摘要，Runner 只写入本轮临时目录，禁止把附件当作程序自动执行。
 - HTML 由 Core 使用固定模板封装并清洗；脚本、表单、外链资源、文件 URL 和任意导航默认禁用。
 - Android WebView 使用独立只读页，关闭文件访问和跨源能力；报告正文不获得 App bridge。
 - 所有消息和答案带递增序号；服务端校验 session 所属关系，避免跨会话注入。

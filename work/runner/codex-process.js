@@ -28,6 +28,7 @@ export function buildCodexArgs({
   reasoningEffort,
   codexSessionId,
   imagePaths = [],
+  additionalDirectories = [],
   profileName,
   developerInstructions,
   mcp,
@@ -45,7 +46,11 @@ export function buildCodexArgs({
     ...mcpConfigArgs(mcp),
   ];
   if (kind === "START") {
-    return ["exec", "-C", repoPath, ...profile, ...shared, "-"];
+    return [
+      "exec", "-C", repoPath, ...profile, ...shared,
+      ...additionalDirectories.flatMap((directory) => ["--add-dir", directory]),
+      "-",
+    ];
   }
   if (!codexSessionId) throw new Error("Cannot resume without a Codex session ID");
   // `--profile` is an `exec` option, not an `exec resume` option. Keeping it

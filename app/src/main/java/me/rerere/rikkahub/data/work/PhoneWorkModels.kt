@@ -10,6 +10,15 @@ data class PhoneWorkRunner(
     val version: String,
     val online: Boolean,
     val leaseUntil: String? = null,
+    val capabilities: PhoneWorkRunnerCapabilities = PhoneWorkRunnerCapabilities(),
+)
+
+@Serializable
+data class PhoneWorkRunnerCapabilities(
+    val codex: Boolean = false,
+    val claudeCode: Boolean = false,
+    val phoneLineProtocol: Int = 1,
+    val fileAttachments: Int = 0,
 )
 
 @Serializable

@@ -1,6 +1,6 @@
 # Work Phone-line v1：协议契约
 
-状态：v1 现行协议契约（2026-07-26 核对）
+状态：v1 现行协议契约（2026-08-10 核对）
 
 所有 JSON 字段使用 camelCase，时间使用 UTC RFC 3339，ID 使用不可预测的 UUID/ULID。所有写操作带
 `Idempotency-Key`；成功重试返回第一次创建的对象。
@@ -61,15 +61,23 @@ repo/runtime/model/effort 组合。仓库 catalog 项可携带可选 `group`、`
 立即收窄选择器并回落到该模型支持的档位；Core 和 Runner 都按同一有效组合校验，避免客户端绕过显示约束。
 
 Android 创建会话时可提交最多 80 字符的 `title`。当前客户端用已配置的快速模型根据首条文本生成标题；模型不可用、
-生成失败或仅发送图片时使用首条文本摘要或仓库名兜底。旧客户端未提交标题时，Core 使用 `repoName`，保持 v1 向后兼容。
+生成失败或仅发送附件时使用首条文本摘要或仓库名兜底。旧客户端未提交标题时，Core 使用 `repoName`，保持 v1 向后兼容。
 
-用户消息可额外携带 `attachmentIds`。Android 先通过 `POST /v1/work/attachments` 上传图片，再在创建会话或补充消息时
-引用返回的 ID。每条消息最多 4 张，每张最大 10 MiB，仅接受 PNG、JPEG、WebP 和 GIF。事件与 Runner 命令只携带
-附件 ID、文件名、MIME、大小和 SHA-256，不内嵌图片字节。
+用户消息可额外携带 `attachmentIds`。Android 先通过 `POST /v1/work/attachments` 上传附件，再在创建会话或补充消息时
+引用返回的 ID。每条消息的图片与文件合计最多 4 个，每个最大 10 MiB。允许 PNG、JPEG、WebP、GIF，常见 UTF-8
+文本与源码，PDF、Office、EPUB，以及 ZIP、7z、GZip；Core 按类型组合校验扩展名、MIME、文件签名或文本编码，
+可执行二进制和安装包不在白名单内。文本脚本可以作为源码输入，但不得自动执行。事件与 Runner 命令只携带附件 ID、
+文件名、MIME、大小和 SHA-256，不内嵌文件字节。
 
-Core 耐久保存图片，但只有该会话所属 Runner 能下载；Runner 校验 SHA-256 后写入本轮专用临时目录。Codex 通过
-`--image` 接收；Claude Code 仅通过 `--add-dir` 获得该临时目录的访问权，并在提示中收到附件位置。该轮进程退出后
-删除临时副本。Android 不提交或读取开发机真实文件路径。
+为兼容既有数据，Core 继续把图片保存在 SQLite BLOB；普通文件写入 `WORK_CORE_ATTACHMENT_DIR` 管理的固定目录，
+SQLite 只保存相对 `storage_key` 与元数据。未绑定会话超过 24 小时的上传会在后续上传时清理；绑定后与会话一同保留，
+归档不删除。Core 的绝对存储路径不会进入 Android API、事件或 Runner 命令。
+
+普通文件只有在目标 Runner 注册 `capabilities.fileAttachments >= 1` 时才能绑定到消息；旧 Runner 的图片路径保持兼容。
+只有会话所属 Runner 能下载附件。Runner 对命令元数据和响应体分别校验 SHA-256，再写入本轮专用临时目录。Codex
+图片继续通过 `--image` 接收；普通文件通过提示中的结构化清单和精确本机路径交付，START 可用 `--add-dir`，RESUME
+依靠固定的 `danger-full-access` 读取清单路径。Claude Code 通过 `--add-dir` 获得该目录访问权。ZIP、7z、GZip
+保持压缩状态，由 Agent 按任务需要检查或解压，不自动执行。该轮进程退出后删除 Runner 临时副本。
 
 ## 2. 三个 MCP 工具
 
@@ -190,7 +198,7 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
 
 - `GET /v1/work/runners`：Runner 在线状态与缓存版本。
 - `GET /v1/work/repos?runnerId=`：仓库 catalog，支持 `ETag`。
-- `POST /v1/work/attachments`：上传一张受限图片并返回附件元数据。
+- `POST /v1/work/attachments`：上传一个受限附件并返回附件元数据。
 - `POST /v1/work/sessions`：创建会话与第一条用户消息，可携带可选 `title`。
 - `GET /v1/work/sessions?cursor=`：仅返回当前用户的手机会话。
 - `GET /v1/work/sessions?archived=true`：返回已归档会话；默认列表不包含归档项。
@@ -207,14 +215,14 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
 
 ### Runner scope
 
-- `POST /v1/runner/register`：登记进程级 `instanceId`、版本、能力和仓库 catalog；同一实例可在本机目录变化后重新登记
-  catalog，新实例回收旧实例命令。
+- `POST /v1/runner/register`：登记进程级 `instanceId`、版本、能力和仓库 catalog；支持普通文件的 Runner 声明
+  `capabilities.fileAttachments=1`。同一实例可在本机目录变化后重新登记 catalog，新实例回收旧实例命令。
 - `POST /v1/runner/heartbeat`：按 `runnerId + instanceId` 续租当前实例持有的命令。
 - `GET /v1/runner/commands?runnerId=&instanceId=`：拉取当前实例的有序命令。
 - `POST /v1/runner/commands/{id}/ack`：当前实例领取/完成/失败。
 - `POST /v1/runner/sessions/{id}/state`：当前实例写入进程生命周期。
 - `POST /v1/runner/sessions/{id}/events`：当前实例幂等写入经过白名单映射的 CLI 可见事件。
-- `GET /v1/runner/attachments/{id}?runnerId=`：下载分配给本 Runner 会话的图片附件。
+- `GET /v1/runner/attachments/{id}?runnerId=`：下载分配给本 Runner 会话的附件。
 
 ### MCP session scope
 
@@ -281,6 +289,8 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 ## 7. 版本与兼容
 
 请求头携带 `X-Zhixing-Work-Protocol: 1`。Core 在不认识主版本时返回 `426 Upgrade Required`；新增可选字段保持向后兼容。
+普通文件通过 Runner 能力字段渐进启用，部署顺序为 Runner、Core、Android；升级期间旧 Android 与旧 Runner 的图片流程
+不变，新 Android 遇到未声明能力的 Runner 时禁用文件入口，Core 也拒绝绕过客户端的普通文件绑定。
 Phone-line v1 不读取旧 Work/Happy 数据；Room v33 迁移会删除旧 Work/Happy/App Server/Codex catalog 表，只保留
 新版 `phone_work_sessions` 与 `phone_work_events`。Room v39→v40 为现有会话补入 `runtime=codex` 和通用
 `runtime_session_id`；Core 同样从旧 `codex_session_id` 回填通用 ID。`codexSessionId` 仅对 Codex 会话保留为兼容别名。
