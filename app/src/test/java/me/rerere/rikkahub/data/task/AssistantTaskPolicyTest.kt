@@ -80,6 +80,23 @@ class AssistantTaskPolicyTest {
         assertTrue(text.length <= 160)
     }
 
+    @Test
+    fun `task title keeps the goal and removes model facing tool instructions`() {
+        assertEquals(
+            "Saturday August 15 from Beijing",
+            naturalizeAssistantTaskTitle(
+                "Saturday August 15 from Beijing. Now call plan_create to create the plan.",
+            ),
+        )
+        assertEquals(
+            "Before helping me plan Suzhou",
+            naturalizeAssistantTaskTitle(
+                "Before helping me plan Suzhou, use ask_user to clarify my preference.",
+            ),
+        )
+        assertFalse(naturalizeAssistantTaskTitle("Call mcp__life__digest now").contains("mcp__"))
+    }
+
     private fun step(
         toolName: String,
         ordinal: Int = 1,

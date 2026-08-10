@@ -55,8 +55,6 @@ internal fun TodayOverviewCards(
 ) {
     val snapshot by provider.state.collectAsStateWithLifecycle()
     LaunchedEffect(provider) { provider.onVisible() }
-    val navigator = LocalNavController.current
-    val uriHandler = LocalUriHandler.current
     var showCompleted by remember { mutableStateOf(false) }
 
     Column(
@@ -66,39 +64,7 @@ internal fun TodayOverviewCards(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         snapshot.items.filterIsInstance<TodayItem.AssistantTask>().forEach { item ->
-            AssistantTaskCard(
-                task = item.task,
-                onClick = {
-                    item.task.conversationId?.let { conversationId ->
-                        runCatching { Uuid.parse(conversationId) }.getOrNull()?.let { chatId ->
-                            navigateToChatPage(
-                                navigator = navigator,
-                                chatId = chatId,
-                                nodeId = item.task.anchorNodeId
-                                    ?.let { runCatching { Uuid.parse(it) }.getOrNull() },
-                                preserveBackStack = true,
-                            )
-                        }
-                    }
-                },
-                resultActionLabel = when (item.task.resultKind) {
-                    "AGENDA_TASK", "AGENDA_PLAN" -> "打开创建的事项"
-                    "GITHUB" -> "查看 Issue"
-                    else -> null
-                },
-                onResultClick = when (item.task.resultKind) {
-                    "AGENDA_TASK" -> item.task.resultRef?.let { id ->
-                        { navigator.navigate(Screen.AgendaTaskDetail(id)) }
-                    }
-                    "AGENDA_PLAN" -> item.task.resultRef?.let { id ->
-                        { navigator.navigate(Screen.AgendaPlanDetail(id)) }
-                    }
-                    "GITHUB" -> item.task.resultRef?.let { url ->
-                        { runCatching { uriHandler.openUri(url) } }
-                    }
-                    else -> null
-                },
-            )
+            TodayAssistantTaskCard(item)
         }
         snapshot.items.filterIsInstance<TodayItem.CurrentStatus>()
             .firstOrNull()
@@ -120,11 +86,50 @@ internal fun TodayOverviewCards(
             }
             if (showCompleted) {
                 snapshot.completedItems.forEach { item ->
-                    AssistantTaskCard(task = item.task, onClick = {})
+                    TodayAssistantTaskCard(item)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun TodayAssistantTaskCard(item: TodayItem.AssistantTask) {
+    val navigator = LocalNavController.current
+    val uriHandler = LocalUriHandler.current
+    AssistantTaskCard(
+        task = item.task,
+        onClick = {
+            item.task.conversationId?.let { conversationId ->
+                runCatching { Uuid.parse(conversationId) }.getOrNull()?.let { chatId ->
+                    navigateToChatPage(
+                        navigator = navigator,
+                        chatId = chatId,
+                        nodeId = item.task.anchorNodeId
+                            ?.let { runCatching { Uuid.parse(it) }.getOrNull() },
+                        preserveBackStack = true,
+                    )
+                }
+            }
+        },
+        resultActionLabel = when (item.task.resultKind) {
+            "AGENDA_TASK", "AGENDA_PLAN" -> "打开创建的事项"
+            "GITHUB" -> "查看 Issue"
+            else -> null
+        },
+        onResultClick = when (item.task.resultKind) {
+            "AGENDA_TASK" -> item.task.resultRef?.let { id ->
+                { navigator.navigate(Screen.AgendaTaskDetail(id)) }
+            }
+            "AGENDA_PLAN" -> item.task.resultRef?.let { id ->
+                { navigator.navigate(Screen.AgendaPlanDetail(id)) }
+            }
+            "GITHUB" -> item.task.resultRef?.let { url ->
+                { runCatching { uriHandler.openUri(url) } }
+            }
+            else -> null
+        },
+    )
 }
 
 @Composable
@@ -183,9 +188,13 @@ internal fun AssistantTaskCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (task.conversationId != null && task.status != AssistantTaskStatus.COMPLETED.name) {
+            if (task.conversationId != null) {
                 Text(
-                    text = if (failed) "回到原聊天后可重新尝试" else "点按回到原聊天继续",
+                    text = when {
+                        failed -> "回到原聊天后可重新尝试"
+                        task.status == AssistantTaskStatus.COMPLETED.name -> "点按回到原聊天查看"
+                        else -> "点按回到原聊天继续"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )

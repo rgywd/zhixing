@@ -361,6 +361,21 @@ internal fun sanitizeUserFacingText(value: String, fallback: String): String = v
     .take(160)
     .ifBlank { fallback }
 
+/**
+ * Task cards describe the user's goal, never the model-facing invocation instruction.
+ * Keep the natural prefix and drop explicit requests to call snake_case tool names.
+ */
+internal fun naturalizeAssistantTaskTitle(value: String): String {
+    val withoutInvocation = value.replace(
+        Regex(
+            pattern = "(?i)[,.]?\\s*(?:now\\s+)?(?:use|call)\\s+(?:the\\s+)?" +
+                "(?:ask_user|[a-z][a-z0-9]*_[a-z0-9_]+|mcp__[a-z0-9_]+)\\b.*$",
+        ),
+        "",
+    )
+    return sanitizeUserFacingText(withoutInvocation, fallback = "正在处理你的请求")
+}
+
 internal fun sanitizeReference(value: String): String = value
     .substringBefore('?')
     .substringBefore('#')
