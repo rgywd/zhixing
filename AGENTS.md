@@ -128,8 +128,9 @@
 
 - **Agenda / Weak Calendar**: A local-first domain for simple tasks and long-horizon plans, surfaced compactly in the
   normal chat right drawer with a full plan/stage page for detail. Room is the source of truth; Android system calendar
-  events are an optional read-only projection. Normal chat exposes read and write tools for both task types, with
-  approval required for every write. The current contract is documented in
+  events are an optional read-only projection. Normal chat exposes read and write tools for both task types. Tool calls
+  execute without a separate approval card while repository validation, Android permissions, privacy consent,
+  credentials, and hard safety boundaries remain enforced. The current contract is documented in
   `docs/zhixing/AGENDA_AND_CALENDAR.md`.
 
 ## Internationalization

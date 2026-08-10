@@ -59,14 +59,13 @@ ChatService.sendMessage()
             │
             ├─ 检查最新消息中是否有未执行 Tool
             │       ├── 无 Tool → break（生成结束）
-            │       ├── 有 Tool 且需要审批 → 设为 ToolApprovalState.Pending
-            │       │                        → emit → break（等待用户审批）
-            │       └── 有 Tool 且已审批 → 执行工具（见下）
+            │       ├── ask_user → 设为 ToolApprovalState.Pending
+            │       │             → emit → break（等待用户回答）
+            │       └── 普通 Tool → 直接执行（见下）
             │
             ├─ 工具执行
-            │       ├── Denied  → 输出 {"error": "denied by user"}
             │       ├── Answered → 直接使用用户提供的答案
-            │       └── Auto / Approved → toolDef.execute(args)
+            │       └── 普通工具 → toolDef.execute(args)
             │               ├── 若输出超 32KB 且有 shell 权限 → 截断并写入文件
             │               └── CancellationException 必须向上传播（不能吞掉）
             │
@@ -188,7 +187,7 @@ Injection 和 Lorebook 等稳定请求内容由每次请求重新构建；它们
   - `TimeInfo`：获取当前时间
   - `Clipboard`：读写剪贴板
   - `Tts`：文字转语音
-  - `AskUser`：向用户提问（需审批）
+  - `AskUser`：向用户提问（等待用户回答，不是工具审批）
   - `ScreenTime`：获取屏幕使用时间
 3. **Conversation Tools**（`createConversationTools`）— `enableRecentChatsReference = true` 时，查询历史对话
 4. **Knowledge Tools**（`createKnowledgeTools`）— 仅当绑定知识空间已初始化且存在可检索文档时注入；空库不向模型暴露工具
@@ -198,19 +197,17 @@ Injection 和 Lorebook 等稳定请求内容由每次请求重新构建；它们
 7. **MCP Tools** — 所有已连接 MCP 服务器的工具，命名格式 `mcp__{serverName}__{toolName}`
 8. **Memory Tools**（`buildMemoryTools`，内置于 GenerationHandler）— `enableMemory = true` 时，支持记忆的增删改
 
-### 工具审批状态机
+### 工具问答状态机
 
 ```
-Auto（默认）
-    │ toolDef.needsApproval() == true
-    ▼
-Pending ──── 用户操作 ────► Approved → 执行工具
-                       ──► Denied   → 返回拒绝错误
-                       ──► Answered → 使用用户提供的文本作为结果
+普通 Tool ─────────────────────► 直接执行
+
+ask_user ──► Pending ── 用户回答 ──► Answered ──► 使用回答继续生成
 ```
 
-审批流程由 `ChatService.handleToolApproval()` 触发，更新状态后重新调用 `handleMessageComplete()`，`GenerationHandler` 检测到
-`canResumeExecution` 的 Tool 后直接跳过本轮生成，进入工具执行阶段。
+`ask_user` 的回答仍通过兼容入口 `ChatService.handleToolApproval()` 写回，更新状态后重新调用
+`handleMessageComplete()`；`GenerationHandler` 检测到 `Answered` 后使用用户文本继续。`needsApproval`、历史
+`Approved`/`Denied` 状态与 Web approval route 仅为旧消息兼容，新运行时不会让普通工具进入等待批准。
 
 ### 工具输出截断
 
@@ -246,7 +243,7 @@ Live Update 通知内容根据当前生成状态动态更新：
 - 推理中（Reasoning）→ 显示推理内容片段
 - 写回复中 → 显示文本内容片段
 
-前台服务租约在发送、重新生成和工具审批恢复入口中同步取得，早于异步 Job 调度。通知提供返回目标会话和取消
+前台服务租约在发送、重新生成和 `ask_user` 回答恢复入口中同步取得，早于异步 Job 调度。通知提供返回目标会话和取消
 当前目标会话生成的入口；多个会话并行时，结束一个会话不会停止其余生成。用户未授权普通通知时，Android 仍可
 在系统的前台服务任务界面展示该服务，但可选的实时内容通知和完成通知保持原设置语义。
 
