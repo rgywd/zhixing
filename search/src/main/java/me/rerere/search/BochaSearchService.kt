@@ -71,14 +71,13 @@ object BochaSearchService : SearchService<SearchServiceOptions.BochaOptions> {
                 .addHeader("Content-Type", "application/json")
                 .build()
 
-            val response = httpClient.newCall(request).execute()
+            val response = httpClient.newCall(request, commonOptions.searchTimeoutMillis()).await()
             if (response.isSuccessful) {
                 val bodyRaw = response.body.string()
                 val bochaResponse = runCatching {
                     json.decodeFromString<BochaResponse>(bodyRaw)
                 }.onFailure {
                     it.printStackTrace()
-                    println(bodyRaw)
                     error("Failed to decode response: $bodyRaw")
                 }.getOrThrow()
 

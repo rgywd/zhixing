@@ -65,7 +65,7 @@ object BraveSearchService : SearchService<SearchServiceOptions.BraveOptions> {
                 .addHeader("X-Subscription-Token", serviceOptions.apiKey)
                 .build()
 
-            val response = httpClient.newCall(request).await()
+            val response = httpClient.newCall(request, commonOptions.searchTimeoutMillis()).await()
             if (response.isSuccessful) {
                 val responseBody = response.body.string()
                 val searchResponse = json.decodeFromString<BraveSearchResponse>(responseBody)

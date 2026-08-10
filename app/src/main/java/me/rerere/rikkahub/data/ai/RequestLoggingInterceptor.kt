@@ -4,7 +4,6 @@ import me.rerere.common.android.LogEntry
 import me.rerere.common.android.Logging
 import okhttp3.Interceptor
 import okhttp3.Response
-import okio.Buffer
 
 internal val SENSITIVE_HTTP_HEADER_NAMES = setOf(
     "Authorization",
@@ -27,10 +26,9 @@ class RequestLoggingInterceptor : Interceptor {
         val startTime = System.currentTimeMillis()
 
         val requestHeaders = request.headers.toRedactedMap()
-        val requestBody = request.body?.let { body ->
-            val buffer = Buffer()
-            body.writeTo(buffer)
-            buffer.readUtf8()
+        val safeUrl = request.url.run {
+            val explicitPort = port.takeIf { it != defaultPort(scheme) }?.let { ":$it" }.orEmpty()
+            "$scheme://$host$explicitPort"
         }
 
         val response: Response
@@ -39,14 +37,14 @@ class RequestLoggingInterceptor : Interceptor {
         try {
             response = chain.proceed(request)
         } catch (e: Exception) {
-            error = e.message
+            error = e::class.simpleName ?: "RequestFailed"
             Logging.logRequest(
                 LogEntry.RequestLog(
                     tag = "HTTP",
-                    url = request.url.toString(),
+                    url = safeUrl,
                     method = request.method,
                     requestHeaders = requestHeaders,
-                    requestBody = requestBody,
+                    requestBody = null,
                     error = error
                 )
             )
@@ -59,10 +57,10 @@ class RequestLoggingInterceptor : Interceptor {
         Logging.logRequest(
             LogEntry.RequestLog(
                 tag = "HTTP",
-                url = request.url.toString(),
+                url = safeUrl,
                 method = request.method,
                 requestHeaders = requestHeaders,
-                requestBody = requestBody,
+                requestBody = null,
                 responseCode = response.code,
                 responseHeaders = responseHeaders,
                 durationMs = durationMs,
@@ -73,10 +71,22 @@ class RequestLoggingInterceptor : Interceptor {
         return response
     }
 
+    private fun defaultPort(scheme: String): Int = when (scheme.lowercase()) {
+        "http" -> 80
+        "https" -> 443
+        else -> -1
+    }
 }
 
 internal fun okhttp3.Headers.toRedactedMap(): Map<String, String> = names().associateWith { name ->
-    if (SENSITIVE_HTTP_HEADER_NAMES.any(name::equalsIgnoreCase)) "[已隐藏]" else get(name).orEmpty()
+    if (name.isSensitiveHeader()) "[已隐藏]" else get(name).orEmpty()
 }
 
-private fun String.equalsIgnoreCase(other: String): Boolean = equals(other, ignoreCase = true)
+private fun String.isSensitiveHeader(): Boolean {
+    val normalized = lowercase()
+    return SENSITIVE_HTTP_HEADER_NAMES.any { it.equals(normalized, ignoreCase = true) } ||
+        "token" in normalized ||
+        "secret" in normalized ||
+        "api-key" in normalized ||
+        normalized.endsWith("-key")
+}

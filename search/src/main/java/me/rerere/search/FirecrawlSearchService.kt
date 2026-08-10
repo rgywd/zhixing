@@ -122,7 +122,7 @@ object FirecrawlSearchService : SearchService<SearchServiceOptions.FirecrawlOpti
                 }
                 .build()
 
-            val response = httpClient.newCall(request).await()
+            val response = httpClient.newCall(request, commonOptions.searchTimeoutMillis()).await()
             if (!response.isSuccessful) {
                 error("response failed #${response.code}")
             }
@@ -185,7 +185,7 @@ object FirecrawlSearchService : SearchService<SearchServiceOptions.FirecrawlOpti
                 }
                 .build()
 
-            val response = httpClient.newCall(request).await()
+            val response = httpClient.newCall(request, commonOptions.scrapeTimeoutMillis()).await()
             if (!response.isSuccessful) {
                 error("response failed #${response.code}")
             }

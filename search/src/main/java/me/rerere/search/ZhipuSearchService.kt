@@ -70,14 +70,13 @@ object ZhipuSearchService : SearchService<SearchServiceOptions.ZhipuOptions> {
                 .addHeader("Authorization", "Bearer ${serviceOptions.apiKey}")
                 .build()
 
-            val response = httpClient.newCall(request).execute()
+            val response = httpClient.newCall(request, commonOptions.searchTimeoutMillis()).await()
             if (response.isSuccessful) {
                 val bodyRaw = response.body?.string() ?: error("Failed to get response body")
                 val response = runCatching {
                     json.decodeFromString<ZhipuDto>(bodyRaw)
                 }.onFailure {
                     it.printStackTrace()
-                    println(bodyRaw)
                     error("Failed to decode response: $bodyRaw")
                 }.getOrThrow()
 

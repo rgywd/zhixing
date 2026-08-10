@@ -371,6 +371,11 @@ fun SearchAbilityTagLine(
                 Text(stringResource(R.string.search_ability_scrape))
             }
         }
+        if (SearchService.getService(options).imageParameters(options) != null) {
+            Tag(type = TagType.DEFAULT) {
+                Text(stringResource(R.string.search_ability_image))
+            }
+        }
     }
 }
 
@@ -406,10 +411,38 @@ private fun CommonOptions(
                 OutlinedNumberInput(
                     value = commonOptions.resultSize,
                     onValueChange = {
-                        commonOptions = commonOptions.copy(resultSize = it)
+                        commonOptions = commonOptions.copy(resultSize = it.coerceIn(1, 20))
                         onUpdate(commonOptions)
                     },
                     modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            FormItem(
+                label = { Text(stringResource(R.string.setting_page_search_timeout)) },
+                description = { Text(stringResource(R.string.setting_page_search_timeout_description)) },
+            ) {
+                OutlinedNumberInput(
+                    value = commonOptions.searchTimeoutSeconds,
+                    onValueChange = {
+                        commonOptions = commonOptions.copy(searchTimeoutSeconds = it.coerceIn(1, 60))
+                        onUpdate(commonOptions)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            FormItem(
+                label = { Text(stringResource(R.string.setting_page_scrape_timeout)) },
+                description = { Text(stringResource(R.string.setting_page_scrape_timeout_description)) },
+            ) {
+                OutlinedNumberInput(
+                    value = commonOptions.scrapeTimeoutSeconds,
+                    onValueChange = {
+                        commonOptions = commonOptions.copy(scrapeTimeoutSeconds = it.coerceIn(5, 120))
+                        onUpdate(commonOptions)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }

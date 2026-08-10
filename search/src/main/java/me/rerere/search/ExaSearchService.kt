@@ -85,14 +85,13 @@ object ExaSearchService : SearchService<SearchServiceOptions.ExaOptions> {
                 .addHeader("Authorization", "Bearer $apiKey")
                 .build()
 
-            val response = httpClient.newCall(request).execute()
+            val response = httpClient.newCall(request, commonOptions.searchTimeoutMillis()).await()
             if (response.isSuccessful) {
                 val bodyRaw = response.body.string()
                 val response = runCatching {
                     json.decodeFromString<ExaData>(bodyRaw)
                 }.onFailure {
                     it.printStackTrace()
-                    println(bodyRaw)
                     error("Failed to decode response: $bodyRaw")
                 }.getOrThrow()
 

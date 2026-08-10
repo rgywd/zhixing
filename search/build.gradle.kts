@@ -57,4 +57,5 @@ dependencies {
     api(libs.jsoup)
     implementation(libs.quickjs)
     testImplementation(libs.junit)
+    testImplementation(libs.okhttp.mockwebserver)
 }

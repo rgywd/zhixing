@@ -238,7 +238,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 .build()
         )
 
-        Log.i(TAG, "streamText: ${json.encodeToString(requestBody)}")
+        Log.i(TAG, "streamText: request prepared")
 
         val listener = object : EventSourceListener() {
             override fun onEvent(
@@ -247,8 +247,6 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 type: String?,
                 data: String
             ) {
-                Log.i(TAG, "onEvent: $data")
-
                 try {
                     val jsonData = json.parseToJsonElement(data).jsonObject
                     val reason =
@@ -293,8 +291,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                         Log.w(TAG, "onEvent: chunk dropped (${e?.message})")
                     }
                 } catch (e: Exception) {
-                    e.printStackTrace()
-                    println("[onEvent] 解析错误: $data")
+                    Log.w(TAG, "onEvent: response parse failed (${e.javaClass.simpleName})")
                 }
             }
 
@@ -305,15 +302,13 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
             ) {
                 var exception = t
 
-                t?.printStackTrace()
-                println("[onFailure] 发生错误: ${t?.message}")
+                Log.w(TAG, "onFailure: ${t?.javaClass?.simpleName ?: "HTTP_${response?.code ?: 0}"}")
 
                 try {
                     if (t == null && response != null) {
                         val bodyStr = response.body.stringSafe()
                         if (!bodyStr.isNullOrEmpty()) {
                             val bodyElement = json.parseToJsonElement(bodyStr)
-                            println(bodyElement)
                             if (bodyElement is JsonObject) {
                                 exception = Exception(
                                     bodyElement["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content
@@ -525,7 +520,6 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
         } ?: emptyList()
 
         val groundingMetadata = message["groundingMetadata"]?.jsonObject
-        Log.i(TAG, "parseMessage: $groundingMetadata")
         val annotations = parseSearchGroundingMetadata(groundingMetadata)
 
         return UIMessage(

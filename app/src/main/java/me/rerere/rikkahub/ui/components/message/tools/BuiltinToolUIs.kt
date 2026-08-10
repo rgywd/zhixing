@@ -191,6 +191,46 @@ object SearchWebToolUI : ToolUIRenderer {
     }
 }
 
+/** 图片搜索: 摘要显示结果数，详情展示图片并链接来源页。 */
+object SearchImagesToolUI : ToolUIRenderer {
+    override val toolName: String = "search_images"
+
+    override fun icon(context: ToolUIContext): ImageVector = HugeIcons.Search01
+
+    @Composable
+    override fun title(context: ToolUIContext): String = stringResource(
+        R.string.chat_message_tool_search_images,
+        context.arguments.getStringContent("query") ?: ""
+    )
+
+    private fun items(context: ToolUIContext): List<JsonElement> =
+        context.content?.jsonObjectOrNull?.get("items")?.jsonArray ?: emptyList()
+
+    override fun hasSummary(context: ToolUIContext): Boolean = items(context).isNotEmpty()
+
+    @Composable
+    override fun Summary(context: ToolUIContext) {
+        val items = items(context)
+        if (items.isNotEmpty()) {
+            Text(
+                text = stringResource(R.string.chat_message_tool_search_images_count, items.size),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+            )
+        }
+    }
+
+    @Composable
+    override fun Preview(context: ToolUIContext, onDismissRequest: () -> Unit) {
+        val content = context.content
+        if (content == null) {
+            DefaultToolPreview(context = context)
+            return
+        }
+        SearchImagesPreview(arguments = context.arguments, content = content)
+    }
+}
+
 /**
  * 网页抓取: 摘要显示 URL, 详情为各网页的 Markdown 内容
  */
@@ -753,6 +793,60 @@ private fun SearchWebPreview(
                     language = "json",
                     fontSize = 12.sp
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchImagesPreview(
+    arguments: JsonElement,
+    content: JsonElement,
+) {
+    val context = LocalContext.current
+    val query = arguments.getStringContent("query") ?: ""
+    val items = content.jsonObject["items"]?.jsonArray ?: emptyList()
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxHeight(0.8f)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item { Text(stringResource(R.string.chat_message_tool_search_images, query)) }
+        items(items) { item ->
+            val imageUrl = item.getStringContent("imageUrl") ?: return@items
+            val sourceUrl = item.getStringContent("sourceUrl")
+            val title = item.getStringContent("title")
+            val siteName = item.getStringContent("siteName")
+            Card(
+                onClick = { context.openUrl(sourceUrl ?: imageUrl) },
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                ),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AsyncImage(
+                        model = imageUrl,
+                        contentDescription = title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                    )
+                    if (!title.isNullOrBlank() || !siteName.isNullOrBlank()) {
+                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                            title?.let { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                            siteName?.let {
+                                Text(
+                                    it,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }

@@ -12,7 +12,6 @@ import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.AppIdentity
 import me.rerere.rikkahub.data.ai.AIRequestInterceptor
 import me.rerere.rikkahub.data.ai.RequestLoggingInterceptor
-import me.rerere.rikkahub.data.ai.SENSITIVE_HTTP_HEADER_NAMES
 import me.rerere.rikkahub.data.ai.transformers.AssistantTemplateLoader
 import me.rerere.rikkahub.data.ai.GenerationHandler
 import me.rerere.rikkahub.data.ai.transformers.TemplateTransformer
@@ -33,7 +32,6 @@ import me.rerere.rikkahub.data.work.PhoneWorkRepoPreferenceStore
 import me.rerere.rikkahub.data.work.PhoneWorkRepository
 import me.rerere.rikkahub.data.workspace.WorkspaceVariableStore
 import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
 import org.koin.dsl.module
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -163,10 +161,6 @@ val dataSourceModule = module {
             }
             .addNetworkInterceptor(RequestLoggingInterceptor())
             .addInterceptor(AIRequestInterceptor())
-            .addInterceptor(HttpLoggingInterceptor().apply {
-                SENSITIVE_HTTP_HEADER_NAMES.forEach(::redactHeader)
-                level = HttpLoggingInterceptor.Level.HEADERS
-            })
             .build().also { SearchService.init(it, get()) }
     }
 

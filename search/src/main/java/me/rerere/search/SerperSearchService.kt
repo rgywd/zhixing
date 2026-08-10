@@ -71,7 +71,7 @@ object SerperSearchService : SearchService<SearchServiceOptions.SerperOptions> {
                 .addHeader("Content-Type", "application/json")
                 .build()
 
-            val response = httpClient.newCall(request).await()
+            val response = httpClient.newCall(request, commonOptions.searchTimeoutMillis()).await()
             if (response.isSuccessful) {
                 val responseBody = response.body.string()
                 val searchResponse = json.decodeFromString<SerperSearchResponse>(responseBody)

@@ -276,6 +276,8 @@
   <string name="chat_message_tool_search_prefix">搜索: %1$s</string>
   <string name="chat_message_tool_search_results_count">共 %1$d 条结果</string>
   <string name="chat_message_tool_search_web">搜索网页: %1$s</string>
+  <string name="chat_message_tool_search_images">搜索图片: %1$s</string>
+  <string name="chat_message_tool_search_images_count">%1$d 张图片</string>
   <string name="chat_message_tool_submit">提交</string>
   <string name="chat_page_cancel">取消</string>
   <string name="chat_page_check_title_model_settings">检查标题模型设置</string>
@@ -580,6 +582,7 @@
   <string name="safe_mode_title">安全模式</string>
   <string name="search_ability_scrape">抓取</string>
   <string name="search_ability_search">搜索</string>
+  <string name="search_ability_image">图片</string>
   <string name="search_detail_api_key">API密钥</string>
   <string name="search_detail_api_url">API URL</string>
   <string name="search_detail_custom_search_placeholder">我的自定义搜索</string>
@@ -870,6 +873,10 @@
   <string name="setting_page_search_config">配置</string>
   <string name="setting_page_search_delete_provider">删除提供商</string>
   <string name="setting_page_search_result_size">结果数量</string>
+  <string name="setting_page_search_timeout">搜索超时（秒）</string>
+  <string name="setting_page_search_timeout_description">网页与图片搜索共用的截止时间，可设置为 1 到 60 秒。</string>
+  <string name="setting_page_scrape_timeout">网页抓取超时（秒）</string>
+  <string name="setting_page_scrape_timeout_description">全文网页抓取的截止时间，可设置为 5 到 120 秒。</string>
   <string name="setting_page_search_service">搜索服务</string>
   <string name="setting_page_search_service_desc">设置搜索服务</string>
   <string name="setting_page_search_test">测试搜索</string>

@@ -81,7 +81,7 @@ object JinaSearchService : SearchService<SearchServiceOptions.JinaOptions> {
                 .addHeader("Content-Type", "application/json")
                 .build()
 
-            val response = httpClient.newCall(request).await()
+            val response = httpClient.newCall(request, commonOptions.searchTimeoutMillis()).await()
             if (response.isSuccessful) {
                 val responseData = response.body.string().let {
                     json.decodeFromString<JinaSearchResponse>(it)
@@ -127,7 +127,7 @@ object JinaSearchService : SearchService<SearchServiceOptions.JinaOptions> {
                 .addHeader("X-Return-Format", "markdown")
                 .build()
 
-            val response = httpClient.newCall(request).await()
+            val response = httpClient.newCall(request, commonOptions.scrapeTimeoutMillis()).await()
             if (!response.isSuccessful) {
                 error("response failed for url $url #${response.code}")
             }
