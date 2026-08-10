@@ -7,7 +7,7 @@ fun interface PhoneWorkTitleGenerator {
 interface PhoneWorkSessionGateway {
     suspend fun createSession(
         request: CreateSessionRequest,
-        imageUrls: List<String> = emptyList(),
+        attachments: List<PhoneWorkPendingAttachment> = emptyList(),
     ): PhoneWorkSession
 }
 
@@ -21,7 +21,7 @@ class PhoneWorkSessionCreator(
         reasoningEffort: String,
         message: String,
         runtime: String = "codex",
-        imageUrls: List<String> = emptyList(),
+        attachments: List<PhoneWorkPendingAttachment> = emptyList(),
     ): PhoneWorkSession {
         val title = titleGenerator.generate(message)
             ?: fallbackWorkSessionTitle(message, repo.name)
@@ -35,7 +35,7 @@ class PhoneWorkSessionCreator(
                 reasoningEffort = reasoningEffort,
                 message = message,
             ),
-            imageUrls = imageUrls,
+            attachments = attachments,
         )
     }
 }

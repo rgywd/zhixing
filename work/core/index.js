@@ -8,6 +8,7 @@ import { createInformationMonitorProxy } from "./information-monitor-proxy.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dataFile = resolve(process.env.WORK_CORE_DB ?? `${here}/../data/work-core.sqlite`);
+const attachmentRoot = resolve(process.env.WORK_CORE_ATTACHMENT_DIR ?? resolve(dirname(dataFile), "attachments"));
 mkdirSync(dirname(dataFile), { recursive: true });
 
 const userToken = process.env.WORK_USER_TOKEN;
@@ -18,7 +19,7 @@ if (!userToken || !runnerTokens || !Object.keys(runnerTokens).length || !session
   process.exit(1);
 }
 
-const store = new WorkStore({ filename: dataFile, userToken, runnerTokens, sessionSecret });
+const store = new WorkStore({ filename: dataFile, attachmentRoot, userToken, runnerTokens, sessionSecret });
 const quotaProxy = createQuotaProxy({
   baseUrl: process.env.CPA_QUOTA_BASE_URL,
   token: process.env.CPA_QUOTA_TOKEN,

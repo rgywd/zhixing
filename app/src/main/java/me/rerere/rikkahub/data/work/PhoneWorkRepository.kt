@@ -80,8 +80,11 @@ class PhoneWorkRepository(
         }
     }
 
-    override suspend fun createSession(request: CreateSessionRequest, imageUrls: List<String>): PhoneWorkSession {
-        val attachmentIds = uploadImages(imageUrls)
+    override suspend fun createSession(
+        request: CreateSessionRequest,
+        attachments: List<PhoneWorkPendingAttachment>,
+    ): PhoneWorkSession {
+        val attachmentIds = uploadAttachments(attachments)
         val session = api.createSession(request.copy(attachmentIds = attachmentIds))
         dao.upsertSession(session.toEntity())
         refreshEvents(session.id)
@@ -89,16 +92,20 @@ class PhoneWorkRepository(
         return session
     }
 
-    suspend fun sendMessage(sessionId: String, text: String, imageUrls: List<String> = emptyList()) {
-        val attachmentIds = uploadImages(imageUrls)
+    suspend fun sendMessage(
+        sessionId: String,
+        text: String,
+        attachments: List<PhoneWorkPendingAttachment> = emptyList(),
+    ) {
+        val attachmentIds = uploadAttachments(attachments)
         dao.upsertEvents(listOf(api.sendMessage(sessionId, text, attachmentIds).toEntity()))
         refreshSessions()
         PhoneWorkTrackingService.start(context)
     }
 
-    private suspend fun uploadImages(imageUrls: List<String>): List<String> {
-        require(imageUrls.size <= 4) { "每条 Work 消息最多发送 4 张图片" }
-        return imageUrls.map { api.uploadImage(it).id }
+    private suspend fun uploadAttachments(attachments: List<PhoneWorkPendingAttachment>): List<String> {
+        require(attachments.size <= 4) { "每条 Work 消息最多发送 4 个附件" }
+        return attachments.map { api.uploadAttachment(it).id }
     }
 
     suspend fun answer(sessionId: String, askId: String, answers: List<PhoneWorkAnswer>) {

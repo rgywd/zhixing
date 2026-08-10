@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -44,6 +45,7 @@ test("Codex args isolate user config and fix model, effort, access and phone-lin
     profileName: "zhixing-phone",
     developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
     imagePaths: ["C:/temp/screen.png"],
+    additionalDirectories: ["C:/temp"],
     mcp: {
       nodePath: "C:/node.exe",
       mcpServerPath: "C:/mcp-server.js",
@@ -69,6 +71,7 @@ test("Codex args isolate user config and fix model, effort, access and phone-lin
   assert.ok(args.includes("model_reasoning_effort=\"high\""));
   assert.ok(args.some((arg) => arg.startsWith("mcp_servers.zhixing_phone.command=")));
   assert.deepEqual(args.slice(args.indexOf("--image"), args.indexOf("--image") + 2), ["--image", "C:/temp/screen.png"]);
+  assert.deepEqual(args.slice(args.indexOf("--add-dir"), args.indexOf("--add-dir") + 2), ["--add-dir", "C:/temp"]);
   assert.equal(args.at(-1), "-");
 });
 
@@ -346,6 +349,151 @@ test("runner downloads images for one Codex turn and removes the temporary files
   assert.equal(existsSync(imagePath), false);
 });
 
+test("runner gives Codex mixed attachments with native images and an explicit file manifest", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-files-"));
+  const state = new RunnerState(join(directory, "state.json"));
+  const imageBytes = Buffer.from("image");
+  const fileBytes = Buffer.from("release notes", "utf8");
+  let resolveProcess;
+  let attachmentDirectory;
+  let filePath;
+  const runner = new WorkRunner({
+    config: {
+      id: "runner",
+      coreUrl: "https://core",
+      stateFile: state.filename,
+      repos: [{
+        id: "repo",
+        name: "repo",
+        path: directory,
+        models: ["gpt-5.6-sol"],
+        reasoningEfforts: ["high"],
+      }],
+    },
+    state,
+    client: {
+      ack: async () => {},
+      updateState: async () => {},
+      downloadAttachment: async (_runnerId, attachmentId) => attachmentId === "att-image"
+        ? { data: imageBytes, mimeType: "image/png" }
+        : { data: fileBytes, mimeType: "text/plain" },
+    },
+    spawnCodex: ({ args, prompt, onEvent }) => {
+      const imagePath = args[args.indexOf("--image") + 1];
+      attachmentDirectory = args[args.indexOf("--add-dir") + 1];
+      filePath = join(attachmentDirectory, "2-release-notes.txt");
+      assert.equal(existsSync(imagePath), true);
+      assert.equal(existsSync(filePath), true);
+      assert.match(prompt, /User-provided attachments for this turn/);
+      assert.match(prompt, /release-notes\.txt/);
+      assert.match(prompt, /text\/plain/);
+      assert.match(prompt, /Archives remain compressed/);
+      onEvent({ type: "thread.started", thread_id: "file-session" });
+      return {
+        child: { kill() {} },
+        completed: new Promise((resolve) => { resolveProcess = resolve; }),
+      };
+    },
+  });
+  await runner.startCommand({
+    id: "cmd-files",
+    sessionId: "work-files",
+    kind: "START",
+    payload: {
+      repoId: "repo",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      sessionToken: "session-token",
+      message: "inspect these",
+      attachments: [
+        {
+          id: "att-image",
+          fileName: "screen.png",
+          mimeType: "image/png",
+          size: imageBytes.length,
+          sha256: createHash("sha256").update(imageBytes).digest("hex"),
+        },
+        {
+          id: "att-file",
+          fileName: "release-notes.txt",
+          mimeType: "text/plain",
+          size: fileBytes.length,
+          sha256: createHash("sha256").update(fileBytes).digest("hex"),
+        },
+      ],
+    },
+  });
+  resolveProcess({ code: 0, signal: null, stderr: "" });
+  await waitForCondition(() => !existsSync(attachmentDirectory));
+  assert.equal(existsSync(filePath), false);
+});
+
+test("runner gives Claude Code archive attachments through its turn directory", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-claude-files-"));
+  const state = new RunnerState(join(directory, "state.json"));
+  const archiveBytes = Buffer.from("PK\u0003\u0004");
+  let resolveProcess;
+  let attachmentDirectory;
+  const runner = new WorkRunner({
+    config: {
+      id: "runner",
+      coreUrl: "https://core",
+      stateFile: state.filename,
+      repos: [{
+        id: "repo",
+        name: "repo",
+        path: directory,
+        runtimes: [{
+          id: "claude-code",
+          name: "Claude Code",
+          command: "claude",
+          models: ["sonnet"],
+          reasoningEfforts: ["high"],
+        }],
+      }],
+    },
+    state,
+    client: {
+      ack: async () => {},
+      updateState: async () => {},
+      downloadAttachment: async () => ({ data: archiveBytes, mimeType: "application/zip" }),
+    },
+    spawnClaude: ({ args, prompt, onEvent }) => {
+      attachmentDirectory = args[args.indexOf("--add-dir") + 1];
+      assert.equal(existsSync(join(attachmentDirectory, "1-source.zip")), true);
+      assert.match(prompt, /source\.zip/);
+      assert.match(prompt, /application\/zip/);
+      onEvent({ type: "system", subtype: "init", session_id: "claude-file-session" });
+      return {
+        child: { kill() {} },
+        completed: new Promise((resolve) => { resolveProcess = resolve; }),
+      };
+    },
+  });
+  await runner.startCommand({
+    id: "cmd-claude-file",
+    sessionId: "work-claude-file",
+    kind: "START",
+    payload: {
+      repoId: "repo",
+      runtime: "claude-code",
+      model: "sonnet",
+      reasoningEffort: "high",
+      sessionToken: "session-token",
+      message: "inspect archive",
+      attachments: [{
+        id: "att-archive",
+        fileName: "source.zip",
+        mimeType: "application/zip",
+        size: archiveBytes.length,
+        sha256: createHash("sha256").update(archiveBytes).digest("hex"),
+      }],
+    },
+  });
+  resolveProcess({ code: 0, signal: null, stderr: "" });
+  await waitForCondition(() => !existsSync(attachmentDirectory));
+});
+
 test("runner can restart a failed first turn with its persisted repository and image", async () => {
   const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-start-retry-"));
   const state = new RunnerState(join(directory, "state.json"));
@@ -430,6 +578,7 @@ test("resume targets the persisted Codex session", () => {
     model: "gpt-5.6-sol",
     reasoningEffort: "xhigh",
     codexSessionId: "019f-session",
+    additionalDirectories: ["C:/turn-files"],
     profileName: "zhixing-phone",
     mcp: {
       nodePath: "node",
@@ -443,6 +592,7 @@ test("resume targets the persisted Codex session", () => {
   assert.deepEqual(args.slice(0, 4), ["exec", "--profile", "zhixing-phone", "resume"]);
   assert.ok(args.indexOf("--profile") < args.indexOf("resume"));
   assert.ok(args.indexOf("--dangerously-bypass-hook-trust") > args.indexOf("resume"));
+  assert.equal(args.includes("--add-dir"), false);
   assert.deepEqual(args.slice(-2), ["019f-session", "-"]);
 });
 
