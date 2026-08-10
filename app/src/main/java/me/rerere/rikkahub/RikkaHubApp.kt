@@ -38,6 +38,7 @@ import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.repository.AgendaPlanRepository
 import me.rerere.rikkahub.data.repository.AgendaTaskRepository
 import me.rerere.rikkahub.data.work.PhoneWorkCredentialStore
+import me.rerere.rikkahub.data.task.AssistantTaskRepository
 import me.rerere.rikkahub.data.profile.ProfileMaintenanceScheduler
 import me.rerere.rikkahub.service.PhoneWorkTrackingService
 import me.rerere.workspace.WorkspaceManager
@@ -98,6 +99,7 @@ class RikkaHubApp : Application() {
         scheduleProfileMaintenance()
         startDeviceConnections()
         reconcileAgendaReminders()
+        reconcileAssistantTasks()
 
         // Increment launch count
         incrementLaunchCount()
@@ -298,6 +300,13 @@ class RikkaHubApp : Application() {
                 .onFailure { Log.w(TAG, "Unable to reconcile agenda reminders", it) }
             runCatching { get<AgendaTaskRepository>().reconcileReminders() }
                 .onFailure { Log.w(TAG, "Unable to reconcile task reminders", it) }
+        }
+    }
+
+    private fun reconcileAssistantTasks() {
+        get<AppScope>().launch(Dispatchers.IO) {
+            runCatching { get<AssistantTaskRepository>().reconcileOnStartup() }
+                .onFailure { Log.w(TAG, "Unable to reconcile assistant tasks", it) }
         }
     }
 

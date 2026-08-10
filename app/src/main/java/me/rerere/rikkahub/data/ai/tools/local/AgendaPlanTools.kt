@@ -27,10 +27,13 @@ import me.rerere.rikkahub.data.repository.AgendaPlanRepository
 import java.time.Instant
 import java.time.ZoneId
 
-internal fun buildAgendaPlanTools(repository: AgendaPlanRepository): List<Tool> = listOf(
+internal fun buildAgendaPlanTools(
+    repository: AgendaPlanRepository,
+    conversationId: String? = null,
+): List<Tool> = listOf(
     buildPlanListTool(repository),
     buildPlanGetTool(repository),
-    buildPlanCreateTool(repository),
+    buildPlanCreateTool(repository, conversationId),
     buildPlanUpdateTool(repository),
     buildPlanStageUpdateTool(repository),
     buildPlanStageCompleteTool(repository),
@@ -66,7 +69,10 @@ private fun buildPlanGetTool(repository: AgendaPlanRepository) = Tool(
     },
 )
 
-private fun buildPlanCreateTool(repository: AgendaPlanRepository) = Tool(
+private fun buildPlanCreateTool(
+    repository: AgendaPlanRepository,
+    conversationId: String?,
+) = Tool(
     name = "plan_create",
     description = """
         Create one local long-horizon plan and all of its ordered stages in a single approved write.
@@ -105,6 +111,7 @@ private fun buildPlanCreateTool(repository: AgendaPlanRepository) = Tool(
                 stages = stageArray.map { it.jsonObject.toDraft() },
                 source = AgendaPlanSource.CHAT,
                 sourceReference = input.planString("source_reference").takeIf { it.isNotBlank() },
+                conversationId = conversationId,
             )
         }.fold(
             onSuccess = { plan -> planToolResult { put("success", true); put("plan", plan.toDetailJson()) } },

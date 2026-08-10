@@ -42,10 +42,6 @@ class LocalTools(
 
     val calendarCreateTool by lazy { buildCalendarCreateTool(context) }
 
-    val agendaTaskTools by lazy { buildAgendaTaskTools(agendaTaskRepository) }
-
-    val agendaPlanTools by lazy { buildAgendaPlanTools(agendaPlanRepository) }
-
     val monthlySpendingSummaryTool by lazy {
         buildMonthlySpendingSummaryTool(monthlyLedgerRepository)
     }
@@ -63,9 +59,12 @@ class LocalTools(
         )
     }
 
-    fun getTools(options: List<LocalToolOption>): List<Tool> {
-        val tools = agendaTaskTools.toMutableList()
-        tools.addAll(agendaPlanTools)
+    fun getTools(
+        options: List<LocalToolOption>,
+        conversationId: String? = null,
+    ): List<Tool> {
+        val tools = buildAgendaTaskTools(agendaTaskRepository, conversationId).toMutableList()
+        tools.addAll(buildAgendaPlanTools(agendaPlanRepository, conversationId))
         tools.add(monthlySpendingSummaryTool)
         if (phoneWorkCredentialStore.connection.value.configured) {
             tools.add(inboxMonitorTool)

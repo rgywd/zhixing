@@ -41,7 +41,7 @@ class AgendaPlanToolsTest {
     @Test
     fun `plan create schema accepts stages as one nested approved write`() = runBlocking {
         val dao = ToolFakeAgendaPlanDao()
-        val tools = buildAgendaPlanTools(repository(dao))
+        val tools = buildAgendaPlanTools(repository(dao), conversationId = "conversation-1")
         val create = tools.single { it.name == "plan_create" }
         val schema = create.parameters() as InputSchema.Obj
 
@@ -66,6 +66,7 @@ class AgendaPlanToolsTest {
 
         assertEquals(1, dao.plans.size)
         assertEquals(2, dao.stages.size)
+        assertEquals("conversation-1", dao.plans.values.single().conversationId)
     }
 
     private fun repository(dao: ToolFakeAgendaPlanDao = ToolFakeAgendaPlanDao()) =

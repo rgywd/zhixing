@@ -192,7 +192,9 @@ val appModule = module {
             githubCliRunner = get(),
             workspaceVariableStore = get(),
             knowledgeSpaceService = get(),
-            folderRepository = get()
+            folderRepository = get(),
+            assistantTaskRepository = get(),
+            runtimeContextStore = get(),
         )
     }
 

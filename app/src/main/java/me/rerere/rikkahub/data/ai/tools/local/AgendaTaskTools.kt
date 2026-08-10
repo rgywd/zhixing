@@ -23,9 +23,12 @@ import me.rerere.rikkahub.data.repository.AgendaTaskRepository
 import java.time.Instant
 import java.time.ZoneId
 
-internal fun buildAgendaTaskTools(repository: AgendaTaskRepository): List<Tool> = listOf(
+internal fun buildAgendaTaskTools(
+    repository: AgendaTaskRepository,
+    conversationId: String? = null,
+): List<Tool> = listOf(
     buildTaskListTool(repository),
-    buildTaskCreateTool(repository),
+    buildTaskCreateTool(repository, conversationId),
     buildTaskUpdateTool(repository),
     buildTaskCompleteTool(repository),
     buildTaskDeleteTool(repository),
@@ -44,7 +47,10 @@ private fun buildTaskListTool(repository: AgendaTaskRepository) = Tool(
     },
 )
 
-private fun buildTaskCreateTool(repository: AgendaTaskRepository) = Tool(
+private fun buildTaskCreateTool(
+    repository: AgendaTaskRepository,
+    conversationId: String?,
+) = Tool(
     name = "task_create",
     description = "Create a local task or reminder in Zhixing. Use ISO-8601 times or yyyy-MM-dd HH:mm in the device timezone.",
     needsApproval = { true },
@@ -71,6 +77,7 @@ private fun buildTaskCreateTool(repository: AgendaTaskRepository) = Tool(
                 dueAt = input.optionalTime("due_at"),
                 reminderAt = input.optionalTime("reminder_at"),
                 source = AgendaTaskSource.CHAT,
+                conversationId = conversationId,
                 recurrence = input.recurrenceOrExisting(null),
             )
         }.fold(

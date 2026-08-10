@@ -8,6 +8,7 @@ import androidx.room.TypeConverters
 import me.rerere.ai.core.TokenUsage
 import me.rerere.rikkahub.data.db.dao.AgendaPlanDAO
 import me.rerere.rikkahub.data.db.dao.AgendaTaskDAO
+import me.rerere.rikkahub.data.db.dao.AssistantTaskDAO
 import me.rerere.rikkahub.data.db.dao.ConversationDAO
 import me.rerere.rikkahub.data.db.dao.FavoriteDAO
 import me.rerere.rikkahub.data.db.dao.FolderDAO
@@ -21,6 +22,10 @@ import me.rerere.rikkahub.data.db.dao.WorkspaceDAO
 import me.rerere.rikkahub.data.db.entity.AgendaPlanEntity
 import me.rerere.rikkahub.data.db.entity.AgendaPlanStageEntity
 import me.rerere.rikkahub.data.db.entity.AgendaTaskEntity
+import me.rerere.rikkahub.data.db.entity.AssistantTaskEntity
+import me.rerere.rikkahub.data.db.entity.AssistantTaskEventEntity
+import me.rerere.rikkahub.data.db.entity.AssistantTaskLinkEntity
+import me.rerere.rikkahub.data.db.entity.AssistantRuntimeContextEntity
 import me.rerere.rikkahub.data.db.entity.ConversationEntity
 import me.rerere.rikkahub.data.db.entity.FavoriteEntity
 import me.rerere.rikkahub.data.db.entity.FolderEntity
@@ -40,7 +45,7 @@ import me.rerere.rikkahub.data.db.migrations.Migration_8_9
 import me.rerere.rikkahub.utils.JsonInstant
 
 internal const val APP_DATABASE_NAME = "zhixing"
-internal const val APP_DATABASE_VERSION = 42
+internal const val APP_DATABASE_VERSION = 43
 
 @Database(
     entities = [
@@ -59,6 +64,10 @@ internal const val APP_DATABASE_VERSION = 42
         AgendaPlanStageEntity::class,
         MonthlyLedgerSummaryEntity::class,
         MonthlyLedgerChannelEntity::class,
+        AssistantTaskEntity::class,
+        AssistantTaskEventEntity::class,
+        AssistantTaskLinkEntity::class,
+        AssistantRuntimeContextEntity::class,
     ],
     version = APP_DATABASE_VERSION,
     autoMigrations = [
@@ -117,6 +126,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun agendaPlanDao(): AgendaPlanDAO
 
     abstract fun monthlyLedgerDao(): MonthlyLedgerDAO
+
+    abstract fun assistantTaskDao(): AssistantTaskDAO
 }
 
 object TokenUsageConverter {

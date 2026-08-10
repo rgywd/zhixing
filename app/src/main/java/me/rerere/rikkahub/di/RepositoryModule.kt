@@ -19,6 +19,8 @@ import me.rerere.rikkahub.data.repository.GenMediaRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.MonthlyLedgerRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.task.AssistantTaskRepository
+import me.rerere.rikkahub.data.ai.RuntimeContextStore
 import me.rerere.rikkahub.data.knowledge.KnowledgeSpaceService
 import me.rerere.workspace.ProotShellRunner
 import me.rerere.workspace.RootfsInstaller
@@ -38,10 +40,14 @@ val repositoryModule = module {
 
     single { MonthlyLedgerRepository(get()) }
 
+    single { AssistantTaskRepository(get(), get()) }
+
+    single { RuntimeContextStore(get(), get()) }
+
     single { DeviceCalendarRepository(get()) }
 
     single {
-        ConversationRepository(get(), get(), get(), get(), get(), get(), get())
+        ConversationRepository(get(), get(), get(), get(), get(), get(), get(), get())
     }
 
     single {

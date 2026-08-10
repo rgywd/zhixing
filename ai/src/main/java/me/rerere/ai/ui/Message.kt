@@ -801,6 +801,7 @@ sealed class UIMessageAnnotation {
     @Serializable
     @SerialName("runtime_context")
     data class RuntimeContext(
+        val contextId: String? = null,
         val kind: String,
         val title: String,
         val summary: String,

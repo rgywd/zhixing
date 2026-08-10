@@ -48,6 +48,7 @@ import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.MemoryState
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.MemoryToolScope
+import me.rerere.rikkahub.data.task.AssistantTaskStep
 import me.rerere.rikkahub.utils.applyPlaceholders
 import java.util.Locale
 import kotlin.time.Clock
@@ -172,6 +173,7 @@ class GenerationHandler(
         workspaceCwd: String? = null,
         onPromptPrepared: suspend (estimatedTokens: Int, messages: List<UIMessage>) -> PromptCompactionResult? =
             { _, _ -> null },
+        onTaskStep: suspend (AssistantTaskStep) -> Unit = {},
     ): Flow<GenerationChunk> = flow {
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
         val providerImpl = providerManager.getProviderByType(provider)
@@ -183,6 +185,31 @@ class GenerationHandler(
             null
         }
         val memoryPromptSnapshot = MemoryPromptSnapshot(memories.orEmpty())
+        val reportedToolCalls = mutableSetOf<String>()
+        var toolOrdinal = 0
+
+        suspend fun reportTaskSteps(
+            toolParts: List<UIMessagePart.Tool>,
+            definitions: List<Tool>,
+        ) {
+            val definitionsByName = definitions.associateBy(Tool::name)
+            toolParts.forEach { toolPart ->
+                if (reportedToolCalls.add(toolPart.toolCallId)) {
+                    toolOrdinal += 1
+                    val definition = definitionsByName[toolPart.toolName]
+                    onTaskStep(
+                        AssistantTaskStep(
+                            toolName = toolPart.toolName,
+                            toolCallId = toolPart.toolCallId,
+                            input = toolPart.input,
+                            ordinal = toolOrdinal,
+                            requiresUserAnswer = definition?.requiresUserAnswer == true,
+                            hasUserAnswer = toolPart.approvalState is ToolApprovalState.Answered,
+                        )
+                    )
+                }
+            }
+        }
 
         for (stepIndex in 0 until maxSteps) {
             Log.i(TAG, "streamText: start step #$stepIndex (${model.id})")
@@ -355,6 +382,7 @@ class GenerationHandler(
                 // Only a business question pauses normal chat. Permissions and connection setup
                 // stay inside their respective tool/platform boundaries.
                 if (interaction.isWaitingForUserAnswer) {
+                    reportTaskSteps(updatedTools, toolsInternal)
                     Log.i(TAG, "generateText: waiting for tool user answer")
                     break
                 }
@@ -365,6 +393,8 @@ class GenerationHandler(
                 Log.i(TAG, "generateText: resuming with ${pendingTools.size} resumable tools")
                 toolsToProcess = messages.last().getTools().filter { it.canResumeExecution }
             }
+
+            reportTaskSteps(toolsToProcess, toolsInternal)
 
             // Handle tools (execute approved tools, handle denied tools)
             val executedTools = arrayListOf<UIMessagePart.Tool>()
@@ -422,7 +452,7 @@ class GenerationHandler(
                         }.onFailure {
                             // 取消必须向上传播，否则停止生成会被误报为工具执行错误
                             if (it is CancellationException) throw it
-                            it.printStackTrace()
+                            Log.e(TAG, "Tool execution failed: ${tool.toolName}", it)
                             executedTools += tool.copy(
                                 output = listOf(
                                     UIMessagePart.Text(
@@ -431,8 +461,8 @@ class GenerationHandler(
                                                 put(
                                                     "error",
                                                     JsonPrimitive(buildString {
-                                                        append("[${it.javaClass.name}] ${it.message}")
-                                                        append("\n${it.stackTraceToString()}")
+                                                        append("[TOOL_EXECUTION_FAILED] ")
+                                                        append("工具执行失败，请检查连接、权限或输入后重试")
                                                     })
                                                 )
                                             }

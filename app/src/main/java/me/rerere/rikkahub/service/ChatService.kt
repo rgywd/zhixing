@@ -50,6 +50,7 @@ import me.rerere.rikkahub.data.ai.AUTO_COMPACT_TOKEN_THRESHOLD
 import me.rerere.rikkahub.data.ai.ContextCompactionTrigger
 import me.rerere.rikkahub.data.ai.GenerationChunk
 import me.rerere.rikkahub.data.ai.GenerationHandler
+import me.rerere.rikkahub.data.ai.RuntimeContextStore
 import me.rerere.rikkahub.data.ai.MonthlySpendingAttachmentCleanupCandidate
 import me.rerere.rikkahub.data.ai.MonthlySpendingToolCallRef
 import me.rerere.rikkahub.data.ai.PromptCompactionResult
@@ -104,6 +105,13 @@ import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.FolderRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.task.AssistantTaskRepository
+import me.rerere.rikkahub.data.task.AssistantTaskStep
+import me.rerere.rikkahub.data.task.progressText
+import me.rerere.rikkahub.data.task.requiresDurableTask
+import me.rerere.rikkahub.data.task.requiresVisibleTask
+import me.rerere.rikkahub.data.task.extractAssistantTaskResultLinks
+import me.rerere.rikkahub.data.task.extractAssistantTaskFailure
 import me.rerere.rikkahub.data.workspace.WorkspaceVariableStore
 import me.rerere.rikkahub.data.workspace.parseWorkspaceVariableDeclarations
 import me.rerere.rikkahub.web.BadRequestException
@@ -180,6 +188,8 @@ class ChatService(
     private val workspaceVariableStore: WorkspaceVariableStore,
     private val knowledgeSpaceService: KnowledgeSpaceService,
     private val folderRepository: FolderRepository,
+    private val assistantTaskRepository: AssistantTaskRepository,
+    private val runtimeContextStore: RuntimeContextStore,
 ) {
     // workspace 系统提示注入 (依赖 workspaceRepository, 故在类内构造)
     private val workspaceReminderTransformer = WorkspaceReminderTransformer(workspaceRepository)
@@ -384,14 +394,30 @@ class ChatService(
                 )
 
                 // 添加消息到列表
+                val userMessage = UIMessage(
+                    role = MessageRole.USER,
+                    parts = processedContent,
+                )
+                val attachedRuntimeContext = runtimeContext?.let { envelope ->
+                    runtimeContextStore.attach(
+                        context = envelope,
+                        conversationId = conversationId.toString(),
+                        messageId = userMessage.id.toString(),
+                    )
+                }
                 val newConversation = currentConversation.copy(
-                    messageNodes = currentConversation.messageNodes + UIMessage(
-                        role = MessageRole.USER,
-                        parts = processedContent,
-                        annotations = runtimeContext?.let(::listOf).orEmpty(),
+                    messageNodes = currentConversation.messageNodes + userMessage.copy(
+                        annotations = attachedRuntimeContext?.let(::listOf).orEmpty(),
                     ).toMessageNode(),
                 )
-                saveConversation(conversationId, newConversation)
+                try {
+                    saveConversation(conversationId, newConversation)
+                } catch (error: Throwable) {
+                    attachedRuntimeContext?.contextId?.let { contextId ->
+                        runCatching { runtimeContextStore.delete(contextId) }
+                    }
+                    throw error
+                }
 
                 // 开始补全
                 if (answer) {
@@ -466,11 +492,17 @@ class ChatService(
                         messageNodes = conversation.messageNodes.subList(0, indexAt + 1)
                     )
                     saveConversation(conversationId, newConversation)
+                    runCatching {
+                        assistantTaskRepository.retryLatestForConversation(conversationId.toString())
+                    }.onFailure { Log.w(TAG, "Unable to resume assistant task retry", it) }
                     handleMessageComplete(conversationId)
                 } else {
                     if (regenerateAssistantMsg) {
                         val node = conversation.getMessageNodeByMessage(message)
                         val nodeIndex = conversation.messageNodes.indexOf(node)
+                        runCatching {
+                            assistantTaskRepository.retryLatestForConversation(conversationId.toString())
+                        }.onFailure { Log.w(TAG, "Unable to resume assistant task retry", it) }
                         handleMessageComplete(conversationId, messageRange = 0..<nodeIndex)
                     } else {
                         saveConversation(conversationId, conversation)
@@ -530,6 +562,12 @@ class ChatService(
                 val updatedConversation = conversation.copy(messageNodes = updatedNodes)
                 saveConversation(conversationId, updatedConversation)
 
+                if (answer != null) {
+                    assistantTaskRepository.findActiveForConversation(conversationId.toString())
+                        ?.takeIf { it.status == "WAITING_FOR_INPUT" }
+                        ?.let { assistantTaskRepository.resume(it.id) }
+                }
+
                 // Check if there are still pending tools
                 val hasPendingTools = updatedNodes.any { node ->
                     node.currentMessage.parts.any { part ->
@@ -569,6 +607,48 @@ class ChatService(
             model.displayName
         }
         var successfulSaveToolCallsBeforeGeneration = emptySet<MonthlySpendingToolCallRef>()
+        var assistantTaskId = runCatching {
+            assistantTaskRepository.findActiveForConversation(conversationId.toString())?.id
+        }.onFailure {
+            Log.w(TAG, "Unable to read active assistant task", it)
+        }.getOrNull()
+
+        suspend fun trackTaskStep(step: AssistantTaskStep) {
+            if (!step.requiresVisibleTask(me.rerere.rikkahub.utils.JsonInstant)) return
+            if (assistantTaskId == null) {
+                val sourceMessage = initialConversation.currentMessages
+                    .lastOrNull { it.role == MessageRole.USER }
+                val sourceNode = sourceMessage?.let(initialConversation::getMessageNodeByMessage)
+                val created = runCatching {
+                    assistantTaskRepository.create(
+                        title = sourceMessage?.toText().orEmpty(),
+                        conversationId = conversationId.toString(),
+                        anchorMessageId = sourceMessage?.id?.toString(),
+                        anchorNodeId = sourceNode?.id?.toString(),
+                    )
+                }.getOrElse { error ->
+                    if (step.requiresDurableTask(me.rerere.rikkahub.utils.JsonInstant)) {
+                        throw IllegalStateException(
+                            "Unable to persist a traceable task before an external action",
+                            error,
+                        )
+                    }
+                    Log.w(TAG, "Read-only multi-step task tracking unavailable", error)
+                    return
+                }
+                assistantTaskId = created.id
+            }
+            val taskId = checkNotNull(assistantTaskId)
+            if (step.requiresUserAnswer && !step.hasUserAnswer) {
+                assistantTaskRepository.waitForInput(taskId, step.progressText())
+            } else {
+                assistantTaskRepository.recordProgress(
+                    taskId = taskId,
+                    message = step.progressText(),
+                    idempotencyKey = "tool:${step.toolCallId}:start",
+                )
+            }
+        }
 
         runCatching {
 
@@ -627,7 +707,12 @@ class ChatService(
                     if (assistant.enableWebSearch) {
                         addAll(createSearchTools(settings))
                     }
-                    addAll(localTools.getTools(assistant.localTools))
+                    addAll(
+                        localTools.getTools(
+                            options = assistant.localTools,
+                            conversationId = conversationId.toString(),
+                        )
+                    )
                     if (assistant.enableRecentChatsReference) {
                         addAll(createConversationTools(conversationRepo, assistant.id))
                     }
@@ -710,6 +795,7 @@ class ChatService(
                         }
                     }
                 },
+                onTaskStep = ::trackTaskStep,
             ).onCompletion {
                 // 可能被取消了，或者意外结束，兜底更新
                 withContext(NonCancellable) {
@@ -763,6 +849,19 @@ class ChatService(
             addError(it, conversationId, title = context.getString(R.string.error_title_generation))
             Logging.log(TAG, "handleMessageComplete: $it")
             Logging.log(TAG, it.stackTraceToString())
+            if (it !is CancellationException) {
+                assistantTaskId?.let { taskId ->
+                    runCatching {
+                        assistantTaskRepository.fail(
+                            taskId = taskId,
+                            errorCode = "GENERATION_FAILED",
+                            message = "处理未完成，可以重试",
+                        )
+                    }.onFailure { taskError ->
+                        Log.w(TAG, "Unable to mark assistant task failed", taskError)
+                    }
+                }
+            }
         }.onSuccess {
             var finalConversation = getConversationFlow(conversationId).value
             val hasUnexecutedTools = finalConversation.currentMessages.any { message ->
@@ -782,6 +881,54 @@ class ChatService(
                 }
                 launchWithConversationReference(conversationId) {
                     generateSuggestion(conversationId, finalConversation)
+                }
+                assistantTaskId?.let { taskId ->
+                    runCatching {
+                        val taskFailure = extractAssistantTaskFailure(
+                            messages = finalConversation.currentMessages,
+                            json = me.rerere.rikkahub.utils.JsonInstant,
+                        )
+                        if (taskFailure != null) {
+                            if (taskFailure.resultMayBeUnknown) {
+                                assistantTaskRepository.waitForInput(
+                                    taskId = taskId,
+                                    message = "外部操作结果待确认，请先查看目标系统再决定是否重试",
+                                )
+                            } else {
+                                assistantTaskRepository.fail(
+                                    taskId = taskId,
+                                    errorCode = taskFailure.code,
+                                    message = "有一步没有完成，可以调整后重试",
+                                )
+                            }
+                            return@runCatching
+                        }
+                        val resultLinks = extractAssistantTaskResultLinks(
+                            messages = finalConversation.currentMessages,
+                            json = me.rerere.rikkahub.utils.JsonInstant,
+                        )
+                        resultLinks.forEach { link ->
+                            assistantTaskRepository.addLink(
+                                taskId = taskId,
+                                objectType = link.objectType,
+                                objectId = link.objectId,
+                                role = link.role,
+                            )
+                        }
+                        val primaryResult = resultLinks.firstOrNull()
+                        assistantTaskRepository.complete(
+                            taskId = taskId,
+                            summary = finalConversation.currentMessages.lastOrNull()
+                                ?.toText()
+                                ?.lineSequence()
+                                ?.firstOrNull(String::isNotBlank)
+                                ?: "已完成",
+                            resultKind = primaryResult?.objectType,
+                            resultRef = primaryResult?.objectId,
+                        )
+                    }.onFailure { taskError ->
+                        Log.w(TAG, "Unable to mark assistant task complete", taskError)
+                    }
                 }
             }
         }
@@ -1741,6 +1888,10 @@ class ChatService(
         job.cancel()
         runCatching { job.join() }
         finishInterruptedPendingTools(conversationId)
+        assistantTaskRepository.findActiveForConversation(conversationId.toString())?.let { task ->
+            runCatching { assistantTaskRepository.stop(task.id) }
+                .onFailure { Log.w(TAG, "Unable to mark assistant task stopped", it) }
+        }
     }
 }
 

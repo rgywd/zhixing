@@ -17,9 +17,10 @@
 
 当前代码证据：
 
-- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 42。
+- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 43。
 - Room 存在连续迁移注册，未启用 destructive fallback。
-- v41→v42 只给待办增加可空重复频率与默认间隔；v40→v41 只新增月度收支与渠道汇总表及索引；
+- v42→v43 纯新增普通聊天任务、事件、软链接与隐藏运行时上下文表且零回填；v41→v42 只给待办增加
+  可空重复频率与默认间隔；v40→v41 只新增月度收支与渠道汇总表及索引；
   v39→v40 扩展 Work 运行时身份，这些迁移均保留
   既有会话、事项、长期计划与其他用户数据。
 - Workspace 用户文件位于 `files/workspaces/<root>/files`，OrbitOS 知识库位于其中的 `vault/`，
