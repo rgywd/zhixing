@@ -125,6 +125,15 @@ object SettingsJsonMigrator {
                 root["asrProviders"] = JsonInstant.parseToJsonElement(migrated)
             }
 
+            // V6: DashScope Qwen-ASR-Realtime 已使用 Realtime 事件协议，
+            // 仅把旧内置 inference 地址迁移到对应的 realtime 地址。
+            root["asrProviders"]?.let { element ->
+                val migrated = migrateDashScopeAsrProviders(
+                    JsonInstant.encodeToString(element)
+                )
+                root["asrProviders"] = JsonInstant.parseToJsonElement(migrated)
+            }
+
             JsonInstant.encodeToString(JsonObject(root))
         }.onFailure {
             Log.e(TAG, "migrate: Failed to migrate settings JSON, using original", it)
