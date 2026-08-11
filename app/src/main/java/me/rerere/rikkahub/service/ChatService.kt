@@ -107,12 +107,15 @@ import me.rerere.rikkahub.data.repository.MemoryDocumentRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.task.AssistantTaskRepository
 import me.rerere.rikkahub.data.task.AssistantTaskStep
+import me.rerere.rikkahub.data.task.applyAssistantTaskResultPresentation
+import me.rerere.rikkahub.data.task.extractAssistantTaskFailure
 import me.rerere.rikkahub.data.task.naturalizeAssistantTaskTitle
 import me.rerere.rikkahub.data.task.progressText
 import me.rerere.rikkahub.data.task.requiresDurableTask
 import me.rerere.rikkahub.data.task.requiresVisibleTask
 import me.rerere.rikkahub.data.task.extractAssistantTaskResultLinks
-import me.rerere.rikkahub.data.task.extractAssistantTaskFailure
+import me.rerere.rikkahub.data.task.extractAssistantTaskResultPresentation
+import me.rerere.rikkahub.data.task.successfulAgendaPresentationToolCallIds
 import me.rerere.rikkahub.data.workspace.WorkspaceVariableStore
 import me.rerere.rikkahub.data.workspace.parseWorkspaceVariableDeclarations
 import me.rerere.rikkahub.web.BadRequestException
@@ -608,6 +611,7 @@ class ChatService(
             model.displayName
         }
         var successfulSaveToolCallsBeforeGeneration = emptySet<MonthlySpendingToolCallRef>()
+        var successfulAgendaToolCallIdsBeforeGeneration = emptySet<String>()
         var assistantTaskId = runCatching {
             assistantTaskRepository.findActiveForConversation(conversationId.toString())?.id
         }.onFailure {
@@ -672,6 +676,10 @@ class ChatService(
             val conversation = getConversationFlow(conversationId).value
             successfulSaveToolCallsBeforeGeneration =
                 conversation.successfulMonthlySpendingSaveToolCalls()
+            successfulAgendaToolCallIdsBeforeGeneration = successfulAgendaPresentationToolCallIds(
+                messages = conversation.currentMessages,
+                json = me.rerere.rikkahub.utils.JsonInstant,
+            )
 
             // start generating
             val session = getOrCreateSession(conversationId)
@@ -877,6 +885,23 @@ class ChatService(
                     conversationId = conversationId,
                     newlySuccessfulToolCalls = newlySuccessfulSaveToolCalls,
                 )
+                val resultPresentation = extractAssistantTaskResultPresentation(
+                    messages = finalConversation.currentMessages,
+                    json = me.rerere.rikkahub.utils.JsonInstant,
+                    previousSuccessfulAgendaToolCallIds = successfulAgendaToolCallIdsBeforeGeneration,
+                )
+                if (resultPresentation != null) {
+                    finalConversation = finalConversation
+                        .updateCurrentMessages(
+                            applyAssistantTaskResultPresentation(
+                                messages = finalConversation.currentMessages,
+                                presentation = resultPresentation,
+                            ),
+                        )
+                        .bindMonthlySpendingSaveSourceMessages()
+                    updateConversation(conversationId, finalConversation)
+                    saveConversation(conversationId, finalConversation)
+                }
 
                 launchWithConversationReference(conversationId) {
                     generateTitle(conversationId, finalConversation)
@@ -916,6 +941,9 @@ class ChatService(
                                 objectId = link.objectId,
                                 role = link.role,
                             )
+                        }
+                        resultPresentation?.title?.let { title ->
+                            assistantTaskRepository.updateTitle(taskId, title)
                         }
                         val primaryResult = resultLinks.firstOrNull()
                         assistantTaskRepository.complete(

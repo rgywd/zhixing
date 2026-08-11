@@ -44,3 +44,6 @@ enum class AgendaTaskSource {
     MANUAL,
     CHAT,
 }
+
+internal fun AgendaTask.sourceConversationIdForNavigation(): String? =
+    conversationId?.takeIf { source == AgendaTaskSource.CHAT && it.isNotBlank() }

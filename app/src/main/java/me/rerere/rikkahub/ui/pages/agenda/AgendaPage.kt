@@ -406,6 +406,15 @@ fun AgendaPage(initialTaskId: String? = null) {
         AgendaTaskEditorSheet(
             task = editorTask,
             onDismiss = { editorOpen = false },
+            onNavigateToChat = { conversationId ->
+                runCatching { Uuid.parse(conversationId) }.getOrNull()?.let { chatId ->
+                    navigateToChatPage(
+                        navigator = navigator,
+                        chatId = chatId,
+                        preserveBackStack = true,
+                    )
+                }
+            },
             onSave = { title, note, dueAt, reminderEnabled, recurrenceFrequency, recurrenceInterval ->
                 val task = editorTask
                 val save = resolveAgendaTaskSave(
