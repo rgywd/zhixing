@@ -44,15 +44,14 @@ import java.io.File
 import me.rerere.rikkahub.data.ai.transformers.onGenerationFinish
 import me.rerere.rikkahub.data.ai.transformers.transforms
 import me.rerere.rikkahub.data.ai.transformers.visualTransforms
-import me.rerere.rikkahub.data.ai.tools.buildMemoryTools
+import me.rerere.rikkahub.data.ai.tools.buildMemoryDocumentTools
+import me.rerere.rikkahub.data.ai.tools.validateMemoryDocumentChatSources
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.model.Assistant
-import me.rerere.rikkahub.data.model.AssistantMemory
-import me.rerere.rikkahub.data.model.MemoryState
-import me.rerere.rikkahub.data.repository.MemoryRepository
-import me.rerere.rikkahub.data.repository.MemoryToolScope
+import me.rerere.rikkahub.data.model.MemoryDocument
+import me.rerere.rikkahub.data.repository.MemoryDocumentRepository
 import me.rerere.rikkahub.data.task.AssistantTaskStep
 import me.rerere.rikkahub.utils.applyPlaceholders
 import java.util.Locale
@@ -147,20 +146,20 @@ internal suspend fun <T, R> executeInOrderedBatches(
     return results
 }
 
-internal class MemoryPromptSnapshot(initialMemories: List<AssistantMemory>) {
-    private var currentMemories = initialMemories
+internal class MemoryDocumentPromptSnapshot(initialDocuments: List<MemoryDocument>) {
+    private var currentDocuments = initialDocuments
     private var invalidated = false
 
     fun invalidate() {
         invalidated = true
     }
 
-    suspend fun resolve(refresh: suspend () -> List<AssistantMemory>): List<AssistantMemory> {
+    suspend fun resolve(refresh: suspend () -> List<MemoryDocument>): List<MemoryDocument> {
         if (invalidated) {
-            currentMemories = refresh()
+            currentDocuments = refresh()
             invalidated = false
         }
-        return currentMemories
+        return currentDocuments
     }
 }
 
@@ -180,7 +179,7 @@ class GenerationHandler(
     private val context: Context,
     private val providerManager: ProviderManager,
     private val json: Json,
-    private val memoryRepo: MemoryRepository,
+    private val memoryDocumentRepository: MemoryDocumentRepository,
 ) {
     fun generateText(
         settings: Settings,
@@ -189,7 +188,8 @@ class GenerationHandler(
         inputTransformers: List<InputMessageTransformer> = emptyList(),
         outputTransformers: List<OutputMessageTransformer> = emptyList(),
         assistant: Assistant,
-        memories: List<AssistantMemory>? = null,
+        memoryDocuments: List<MemoryDocument>? = null,
+        memoryConversationId: String? = null,
         tools: List<Tool> = emptyList(),
         maxSteps: Int = 256,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
@@ -205,12 +205,13 @@ class GenerationHandler(
         val providerImpl = providerManager.getProviderByType(provider)
 
         var messages: List<UIMessage> = sanitizeToolInputsForStorage(messages, tools)
-        val memoryAssistantId = if (assistant.enableMemory) {
-            if (assistant.useGlobalMemory) MemoryRepository.GLOBAL_MEMORY_ID else assistant.id.toString()
+        val memoryScopeId = if (assistant.enableMemory) {
+            if (assistant.useGlobalMemory) MemoryDocumentRepository.GLOBAL_SCOPE_ID else assistant.id.toString()
         } else {
             null
         }
-        val memoryPromptSnapshot = MemoryPromptSnapshot(memories.orEmpty())
+        val memoryPromptSnapshot = MemoryDocumentPromptSnapshot(memoryDocuments.orEmpty())
+        var memoryWriteFinalized = false
         val reportedToolCalls = mutableSetOf<String>()
         var toolOrdinal = 0
 
@@ -239,9 +240,9 @@ class GenerationHandler(
 
         for (stepIndex in 0 until maxSteps) {
             Log.i(TAG, "streamText: start step #$stepIndex (${model.id})")
-            val promptMemories = if (memoryAssistantId != null) {
+            val promptMemoryDocuments = if (memoryScopeId != null) {
                 memoryPromptSnapshot.resolve {
-                    memoryRepo.getPromptMemories(memoryAssistantId)
+                    memoryDocumentRepository.getPromptDocuments(memoryScopeId)
                 }
             } else {
                 emptyList()
@@ -249,35 +250,55 @@ class GenerationHandler(
 
             val toolsInternal = buildList {
                 Log.i(TAG, "generateInternal: build tools")
-                if (memoryAssistantId != null) {
-                    val memoryToolScope = MemoryToolScope(memoryAssistantId)
-                    buildMemoryTools(
+                if (memoryScopeId != null) {
+                    buildMemoryDocumentTools(
                         json = json,
-                        onCreation = { kind, content, dimensionId ->
-                            memoryRepo.addMemory(
-                                assistantId = memoryAssistantId,
+                        onFinalize = {
+                            check(!memoryWriteFinalized) { "memory_write can be called only once per chat run" }
+                            memoryWriteFinalized = true
+                        },
+                        onRead = { path -> memoryDocumentRepository.read(memoryScopeId, path) },
+                        onWrite = { path, ifVersion, name, description, aliases, content, sources ->
+                            val conversationId = memoryConversationId
+                                ?: error("Memory writes require a persisted conversation")
+                            memoryDocumentRepository.writeFromChat(
+                                contextScopeId = memoryScopeId,
+                                rawPath = path,
+                                expectedVersion = ifVersion,
+                                name = name,
+                                description = description,
+                                aliases = aliases,
                                 content = content,
-                                kind = kind,
-                                dimensionId = dimensionId,
+                                sources = validateMemoryDocumentChatSources(sources, conversationId, messages),
                             ).also { memoryPromptSnapshot.invalidate() }
                         },
-                        onUpdate = { id, content ->
-                            memoryRepo.updateToolMemoryContent(memoryToolScope, id, content)
-                                .also { memoryPromptSnapshot.invalidate() }
+                        onReplace = { path, ifVersion, oldText, newText, sources ->
+                            val conversationId = memoryConversationId
+                                ?: error("Memory writes require a persisted conversation")
+                            memoryDocumentRepository.replaceFromChat(
+                                contextScopeId = memoryScopeId,
+                                rawPath = path,
+                                expectedVersion = ifVersion,
+                                oldText = oldText,
+                                newText = newText,
+                                sources = validateMemoryDocumentChatSources(sources, conversationId, messages),
+                            ).also { memoryPromptSnapshot.invalidate() }
                         },
-                        onStateChange = { id, state ->
-                            val updatedMemory = if (state == MemoryState.ARCHIVED) {
-                                memoryRepo.archiveToolMemory(memoryToolScope, id)
-                            } else {
-                                memoryRepo.restoreToolMemory(memoryToolScope, id)
-                            }
-                            memoryPromptSnapshot.invalidate()
-                            updatedMemory
+                        onAppend = { path, ifVersion, content, sources ->
+                            val conversationId = memoryConversationId
+                                ?: error("Memory writes require a persisted conversation")
+                            memoryDocumentRepository.appendFromChat(
+                                contextScopeId = memoryScopeId,
+                                rawPath = path,
+                                expectedVersion = ifVersion,
+                                content = content,
+                                sources = validateMemoryDocumentChatSources(sources, conversationId, messages),
+                            ).also { memoryPromptSnapshot.invalidate() }
                         },
-                        onDelete = { id ->
-                            memoryRepo.deleteToolMemory(memoryToolScope, id)
+                        onDelete = { path, ifVersion ->
+                            memoryDocumentRepository.delete(memoryScopeId, path, ifVersion)
                             memoryPromptSnapshot.invalidate()
-                        }
+                        },
                     ).let(this::addAll)
                 }
                 addAll(tools)
@@ -299,7 +320,7 @@ class GenerationHandler(
                     transformers = inputTransformers,
                     model = model,
                     tools = toolsInternal,
-                    memories = promptMemories,
+                    memoryDocuments = promptMemoryDocuments,
                     processingStatus = processingStatus,
                     conversationSystemPrompt = conversationSystemPrompt,
                     conversationModeInjectionIds = conversationModeInjectionIds,
@@ -317,7 +338,7 @@ class GenerationHandler(
                             transformers = inputTransformers,
                             model = model,
                             tools = toolsInternal,
-                            memories = promptMemories,
+                            memoryDocuments = promptMemoryDocuments,
                             processingStatus = processingStatus,
                             conversationSystemPrompt = conversationSystemPrompt,
                             conversationModeInjectionIds = conversationModeInjectionIds,
@@ -539,7 +560,7 @@ class GenerationHandler(
         transformers: List<MessageTransformer>,
         model: Model,
         tools: List<Tool>,
-        memories: List<AssistantMemory>,
+        memoryDocuments: List<MemoryDocument>,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
         conversationSystemPrompt: String? = null,
         conversationModeInjectionIds: Set<Uuid> = emptySet(),
@@ -562,7 +583,7 @@ class GenerationHandler(
                 // 记忆
                 if (assistant.enableMemory) {
                     appendLine()
-                    append(buildMemoryPrompt(memories = memories))
+                    append(buildMemoryDocumentPrompt(documents = memoryDocuments))
                 }
                 // 工具prompt
                 tools.forEach { tool ->

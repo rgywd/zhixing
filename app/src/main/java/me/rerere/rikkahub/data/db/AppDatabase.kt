@@ -15,6 +15,7 @@ import me.rerere.rikkahub.data.db.dao.FolderDAO
 import me.rerere.rikkahub.data.db.dao.GenMediaDAO
 import me.rerere.rikkahub.data.db.dao.ManagedFileDAO
 import me.rerere.rikkahub.data.db.dao.MemoryDAO
+import me.rerere.rikkahub.data.db.dao.MemoryDocumentDAO
 import me.rerere.rikkahub.data.db.dao.MessageNodeDAO
 import me.rerere.rikkahub.data.db.dao.MonthlyLedgerDAO
 import me.rerere.rikkahub.data.db.dao.PhoneWorkDAO
@@ -32,6 +33,7 @@ import me.rerere.rikkahub.data.db.entity.FolderEntity
 import me.rerere.rikkahub.data.db.entity.GenMediaEntity
 import me.rerere.rikkahub.data.db.entity.ManagedFileEntity
 import me.rerere.rikkahub.data.db.entity.MemoryEntity
+import me.rerere.rikkahub.data.db.entity.MemoryDocumentEntity
 import me.rerere.rikkahub.data.db.entity.MessageNodeEntity
 import me.rerere.rikkahub.data.db.entity.MonthlyLedgerChannelEntity
 import me.rerere.rikkahub.data.db.entity.MonthlyLedgerSummaryEntity
@@ -45,12 +47,13 @@ import me.rerere.rikkahub.data.db.migrations.Migration_8_9
 import me.rerere.rikkahub.utils.JsonInstant
 
 internal const val APP_DATABASE_NAME = "zhixing"
-internal const val APP_DATABASE_VERSION = 43
+internal const val APP_DATABASE_VERSION = 44
 
 @Database(
     entities = [
         ConversationEntity::class,
         MemoryEntity::class,
+        MemoryDocumentEntity::class,
         GenMediaEntity::class,
         MessageNodeEntity::class,
         ManagedFileEntity::class,
@@ -106,6 +109,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDAO
 
     abstract fun memoryDao(): MemoryDAO
+
+    abstract fun memoryDocumentDao(): MemoryDocumentDAO
 
     abstract fun genMediaDao(): GenMediaDAO
 

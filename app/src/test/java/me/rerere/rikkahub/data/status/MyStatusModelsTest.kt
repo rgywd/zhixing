@@ -5,6 +5,7 @@ import kotlinx.serialization.json.jsonObject
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.MemoryKind
 import me.rerere.rikkahub.data.model.MemoryState
+import me.rerere.rikkahub.data.model.MemoryDocument
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -338,6 +339,32 @@ class MyStatusModelsTest {
         assertFalse(visible.contains("agenda.pending"))
         assertFalse(visible.contains("5小时30分"))
         assertFalse(visible.contains("72 bpm"))
+    }
+
+    @Test
+    fun myStatusReadsOnlyPinnedMemoryDocuments() {
+        val personalContext = buildMyStatusDocumentContext(
+            listOf(
+                MemoryDocument(
+                    scopeId = "__global__",
+                    path = "/profile.md",
+                    name = "Profile",
+                    description = "Stable profile",
+                    content = "- [stated] 用户偏好深夜不处理普通工作。",
+                ),
+                MemoryDocument(
+                    scopeId = "assistant",
+                    path = "/areas/project.md",
+                    name = "Project",
+                    description = "Active project",
+                    content = "- [stated] 这是项目细节。",
+                ),
+            )
+        )
+
+        assertEquals(1, personalContext.size)
+        assertEquals("/profile.md", personalContext.single().memoryPath)
+        assertFalse(personalContext.single().content.contains("项目细节"))
     }
 
     @Test

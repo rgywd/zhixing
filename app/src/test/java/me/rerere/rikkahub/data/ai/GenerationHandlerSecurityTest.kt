@@ -9,8 +9,7 @@ import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
-import me.rerere.rikkahub.data.model.AssistantMemory
-import me.rerere.rikkahub.data.model.MemoryKind
+import me.rerere.rikkahub.data.model.MemoryDocument
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -124,9 +123,9 @@ class GenerationHandlerSecurityTest {
 
     @Test
     fun memoryPromptSnapshotRefreshesAfterSuccessfulToolMutation() = runBlocking {
-        val initial = listOf(AssistantMemory(1, "old", MemoryKind.PROFILE))
-        val refreshed = listOf(AssistantMemory(2, "new", MemoryKind.PROFILE))
-        val snapshot = MemoryPromptSnapshot(initial)
+        val initial = listOf(MemoryDocument("scope", "/profile.md", "Profile", "profile", content = "old"))
+        val refreshed = listOf(MemoryDocument("scope", "/profile.md", "Profile", "profile", content = "new"))
+        val snapshot = MemoryDocumentPromptSnapshot(initial)
         var refreshCount = 0
 
         assertEquals(initial, snapshot.resolve { error("must not refresh an unchanged snapshot") })

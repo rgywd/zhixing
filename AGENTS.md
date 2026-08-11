@@ -113,11 +113,11 @@
   processing after generation completes.
   (app/src/main/java/me/rerere/rikkahub/data/ai/transformers/Transformer.kt)
 
-- **Long-term Profile Memory**: Automatic profiles use a bounded four-stage pipeline: exact quotes from user messages
-  become internal `OBSERVATION` records, deterministic longitudinal gates promote qualified observations, and at most
-  one canonical automatic `PROFILE` summary is maintained per built-in dimension. Observations never enter prompts;
-  only active profiles do. The V2 contract, thresholds, lifecycle, evidence fields, and destructive v35→v36 legacy
-  profile cleanup are documented in `docs/zhixing/AUTO_PROFILE_MAINTENANCE.md`.
+- **Memory Documents**: Long-term memory is a Room-backed Markdown document layer with a compact listing,
+  always-visible `/profile.md` and `/preferences.md`, and on-demand reads for `/areas`, `/topics`, and `/people`.
+  Every persisted fact is `[stated]`, carries a user source, and uses file-level optimistic locking. Raw conversation
+  FTS is a separate capability. The V3 contract and V2 migration boundary are documented in
+  `docs/zhixing/MEMORY_SYSTEM.md`.
 
 - **Work / Agent Phone-line**: A separate, mobile-created session domain for communicating with Codex or Claude Code
   processes on a registered development machine. It uses a durable Work Core, an outbound-only local Runner, and exactly

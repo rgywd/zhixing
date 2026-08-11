@@ -11,9 +11,7 @@ import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.device.lenovo.LenovoWatchConnectionManager
 import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbe
-import me.rerere.rikkahub.data.profile.ProfileMaintenanceScheduler
-import me.rerere.rikkahub.data.profile.ProfileMaintenanceService
-import me.rerere.rikkahub.data.profile.ProfileMaintenanceWorker
+import me.rerere.rikkahub.data.profile.LegacyProfileMaintenanceCleanup
 import me.rerere.rikkahub.data.agenda.AgendaReminderWorker
 import me.rerere.rikkahub.data.agenda.AgendaPlanStageReminderWorker
 import me.rerere.rikkahub.data.status.AndroidCoarseLocationProvider
@@ -91,7 +89,7 @@ val appModule = module {
             watchProbe = get(),
             agendaTaskRepository = get(),
             agendaPlanRepository = get(),
-            memoryRepository = get(),
+            memoryDocumentRepository = get(),
             clock = get(),
         ).also(MyStatusCoordinator::start)
     }
@@ -153,9 +151,7 @@ val appModule = module {
         SoundEffectPlayer(get())
     }
 
-    single { ProfileMaintenanceService(get(), get(), get(), get()) }
-    single { ProfileMaintenanceScheduler(get(), get()) }
-    workerOf(::ProfileMaintenanceWorker)
+    single { LegacyProfileMaintenanceCleanup(get()) }
     workerOf(::AgendaReminderWorker)
     workerOf(::AgendaPlanStageReminderWorker)
 
@@ -180,7 +176,7 @@ val appModule = module {
             appEventBus = get(),
             settingsStore = get(),
             conversationRepo = get(),
-            memoryRepository = get(),
+            memoryDocumentRepository = get(),
             generationHandler = get(),
             templateTransformer = get(),
             providerManager = get(),

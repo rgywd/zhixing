@@ -9,42 +9,35 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
-import me.rerere.rikkahub.data.datastore.ProfileMaintenanceConfig
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.files.SkillManager
 import me.rerere.rikkahub.data.files.SkillMetadata
 import me.rerere.rikkahub.data.model.Assistant
-import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.Avatar
-import me.rerere.rikkahub.data.model.MemoryKind
-import me.rerere.rikkahub.data.model.MemoryState
+import me.rerere.rikkahub.data.model.MemoryDocument
 import me.rerere.rikkahub.data.model.Tag
-import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemoryDocumentRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
-import me.rerere.rikkahub.data.profile.ProfileMaintenanceScheduler
 import kotlin.uuid.Uuid
 
 private const val TAG = "AssistantDetailVM"
 
-internal fun memoryDimensionIdForCreate(memory: AssistantMemory): String =
-    if (memory.kind == MemoryKind.PROFILE) memory.dimensionId else ""
-
 class AssistantDetailVM(
     private val id: String,
     private val settingsStore: SettingsStore,
-    private val memoryRepository: MemoryRepository,
+    private val memoryDocumentRepository: MemoryDocumentRepository,
     private val filesManager: FilesManager,
     private val skillManager: SkillManager,
     private val workspaceRepository: WorkspaceRepository,
-    private val profileMaintenanceScheduler: ProfileMaintenanceScheduler,
 ) : ViewModel() {
     private val assistantId = Uuid.parse(id)
 
@@ -59,14 +52,6 @@ class AssistantDetailVM(
 
     val settings: StateFlow<Settings> =
         settingsStore.settingsFlow.stateIn(viewModelScope, SharingStarted.Eagerly, Settings.dummy())
-
-    val profileMaintenanceConfig = settingsStore.settingsFlow
-        .map { it.profileMaintenanceConfig }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, ProfileMaintenanceConfig())
-
-    val profileMaintenanceStatus = settingsStore.settingsFlow
-        .map { it.profileMaintenanceStatus }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, Settings.dummy().profileMaintenanceStatus)
 
     val mcpServerConfigs = settingsStore
         .settingsFlow.map { settings ->
@@ -83,50 +68,26 @@ class AssistantDetailVM(
             scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = Assistant()
         )
 
-    private val globalMemories = memoryRepository.getAllGlobalMemoriesFlow()
-
-    private val scopedMemories = assistant
+    val memoryDocuments = assistant
         .flatMapLatest { currentAssistant ->
-            if (currentAssistant.useGlobalMemory) {
-                memoryRepository.getAllGlobalMemoriesFlow()
+            val scopeId = if (currentAssistant.useGlobalMemory) {
+                MemoryDocumentRepository.GLOBAL_SCOPE_ID
             } else {
-                memoryRepository.getAllMemoriesOfAssistantFlow(assistantId.toString())
+                assistantId.toString()
+            }
+            flow {
+                memoryDocumentRepository.listDocuments(scopeId)
+                emitAll(memoryDocumentRepository.observeDocuments(scopeId))
             }
         }
-
-    val profileMemories = globalMemories
-        .map { memories ->
-            memories.filter { it.kind == MemoryKind.PROFILE && it.state == MemoryState.ACTIVE }
-        }
         .stateIn(
-            scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = emptyList(),
         )
 
-    val contextMemories = scopedMemories
-        .map { memories ->
-            memories.filter { it.kind == MemoryKind.CONTEXT && it.state == MemoryState.ACTIVE }
-        }
-        .stateIn(
-            scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
-        )
-
-    val pendingProfileMemories = globalMemories
-        .map { memories ->
-            memories.filter { it.kind == MemoryKind.PROFILE && it.state == MemoryState.PENDING }
-        }
-        .stateIn(
-            scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
-        )
-
-    val archivedMemories = combine(globalMemories, scopedMemories) { global, scoped ->
-        (global.filter { it.kind == MemoryKind.PROFILE } +
-            scoped.filter { it.kind == MemoryKind.CONTEXT })
-            .distinctBy(AssistantMemory::id)
-            .filter { it.state == MemoryState.ARCHIVED }
-    }
-        .stateIn(
-            scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
-        )
+    private val _memoryDocumentError = MutableStateFlow<String?>(null)
+    val memoryDocumentError = _memoryDocumentError.asStateFlow()
 
     val providers = settingsStore
         .settingsFlow
@@ -236,67 +197,50 @@ class AssistantDetailVM(
         }
     }
 
-    fun addMemory(memory: AssistantMemory) {
+    fun saveMemoryDocument(document: MemoryDocument) {
         viewModelScope.launch {
-            val memoryAssistantId = if (assistant.value.useGlobalMemory) {
-                MemoryRepository.GLOBAL_MEMORY_ID
-            } else {
-                assistantId.toString()
+            runCatching {
+                val scopeId = if (assistant.value.useGlobalMemory) {
+                    MemoryDocumentRepository.GLOBAL_SCOPE_ID
+                } else {
+                    assistantId.toString()
+                }
+                memoryDocumentRepository.writeFromUserEditor(
+                    contextScopeId = scopeId,
+                    rawPath = document.path,
+                    expectedVersion = document.version,
+                    name = document.name,
+                    description = document.description,
+                    aliases = document.aliases,
+                    content = document.content,
+                )
+            }.onSuccess {
+                _memoryDocumentError.value = null
+            }.onFailure { error ->
+                _memoryDocumentError.value = error.message ?: error::class.java.simpleName
             }
-            memoryRepository.addMemory(
-                assistantId = memoryAssistantId,
-                content = memory.content,
-                kind = memory.kind,
-                dimensionId = memoryDimensionIdForCreate(memory),
-            )
         }
     }
 
-    fun updateMemory(memory: AssistantMemory) {
+    fun deleteMemoryDocument(document: MemoryDocument) {
         viewModelScope.launch {
-            memoryRepository.updateManualMemory(
-                id = memory.id,
-                content = memory.content,
-                dimensionId = memory.dimensionId,
-            )
-        }
-    }
-
-    fun deleteMemory(memory: AssistantMemory) {
-        viewModelScope.launch {
-            memoryRepository.deleteMemory(id = memory.id)
-        }
-    }
-
-    fun archiveMemory(memory: AssistantMemory) {
-        viewModelScope.launch {
-            memoryRepository.archiveMemory(id = memory.id)
-        }
-    }
-
-    fun restoreMemory(memory: AssistantMemory) {
-        viewModelScope.launch {
-            memoryRepository.updateState(id = memory.id, state = MemoryState.ACTIVE)
-        }
-    }
-
-    fun confirmPendingMemory(memory: AssistantMemory) {
-        viewModelScope.launch {
-            memoryRepository.confirmPending(memory.id)
-        }
-    }
-
-    fun updateProfileMaintenanceConfig(config: ProfileMaintenanceConfig) {
-        viewModelScope.launch {
-            settingsStore.update { current ->
-                current.copy(profileMaintenanceConfig = config.normalized())
+            runCatching {
+                val scopeId = if (assistant.value.useGlobalMemory) {
+                    MemoryDocumentRepository.GLOBAL_SCOPE_ID
+                } else {
+                    assistantId.toString()
+                }
+                memoryDocumentRepository.delete(scopeId, document.path, document.version)
+            }.onSuccess {
+                _memoryDocumentError.value = null
+            }.onFailure { error ->
+                _memoryDocumentError.value = error.message ?: error::class.java.simpleName
             }
-            profileMaintenanceScheduler.sync()
         }
     }
 
-    fun runProfileMaintenanceNow() {
-        profileMaintenanceScheduler.runNow()
+    fun clearMemoryDocumentError() {
+        _memoryDocumentError.value = null
     }
 
     fun checkAvatarDelete(old: Assistant, new: Assistant) {

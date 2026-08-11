@@ -22,6 +22,7 @@ import me.rerere.rikkahub.data.db.migrations.Migration_39_40
 import me.rerere.rikkahub.data.db.migrations.Migration_40_41
 import me.rerere.rikkahub.data.db.migrations.Migration_41_42
 import me.rerere.rikkahub.data.db.migrations.Migration_42_43
+import me.rerere.rikkahub.data.db.migrations.Migration_43_44
 
 internal fun createAppDatabase(
     context: Context,
@@ -43,6 +44,7 @@ internal fun createAppDatabase(
         Migration_40_41,
         Migration_41_42,
         Migration_42_43,
+        Migration_43_44,
     )
     .addCallback(object : RoomDatabase.Callback() {
         override fun onOpen(db: SupportSQLiteDatabase) {
