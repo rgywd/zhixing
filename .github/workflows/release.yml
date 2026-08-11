@@ -117,15 +117,19 @@ jobs:
             --tests me.rerere.rikkahub.data.ai.tools.GitHubCliToolTest \
             --tests me.rerere.rikkahub.data.ai.GenerationHandlerSecurityTest \
             --tests me.rerere.rikkahub.data.ai.GenerationPromptsTest \
+            --tests me.rerere.rikkahub.data.ai.MemoryDocumentPromptsTest \
+            --tests me.rerere.rikkahub.data.ai.tools.MemoryDocumentToolsTest \
             --tests me.rerere.rikkahub.data.ai.tools.MemoryToolsTest \
-            --tests me.rerere.rikkahub.data.profile.ProfileMaintenanceServiceTest \
-            --tests me.rerere.rikkahub.data.profile.ProfileMemoryPolicyTest \
+            --tests me.rerere.rikkahub.data.memory.MemoryDocumentPolicyTest \
+            --tests me.rerere.rikkahub.data.repository.MemoryDocumentRepositoryTest \
             --tests me.rerere.rikkahub.data.repository.MemoryForgetPolicyTest \
             --tests me.rerere.rikkahub.data.repository.MemoryRepositoryTest \
             --tests me.rerere.rikkahub.data.sync.DatabaseBackupContractTest \
-            --tests me.rerere.rikkahub.ui.pages.assistant.detail.AssistantMemoryCreationTest \
+            --tests me.rerere.rikkahub.data.status.MyStatusModelsTest \
+            --tests me.rerere.rikkahub.data.task.AssistantTaskPolicyTest \
             --tests me.rerere.rikkahub.data.agenda.AgendaTaskPolicyTest \
             --tests me.rerere.rikkahub.data.agenda.AgendaTimeParserTest \
+            --tests me.rerere.rikkahub.ui.pages.chat.AgendaTaskEditorSourceTest \
             --tests me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigureConvertToTest
 
   release-apk:
