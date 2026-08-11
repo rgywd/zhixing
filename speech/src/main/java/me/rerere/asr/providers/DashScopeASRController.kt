@@ -264,7 +264,7 @@ class DashScopeASRController(
     }
 }
 
-private fun ASRProviderSetting.DashScope.websocketEndpoint(): String {
+internal fun ASRProviderSetting.DashScope.websocketEndpoint(): String {
     val endpoint = websocketUrl.trim().trimEnd('/')
     val separator = if (endpoint.contains("?")) "&" else "?"
     return if (endpoint.contains("model=")) endpoint
