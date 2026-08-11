@@ -257,6 +257,19 @@ class AssistantTaskRepository(
         }
     }
 
+    suspend fun updateTitle(taskId: String, title: String) = writeMutex.withLock {
+        val now = clock()
+        database.withTransaction {
+            val task = requireNotNull(dao.getTask(taskId)) { "Assistant task not found" }
+            dao.updateTask(
+                task.copy(
+                    title = sanitizeUserFacingText(title, fallback = task.title),
+                    updatedAt = now,
+                ),
+            )
+        }
+    }
+
     suspend fun reconcileOnStartup(): Int {
         val runningTasks = dao.getRunningTasks()
         runningTasks.forEach { task ->
@@ -366,6 +379,13 @@ internal fun sanitizeUserFacingText(value: String, fallback: String): String = v
  * Keep the natural prefix and drop explicit requests to call snake_case tool names.
  */
 internal fun naturalizeAssistantTaskTitle(value: String): String {
+    val namedAgendaItem = Regex(
+        pattern = "(?i)^\\s*(?:please\\s+)?create\\s+(?:a\\s+)?(?:task|todo|reminder|plan)\\s+" +
+            "(?:named|called)\\s+[\\\"“]?(.+?)[\\\"”]?(?:\\s+(?:for|at|on|due)\\b.*)?$",
+    ).find(value)?.groupValues?.getOrNull(1)?.trim()
+    if (!namedAgendaItem.isNullOrBlank()) {
+        return sanitizeUserFacingText(namedAgendaItem, fallback = "正在处理你的请求")
+    }
     val withoutInvocation = value.replace(
         Regex(
             pattern = "(?i)[,.]?\\s*(?:now\\s+)?(?:use|call)\\s+(?:the\\s+)?" +

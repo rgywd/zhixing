@@ -76,6 +76,7 @@ import me.rerere.rikkahub.data.model.AgendaRecurrence
 import me.rerere.rikkahub.data.model.AgendaRecurrenceFrequency
 import me.rerere.rikkahub.data.model.AgendaTask
 import me.rerere.rikkahub.data.model.AgendaTaskStatus
+import me.rerere.rikkahub.data.model.sourceConversationIdForNavigation
 import me.rerere.rikkahub.data.model.MAX_AGENDA_RECURRENCE_INTERVAL
 import me.rerere.rikkahub.data.repository.AgendaPlanRepository
 import me.rerere.rikkahub.data.repository.AgendaTaskRepository
@@ -85,6 +86,7 @@ import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionNotification
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalNavController
+import me.rerere.rikkahub.utils.navigateToChatPage
 import org.koin.compose.koinInject
 import java.time.Instant
 import java.time.LocalDate
@@ -271,6 +273,11 @@ internal fun AgendaOverviewSection() {
         AgendaTaskEditorSheet(
             task = editorTask,
             onDismiss = { editorOpen = false },
+            onNavigateToChat = { conversationId ->
+                runCatching { kotlin.uuid.Uuid.parse(conversationId) }.getOrNull()?.let { chatId ->
+                    navigateToChatPage(navigator, chatId, preserveBackStack = true)
+                }
+            },
             onSave = { title, note, dueAt, reminderEnabled, recurrenceFrequency, recurrenceInterval ->
                 val task = editorTask
                 val save = resolveAgendaTaskSave(
@@ -619,6 +626,7 @@ private fun CalendarPermissionCard(onConnect: () -> Unit) {
 internal fun AgendaTaskEditorSheet(
     task: AgendaTask?,
     onDismiss: () -> Unit,
+    onNavigateToChat: (String) -> Unit,
     onSave: (
         title: String,
         note: String,
@@ -694,6 +702,26 @@ internal fun AgendaTaskEditorSheet(
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("备注（可选）") },
             )
+            task?.sourceConversationIdForNavigation()?.let { conversationId ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column {
+                        Text("来自聊天", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "可回到创建它的对话继续调整",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = {
+                        onDismiss()
+                        onNavigateToChat(conversationId)
+                    }) { Text("回到原聊天") }
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,

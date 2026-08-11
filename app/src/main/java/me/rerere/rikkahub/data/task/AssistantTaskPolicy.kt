@@ -1,10 +1,15 @@
 package me.rerere.rikkahub.data.task
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 
@@ -78,6 +83,17 @@ data class AssistantTaskResultLink(
     val objectType: String,
     val objectId: String,
     val role: String = "RESULT",
+)
+
+/**
+ * A user-facing result derived from a successful Agenda write. The tool output remains unchanged
+ * so later model steps can still use its stable machine identifiers.
+ */
+internal data class AssistantTaskResultPresentation(
+    val message: String,
+    val title: String? = null,
+    /** Values emitted by this Agenda result that must stay in tool JSON, not assistant prose. */
+    val technicalValues: Set<String> = emptySet(),
 )
 
 data class AssistantTaskFailure(
@@ -162,10 +178,201 @@ internal fun extractAssistantTaskResultLinks(
     }
     .distinctBy { Triple(it.objectType, it.objectId, it.role) }
 
+/**
+ * Agenda tools intentionally return complete structured objects to the model. Do not make that
+ * object the user-visible completion message: IDs and persistence enums are implementation
+ * details, not task outcomes.
+ */
+internal fun extractAssistantTaskResultPresentation(
+    messages: List<UIMessage>,
+    json: Json,
+    previousSuccessfulAgendaToolCallIds: Set<String> = emptySet(),
+): AssistantTaskResultPresentation? = messages
+    .flatMap(UIMessage::parts)
+    .filterIsInstance<UIMessagePart.Tool>()
+    .filter(UIMessagePart.Tool::isExecuted)
+    .filter { it.toolCallId !in previousSuccessfulAgendaToolCallIds }
+    .mapNotNull { tool ->
+        val output = tool.output.filterIsInstance<UIMessagePart.Text>()
+            .joinToString("\n", transform = UIMessagePart.Text::text)
+        val value = runCatching { json.parseToJsonElement(output).jsonObject }.getOrNull()
+            ?: return@mapNotNull null
+        if (value["success"]?.jsonPrimitive?.booleanOrNull != true) return@mapNotNull null
+        when (tool.toolName) {
+            "task_create" -> value.objectTitle("task")?.let { title ->
+                value.agendaPresentation("已创建待办「$title」。", title)
+            }
+
+            "task_update" -> value.objectTitle("task")?.let { title ->
+                value.agendaPresentation("已更新待办「$title」。", title)
+            }
+
+            "task_complete" -> value.objectTitle("task")?.let { title ->
+                val completed = runCatching {
+                    json.parseToJsonElement(tool.input.ifBlank { "{}" })
+                        .jsonObject["completed"]?.jsonPrimitive?.booleanOrNull ?: true
+                }.getOrDefault(true)
+                value.agendaPresentation(
+                    if (completed) "已完成待办「$title」。" else "已恢复待办「$title」。",
+                    title,
+                )
+            }
+
+            "task_delete" -> value.agendaPresentation("已删除待办。")
+            "plan_create" -> value.objectTitle("plan")?.let { title ->
+                value.agendaPresentation("已创建计划「$title」。", title)
+            }
+
+            "plan_update" -> value.objectTitle("plan")?.let { title ->
+                value.agendaPresentation("已更新计划「$title」。", title)
+            }
+
+            "plan_stage_update", "plan_stage_complete", "plan_set_status" -> value.objectTitle("plan")?.let { title ->
+                value.agendaPresentation("已更新计划「$title」。", title)
+            }
+
+            else -> null
+        }
+    }
+    .lastOrNull()
+
+internal fun successfulAgendaPresentationToolCallIds(
+    messages: List<UIMessage>,
+    json: Json,
+): Set<String> = messages
+    .flatMap(UIMessage::parts)
+    .filterIsInstance<UIMessagePart.Tool>()
+    .filter(UIMessagePart.Tool::isExecuted)
+    .filter { it.toolName in AGENDA_PRESENTATION_TOOLS }
+    .filter { tool ->
+        val output = tool.output.filterIsInstance<UIMessagePart.Text>()
+            .joinToString("\n", transform = UIMessagePart.Text::text)
+        runCatching { json.parseToJsonElement(output).jsonObject }
+            .getOrNull()
+            ?.get("success")
+            ?.jsonPrimitive
+            ?.booleanOrNull == true
+    }
+    .map(UIMessagePart.Tool::toolCallId)
+    .toSet()
+
+/**
+ * Keep the model's other user-facing results, but replace only lines that repeat values from the
+ * successful Agenda JSON. Tool parts retain their complete machine JSON for later model steps.
+ */
+internal fun applyAssistantTaskResultPresentation(
+    messages: List<UIMessage>,
+    presentation: AssistantTaskResultPresentation,
+): List<UIMessage> {
+    val index = messages.indexOfLast { message ->
+        message.role == MessageRole.ASSISTANT && message.parts.any { it is UIMessagePart.Text }
+    }
+    if (index < 0) return messages
+    return messages.mapIndexed { messageIndex, message ->
+        if (messageIndex != index) {
+            message
+        } else {
+            var presentationInserted = false
+            message.copy(
+                parts = buildList {
+                    message.parts.forEach { part ->
+                        when (part) {
+                            is UIMessagePart.Text -> {
+                                val visibleLines = part.text.lineSequence().mapNotNull { line ->
+                                    when {
+                                        line.trim() == presentation.message -> {
+                                            if (presentationInserted) null else {
+                                                presentationInserted = true
+                                                presentation.message
+                                            }
+                                        }
+
+                                        line.containsAgendaTechnicalValue(presentation.technicalValues) -> {
+                                            if (presentationInserted) null else {
+                                                presentationInserted = true
+                                                presentation.message
+                                            }
+                                        }
+
+                                        else -> line
+                                    }
+                                }.toList()
+                                if (visibleLines.isNotEmpty()) {
+                                    add(part.copy(text = visibleLines.joinToString("\n")))
+                                }
+                            }
+
+                            else -> add(part)
+                        }
+                    }
+                    if (!presentationInserted) {
+                        add(UIMessagePart.Text(presentation.message))
+                    }
+                },
+            )
+        }
+    }
+}
+
+private fun JsonObject.agendaPresentation(
+    message: String,
+    title: String? = null,
+): AssistantTaskResultPresentation = AssistantTaskResultPresentation(
+    message = message,
+    title = title,
+    technicalValues = agendaTechnicalValues(),
+)
+
+private fun JsonObject.agendaTechnicalValues(): Set<String> = buildSet {
+    fun collect(value: JsonElement) {
+        when (value) {
+            is JsonObject -> value.forEach { (key, nested) ->
+                if (key in AGENDA_TECHNICAL_FIELDS) {
+                    (nested as? JsonPrimitive)?.contentOrNull
+                        ?.trim()
+                        ?.takeIf(String::isNotEmpty)
+                        ?.let(::add)
+                }
+                collect(nested)
+            }
+
+            is JsonArray -> value.forEach(::collect)
+            else -> Unit
+        }
+    }
+    collect(this@agendaTechnicalValues)
+}
+
+private fun String.containsAgendaTechnicalValue(values: Set<String>): Boolean =
+    values.any { value -> value.isNotEmpty() && contains(value) }
+
 private fun JsonObject?.findNestedId(container: String): String? {
     val nested = this?.get(container) as? JsonObject ?: return null
     return nested.string("id") ?: (nested[container] as? JsonObject)?.string("id")
 }
+
+private fun JsonObject.objectTitle(container: String): String? =
+    (this[container] as? JsonObject)?.string("title")
+
+private val AGENDA_PRESENTATION_TOOLS = setOf(
+    "task_create",
+    "task_update",
+    "task_complete",
+    "task_delete",
+    "plan_create",
+    "plan_update",
+    "plan_stage_update",
+    "plan_stage_complete",
+    "plan_set_status",
+)
+
+private val AGENDA_TECHNICAL_FIELDS = setOf(
+    "id",
+    "deleted_id",
+    "status",
+    "source",
+    "recurrence_frequency",
+)
 
 private fun JsonObject.string(name: String): String? =
     this[name]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)
