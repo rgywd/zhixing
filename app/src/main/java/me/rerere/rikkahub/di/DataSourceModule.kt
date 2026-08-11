@@ -69,6 +69,10 @@ val dataSourceModule = module {
     }
 
     single {
+        get<AppDatabase>().memoryDocumentDao()
+    }
+
+    single {
         get<AppDatabase>().genMediaDao()
     }
 
@@ -117,7 +121,7 @@ val dataSourceModule = module {
             context = get(),
             providerManager = get(),
             json = get(),
-            memoryRepo = get()
+            memoryDocumentRepository = get()
         )
     }
 

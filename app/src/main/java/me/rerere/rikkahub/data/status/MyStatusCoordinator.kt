@@ -22,7 +22,7 @@ import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbe
 import me.rerere.rikkahub.data.repository.AgendaPlanRepository
 import me.rerere.rikkahub.data.repository.AgendaTaskRepository
-import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemoryDocumentRepository
 import me.rerere.rikkahub.utils.JsonInstant
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -66,7 +66,7 @@ internal class MyStatusCoordinator(
     private val watchProbe: LenovoWatchProbe,
     private val agendaTaskRepository: AgendaTaskRepository,
     private val agendaPlanRepository: AgendaPlanRepository,
-    private val memoryRepository: MemoryRepository,
+    private val memoryDocumentRepository: MemoryDocumentRepository,
     private val clock: MyStatusClock = MyStatusClock(System::currentTimeMillis),
 ) {
     private val started = AtomicBoolean(false)
@@ -160,8 +160,8 @@ internal class MyStatusCoordinator(
                 }
         }
         appScope.launch {
-            memoryRepository.getGlobalMemoriesFlow()
-                .map { memories -> memories.map { "${it.id}:${it.kind}:${it.state}:${it.updatedAt}:${it.content}" } }
+            memoryDocumentRepository.observeDocuments(MemoryDocumentRepository.GLOBAL_SCOPE_ID)
+                .map { documents -> documents.map { "${it.path}:${it.version}:${it.updatedAt}:${it.content}" } }
                 .distinctUntilChanged()
                 .drop(1)
                 .debounce(SOURCE_CHANGE_DEBOUNCE_MS)
@@ -201,7 +201,9 @@ internal class MyStatusCoordinator(
         val assistant = settings.getCurrentAssistant()
         val allowPersonalContext = assistant.enableMemory
         val personalContext = if (allowPersonalContext) {
-            buildMyStatusPersonalContext(memoryRepository.getGlobalMemories())
+            buildMyStatusDocumentContext(
+                memoryDocumentRepository.getPromptDocuments(MemoryDocumentRepository.GLOBAL_SCOPE_ID)
+            )
         } else {
             emptyList()
         }

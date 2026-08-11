@@ -103,7 +103,7 @@ import me.rerere.rikkahub.data.model.replaceRegexes
 import me.rerere.rikkahub.data.model.toMessageNode
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.FolderRepository
-import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemoryDocumentRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.task.AssistantTaskRepository
 import me.rerere.rikkahub.data.task.AssistantTaskStep
@@ -176,7 +176,7 @@ class ChatService(
     private val appEventBus: AppEventBus,
     private val settingsStore: SettingsStore,
     private val conversationRepo: ConversationRepository,
-    private val memoryRepository: MemoryRepository,
+    private val memoryDocumentRepository: MemoryDocumentRepository,
     private val generationHandler: GenerationHandler,
     private val templateTransformer: TemplateTransformer,
     private val providerManager: ProviderManager,
@@ -691,13 +691,14 @@ class ChatService(
                 conversationModeInjectionIds = conversation.modeInjectionIds,
                 conversationLorebookIds = conversation.lorebookIds,
                 workspaceCwd = conversation.workspaceCwd,
-                memories = memoryRepository.getPromptMemories(
-                    contextAssistantId = if (assistant.useGlobalMemory) {
-                        MemoryRepository.GLOBAL_MEMORY_ID
+                memoryDocuments = memoryDocumentRepository.getPromptDocuments(
+                    contextScopeId = if (assistant.useGlobalMemory) {
+                        MemoryDocumentRepository.GLOBAL_SCOPE_ID
                     } else {
                         assistant.id.toString()
                     }
                 ),
+                memoryConversationId = conversationId.toString(),
                 inputTransformers = buildList {
                     addAll(inputTransformers)
                     add(templateTransformer)
@@ -1801,6 +1802,10 @@ class ChatService(
         }
 
         saveConversation(conversationId, updatedConversation.withoutContextCheckpoints())
+        memoryDocumentRepository.revokeChatSources(
+            conversationId = conversationId.toString(),
+            messageId = messageId.toString(),
+        )
     }
 
     suspend fun deleteMessage(

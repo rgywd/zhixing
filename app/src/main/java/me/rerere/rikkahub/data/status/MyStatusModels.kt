@@ -8,6 +8,7 @@ import me.rerere.ai.ui.RuntimeContextEvidence
 import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.MemoryKind
+import me.rerere.rikkahub.data.model.MemoryDocument
 import me.rerere.rikkahub.data.model.MemoryState
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import java.time.Duration
@@ -158,6 +159,8 @@ internal data class MyStatusPersonalContext(
     val content: String,
     @Transient
     val memoryId: Int = 0,
+    @Transient
+    val memoryPath: String = "",
 )
 
 @Serializable
@@ -252,6 +255,21 @@ internal fun buildMyStatusPersonalContext(
             dimensionId = it.dimensionId,
             content = it.content.trim().take(MAX_PERSONAL_CONTEXT_LENGTH),
             memoryId = it.id,
+        )
+    }
+    .toList()
+
+internal fun buildMyStatusDocumentContext(
+    documents: List<MemoryDocument>,
+): List<MyStatusPersonalContext> = documents
+    .asSequence()
+    .filter { it.path in setOf("/profile.md", "/preferences.md") }
+    .filter { it.content.isNotBlank() }
+    .map {
+        MyStatusPersonalContext(
+            dimensionId = it.path.removePrefix("/").removeSuffix(".md"),
+            content = it.content.trim().take(MAX_PERSONAL_CONTEXT_LENGTH),
+            memoryPath = it.path,
         )
     }
     .toList()

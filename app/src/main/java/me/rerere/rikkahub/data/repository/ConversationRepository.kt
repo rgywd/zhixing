@@ -36,6 +36,7 @@ class ConversationRepository(
     private val filesManager: FilesManager,
     private val messageFtsManager: MessageFtsManager,
     private val memoryRepository: MemoryRepository,
+    private val memoryDocumentRepository: MemoryDocumentRepository,
     private val assistantTaskDAO: AssistantTaskDAO? = null,
 ) {
     companion object {
@@ -381,6 +382,7 @@ class ConversationRepository(
         ProfileMemoryMutationGate.run {
             database.withTransaction {
                 memoryRepository.revokeConversationEvidence(conversation.id.toString())
+                memoryDocumentRepository.revokeChatSources(conversation.id.toString())
                 assistantTaskDAO?.invalidateConversationLinks(conversation.id.toString())
                 assistantTaskDAO?.deleteRuntimeContextsForConversation(conversation.id.toString())
                 // message_node 会通过 CASCADE 自动删除

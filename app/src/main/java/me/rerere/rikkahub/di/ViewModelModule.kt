@@ -49,11 +49,10 @@ val viewModelModule = module {
         AssistantDetailVM(
             id = it.get(),
             settingsStore = get(),
-            memoryRepository = get(),
+            memoryDocumentRepository = get(),
             filesManager = get(),
             skillManager = get(),
             workspaceRepository = get(),
-            profileMaintenanceScheduler = get(),
         )
     }
     viewModelOf(::TranslatorVM)

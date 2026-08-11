@@ -31,7 +31,7 @@ internal fun AssistantTaskStep.requiresDurableTask(json: Json): Boolean {
             .jsonObject["action"]?.jsonPrimitive?.content
     }.getOrNull()
     return when (toolName) {
-        "memory_tool" -> action != null
+        "memory_tool", "memory_write" -> action != null
         "monthly_spending_summary" -> action in setOf("save", "delete")
         else -> false
     }
@@ -48,7 +48,8 @@ internal fun AssistantTaskStep.progressText(): String = when {
     toolName == "gh" -> "正在处理 GitHub 事项"
     toolName.startsWith("mcp__") -> "正在连接外部能力"
     toolName == "monthly_spending_summary" -> "正在整理账单"
-    toolName == "memory_tool" -> "正在整理你的偏好"
+    toolName == "memory_tool" || toolName == "memory_write" -> "正在整理你的记忆"
+    toolName == "memory_read" -> "正在读取相关记忆"
     toolName.startsWith("workspace_") -> "正在处理工作区内容"
     toolName.contains("inbox") -> "正在查看信息更新"
     else -> "正在继续处理"
@@ -150,6 +151,10 @@ internal fun extractAssistantTaskResultLinks(
 
             tool.toolName == "memory_tool" -> value.findNestedId("memory")
                 ?.let { listOf(AssistantTaskResultLink("MEMORY", it)) }
+                .orEmpty()
+
+            tool.toolName == "memory_write" -> value?.string("path")
+                ?.let { listOf(AssistantTaskResultLink("MEMORY_DOCUMENT", it)) }
                 .orEmpty()
 
             else -> emptyList()

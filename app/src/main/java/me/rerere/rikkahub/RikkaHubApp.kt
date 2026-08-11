@@ -39,7 +39,7 @@ import me.rerere.rikkahub.data.repository.AgendaPlanRepository
 import me.rerere.rikkahub.data.repository.AgendaTaskRepository
 import me.rerere.rikkahub.data.work.PhoneWorkCredentialStore
 import me.rerere.rikkahub.data.task.AssistantTaskRepository
-import me.rerere.rikkahub.data.profile.ProfileMaintenanceScheduler
+import me.rerere.rikkahub.data.profile.LegacyProfileMaintenanceCleanup
 import me.rerere.rikkahub.service.PhoneWorkTrackingService
 import me.rerere.workspace.WorkspaceManager
 import org.koin.android.ext.android.get
@@ -96,7 +96,7 @@ class RikkaHubApp : Application() {
         // Start WebServer if enabled in settings
         startWebServerIfEnabled()
         startWorkTrackingIfConfigured()
-        scheduleProfileMaintenance()
+        cancelLegacyProfileMaintenance()
         startDeviceConnections()
         reconcileAgendaReminders()
         reconcileAssistantTasks()
@@ -282,10 +282,10 @@ class RikkaHubApp : Application() {
         }
     }
 
-    private fun scheduleProfileMaintenance() {
+    private fun cancelLegacyProfileMaintenance() {
         get<AppScope>().launch(Dispatchers.IO) {
-            runCatching { get<ProfileMaintenanceScheduler>().sync() }
-                .onFailure { Log.w(TAG, "Unable to schedule profile maintenance", it) }
+            runCatching { get<LegacyProfileMaintenanceCleanup>().cancel() }
+                .onFailure { Log.w(TAG, "Unable to cancel legacy profile maintenance", it) }
         }
     }
 

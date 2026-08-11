@@ -129,6 +129,79 @@ object MemoryToolUI : ToolUIRenderer {
     }
 }
 
+object MemoryReadToolUI : ToolUIRenderer {
+    override val toolName: String = "memory_read"
+
+    override fun icon(context: ToolUIContext): ImageVector = HugeIcons.Clipboard
+
+    @Composable
+    override fun title(context: ToolUIContext): String =
+        "读取记忆 ${context.arguments.getStringContent("path").orEmpty()}"
+
+    override fun hasSummary(context: ToolUIContext): Boolean =
+        context.content.getStringContent("content") != null
+
+    @Composable
+    override fun Summary(context: ToolUIContext) {
+        context.content.getStringContent("content")?.let { content ->
+            Text(
+                text = content,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.shimmer(isLoading = context.loading),
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+
+    @Composable
+    override fun Preview(context: ToolUIContext, onDismissRequest: () -> Unit) {
+        DefaultToolPreview(context = context)
+    }
+}
+
+object MemoryWriteToolUI : ToolUIRenderer {
+    override val toolName: String = "memory_write"
+
+    override fun icon(context: ToolUIContext): ImageVector = HugeIcons.QuillWrite01
+
+    @Composable
+    override fun title(context: ToolUIContext): String {
+        val action = context.arguments.getStringContent("action").orEmpty()
+        val path = context.arguments.getStringContent("path").orEmpty()
+        return when (action) {
+            "" -> "检查记忆"
+            "delete" -> "删除记忆 $path"
+            "append" -> "追加记忆 $path"
+            "str_replace" -> "修正记忆 $path"
+            else -> "保存记忆 $path"
+        }
+    }
+
+    override fun hasSummary(context: ToolUIContext): Boolean =
+        context.content.getStringContent("content") != null
+
+    @Composable
+    override fun Summary(context: ToolUIContext) {
+        context.content.getStringContent("content")?.let { content ->
+            Text(
+                text = content,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.shimmer(isLoading = context.loading),
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+
+    @Composable
+    override fun Preview(context: ToolUIContext, onDismissRequest: () -> Unit) {
+        DefaultToolPreview(context = context)
+    }
+}
+
 /**
  * 网络搜索: 标题带查询词, 摘要显示 answer 与结果数, 详情为结果列表
  */

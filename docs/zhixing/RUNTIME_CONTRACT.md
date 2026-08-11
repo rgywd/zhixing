@@ -37,8 +37,8 @@ SettingsStore -> DataStore
 - `MessageNode` 保存同一位置的候选消息；编辑、重试和重新生成不得破坏兄弟分支。
 - `UIMessage` 保留文本、推理、图片、音频、文件、工具调用/结果等结构化 parts；流式更新按身份合并。
 - `Assistant` 聚合模型、系统提示、参数、记忆、MCP、工具和 Workspace 策略；每轮生成解析出不可变快照。
-- 用户明确记忆与自动画像分开；自动画像遵守
-  [`AUTO_PROFILE_MAINTENANCE.md`](./AUTO_PROFILE_MAINTENANCE.md)。
+- 记忆文档与原始历史对话检索分开；listing、按需读取、用户原话来源和写入版本契约遵守
+  [`MEMORY_SYSTEM.md`](./MEMORY_SYSTEM.md)。
 - 显式记忆写入必须携带明确作用域：画像始终全局，情境记忆只属于当前选择的全局或助手作用域；模型工具
   不得仅凭记录 ID 跨作用域读取或修改，也不得访问内部观察。
 - UI 订阅仓库与 job 状态，不维护第二份会话真相。
