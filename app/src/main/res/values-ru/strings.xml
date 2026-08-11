@@ -274,6 +274,8 @@
   <string name="chat_message_tool_search_prefix">Поиск: %1$s</string>
   <string name="chat_message_tool_search_results_count">%1$d результатов</string>
   <string name="chat_message_tool_search_web">Поиск в интернете: %1$s</string>
+  <string name="chat_message_tool_search_images">Поиск изображений: %1$s</string>
+  <string name="chat_message_tool_search_images_count">Изображений: %1$d</string>
   <string name="chat_message_tool_submit">Отправить</string>
   <string name="chat_page_cancel">Отмена</string>
   <string name="chat_page_check_title_model_settings">Проверьте настройки модели заголовков</string>
@@ -578,6 +580,7 @@
   <string name="safe_mode_title">Безопасный режим</string>
   <string name="search_ability_scrape">Собрать</string>
   <string name="search_ability_search">Поиск</string>
+  <string name="search_ability_image">Изображения</string>
   <string name="search_detail_api_key">Ключ API</string>
   <string name="search_detail_api_url">URL API</string>
   <string name="search_detail_custom_search_placeholder">Мой поиск</string>
@@ -838,6 +841,10 @@
   <string name="setting_page_search_config">Конфигурация</string>
   <string name="setting_page_search_delete_provider">Удалить поставщика</string>
   <string name="setting_page_search_result_size">Размер результата</string>
+  <string name="setting_page_search_timeout">Тайм-аут поиска (с)</string>
+  <string name="setting_page_search_timeout_description">Общий лимит времени для веб-поиска и поиска изображений: от 1 до 60 секунд.</string>
+  <string name="setting_page_scrape_timeout">Тайм-аут извлечения страницы (с)</string>
+  <string name="setting_page_scrape_timeout_description">Лимит времени для извлечения всей страницы: от 5 до 120 секунд.</string>
   <string name="setting_page_search_service">Служба поиска</string>
   <string name="setting_page_search_service_desc">Настроить службу поиска</string>
   <string name="setting_page_search_test">Тест поиска</string>

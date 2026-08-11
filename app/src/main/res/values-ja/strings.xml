@@ -274,6 +274,8 @@
   <string name="chat_message_tool_search_prefix">検索: %1$s</string>
   <string name="chat_message_tool_search_results_count">%1$d件の結果</string>
   <string name="chat_message_tool_search_web">ウェブ検索: %1$s</string>
+  <string name="chat_message_tool_search_images">画像を検索: %1$s</string>
+  <string name="chat_message_tool_search_images_count">%1$d 枚の画像</string>
   <string name="chat_message_tool_submit">送信</string>
   <string name="chat_page_cancel">キャンセル</string>
   <string name="chat_page_check_title_model_settings">タイトルモデル設定を確認</string>
@@ -578,6 +580,7 @@
   <string name="safe_mode_title">セーフモード</string>
   <string name="search_ability_scrape">スクレイピング</string>
   <string name="search_ability_search">検索</string>
+  <string name="search_ability_image">画像</string>
   <string name="search_detail_api_key">APIキー</string>
   <string name="search_detail_api_url">API URL</string>
   <string name="search_detail_custom_search_placeholder">マイカスタム検索</string>
@@ -838,6 +841,10 @@
   <string name="setting_page_search_config">設定</string>
   <string name="setting_page_search_delete_provider">プロバイダー削除</string>
   <string name="setting_page_search_result_size">結果数</string>
+  <string name="setting_page_search_timeout">検索タイムアウト（秒）</string>
+  <string name="setting_page_search_timeout_description">ウェブ検索と画像検索に共通する制限時間で、1～60秒に設定できます。</string>
+  <string name="setting_page_scrape_timeout">ページ抽出タイムアウト（秒）</string>
+  <string name="setting_page_scrape_timeout_description">ページ全体を抽出する制限時間で、5～120秒に設定できます。</string>
   <string name="setting_page_search_service">検索サービス</string>
   <string name="setting_page_search_service_desc">検索サービスを設定</string>
   <string name="setting_page_search_test">検索テスト</string>
