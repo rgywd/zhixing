@@ -68,13 +68,16 @@ YAML frontmatter 固定包含 `name / description / sources / aliases`，后接�
 每次 chat Run 正常生成并准备结束时，模型会主动检查当前 USER 消息，并在最终回复前调用一次可见的
 `memory_write`。发现明确陈述、长期有用且非敏感的新事实或纠正时，action 只能是 `write`、`str_replace`、
 `append`、`delete`；没有应写内容时省略 action，工具返回 `changed=false`。用户不需要固定说“记住”。这个工具
-调用就是全部收尾，不会启动额外的后台模型任务，也不会按小时、跨天或过期窗口轮询、晋升、淘汰记忆。
+调用就是全部收尾；只有成功写入或明确 `changed=false` 才完成本轮记忆收尾，参数、来源、内容或版本校验失败
+后仍允许模型用修正后的参数重试。系统不会启动额外的后台模型任务，也不会按小时、跨天或过期窗口轮询、
+晋升、淘汰记忆。
 
 模型写入还必须同时满足：
 
 - 内容是当前用户明确说出的持久事实；删除仍必须由用户明确要求；
 - 每条正文事实以 `- [stated] ` 开头；
-- 至少一条 source，且 quote 是当前 USER 消息 Text part 的精确子串；
+- 至少一条 source；模型只提交当前 USER 消息 Text part 的精确 quote，应用从当前运行快照绑定可信的会话 ID
+  和消息 ID，模型不能提供或覆盖这两个内部 ID；
 - 不包含被禁止的敏感类别、credential 或精确财务数字；
 - `/preferences.md` 不接受“永远别反驳/质疑”“扮演某角色”等控制身份或取消判断的指令。
 
@@ -123,11 +126,13 @@ curated fact 分层；不照搬模型自主改写、云向量库、图数据库�
 ## 8. 验收
 
 1. 非 pinned 正文不出现在开场 prompt，listing 能路由到正确路径。
-2. source 不属于当前 USER 消息或 quote 不是精确子串时，写入失败。
+2. 模型侧 source schema 不暴露会话 ID 或消息 ID；quote 不是当前 USER 消息的精确子串时写入失败，匹配成功时
+   由应用绑定最近一条可信来源消息。
 3. 非 `[stated]`、敏感类别和控制型 preference 写入失败。
 4. 两个 writer 使用同一旧 version 时只有一个成功，另一个得到冲突。
 5. 43→44 保留旧记录到 archive，不删除旧表或用户会话。
 6. 记忆页可查看和编辑元数据/正文/版本/来源数，删除非 pinned 文件需要确认。
 7. 历史检索关闭时不注册 history tools；开启后仍查询原始 FTS，不读取 MemoryDocument 表。
-8. 每次 Run 在最终回复前调用一次可见的 `memory_write`；无内容时 `changed=false`，没有隐藏的二次模型调用。
+8. 每次 Run 在最终回复前成功完成一次可见的 `memory_write`；无内容时 `changed=false`，校验失败可重试，成功后
+   拒绝重复调用，且没有隐藏的二次模型调用。
 9. 删除消息/会话会移除对应 source，删除助手会清理其 scope；旧 `MemoryEntity` 不再有当前 UI 写入口。

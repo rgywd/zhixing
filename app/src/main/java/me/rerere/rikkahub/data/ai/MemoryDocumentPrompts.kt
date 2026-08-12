@@ -35,6 +35,7 @@ internal fun buildMemoryDocumentPrompt(documents: List<MemoryDocument>): String 
                 "current USER messages. Immediately before the final answer, call memory_write exactly once. Supply " +
                 "one of write, str_replace, append, or delete when a file must change; omit action when no memory " +
                 "should change. Do not write transient requests, duplicates, inference, or sensitive information. " +
+                "For every source supply only an exact quote; the app binds its current conversation and message IDs. " +
                 "This visible tool call is the only run-finalization step; there is no hidden follow-up process."
         )
         appendLine("Available documents:")

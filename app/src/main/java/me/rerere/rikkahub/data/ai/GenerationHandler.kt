@@ -45,7 +45,7 @@ import me.rerere.rikkahub.data.ai.transformers.onGenerationFinish
 import me.rerere.rikkahub.data.ai.transformers.transforms
 import me.rerere.rikkahub.data.ai.transformers.visualTransforms
 import me.rerere.rikkahub.data.ai.tools.buildMemoryDocumentTools
-import me.rerere.rikkahub.data.ai.tools.validateMemoryDocumentChatSources
+import me.rerere.rikkahub.data.ai.tools.bindMemoryDocumentChatSources
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
@@ -255,14 +255,18 @@ class GenerationHandler(
                 if (memoryScopeId != null) {
                     buildMemoryDocumentTools(
                         json = json,
+                        checkCanFinalize = {
+                            if (memoryWriteFinalized) {
+                                throw ToolExecutionException("MEMORY_ALREADY_FINALIZED")
+                            }
+                        },
                         onFinalize = {
-                            check(!memoryWriteFinalized) { "memory_write can be called only once per chat run" }
                             memoryWriteFinalized = true
                         },
                         onRead = { path -> memoryDocumentRepository.read(memoryScopeId, path) },
                         onWrite = { path, ifVersion, name, description, aliases, content, sources ->
                             val conversationId = memoryConversationId
-                                ?: error("Memory writes require a persisted conversation")
+                                ?: throw ToolExecutionException("MEMORY_CONTEXT_UNAVAILABLE")
                             memoryDocumentRepository.writeFromChat(
                                 contextScopeId = memoryScopeId,
                                 rawPath = path,
@@ -271,30 +275,30 @@ class GenerationHandler(
                                 description = description,
                                 aliases = aliases,
                                 content = content,
-                                sources = validateMemoryDocumentChatSources(sources, conversationId, messages),
+                                sources = bindMemoryDocumentChatSources(sources, conversationId, messages),
                             ).also { memoryPromptSnapshot.invalidate() }
                         },
                         onReplace = { path, ifVersion, oldText, newText, sources ->
                             val conversationId = memoryConversationId
-                                ?: error("Memory writes require a persisted conversation")
+                                ?: throw ToolExecutionException("MEMORY_CONTEXT_UNAVAILABLE")
                             memoryDocumentRepository.replaceFromChat(
                                 contextScopeId = memoryScopeId,
                                 rawPath = path,
                                 expectedVersion = ifVersion,
                                 oldText = oldText,
                                 newText = newText,
-                                sources = validateMemoryDocumentChatSources(sources, conversationId, messages),
+                                sources = bindMemoryDocumentChatSources(sources, conversationId, messages),
                             ).also { memoryPromptSnapshot.invalidate() }
                         },
                         onAppend = { path, ifVersion, content, sources ->
                             val conversationId = memoryConversationId
-                                ?: error("Memory writes require a persisted conversation")
+                                ?: throw ToolExecutionException("MEMORY_CONTEXT_UNAVAILABLE")
                             memoryDocumentRepository.appendFromChat(
                                 contextScopeId = memoryScopeId,
                                 rawPath = path,
                                 expectedVersion = ifVersion,
                                 content = content,
-                                sources = validateMemoryDocumentChatSources(sources, conversationId, messages),
+                                sources = bindMemoryDocumentChatSources(sources, conversationId, messages),
                             ).also { memoryPromptSnapshot.invalidate() }
                         },
                         onDelete = { path, ifVersion ->

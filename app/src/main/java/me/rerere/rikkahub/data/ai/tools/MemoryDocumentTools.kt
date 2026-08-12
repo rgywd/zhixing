@@ -2,13 +2,13 @@ package me.rerere.rikkahub.data.ai.tools
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -16,8 +16,10 @@ import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.Tool
+import me.rerere.ai.core.ToolExecutionException
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.memory.MEMORY_DOCUMENT_SOURCE_QUOTE_LIMIT
 import me.rerere.rikkahub.data.model.MemoryDocument
 import me.rerere.rikkahub.data.model.MemoryDocumentSource
 import me.rerere.rikkahub.data.model.MemoryDocumentSourceType
@@ -47,29 +49,36 @@ private fun MemoryDocument.toToolResult() = MemoryDocumentToolResult(
     version = version,
 )
 
-internal fun validateMemoryDocumentChatSources(
+internal fun bindMemoryDocumentChatSources(
     sources: List<MemoryDocumentSource>,
     conversationId: String,
     messages: List<UIMessage>,
 ): List<MemoryDocumentSource> {
-    require(sources.isNotEmpty()) { "Memory writes require at least one exact user quote" }
-    val userMessages = messages.filter { it.role == MessageRole.USER }.associateBy { it.id.toString() }
+    if (sources.isEmpty()) throw ToolExecutionException("MEMORY_SOURCE_INVALID")
+    val userMessages = messages.filter { it.role == MessageRole.USER }
     return sources.map { source ->
-        require(source.type == MemoryDocumentSourceType.CHAT) { "Model memory writes require CHAT sources" }
-        require(source.conversationId == conversationId) { "Memory source conversation does not match current chat" }
-        val message = userMessages[source.messageId]
-            ?: error("Memory source message ${source.messageId} is not a current user message")
+        if (source.type != MemoryDocumentSourceType.CHAT) {
+            throw ToolExecutionException("MEMORY_SOURCE_INVALID")
+        }
         val quote = source.quote.trim()
-        require(quote.length >= 2) { "Memory source quote is too short" }
-        require(
-            message.parts.filterIsInstance<UIMessagePart.Text>().any { part -> part.text.contains(quote) }
-        ) { "Memory source quote is not an exact substring of the user message" }
-        source.copy(quote = quote, observedAt = System.currentTimeMillis())
+        if (quote.length !in 2..MEMORY_DOCUMENT_SOURCE_QUOTE_LIMIT) {
+            throw ToolExecutionException("MEMORY_SOURCE_INVALID")
+        }
+        val message = userMessages.asReversed().firstOrNull { candidate ->
+            candidate.parts.filterIsInstance<UIMessagePart.Text>().any { part -> part.text.contains(quote) }
+        } ?: throw ToolExecutionException("MEMORY_SOURCE_INVALID")
+        source.copy(
+            conversationId = conversationId,
+            messageId = message.id.toString(),
+            quote = quote,
+            observedAt = System.currentTimeMillis(),
+        )
     }.distinctBy { it.messageId to it.quote }
 }
 
 fun buildMemoryDocumentTools(
     json: Json,
+    checkCanFinalize: suspend () -> Unit = {},
     onFinalize: suspend () -> Unit = {},
     onRead: suspend (String) -> MemoryDocument,
     onWrite: suspend (
@@ -132,7 +141,8 @@ fun buildMemoryDocumentTools(
             transient requests, duplicates, inference, or sensitive information. Corrections may update a document.
             Supported actions: write, str_replace, append, delete. Every operation requires if_version; use 0 only
             when creating a new document. Every added fact must be a Markdown bullet beginning `- [stated] ` and
-            include an exact quote from a current user message. Never persist inference or sensitive information.
+            include an exact quote from a current user message. Supply only the quote in each source; the app binds
+            its current conversation and message IDs. Never persist inference or sensitive information.
             Delete still requires an explicit user request. This visible tool call is the only run-finalization step,
             not a background memory service, and it never changes raw conversation history.
         """.trimIndent(),
@@ -168,13 +178,9 @@ fun buildMemoryDocumentTools(
                         put("items", buildJsonObject {
                             put("type", "object")
                             put("properties", buildJsonObject {
-                                put("conversationId", buildJsonObject { put("type", "string") })
-                                put("messageId", buildJsonObject { put("type", "string") })
                                 put("quote", buildJsonObject { put("type", "string") })
                             })
                             put("required", buildJsonArray {
-                                add("conversationId")
-                                add("messageId")
                                 add("quote")
                             })
                         })
@@ -184,10 +190,11 @@ fun buildMemoryDocumentTools(
             )
         },
         execute = { input ->
-            onFinalize()
-            val params = input.jsonObject
-            val action = params["action"]?.jsonPrimitive?.contentOrNull
+            checkCanFinalize()
+            val params = input as? JsonObject ?: throw ToolExecutionException("MEMORY_INPUT_INVALID")
+            val action = params.optionalString("action")
             if (action == null) {
+                onFinalize()
                 return@Tool listOf(
                     UIMessagePart.Text(
                         buildJsonObject {
@@ -197,33 +204,33 @@ fun buildMemoryDocumentTools(
                     )
                 )
             }
-            val path = params["path"]?.jsonPrimitive?.contentOrNull ?: error("path is required")
-            val ifVersion = params["if_version"]?.jsonPrimitive?.longOrNull ?: error("if_version is required")
+            val path = params.requiredString("path")
+            val ifVersion = params.requiredLong("if_version")
             val sources = if (action == "delete") emptyList() else params.requireSources()
             val document = try {
                 when (action) {
                     "write" -> onWrite(
                         path,
                         ifVersion,
-                        params["name"]?.jsonPrimitive?.contentOrNull ?: error("name is required"),
-                        params["description"]?.jsonPrimitive?.contentOrNull ?: error("description is required"),
-                        params["aliases"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
-                        params["content"]?.jsonPrimitive?.contentOrNull ?: error("content is required"),
+                        params.requiredString("name"),
+                        params.requiredString("description"),
+                        params.stringListOrEmpty("aliases"),
+                        params.requiredString("content"),
                         sources,
                     )
 
                     "str_replace" -> onReplace(
                         path,
                         ifVersion,
-                        params["old_text"]?.jsonPrimitive?.contentOrNull ?: error("old_text is required"),
-                        params["new_text"]?.jsonPrimitive?.contentOrNull ?: error("new_text is required"),
+                        params.requiredString("old_text"),
+                        params.requiredString("new_text"),
                         sources,
                     )
 
                     "append" -> onAppend(
                         path,
                         ifVersion,
-                        params["content"]?.jsonPrimitive?.contentOrNull ?: error("content is required"),
+                        params.requiredString("content"),
                         sources,
                     )
 
@@ -232,7 +239,7 @@ fun buildMemoryDocumentTools(
                         null
                     }
 
-                    else -> error("unknown action: $action")
+                    else -> throw ToolExecutionException("MEMORY_INPUT_INVALID")
                 }
             } catch (conflict: MemoryDocumentConflictException) {
                 val payload = buildJsonObject {
@@ -250,7 +257,14 @@ fun buildMemoryDocumentTools(
                     }
                 }
                 return@Tool listOf(UIMessagePart.Text(payload.toString()))
+            } catch (error: ToolExecutionException) {
+                throw error
+            } catch (_: IllegalArgumentException) {
+                throw ToolExecutionException("MEMORY_WRITE_REJECTED")
+            } catch (_: IllegalStateException) {
+                throw ToolExecutionException("MEMORY_WRITE_REJECTED")
             }
+            onFinalize()
             val payload = if (document == null) {
                 buildJsonObject {
                     put("success", true)
@@ -266,16 +280,32 @@ fun buildMemoryDocumentTools(
 )
 
 private fun JsonObject.requireSources(): List<MemoryDocumentSource> {
-    val array = this["sources"]?.jsonArray ?: error("sources is required")
+    val array = this["sources"] as? JsonArray ?: throw ToolExecutionException("MEMORY_SOURCE_INVALID")
     return array.map { element ->
-        val source = element.jsonObject
+        val source = element as? JsonObject ?: throw ToolExecutionException("MEMORY_SOURCE_INVALID")
         MemoryDocumentSource(
             type = MemoryDocumentSourceType.CHAT,
-            conversationId = source["conversationId"]?.jsonPrimitive?.contentOrNull
-                ?: error("source conversationId is required"),
-            messageId = source["messageId"]?.jsonPrimitive?.contentOrNull
-                ?: error("source messageId is required"),
-            quote = source["quote"]?.jsonPrimitive?.contentOrNull ?: error("source quote is required"),
+            quote = source.requiredString("quote", "MEMORY_SOURCE_INVALID"),
         )
+    }
+}
+
+private fun JsonObject.optionalString(name: String): String? {
+    val value = this[name] ?: return null
+    return (value as? JsonPrimitive)?.contentOrNull
+        ?: throw ToolExecutionException("MEMORY_INPUT_INVALID")
+}
+
+private fun JsonObject.requiredString(name: String, errorCode: String = "MEMORY_INPUT_INVALID"): String =
+    (this[name] as? JsonPrimitive)?.contentOrNull ?: throw ToolExecutionException(errorCode)
+
+private fun JsonObject.requiredLong(name: String): Long =
+    (this[name] as? JsonPrimitive)?.longOrNull ?: throw ToolExecutionException("MEMORY_INPUT_INVALID")
+
+private fun JsonObject.stringListOrEmpty(name: String): List<String> {
+    val values = this[name] ?: return emptyList()
+    val array = values as? JsonArray ?: throw ToolExecutionException("MEMORY_INPUT_INVALID")
+    return array.map { value ->
+        (value as? JsonPrimitive)?.contentOrNull ?: throw ToolExecutionException("MEMORY_INPUT_INVALID")
     }
 }
