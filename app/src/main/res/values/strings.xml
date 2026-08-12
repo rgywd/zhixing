@@ -43,8 +43,8 @@
   <string name="assistant_page_add">Add</string>
   <string name="assistant_page_add_body">Add Body</string>
   <string name="assistant_page_add_header">Add Header</string>
-  <string name="assistant_page_allow_conversation_system_prompt">Per-Conversation System Prompt</string>
-  <string name="assistant_page_allow_conversation_system_prompt_desc">Allow each conversation to override the assistant\'s system prompt</string>
+  <string name="assistant_page_allow_conversation_system_prompt">Per-Conversation User Prompt</string>
+  <string name="assistant_page_allow_conversation_system_prompt_desc">Allow each conversation to override the assistant\'s user prompt</string>
   <string name="assistant_page_allow_conversation_prompt_injection">Per-Conversation Prompt Injections</string>
   <string name="assistant_page_allow_conversation_prompt_injection_desc">Allow each conversation to bind its own prompt injections and lorebooks</string>
   <string name="assistant_page_available_variables">"Available variables: "</string>
@@ -141,7 +141,10 @@
   <string name="assistant_page_stream_output">Stream Output</string>
   <string name="assistant_page_stream_output_desc">Whether to enable streaming output for messages</string>
   <string name="assistant_page_strict">Strict</string>
-  <string name="assistant_page_system_prompt">System Prompt</string>
+  <string name="assistant_page_system_prompt">User Prompt</string>
+  <string name="assistant_page_user_prompt_vault_title">Store user prompt in knowledge vault</string>
+  <string name="assistant_page_user_prompt_vault_desc">Saved at 99_系统/提示词/助手/&lt;assistant ID&gt;.md. Changes apply only to new conversations, never the current conversation, and do not expose internal system instructions.</string>
+  <string name="assistant_page_user_prompt_save_vault">Save to knowledge vault</string>
   <string name="assistant_page_tab_basic">Basic Settings</string>
   <string name="assistant_page_tab_extensions">Extensions</string>
   <string name="assistant_page_tab_local_tools">Local Tools</string>
@@ -293,9 +296,9 @@
   <string name="chat_page_compress_not_enough_turns">At least two complete user turns are required before context can be compressed.</string>
   <string name="chat_page_compress_conversation_changed">The conversation changed while it was being compressed. Please try again.</string>
   <string name="chat_page_compress_empty_summary">The compression model returned an empty checkpoint.</string>
-  <string name="chat_page_conversation_system_prompt">Conversation System Prompt</string>
+  <string name="chat_page_conversation_system_prompt">Conversation User Prompt</string>
   <string name="chat_page_conversation_system_prompt_clear">Clear</string>
-  <string name="chat_page_conversation_system_prompt_hint">Override the assistant\'s system prompt for this conversation</string>
+  <string name="chat_page_conversation_system_prompt_hint">Override the assistant\'s user prompt for this conversation</string>
   <string name="chat_page_conversation_system_prompt_save">Save</string>
   <string name="chat_page_delete">Delete</string>
   <string name="chat_page_dismiss_error">Dismiss error</string>

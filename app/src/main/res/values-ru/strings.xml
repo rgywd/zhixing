@@ -43,8 +43,8 @@
   <string name="assistant_page_add">Добавить</string>
   <string name="assistant_page_add_body">Добавить текст</string>
   <string name="assistant_page_add_header">Добавить заголовок</string>
-  <string name="assistant_page_allow_conversation_system_prompt">Системный промпт для каждой беседы</string>
-  <string name="assistant_page_allow_conversation_system_prompt_desc">Разрешить каждому разговору переопределять системный запрос ассистента</string>
+  <string name="assistant_page_allow_conversation_system_prompt">Пользовательский промпт для каждой беседы</string>
+  <string name="assistant_page_allow_conversation_system_prompt_desc">Разрешить каждому разговору переопределять пользовательский промпт ассистента</string>
   <string name="assistant_page_allow_conversation_prompt_injection">Промпт-инъекции для каждой беседы</string>
   <string name="assistant_page_allow_conversation_prompt_injection_desc">Разрешить каждой беседе привязывать собственные промпт-инъекции и лорбуки</string>
   <string name="assistant_page_available_variables">Доступные переменные:</string>
@@ -141,7 +141,10 @@
   <string name="assistant_page_stream_output">Потоковый вывод</string>
   <string name="assistant_page_stream_output_desc">Включить потоковый вывод сообщений</string>
   <string name="assistant_page_strict">Строгий</string>
-  <string name="assistant_page_system_prompt">Системный промпт</string>
+  <string name="assistant_page_system_prompt">Пользовательский промпт</string>
+  <string name="assistant_page_user_prompt_vault_title">Хранить пользовательский промпт в базе знаний</string>
+  <string name="assistant_page_user_prompt_vault_desc">Фиксированный путь: 99_系统/提示词/助手/&lt;assistant ID&gt;.md. Изменения применяются только к новым беседам, не меняют текущую беседу и не раскрывают внутренние системные инструкции.</string>
+  <string name="assistant_page_user_prompt_save_vault">Сохранить в базе знаний</string>
   <string name="assistant_page_tab_basic">Основные настройки</string>
   <string name="assistant_page_tab_extensions">Расширения</string>
   <string name="assistant_page_tab_local_tools">Локальные инструменты</string>
@@ -291,9 +294,9 @@
   <string name="chat_page_compress_not_enough_turns">Для сжатия контекста нужны как минимум две полные реплики пользователя.</string>
   <string name="chat_page_compress_conversation_changed">Во время сжатия диалог изменился. Повторите попытку.</string>
   <string name="chat_page_compress_empty_summary">Модель сжатия вернула пустую контрольную точку.</string>
-  <string name="chat_page_conversation_system_prompt">Системный запрос для беседы</string>
+  <string name="chat_page_conversation_system_prompt">Пользовательский промпт для беседы</string>
   <string name="chat_page_conversation_system_prompt_clear">Очистить</string>
-  <string name="chat_page_conversation_system_prompt_hint">Переопределить системный промпт ассистента для этого разговора</string>
+  <string name="chat_page_conversation_system_prompt_hint">Переопределить пользовательский промпт ассистента для этого разговора</string>
   <string name="chat_page_conversation_system_prompt_save">Сохранить</string>
   <string name="chat_page_delete">Удалить</string>
   <string name="chat_page_dismiss_error">Скрыть ошибку</string>

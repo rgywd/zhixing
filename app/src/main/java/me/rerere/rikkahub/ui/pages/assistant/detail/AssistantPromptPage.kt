@@ -43,6 +43,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -74,6 +75,7 @@ import me.rerere.rikkahub.data.ai.transformers.TemplateTransformer
 import me.rerere.rikkahub.data.ai.transformers.TransformerContext
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.AssistantUserPromptSource
 import me.rerere.rikkahub.data.model.AssistantAffectScope
 import me.rerere.rikkahub.data.model.AssistantRegex
 import me.rerere.rikkahub.data.model.Conversation
@@ -91,6 +93,7 @@ import me.rerere.rikkahub.utils.UiState
 import me.rerere.rikkahub.utils.insertAtCursor
 import me.rerere.rikkahub.utils.onError
 import me.rerere.rikkahub.utils.onSuccess
+import me.rerere.workspace.AssistantUserPromptDocument
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
@@ -105,6 +108,9 @@ fun AssistantPromptPage(id: String) {
     )
     val assistant by vm.assistant.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val userPromptDocument by vm.userPromptDocument.collectAsStateWithLifecycle()
+    val userPromptError by vm.userPromptError.collectAsStateWithLifecycle()
+    val userPromptBusy by vm.userPromptBusy.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
@@ -127,7 +133,12 @@ fun AssistantPromptPage(id: String) {
             innerPadding = innerPadding,
             assistant = assistant,
             settings = settings,
-            onUpdate = { vm.update(it) }
+            userPromptDocument = userPromptDocument,
+            userPromptError = userPromptError,
+            userPromptBusy = userPromptBusy,
+            onUpdate = { vm.update(it) },
+            onUserPromptSourceChange = vm::setUserPromptSource,
+            onVaultUserPromptSave = vm::saveVaultUserPrompt,
         )
     }
 }
@@ -137,7 +148,12 @@ private fun AssistantPromptContent(
     innerPadding: PaddingValues,
     assistant: Assistant,
     settings: Settings,
-    onUpdate: (Assistant) -> Unit
+    userPromptDocument: AssistantUserPromptDocument?,
+    userPromptError: String?,
+    userPromptBusy: Boolean,
+    onUpdate: (Assistant) -> Unit,
+    onUserPromptSourceChange: (AssistantUserPromptSource) -> Unit,
+    onVaultUserPromptSave: (String, String?) -> Unit,
 ) {
     val context = LocalContext.current
     val templateTransformer = koinInject<TemplateTransformer>()
@@ -154,47 +170,105 @@ private fun AssistantPromptContent(
         Card(
             colors = CustomColors.cardColorsOnSurfaceContainer
         ) {
+            FormItem(
+                modifier = Modifier.padding(8.dp),
+                label = { Text(stringResource(R.string.assistant_page_user_prompt_vault_title)) },
+                description = {
+                    Text(stringResource(R.string.assistant_page_user_prompt_vault_desc))
+                },
+                tail = {
+                    Switch(
+                        checked = assistant.userPromptSource == AssistantUserPromptSource.KNOWLEDGE_VAULT,
+                        enabled = !userPromptBusy,
+                        onCheckedChange = { enabled ->
+                            onUserPromptSourceChange(
+                                if (enabled) AssistantUserPromptSource.KNOWLEDGE_VAULT
+                                else AssistantUserPromptSource.APP
+                            )
+                        },
+                    )
+                },
+            )
+            userPromptError?.let { error ->
+                Text(
+                    text = error,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+        }
+
+        Card(
+            colors = CustomColors.cardColorsOnSurfaceContainer
+        ) {
             Column(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val systemPromptValue = rememberTextFieldState(
-                    initialText = assistant.systemPrompt,
-                )
-                LaunchedEffect(Unit) {
-                    snapshotFlow { systemPromptValue.text }.collect {
-                        onUpdate(
-                            assistant.copy(
-                                systemPrompt = it.toString()
-                            )
-                        )
-                    }
-                }
-
-                TextArea(
-                    state = systemPromptValue,
-                    label = stringResource(R.string.assistant_page_system_prompt),
-                    minLines = 5,
-                    maxLines = 10
-                )
-
-                Column {
-                    Text(
-                        text = stringResource(R.string.assistant_page_available_variables),
-                        style = MaterialTheme.typography.labelSmall
+                val usesVault = assistant.userPromptSource == AssistantUserPromptSource.KNOWLEDGE_VAULT
+                key(assistant.id, usesVault, userPromptDocument?.revision) {
+                    val userPromptValue = rememberTextFieldState(
+                        initialText = if (usesVault) {
+                            userPromptDocument?.content ?: assistant.systemPrompt
+                        } else {
+                            assistant.systemPrompt
+                        },
                     )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        DefaultPlaceholderProvider.placeholders.forEach { (k, info) ->
-                            Tag(
-                                onClick = {
-                                    systemPromptValue.insertAtCursor("{{$k}}")
+                    if (!usesVault) {
+                        LaunchedEffect(assistant.id) {
+                            snapshotFlow { userPromptValue.text }.collect {
+                                onUpdate(
+                                    assistant.copy(
+                                        systemPrompt = it.toString()
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    TextArea(
+                        state = userPromptValue,
+                        label = stringResource(R.string.assistant_page_system_prompt),
+                        enabled = !userPromptBusy,
+                        minLines = 5,
+                        maxLines = 10
+                    )
+
+                    if (usesVault) {
+                        Button(
+                            onClick = {
+                                onVaultUserPromptSave(
+                                    userPromptValue.text.toString(),
+                                    userPromptDocument?.revision,
+                                )
+                            },
+                            enabled = !userPromptBusy &&
+                                (userPromptDocument == null ||
+                                    userPromptValue.text.toString() != userPromptDocument.content),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.assistant_page_user_prompt_save_vault))
+                        }
+                    }
+
+                    Column {
+                        Text(
+                            text = stringResource(R.string.assistant_page_available_variables),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            DefaultPlaceholderProvider.placeholders.forEach { (k, info) ->
+                                Tag(
+                                    onClick = {
+                                        userPromptValue.insertAtCursor("{{$k}}")
+                                    }
+                                ) {
+                                    info.displayName()
+                                    Text(": {{$k}}")
                                 }
-                            ) {
-                                info.displayName()
-                                Text(": {{$k}}")
                             }
                         }
                     }

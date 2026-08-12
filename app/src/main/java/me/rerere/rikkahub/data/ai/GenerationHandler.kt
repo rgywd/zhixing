@@ -50,6 +50,7 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.ConversationUserPromptSnapshot
 import me.rerere.rikkahub.data.model.MemoryDocument
 import me.rerere.rikkahub.data.repository.MemoryDocumentRepository
 import me.rerere.rikkahub.data.task.AssistantTaskStep
@@ -194,6 +195,7 @@ class GenerationHandler(
         maxSteps: Int = 256,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
         conversationSystemPrompt: String? = null,
+        conversationUserPromptSnapshot: ConversationUserPromptSnapshot? = null,
         conversationModeInjectionIds: Set<Uuid> = emptySet(),
         conversationLorebookIds: Set<Uuid> = emptySet(),
         workspaceCwd: String? = null,
@@ -323,6 +325,7 @@ class GenerationHandler(
                     memoryDocuments = promptMemoryDocuments,
                     processingStatus = processingStatus,
                     conversationSystemPrompt = conversationSystemPrompt,
+                    conversationUserPromptSnapshot = conversationUserPromptSnapshot,
                     conversationModeInjectionIds = conversationModeInjectionIds,
                     conversationLorebookIds = conversationLorebookIds,
                     workspaceCwd = workspaceCwd,
@@ -341,6 +344,7 @@ class GenerationHandler(
                             memoryDocuments = promptMemoryDocuments,
                             processingStatus = processingStatus,
                             conversationSystemPrompt = conversationSystemPrompt,
+                            conversationUserPromptSnapshot = conversationUserPromptSnapshot,
                             conversationModeInjectionIds = conversationModeInjectionIds,
                             conversationLorebookIds = conversationLorebookIds,
                             workspaceCwd = workspaceCwd,
@@ -563,6 +567,7 @@ class GenerationHandler(
         memoryDocuments: List<MemoryDocument>,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
         conversationSystemPrompt: String? = null,
+        conversationUserPromptSnapshot: ConversationUserPromptSnapshot? = null,
         conversationModeInjectionIds: Set<Uuid> = emptySet(),
         conversationLorebookIds: Set<Uuid> = emptySet(),
         workspaceCwd: String? = null,
@@ -570,14 +575,13 @@ class GenerationHandler(
         val projection = messages.projectContextForPrompt()
         return buildList {
             val system = buildString {
-                val effectiveSystemPrompt =
-                    if (assistant.allowConversationSystemPrompt && !conversationSystemPrompt.isNullOrBlank()) {
-                        conversationSystemPrompt
-                    } else {
-                        assistant.systemPrompt
-                    }
-                if (effectiveSystemPrompt.isNotBlank()) {
-                    append(effectiveSystemPrompt)
+                val userPrompt = effectiveUserPrompt(
+                    assistant = assistant,
+                    conversationSystemPrompt = conversationSystemPrompt,
+                    snapshot = conversationUserPromptSnapshot,
+                )
+                if (userPrompt.isNotBlank()) {
+                    append(userPrompt)
                 }
 
                 // 记忆

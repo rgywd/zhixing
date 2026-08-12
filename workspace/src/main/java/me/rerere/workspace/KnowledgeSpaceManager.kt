@@ -4,6 +4,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.InputStream
 import java.nio.file.Paths
+import java.security.MessageDigest
 
 data class KnowledgeSpaceStatus(
     val initialized: Boolean,
@@ -11,6 +12,16 @@ data class KnowledgeSpaceStatus(
     val contentFileCount: Int,
     val indexedDocumentCount: Int,
 )
+
+data class AssistantUserPromptDocument(
+    val path: String,
+    val content: String,
+    val revision: String,
+)
+
+class AssistantUserPromptConflictException(
+    val current: AssistantUserPromptDocument?,
+) : IllegalStateException("Assistant user prompt changed since it was read")
 
 data class KnowledgeImportResult(
     val sourcePath: String,
@@ -94,6 +105,62 @@ class KnowledgeSpaceManager(
             contentRoot = VAULT_DIR,
             contentFileCount = if (initialized) countVaultContentFiles(root) else 0,
             indexedDocumentCount = if (initialized) countSearchableDocuments(root) else 0,
+        )
+    }
+
+    fun readAssistantUserPrompt(root: String, assistantId: String): AssistantUserPromptDocument? {
+        require(isInitialized(root)) { "Knowledge vault is not initialized" }
+        val path = assistantUserPromptPath(assistantId)
+        if (!workspaceManager.exists(root, path)) return null
+        val size = workspaceManager.fileSize(root, path)
+        require(size <= MAX_USER_PROMPT_BYTES) {
+            "Assistant user prompt is too large: $size bytes"
+        }
+        val content = workspaceManager.readText(root, path)
+        return AssistantUserPromptDocument(
+            path = path,
+            content = content,
+            revision = content.sha256(),
+        )
+    }
+
+    @Synchronized
+    fun ensureAssistantUserPrompt(
+        root: String,
+        assistantId: String,
+        fallbackContent: String,
+    ): AssistantUserPromptDocument {
+        readAssistantUserPrompt(root, assistantId)?.let { return it }
+        return writeAssistantUserPrompt(
+            root = root,
+            assistantId = assistantId,
+            content = fallbackContent,
+            expectedRevision = null,
+        )
+    }
+
+    @Synchronized
+    fun writeAssistantUserPrompt(
+        root: String,
+        assistantId: String,
+        content: String,
+        expectedRevision: String?,
+    ): AssistantUserPromptDocument {
+        require(isInitialized(root)) { "Knowledge vault is not initialized" }
+        val contentBytes = content.toByteArray(Charsets.UTF_8)
+        require(contentBytes.size <= MAX_USER_PROMPT_BYTES) {
+            "Assistant user prompt is too large: ${contentBytes.size} bytes"
+        }
+        val current = readAssistantUserPrompt(root, assistantId)
+        if (current?.revision != expectedRevision) {
+            throw AssistantUserPromptConflictException(current)
+        }
+        val path = assistantUserPromptPath(assistantId)
+        workspaceManager.writeTextAtomically(root, path, content)
+        return AssistantUserPromptDocument(
+            path = path,
+            content = content,
+            revision = content.sha256(),
         )
     }
 
@@ -384,12 +451,14 @@ class KnowledgeSpaceManager(
         const val NORMALIZED_DIR = ".zhixing/knowledge/normalized"
         const val METADATA_DIR = ".zhixing/knowledge/metadata"
         const val MARKER_FILE = ".zhixing/knowledge-space.json"
+        const val USER_PROMPTS_DIR = "$VAULT_DIR/99_系统/提示词/助手"
 
         private const val DEFAULT_SEARCH_LIMIT = 20
         private const val MAX_SEARCH_LIMIT = 50
         private const val DEFAULT_READ_LINES = 120
         private const val MAX_READ_LINES = 200
         private const val MAX_EXCERPT_CHARS = 500
+        private const val MAX_USER_PROMPT_BYTES = 128L * 1024
         private val SOURCE_MARKER = Regex("<!-- zhixing-source: (.+) -->")
         private val CONTENT_DIRECTORIES = listOf(
             "$VAULT_DIR/00_收件箱",
@@ -415,6 +484,7 @@ class KnowledgeSpaceManager(
             "$VAULT_DIR/99_系统/模板",
             "$VAULT_DIR/99_系统/数据库",
             "$VAULT_DIR/99_系统/提示词",
+            USER_PROMPTS_DIR,
             "$VAULT_DIR/.claude",
             "$VAULT_DIR/.codex",
             "$VAULT_DIR/.gemini/commands",
@@ -480,4 +550,15 @@ class KnowledgeSpaceManager(
             """.trimIndent() + "\n",
         )
     }
+
+    private fun assistantUserPromptPath(assistantId: String): String {
+        require(assistantId.matches(Regex("[A-Za-z0-9-]{1,64}"))) {
+            "Invalid assistant id"
+        }
+        return "$USER_PROMPTS_DIR/$assistantId.md"
+    }
+
+    private fun String.sha256(): String = MessageDigest.getInstance("SHA-256")
+        .digest(toByteArray(Charsets.UTF_8))
+        .joinToString("") { byte -> "%02x".format(byte) }
 }

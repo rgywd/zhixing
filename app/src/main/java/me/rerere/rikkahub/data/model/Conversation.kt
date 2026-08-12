@@ -25,6 +25,7 @@ data class Conversation(
     @Serializable(with = InstantSerializer::class)
     val updateAt: Instant = Instant.now(),
     val customSystemPrompt: String? = null,
+    val userPromptSnapshot: ConversationUserPromptSnapshot? = null,
     val modeInjectionIds: Set<Uuid> = emptySet(),
     val lorebookIds: Set<Uuid> = emptySet(),
     // Absolute path inside the workspace rootfs
@@ -103,6 +104,22 @@ data class Conversation(
             newConversation = newConversation,
         )
     }
+}
+
+@Serializable
+data class ConversationUserPromptSnapshot(
+    val formatVersion: Int = 1,
+    val content: String,
+    val source: UserPromptSnapshotSource,
+    val sourcePath: String? = null,
+    val revision: String? = null,
+    val capturedAtEpochMillis: Long,
+)
+
+@Serializable
+enum class UserPromptSnapshotSource {
+    ASSISTANT_SETTING,
+    KNOWLEDGE_VAULT,
 }
 
 @Serializable

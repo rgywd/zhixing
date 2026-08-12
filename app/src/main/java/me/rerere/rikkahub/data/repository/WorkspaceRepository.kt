@@ -12,6 +12,7 @@ import me.rerere.rikkahub.data.db.dao.WorkspaceDAO
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.workspace.RootfsInstallProgress
+import me.rerere.workspace.AssistantUserPromptDocument
 import me.rerere.workspace.RootfsInstaller
 import me.rerere.workspace.KnowledgeImportResult
 import me.rerere.workspace.KnowledgeReadResult
@@ -100,6 +101,42 @@ class WorkspaceRepository(
     suspend fun isKnowledgeVaultInitialized(id: String): Boolean = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: return@withContext false
         knowledgeSpaceManager.isInitialized(workspace.root)
+    }
+
+    suspend fun readAssistantUserPrompt(
+        id: String,
+        assistantId: String,
+    ): AssistantUserPromptDocument? = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        knowledgeSpaceManager.readAssistantUserPrompt(workspace.root, assistantId)
+    }
+
+    suspend fun ensureAssistantUserPrompt(
+        id: String,
+        assistantId: String,
+        fallbackContent: String,
+    ): AssistantUserPromptDocument = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        knowledgeSpaceManager.ensureAssistantUserPrompt(
+            root = workspace.root,
+            assistantId = assistantId,
+            fallbackContent = fallbackContent,
+        )
+    }
+
+    suspend fun writeAssistantUserPrompt(
+        id: String,
+        assistantId: String,
+        content: String,
+        expectedRevision: String?,
+    ): AssistantUserPromptDocument = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        knowledgeSpaceManager.writeAssistantUserPrompt(
+            root = workspace.root,
+            assistantId = assistantId,
+            content = content,
+            expectedRevision = expectedRevision,
+        )
     }
 
     suspend fun listKnowledgeContents(

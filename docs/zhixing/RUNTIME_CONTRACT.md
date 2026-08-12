@@ -36,7 +36,8 @@ SettingsStore -> DataStore
 - `Conversation` 持有稳定 ID、助手、标题、消息节点、组织信息和可选 Workspace。
 - `MessageNode` 保存同一位置的候选消息；编辑、重试和重新生成不得破坏兄弟分支。
 - `UIMessage` 保留文本、推理、图片、音频、文件、工具调用/结果等结构化 parts；流式更新按身份合并。
-- `Assistant` 聚合模型、系统提示、参数、记忆、MCP、工具和 Workspace 策略；每轮生成解析出不可变快照。
+- `Assistant` 聚合模型、用户提示词来源、参数、记忆、MCP、工具和 Workspace 策略；内部系统与安全指令不属于
+  用户提示词。每个对话在首条用户消息持久化时取得不可变的用户提示词快照。
 - 记忆文档与原始历史对话检索分开；listing、按需读取、用户原话来源和写入版本契约遵守
   [`MEMORY_SYSTEM.md`](./MEMORY_SYSTEM.md)。
 - 显式记忆写入必须携带明确作用域：画像始终全局，情境记忆只属于当前选择的全局或助手作用域；模型工具
@@ -71,7 +72,8 @@ SettingsStore -> DataStore
 
 ## 生成生命周期
 
-1. 用户输入转换为结构化消息并写入当前会话。
+1. 用户输入转换为结构化消息；同一 Room 保存边界内先冻结用户提示词快照，再写入当前会话。知识库文件缺失
+   时使用应用配置，已有空文件表示显式空提示词。
 2. ChatService 固定助手、模型、Provider 和当前消息分支快照。
 3. 输入 Transformer 注入时间、提示、文档/OCR、记忆与 Workspace 上下文。
 4. GenerationHandler 对最终请求做保守 token 估算；普通回复达到 262,000 token 时，在付费 Provider
@@ -81,8 +83,10 @@ SettingsStore -> DataStore
 7. 输出 Transformer 完成显示与持久化处理。
 8. 完成、停止、失败和可恢复进度都写回仓库，已有部分结果不得丢失。
 
-上下文分成每次请求重新构建的稳定层和可压缩的会话历史层。稳定层包括当前系统提示、助手配置、生效记忆、
-工具系统提示与 schema、Workspace/模式注入等；它计入 262,000 token 阈值，但绝不进入会话摘要。历史层以
+上下文分成每次请求重新构建的稳定层和可压缩的会话历史层。稳定层包括对话冻结的用户提示词、应用内部指令、
+助手配置、生效记忆、工具系统提示与 schema、Workspace/模式注入等；它计入 262,000 token 阈值，但绝不进入
+会话摘要。Provider 即使把这些层合并为同一个 SYSTEM role，领域边界仍保持分离：知识库只能替换用户提示词，
+不能覆盖内部系统、安全、工具、记忆或运行时指令。历史层以
 完整 `UIMessage` 保存在 Room 和 UI 中。压缩只在一个完整轮次边界写入 `ContextCheckpoint` annotation，
 后续请求投影为“最新检查点摘要 + 最近完整轮次”；不会删除原始节点，也不会把模型摘要伪装成用户消息。
 
@@ -105,6 +109,7 @@ SettingsStore -> DataStore
 
 - Provider 统一暴露能力与生成方法，供应商特例不得泄漏到聊天 UI。
 - MCP、搜索、语音和设备连接均为可选能力；失败只降级对应入口。
+- 知识库托管的助手用户提示词只影响修改后开始的新对话；当前对话和 fork 使用 Room 中已冻结的快照。
 - Knowledge Space 复用 Workspace，原文与派生索引边界见
   [`KNOWLEDGE_SPACE.md`](./KNOWLEDGE_SPACE.md)。
 - Agenda 以本地待办和长期计划为事实来源，系统日历只读投影见
