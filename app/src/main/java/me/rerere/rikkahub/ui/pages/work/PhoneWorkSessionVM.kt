@@ -52,6 +52,7 @@ class PhoneWorkSessionVM(
     val sendError = MutableStateFlow<String?>(null)
     val error = MutableStateFlow<String?>(null)
     private var initialDefaultResolved = false
+    private var pendingEffortChange = false
 
     init {
         viewModelScope.launch {
@@ -74,7 +75,13 @@ class PhoneWorkSessionVM(
                 )
                 selectedRuntime.value = current.runtime
                 selectedModel.value = current.model
-                selectedEffort.value = current.reasoningEffort
+                val effortSelection = reconcileWorkEffortSelection(
+                    selectedEffort = selectedEffort.value,
+                    serverEffort = current.reasoningEffort,
+                    pending = pendingEffortChange,
+                )
+                selectedEffort.value = effortSelection.effort
+                pendingEffortChange = effortSelection.pending
             }
         }
         viewModelScope.launch {
@@ -158,13 +165,17 @@ class PhoneWorkSessionVM(
     }
 
     fun selectEffort(effort: String) {
-        if (sessionId.value != null) return
-        val efforts = selectedRepo.value?.effectiveRuntimes()
-            ?.firstOrNull { it.id == selectedRuntime.value }
-            ?.effectiveReasoningEfforts(selectedModel.value)
-            .orEmpty()
-            .ifEmpty { defaultReasoningEfforts(selectedModel.value) }
-        if (effort in efforts) selectedEffort.value = effort
+        val currentSession = session.value
+        val efforts = currentSession?.let { workSessionReasoningEfforts(catalog.value, it) }
+            ?: selectedRepo.value?.effectiveRuntimes()
+                ?.firstOrNull { it.id == selectedRuntime.value }
+                ?.effectiveReasoningEfforts(selectedModel.value)
+                .orEmpty()
+                .ifEmpty { defaultReasoningEfforts(selectedModel.value) }
+        if (effort in efforts) {
+            selectedEffort.value = effort
+            pendingEffortChange = currentSession != null && effort != currentSession.reasoningEffort
+        }
     }
 
     fun send(
@@ -193,7 +204,12 @@ class PhoneWorkSessionVM(
                         onAccepted(it.id)
                     }
                 } else {
-                    repository.sendMessage(id, text, attachments)
+                    repository.sendMessage(
+                        sessionId = id,
+                        text = text,
+                        attachments = attachments,
+                        reasoningEffort = selectedEffort.value.takeIf { pendingEffortChange },
+                    )
                     repository.refreshEvents(id)
                     onAccepted(null)
                 }
@@ -292,6 +308,38 @@ class PhoneWorkSessionVM(
         private fun preferredEffort(efforts: List<String>): String =
             efforts.firstOrNull { it == "high" } ?: efforts.firstOrNull() ?: "high"
     }
+}
+
+internal fun workSessionRuntime(
+    catalog: PhoneWorkCatalog,
+    session: PhoneWorkSession,
+): PhoneWorkRuntime? = catalog.repos
+    .firstOrNull { it.runnerId == session.runnerId && it.id == session.repoId && it.available }
+    ?.effectiveRuntimes()
+    ?.firstOrNull { it.id == session.runtime }
+    ?.takeIf { session.model in it.models }
+
+internal fun workSessionReasoningEfforts(
+    catalog: PhoneWorkCatalog,
+    session: PhoneWorkSession,
+): List<String> = workSessionRuntime(catalog, session)
+    ?.effectiveReasoningEfforts(session.model)
+    .orEmpty()
+    .ifEmpty { listOf(session.reasoningEffort) }
+
+internal data class WorkEffortSelection(
+    val effort: String,
+    val pending: Boolean,
+)
+
+internal fun reconcileWorkEffortSelection(
+    selectedEffort: String,
+    serverEffort: String,
+    pending: Boolean,
+): WorkEffortSelection = if (!pending || selectedEffort == serverEffort) {
+    WorkEffortSelection(effort = serverEffort, pending = false)
+} else {
+    WorkEffortSelection(effort = selectedEffort, pending = true)
 }
 
 private fun runtimeDisplayName(runtime: String): String = when (runtime) {

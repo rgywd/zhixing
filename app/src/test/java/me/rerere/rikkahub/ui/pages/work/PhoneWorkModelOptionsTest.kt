@@ -1,6 +1,9 @@
 package me.rerere.rikkahub.ui.pages.work
 
+import me.rerere.rikkahub.data.work.PhoneWorkCatalog
+import me.rerere.rikkahub.data.work.PhoneWorkRepo
 import me.rerere.rikkahub.data.work.PhoneWorkRuntime
+import me.rerere.rikkahub.data.work.PhoneWorkSession
 import me.rerere.rikkahub.data.work.effectiveReasoningEfforts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -42,6 +45,140 @@ class PhoneWorkModelOptionsTest {
         assertEquals(
             PhoneWorkSessionVM.DEFAULT_EFFORTS,
             runtime.effectiveReasoningEfforts("gpt-5.6-luna"),
+        )
+    }
+
+    @Test
+    fun `existing session resolves all current reasoning efforts from the live catalog`() {
+        val runtime = PhoneWorkRuntime(
+            id = "codex",
+            name = "Codex",
+            models = listOf("gpt-5.6-sol"),
+            reasoningEfforts = listOf("low", "medium", "high", "xhigh", "max"),
+        )
+        val catalog = PhoneWorkCatalog(
+            runners = emptyList(),
+            repos = listOf(
+                PhoneWorkRepo(
+                    id = "repo-1",
+                    runnerId = "runner-1",
+                    name = "zhixing",
+                    models = runtime.models,
+                    reasoningEfforts = runtime.reasoningEfforts,
+                    available = true,
+                    runtimes = listOf(runtime),
+                ),
+            ),
+            refreshedAtMillis = 0,
+        )
+        val session = PhoneWorkSession(
+            id = "work-1",
+            runnerId = "runner-1",
+            repoId = "repo-1",
+            repoName = "zhixing",
+            runtime = "codex",
+            model = "gpt-5.6-sol",
+            reasoningEffort = "low",
+            status = "IDLE",
+            createdAt = "2026-08-12T00:00:00Z",
+            updatedAt = "2026-08-12T00:00:00Z",
+        )
+
+        assertEquals(runtime.reasoningEfforts, workSessionReasoningEfforts(catalog, session))
+    }
+
+    @Test
+    fun `existing session falls back to its snapshot when the catalog is unavailable`() {
+        val session = PhoneWorkSession(
+            id = "work-1",
+            runnerId = "runner-1",
+            repoId = "repo-1",
+            repoName = "zhixing",
+            model = "gpt-5.6-sol",
+            reasoningEffort = "high",
+            status = "IDLE",
+            createdAt = "2026-08-12T00:00:00Z",
+            updatedAt = "2026-08-12T00:00:00Z",
+        )
+
+        assertEquals(listOf("high"), workSessionReasoningEfforts(PhoneWorkCatalog(), session))
+    }
+
+    @Test
+    fun `existing session does not offer stale efforts while its repository is unavailable`() {
+        val session = PhoneWorkSession(
+            id = "work-1",
+            runnerId = "runner-1",
+            repoId = "repo-1",
+            repoName = "zhixing",
+            model = "gpt-5.6-sol",
+            reasoningEffort = "high",
+            status = "IDLE",
+            createdAt = "2026-08-12T00:00:00Z",
+            updatedAt = "2026-08-12T00:00:00Z",
+        )
+        val catalog = PhoneWorkCatalog(
+            repos = listOf(
+                PhoneWorkRepo(
+                    id = session.repoId,
+                    runnerId = session.runnerId,
+                    name = session.repoName,
+                    models = listOf(session.model),
+                    reasoningEfforts = listOf("high", "xhigh"),
+                    available = false,
+                ),
+            ),
+        )
+
+        assertEquals(listOf("high"), workSessionReasoningEfforts(catalog, session))
+    }
+
+    @Test
+    fun `existing session does not offer efforts when its model left the runtime catalog`() {
+        val session = PhoneWorkSession(
+            id = "work-1",
+            runnerId = "runner-1",
+            repoId = "repo-1",
+            repoName = "zhixing",
+            model = "gpt-5.6-sol",
+            reasoningEffort = "high",
+            status = "IDLE",
+            createdAt = "2026-08-12T00:00:00Z",
+            updatedAt = "2026-08-12T00:00:00Z",
+        )
+        val catalog = PhoneWorkCatalog(
+            repos = listOf(
+                PhoneWorkRepo(
+                    id = session.repoId,
+                    runnerId = session.runnerId,
+                    name = session.repoName,
+                    models = listOf("gpt-5.6-luna"),
+                    reasoningEfforts = listOf("high", "xhigh"),
+                    available = true,
+                ),
+            ),
+        )
+
+        assertEquals(listOf("high"), workSessionReasoningEfforts(catalog, session))
+    }
+
+    @Test
+    fun `background refresh does not overwrite an effort waiting to be sent`() {
+        assertEquals(
+            WorkEffortSelection(effort = "xhigh", pending = true),
+            reconcileWorkEffortSelection(
+                selectedEffort = "xhigh",
+                serverEffort = "high",
+                pending = true,
+            ),
+        )
+        assertEquals(
+            WorkEffortSelection(effort = "xhigh", pending = false),
+            reconcileWorkEffortSelection(
+                selectedEffort = "xhigh",
+                serverEffort = "xhigh",
+                pending = true,
+            ),
         )
     }
 }

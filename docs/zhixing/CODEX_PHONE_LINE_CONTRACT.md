@@ -53,8 +53,9 @@ repo/runtime/model/effort 组合。仓库 catalog 项可携带可选 `group`、`
 `group` 是 Runner 配置的公开显示标签，不得包含真实绝对路径。Android 只允许创建 `available=true` 的目录会话，
 并可按 `group` 分组和搜索。Android 可在本机保存仓库引用（`runnerId + repoId`）的置顶顺序和最多 5 项最近选择；
 选择器按置顶、最近使用、其余分组展示且不重复。新会话只从仍可用的最近项或置顶项恢复默认，没有本地历史时保持
-未选择。该偏好不上传 Core，也不改变 catalog 或会话创建协议。创建后 runtime/model/effort 固定；旧客户端未提交
-`runtime` 时默认 `codex`。旧 Runner 的扁平 `models/reasoningEfforts` catalog 也继续映射为 Codex。
+未选择。该偏好不上传 Core，也不改变 catalog 或会话创建协议。创建后 runtime/model 固定；`reasoningEffort` 保存
+会话当前默认值，后续消息可选择同一 runtime/model 当前支持的档位并从下一轮生效。旧客户端未提交 `runtime` 时默认
+`codex`。旧 Runner 的扁平 `models/reasoningEfforts` catalog 也继续映射为 Codex。
 
 `reasoningEffortsByModel` 是可选的按模型覆盖：键必须属于同一 runtime 的 `models`，值必须是
 `reasoningEfforts` 的非空子集。未提供覆盖的模型继续使用 runtime 级 `reasoningEfforts`。Android 在切换模型时
@@ -204,7 +205,8 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
 - `GET /v1/work/sessions?archived=true`：返回已归档会话；默认列表不包含归档项。
 - `GET /v1/work/sessions/{id}/events?afterSeq=`：补拉有序事件。
 - `GET /v1/work/sessions/{id}/stream?afterSeq=`：SSE；断开不影响写入。
-- `POST /v1/work/sessions/{id}/messages`：排队补充消息。
+- `POST /v1/work/sessions/{id}/messages`：排队补充消息；可携带 `reasoningEffort`，与消息原子校验和提交并从该消息
+  触发的下一次 START/RESUME 生效。字段缺省时沿用会话当前值，保持旧客户端兼容。
 - `POST /v1/work/sessions/{id}/asks/{askId}/answer`：提交答案。
 - `POST /v1/work/sessions/{id}/stop`：停止当前进程，会话进入 IDLE。
 - `POST /v1/work/sessions/{id}/complete`：显式结束会话。
@@ -238,6 +240,9 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 - 每个 session 使用独立、单调递增的 `seq`；Android 以 `(sessionId, seq)` 去重。
 - 同一 session 同时最多一个 Runner lease 和一个 CLI 子进程。
 - 手机消息先持久化再入命令队列；Core 返回 2xx 只表示已耐久接收，不表示 CLI 已阅读。
+- 补充消息携带 `reasoningEffort` 时，Core 必须在同一个幂等事务中按会话的 runner/repo/runtime/model 当前 catalog
+  校验档位、写入消息、更新会话默认值并创建命令。无效档位整笔拒绝，不得落下消息或部分更新。该设置只约束新建
+  命令；已经 RUNNING 的子进程继续使用启动时的档位。
 - `report` 读取 inbox 时使用租约式 cursor：响应已包含的消息在下一次成功提交 cursor 后才确认，避免进程崩溃丢消息。
 - stop 与新消息竞态时，先完成 stop；新消息保留为待 resume，不静默丢弃。
 - Runner 事件必须携带 `clientEventId`。首期只允许 `ASSISTANT_MESSAGE`，其正文来自公开 `codex exec --json`

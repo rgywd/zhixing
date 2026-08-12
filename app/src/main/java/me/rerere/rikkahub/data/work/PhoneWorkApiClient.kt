@@ -110,10 +110,16 @@ class PhoneWorkApiClient(
             idempotencyKey = request.clientMessageId,
         )
 
-    suspend fun sendMessage(sessionId: String, text: String, attachmentIds: List<String>): PhoneWorkEvent {
+    suspend fun sendMessage(
+        sessionId: String,
+        text: String,
+        attachmentIds: List<String>,
+        reasoningEffort: String? = null,
+    ): PhoneWorkEvent {
         val body = SendMessageRequest(
             text = text,
             attachmentIds = attachmentIds,
+            reasoningEffort = reasoningEffort,
             clientMessageId = UUID.randomUUID().toString(),
         )
         return post<PhoneWorkEvent, SendMessageRequest>(
@@ -305,9 +311,10 @@ data class CreateSessionRequest(
     val clientMessageId: String = UUID.randomUUID().toString(),
 )
 
-@Serializable private data class SendMessageRequest(
+@Serializable internal data class SendMessageRequest(
     val text: String,
     val attachmentIds: List<String>,
+    val reasoningEffort: String? = null,
     val clientMessageId: String,
 )
 @Serializable private data class AnswerRequest(val answers: List<PhoneWorkAnswer>)

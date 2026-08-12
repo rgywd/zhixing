@@ -706,7 +706,32 @@ export class WorkStore {
       if (!String(input.text ?? "").trim() && !(input.attachmentIds?.length)) {
         throw Object.assign(new Error("Message or attachment is required"), { statusCode: 400 });
       }
+      const reasoningEffort = input.reasoningEffort == null
+        ? session.reasoningEffort
+        : String(input.reasoningEffort).trim();
+      if (input.reasoningEffort != null) {
+        const repo = this.db.prepare(
+          "SELECT * FROM repos WHERE runner_id=? AND id=? AND available=1",
+        ).get(session.runnerId, session.repoId);
+        const advertisedRuntime = repo
+          ? runtimeCatalogFromRow(repo).find((candidate) => candidate.id === session.runtime)
+          : null;
+        if (
+          !advertisedRuntime
+          || !advertisedRuntime.models.includes(session.model)
+          || !effectiveReasoningEfforts(advertisedRuntime, session.model).includes(reasoningEffort)
+        ) {
+          throw Object.assign(
+            new Error("Runtime, model or reasoning effort is not advertised by the runner"),
+            { statusCode: 400 },
+          );
+        }
+      }
       const attachments = this.bindAttachments(sessionId, input.attachmentIds, session.runnerId);
+      if (reasoningEffort !== session.reasoningEffort) {
+        this.db.prepare("UPDATE sessions SET reasoning_effort=?, updated_at=? WHERE id=?")
+          .run(reasoningEffort, new Date().toISOString(), sessionId);
+      }
       const event = this.appendEvent(sessionId, "USER_MESSAGE", {
         text: input.text ?? "",
         attachments,
@@ -721,7 +746,7 @@ export class WorkStore {
         repoId: session.repoId,
         runtime: session.runtime,
         model: session.model,
-        reasoningEffort: session.reasoningEffort,
+        reasoningEffort,
         inboxCursor: event.seq,
         sessionToken: this.createSessionToken(sessionId),
       });
