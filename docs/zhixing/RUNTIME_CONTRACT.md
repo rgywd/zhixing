@@ -172,3 +172,6 @@ $$USER_TOKEN=value
 - `TodayOverviewProvider` 是空白 Chat、右栏 Agenda 行动和 Agenda 页的共享投影时钟。排序固定为等待输入、
   可重试、执行中、当前状态、Agenda 行动、独立 Work 提醒；当天完成项单独折叠。Work 只适配提醒，
   Phone-line session/event/ask/report 数据不复制到普通任务表。
+- `AssistantTask` 只承担后台连续性和跨会话找回，不作为来源聊天中的附加消息。用户位于来源聊天时，运行、
+  等待回答、失败和完成分别由原消息流中的进度、问答卡、错误操作和最终回复表达；跨会话任务卡才提供回到
+  来源消息锚点的入口，完成项只保留在 Today 的当天折叠区。
