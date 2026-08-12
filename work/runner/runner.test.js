@@ -121,7 +121,7 @@ test("Claude Code args load user API settings while isolating hooks and MCP", ()
   const args = buildClaudeArgs({
     kind: "RESUME",
     model: "sonnet",
-    reasoningEffort: "high",
+    reasoningEffort: "xhigh",
     runtimeSessionId: "claude-session",
     developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
     mcpConfigPath,
@@ -141,6 +141,7 @@ test("Claude Code args load user API settings while isolating hooks and MCP", ()
     "--setting-sources", "user,project",
   ]);
   assert.deepEqual(JSON.parse(args[args.indexOf("--settings") + 1]), { disableAllHooks: true });
+  assert.deepEqual(args.slice(args.indexOf("--effort"), args.indexOf("--effort") + 2), ["--effort", "xhigh"]);
   assert.ok(args.includes("claude-session"));
   assert.ok(!args.includes("secret"));
 });
@@ -593,6 +594,7 @@ test("resume targets the persisted Codex session", () => {
   assert.ok(args.indexOf("--profile") < args.indexOf("resume"));
   assert.ok(args.indexOf("--dangerously-bypass-hook-trust") > args.indexOf("resume"));
   assert.equal(args.includes("--add-dir"), false);
+  assert.ok(args.includes('model_reasoning_effort="xhigh"'));
   assert.deepEqual(args.slice(-2), ["019f-session", "-"]);
 });
 

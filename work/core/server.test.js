@@ -512,6 +512,88 @@ test("runtime catalog enforces model-specific reasoning efforts", async (t) => {
   assert.equal(accepted.response.status, 201);
 });
 
+test("a follow-up message atomically changes the reasoning effort for its resume turn", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const { session } = await registerAndCreate(baseUrl);
+
+  const changed = await request(baseUrl, `/v1/work/sessions/${session.id}/messages`, {
+    method: "POST",
+    idempotencyKey: "resume-with-xhigh",
+    body: {
+      text: "请用更深的思考复查",
+      reasoningEffort: "xhigh",
+      clientMessageId: "message-xhigh",
+    },
+  });
+
+  assert.equal(changed.response.status, 202);
+  const commands = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  const resume = commands.payload.commands.find((command) => command.kind === "RESUME");
+  assert.equal(resume.payload.reasoningEffort, "xhigh");
+  const sessions = await request(baseUrl, "/v1/work/sessions");
+  assert.equal(sessions.payload.sessions.find((candidate) => candidate.id === session.id).reasoningEffort, "xhigh");
+});
+
+test("an invalid follow-up reasoning effort rejects the message without partial writes", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const { session } = await registerAndCreate(baseUrl);
+
+  const rejected = await request(baseUrl, `/v1/work/sessions/${session.id}/messages`, {
+    method: "POST",
+    idempotencyKey: "resume-with-invalid-effort",
+    body: {
+      text: "这条消息不能落库",
+      reasoningEffort: "ultra",
+      clientMessageId: "message-invalid",
+    },
+  });
+
+  assert.equal(rejected.response.status, 400);
+  const events = await request(baseUrl, `/v1/work/sessions/${session.id}/events?afterSeq=0`);
+  assert.deepEqual(
+    events.payload.events.filter((event) => event.type === "USER_MESSAGE").map((event) => event.payload.text),
+    ["实现 phone-line 闭环"],
+  );
+  const commands = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  assert.equal(commands.payload.commands.some((command) => command.kind === "RESUME"), false);
+  const sessions = await request(baseUrl, "/v1/work/sessions");
+  assert.equal(sessions.payload.sessions.find((candidate) => candidate.id === session.id).reasoningEffort, "high");
+});
+
+test("follow-up effort changes remain idempotent and older clients keep the current effort", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const { session } = await registerAndCreate(baseUrl);
+
+  const first = await request(baseUrl, `/v1/work/sessions/${session.id}/messages`, {
+    method: "POST",
+    idempotencyKey: "same-effort-change",
+    body: { text: "深度复查", reasoningEffort: "xhigh", clientMessageId: "message-deep" },
+  });
+  const duplicate = await request(baseUrl, `/v1/work/sessions/${session.id}/messages`, {
+    method: "POST",
+    idempotencyKey: "same-effort-change",
+    body: { text: "不应覆盖", reasoningEffort: "high", clientMessageId: "message-duplicate" },
+  });
+  assert.equal(duplicate.payload.id, first.payload.id);
+
+  await request(baseUrl, `/v1/work/sessions/${session.id}/messages`, {
+    method: "POST",
+    idempotencyKey: "legacy-follow-up",
+    body: { text: "旧客户端继续", clientMessageId: "message-legacy" },
+  });
+  await request(baseUrl, `/v1/work/sessions/${session.id}/messages`, {
+    method: "POST",
+    idempotencyKey: "queued-effort-change",
+    body: { text: "下一轮恢复常规深度", reasoningEffort: "high", clientMessageId: "message-high" },
+  });
+
+  const commands = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  const resumes = commands.payload.commands.filter((command) => command.kind === "RESUME");
+  assert.deepEqual(resumes.map((command) => command.payload.reasoningEffort), ["xhigh", "xhigh", "high"]);
+  const events = await request(baseUrl, `/v1/work/sessions/${session.id}/events?afterSeq=0`);
+  assert.equal(events.payload.events.filter((event) => event.type === "USER_MESSAGE").length, 4);
+});
+
 test("runner assistant messages are allow-listed, idempotent and ordered", async (t) => {
   const { baseUrl } = await fixture(t);
   const { session } = await registerAndCreate(baseUrl);

@@ -1,8 +1,12 @@
 package me.rerere.rikkahub.data.work
 
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import me.rerere.rikkahub.data.life.InformationMonitorFreshness
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PhoneWorkApiClientTest {
@@ -20,5 +24,32 @@ class PhoneWorkApiClientTest {
         assertThrows(PhoneWorkApiException::class.java) {
             parseInformationMonitorFreshness("unknown")
         }
+    }
+
+    @Test
+    fun `follow-up message serializes an optional reasoning effort`() {
+        val encoded = Json.encodeToString(
+            SendMessageRequest(
+                text = "请深度复查",
+                attachmentIds = emptyList(),
+                reasoningEffort = "xhigh",
+                clientMessageId = "message-1",
+            ),
+        )
+
+        assertTrue(encoded.contains("\"reasoningEffort\":\"xhigh\""))
+    }
+
+    @Test
+    fun `legacy follow-up message omits a missing reasoning effort`() {
+        val encoded = Json.encodeToString(
+            SendMessageRequest(
+                text = "继续",
+                attachmentIds = emptyList(),
+                clientMessageId = "message-2",
+            ),
+        )
+
+        assertFalse(encoded.contains("reasoningEffort"))
     }
 }

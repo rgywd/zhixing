@@ -187,9 +187,15 @@ fun PhoneWorkSessionPage(sessionId: String) {
     val sendError by vm.sendError.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val draft = sessionId.isBlank() && session == null
-    val selectedRuntimeConfig = selectedRepo
-        ?.effectiveRuntimes()
-        ?.firstOrNull { it.id == selectedRuntime }
+    val selectedRuntimeConfig = session?.let { workSessionRuntime(catalog, it) }
+        ?: selectedRepo
+            ?.effectiveRuntimes()
+            ?.firstOrNull { it.id == selectedRuntime }
+    val reasoningEffortOptions = session?.let { workSessionReasoningEfforts(catalog, it) }
+        ?: selectedRuntimeConfig
+            ?.effectiveReasoningEfforts(selectedModel)
+            .orEmpty()
+            .ifEmpty { PhoneWorkSessionVM.defaultReasoningEfforts(selectedModel) }
     val selectedRunnerId = session?.runnerId ?: selectedRepo?.runnerId
     val fileAttachmentsSupported = catalog.supportsFileAttachments(selectedRunnerId)
     val canCompose = session?.status != "COMPLETED" && session?.archivedAt == null
@@ -293,15 +299,17 @@ fun PhoneWorkSessionPage(sessionId: String) {
         bottomBar = {
             if (canCompose) {
                 Column {
-                    if (draft) {
-                        Text(
-                            "运行引擎、仓库、模型和思考深度在会话创建后固定",
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-                            textAlign = TextAlign.Center,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Text(
+                        if (draft) {
+                            "运行引擎、仓库和模型在会话创建后固定；思考深度后续仍可调整"
+                        } else {
+                            "思考深度调整将在下一轮生效"
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     sendError?.let { message ->
                         WorkSendErrorBar(
                             message = message,
@@ -354,13 +362,8 @@ fun PhoneWorkSessionPage(sessionId: String) {
                             )
                             WorkChoiceButton(
                                 label = selectedEffort,
-                                options = selectedRuntimeConfig
-                                    ?.effectiveReasoningEfforts(selectedModel)
-                                    .orEmpty()
-                                    .ifEmpty {
-                                        PhoneWorkSessionVM.defaultReasoningEfforts(selectedModel)
-                                },
-                                enabled = draft,
+                                options = reasoningEffortOptions,
+                                enabled = draft || session != null,
                                 icon = { Text("A", style = MaterialTheme.typography.labelLarge) },
                                 onSelect = vm::selectEffort,
                             )

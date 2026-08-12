@@ -96,9 +96,16 @@ class PhoneWorkRepository(
         sessionId: String,
         text: String,
         attachments: List<PhoneWorkPendingAttachment> = emptyList(),
+        reasoningEffort: String? = null,
     ) {
         val attachmentIds = uploadAttachments(attachments)
-        dao.upsertEvents(listOf(api.sendMessage(sessionId, text, attachmentIds).toEntity()))
+        val event = api.sendMessage(
+            sessionId = sessionId,
+            text = text,
+            attachmentIds = attachmentIds,
+            reasoningEffort = reasoningEffort,
+        )
+        dao.upsertEvents(listOf(event.toEntity()))
         refreshSessions()
         PhoneWorkTrackingService.start(context)
     }
