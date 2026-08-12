@@ -41,6 +41,10 @@ Core 会在 SQLite 同目录持久化最后一次通过 `quota-monitor/v1` 校�
 携带 Bearer Token 的公网明文 HTTP。当前单机部署可用受限 SSH 本地转发连接监控服务的 loopback
 端口，再把该隧道地址填入 Core 环境变量。
 
+Quota Monitor 的受控源码位于 [`quota-monitor/`](quota-monitor/)。采集历史与当前 CPA 凭据集合分开保存：
+历史快照继续保留，但 `/v1/quotas` 只返回最近一次成功 inventory 中仍存在的账户，因此渠道新增、删除、禁用或
+恢复会在下一轮轮询后自动反映，不需要清理 Android 缓存。
+
 ### 信息监控薄代理
 
 普通聊天通过 Work Core 的以下只读端点查询邮件与飞书的监控结果：

@@ -1,6 +1,6 @@
 # 套餐余量服务安全隧道
 
-Work Core 不应通过公网明文 HTTP 携带 CPA Quota Monitor 的 Bearer Token。生产环境使用一条从 Work Core 主机发起的 SSH 本地端口转发，把容器可访问的内部地址映射到 CPA 主机的 `127.0.0.1:8322`。
+Work Core 不应通过公网明文 HTTP 携带 CPA Quota Monitor 的 Bearer Token。生产环境使用一条从 Work Core 主机发起的 SSH 本地端口转发，把容器可访问的内部地址映射到当前 CPA 主机的 `127.0.0.1:8322`。CPA 迁移主机时，必须同步更新受限公钥、`HostKeyAlias`/known-hosts 和 systemd 隧道目标，并完成下方四层验证；不能只迁移监控容器。
 
 ```text
 Android -> HTTPS Work Core -> Docker host 内部端口
@@ -12,10 +12,19 @@ Android -> HTTPS Work Core -> Docker host 内部端口
 为隧道创建独立公钥，并在 `~/.ssh/authorized_keys` 中限制用途。不要复用日常登录密钥，也不要允许任意目标端口转发。
 
 ```text
-restrict,port-forwarding,permitopen="127.0.0.1:8322" ssh-ed25519 <public-key> zhixing-quota-tunnel
+restrict,port-forwarding,permitopen="127.0.0.1:8322",command="/bin/false" ssh-ed25519 <public-key> zhixing-quota-tunnel
 ```
 
-`restrict` 会关闭 shell、PTY、agent/X11 转发等能力；`port-forwarding` 只重新开启端口转发，`permitopen` 再将目标锁定到 Quota Monitor。
+`restrict` 会关闭 PTY、agent/X11 转发等能力；`port-forwarding` 只重新开启端口转发，`permitopen` 再将目标锁定到 Quota Monitor，`command="/bin/false"` 拒绝 shell 和远程命令。
+
+Quota Monitor 容器只把端口发布到宿主机 loopback：
+
+```yaml
+ports:
+  - "127.0.0.1:8322:8322"
+```
+
+不得发布到 `0.0.0.0`。修改后先从 CPA 宿主机请求 `/healthz`，再配置跨主机隧道。
 
 ## Work Core 主机
 
@@ -34,6 +43,7 @@ ExecStart=/usr/bin/ssh -NT \
   -o ServerAliveInterval=30 \
   -o ServerAliveCountMax=3 \
   -o StrictHostKeyChecking=yes \
+  -o HostKeyAlias=<stable-cpa-host-alias> \
   -i /root/.ssh/zhixing_quota_tunnel \
   -p <ssh-port> \
   -L <docker-gateway>:28213:127.0.0.1:8322 \
@@ -60,6 +70,7 @@ CPA_QUOTA_TOKEN=<monitor-token>
 
 ```bash
 systemctl is-active zhixing-quota-tunnel.service
+systemctl show zhixing-quota-tunnel.service -p NRestarts --value
 curl --fail http://<docker-gateway>:28213/healthz
 docker exec <work-core-container> node -e \
   "fetch('http://<docker-gateway>:28213/healthz').then(r=>r.json()).then(x=>console.log(x.schema_version))"

@@ -112,10 +112,27 @@ class QuotaOverviewPolicyTest {
         )
 
         assertEquals(
-            listOf("kimi", "codex", "xai"),
+            listOf("kimi", "codex"),
             orderQuotaChannels(items, "kimi").map { it.provider },
         )
         assertEquals(items, orderQuotaChannels(items, "missing"))
+    }
+
+    @Test
+    fun `providers removed from the latest inventory disappear from the overview`() {
+        val items = buildQuotaOverviews(
+            envelope(
+                snapshot(
+                    id = "codex-a",
+                    provider = "codex",
+                    windows = listOf(window("weekly", "Weekly limit", 84.0, 604_800)),
+                ),
+            ),
+            NOW,
+        )
+
+        assertEquals(listOf("codex"), items.map { it.provider })
+        assertEquals(emptyList<ProviderQuotaOverview>(), buildQuotaOverviews(envelope(), NOW))
     }
 
     @Test

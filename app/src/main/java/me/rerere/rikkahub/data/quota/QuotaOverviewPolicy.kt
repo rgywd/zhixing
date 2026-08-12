@@ -49,8 +49,7 @@ fun buildQuotaOverviews(
     now: Instant = Instant.now(),
 ): List<ProviderQuotaOverview> {
     val grouped = envelope?.items.orEmpty().groupBy { it.provider.lowercase() }
-    val providers = (KNOWN_PROVIDERS + grouped.keys)
-        .distinct()
+    val providers = grouped.keys
         .sortedWith(compareBy({ KNOWN_PROVIDERS.indexOf(it).takeIf { index -> index >= 0 } ?: Int.MAX_VALUE }, { it }))
     return providers.map { provider ->
         val snapshots = grouped[provider].orEmpty()
