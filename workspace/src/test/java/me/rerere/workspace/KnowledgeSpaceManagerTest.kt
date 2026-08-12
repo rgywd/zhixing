@@ -11,6 +11,56 @@ import java.nio.file.Files
 
 class KnowledgeSpaceManagerTest {
     @Test
+    fun assistantUserPromptIsCreatedOnceAndUsesRevisionCheckedUpdates() {
+        val fixture = fixture()
+        fixture.knowledge.initialize(fixture.root, "个人知识库")
+
+        val created = fixture.knowledge.ensureAssistantUserPrompt(
+            root = fixture.root,
+            assistantId = "assistant-1",
+            fallbackContent = "初始用户提示词",
+        )
+        val preserved = fixture.knowledge.ensureAssistantUserPrompt(
+            root = fixture.root,
+            assistantId = "assistant-1",
+            fallbackContent = "不应覆盖",
+        )
+
+        assertEquals("vault/99_系统/提示词/助手/assistant-1.md", created.path)
+        assertEquals("初始用户提示词", preserved.content)
+        assertEquals(created.revision, preserved.revision)
+
+        val updated = fixture.knowledge.writeAssistantUserPrompt(
+            root = fixture.root,
+            assistantId = "assistant-1",
+            content = "",
+            expectedRevision = created.revision,
+        )
+        assertEquals("", updated.content)
+        assertEquals(updated, fixture.knowledge.readAssistantUserPrompt(fixture.root, "assistant-1"))
+
+        val conflict = assertThrows(AssistantUserPromptConflictException::class.java) {
+            fixture.knowledge.writeAssistantUserPrompt(
+                root = fixture.root,
+                assistantId = "assistant-1",
+                content = "过期覆盖",
+                expectedRevision = created.revision,
+            )
+        }
+        assertEquals(updated.revision, conflict.current?.revision)
+    }
+
+    @Test
+    fun assistantUserPromptRejectsUnsafeAssistantId() {
+        val fixture = fixture()
+        fixture.knowledge.initialize(fixture.root, "个人知识库")
+
+        assertThrows(IllegalArgumentException::class.java) {
+            fixture.knowledge.readAssistantUserPrompt(fixture.root, "../other")
+        }
+    }
+
+    @Test
     fun initializeCreatesVaultOnlyAndPreservesExistingGuidance() {
         val fixture = fixture()
 

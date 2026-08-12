@@ -43,8 +43,8 @@
   <string name="assistant_page_add">追加</string>
   <string name="assistant_page_add_body">ボディを追加</string>
   <string name="assistant_page_add_header">ヘッダーを追加</string>
-  <string name="assistant_page_allow_conversation_system_prompt">会話別システムプロンプト</string>
-  <string name="assistant_page_allow_conversation_system_prompt_desc">会話ごとにシステムプロンプトを個別に設定可能にする</string>
+  <string name="assistant_page_allow_conversation_system_prompt">会話別ユーザープロンプト</string>
+  <string name="assistant_page_allow_conversation_system_prompt_desc">会話ごとにユーザープロンプトを個別に設定可能にする</string>
   <string name="assistant_page_allow_conversation_prompt_injection">会話別プロンプトインジェクション</string>
   <string name="assistant_page_allow_conversation_prompt_injection_desc">会話ごとにプロンプトインジェクションとロアブックを個別にバインド可能にする</string>
   <string name="assistant_page_available_variables">"利用可能な変数: "</string>
@@ -141,7 +141,10 @@
   <string name="assistant_page_stream_output">ストリーミング出力</string>
   <string name="assistant_page_stream_output_desc">メッセージをストリーミング出力するかどうか</string>
   <string name="assistant_page_strict">厳密</string>
-  <string name="assistant_page_system_prompt">システムプロンプト</string>
+  <string name="assistant_page_system_prompt">ユーザープロンプト</string>
+  <string name="assistant_page_user_prompt_vault_title">ユーザープロンプトをナレッジベースで管理</string>
+  <string name="assistant_page_user_prompt_vault_desc">99_系统/提示词/助手/&lt;assistant ID&gt;.md に固定保存されます。変更は新しい会話にのみ適用され、現在の会話や内部システム指示には影響しません。</string>
+  <string name="assistant_page_user_prompt_save_vault">ナレッジベースに保存</string>
   <string name="assistant_page_tab_basic">基本設定</string>
   <string name="assistant_page_tab_extensions">拡張機能</string>
   <string name="assistant_page_tab_local_tools">ローカルツール</string>
@@ -291,9 +294,9 @@
   <string name="chat_page_compress_not_enough_turns">コンテキストを圧縮するには、少なくとも2つの完全なユーザーターンが必要です。</string>
   <string name="chat_page_compress_conversation_changed">圧縮中に会話内容が変更されました。もう一度お試しください。</string>
   <string name="chat_page_compress_empty_summary">圧縮モデルが空のチェックポイントを返しました。</string>
-  <string name="chat_page_conversation_system_prompt">会話システムプロンプト</string>
+  <string name="chat_page_conversation_system_prompt">会話ユーザープロンプト</string>
   <string name="chat_page_conversation_system_prompt_clear">クリア</string>
-  <string name="chat_page_conversation_system_prompt_hint">この会話でアシスタントのシステムプロンプトを上書き</string>
+  <string name="chat_page_conversation_system_prompt_hint">この会話でアシスタントのユーザープロンプトを上書き</string>
   <string name="chat_page_conversation_system_prompt_save">保存</string>
   <string name="chat_page_delete">削除</string>
   <string name="chat_page_dismiss_error">エラーを閉じる</string>

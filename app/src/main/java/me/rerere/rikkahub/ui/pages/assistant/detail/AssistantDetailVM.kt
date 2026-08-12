@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
@@ -22,11 +23,14 @@ import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.files.SkillManager
 import me.rerere.rikkahub.data.files.SkillMetadata
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.AssistantUserPromptSource
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.MemoryDocument
 import me.rerere.rikkahub.data.model.Tag
 import me.rerere.rikkahub.data.repository.MemoryDocumentRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.workspace.AssistantUserPromptConflictException
+import me.rerere.workspace.AssistantUserPromptDocument
 import kotlin.uuid.Uuid
 
 private const val TAG = "AssistantDetailVM"
@@ -67,6 +71,42 @@ class AssistantDetailVM(
         }.stateIn(
             scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = Assistant()
         )
+
+    private val _userPromptDocument = MutableStateFlow<AssistantUserPromptDocument?>(null)
+    val userPromptDocument = _userPromptDocument.asStateFlow()
+
+    private val _userPromptError = MutableStateFlow<String?>(null)
+    val userPromptError = _userPromptError.asStateFlow()
+
+    private val _userPromptBusy = MutableStateFlow(false)
+    val userPromptBusy = _userPromptBusy.asStateFlow()
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            assistant.collectLatest { current ->
+                if (current.userPromptSource != AssistantUserPromptSource.KNOWLEDGE_VAULT) {
+                    _userPromptDocument.value = null
+                    return@collectLatest
+                }
+                val workspaceId = current.workspaceId?.toString()
+                if (workspaceId == null) {
+                    _userPromptDocument.value = null
+                    return@collectLatest
+                }
+                _userPromptBusy.value = true
+                runCatching {
+                    workspaceRepository.readAssistantUserPrompt(workspaceId, current.id.toString())
+                }.onSuccess {
+                    _userPromptDocument.value = it
+                    _userPromptError.value = null
+                }.onFailure { error ->
+                    _userPromptDocument.value = null
+                    _userPromptError.value = error.message ?: error::class.java.simpleName
+                }
+                _userPromptBusy.value = false
+            }
+        }
+    }
 
     val memoryDocuments = assistant
         .flatMapLatest { currentAssistant ->
@@ -186,6 +226,71 @@ class AssistantDetailVM(
                         }
                     })
             )
+        }
+    }
+
+    fun setUserPromptSource(source: AssistantUserPromptSource) {
+        viewModelScope.launch {
+            val current = assistant.value
+            if (source == AssistantUserPromptSource.APP) {
+                _userPromptDocument.value = null
+                _userPromptError.value = null
+                update(current.copy(userPromptSource = source))
+                return@launch
+            }
+
+            val workspaceId = current.workspaceId?.toString()
+            if (workspaceId == null) {
+                _userPromptError.value = "请先为助手绑定工作区并初始化知识库"
+                return@launch
+            }
+            _userPromptBusy.value = true
+            runCatching {
+                workspaceRepository.ensureAssistantUserPrompt(
+                    id = workspaceId,
+                    assistantId = current.id.toString(),
+                    fallbackContent = current.systemPrompt,
+                )
+            }.onSuccess { document ->
+                _userPromptDocument.value = document
+                _userPromptError.value = null
+                update(current.copy(userPromptSource = source))
+            }.onFailure { error ->
+                if (error is AssistantUserPromptConflictException) {
+                    _userPromptDocument.value = error.current
+                }
+                _userPromptError.value = error.message ?: error::class.java.simpleName
+            }
+            _userPromptBusy.value = false
+        }
+    }
+
+    fun saveVaultUserPrompt(content: String, expectedRevision: String?) {
+        viewModelScope.launch {
+            val current = assistant.value
+            val workspaceId = current.workspaceId?.toString()
+            if (workspaceId == null) {
+                _userPromptError.value = "助手未绑定工作区"
+                return@launch
+            }
+            _userPromptBusy.value = true
+            runCatching {
+                workspaceRepository.writeAssistantUserPrompt(
+                    id = workspaceId,
+                    assistantId = current.id.toString(),
+                    content = content,
+                    expectedRevision = expectedRevision,
+                )
+            }.onSuccess { document ->
+                _userPromptDocument.value = document
+                _userPromptError.value = null
+            }.onFailure { error ->
+                if (error is AssistantUserPromptConflictException) {
+                    _userPromptDocument.value = error.current
+                }
+                _userPromptError.value = error.message ?: error::class.java.simpleName
+            }
+            _userPromptBusy.value = false
         }
     }
 

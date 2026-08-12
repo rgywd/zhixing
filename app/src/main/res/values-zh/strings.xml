@@ -43,8 +43,8 @@
   <string name="assistant_page_add">添加</string>
   <string name="assistant_page_add_body">添加 Body</string>
   <string name="assistant_page_add_header">添加 Header</string>
-  <string name="assistant_page_allow_conversation_system_prompt">独立对话系统提示</string>
-  <string name="assistant_page_allow_conversation_system_prompt_desc">允许每个对话单独设置系统提示词</string>
+  <string name="assistant_page_allow_conversation_system_prompt">独立对话用户提示</string>
+  <string name="assistant_page_allow_conversation_system_prompt_desc">允许每个对话单独设置用户提示词</string>
   <string name="assistant_page_allow_conversation_prompt_injection">独立对话提示词注入</string>
   <string name="assistant_page_allow_conversation_prompt_injection_desc">允许每个对话单独绑定提示词注入和世界书</string>
   <string name="assistant_page_available_variables">"可用变量: "</string>
@@ -141,7 +141,10 @@
   <string name="assistant_page_stream_output">流式输出</string>
   <string name="assistant_page_stream_output_desc">是否启用消息的流式输出</string>
   <string name="assistant_page_strict">严谨</string>
-  <string name="assistant_page_system_prompt">系统提示词</string>
+  <string name="assistant_page_system_prompt">用户提示词</string>
+  <string name="assistant_page_user_prompt_vault_title">由知识库托管用户提示词</string>
+  <string name="assistant_page_user_prompt_vault_desc">固定保存到 99_系统/提示词/助手/&lt;助手 ID&gt;.md。修改仅影响之后开始的新对话，不会改变当前对话，也不会暴露内部系统提示词。</string>
+  <string name="assistant_page_user_prompt_save_vault">保存到知识库</string>
   <string name="assistant_page_tab_basic">基础设定</string>
   <string name="assistant_page_tab_extensions">扩展管理</string>
   <string name="assistant_page_tab_local_tools">本地工具</string>
@@ -293,9 +296,9 @@
   <string name="chat_page_compress_not_enough_turns">至少需要两个完整的用户轮次才能压缩上下文。</string>
   <string name="chat_page_compress_conversation_changed">压缩期间会话内容发生了变化，请重试。</string>
   <string name="chat_page_compress_empty_summary">压缩模型返回了空的上下文检查点。</string>
-  <string name="chat_page_conversation_system_prompt">对话系统提示</string>
+  <string name="chat_page_conversation_system_prompt">对话用户提示</string>
   <string name="chat_page_conversation_system_prompt_clear">清除</string>
-  <string name="chat_page_conversation_system_prompt_hint">覆盖此对话的助手系统提示</string>
+  <string name="chat_page_conversation_system_prompt_hint">覆盖此对话的助手用户提示</string>
   <string name="chat_page_conversation_system_prompt_save">保存</string>
   <string name="chat_page_delete">删除</string>
   <string name="chat_page_dismiss_error">关闭错误</string>

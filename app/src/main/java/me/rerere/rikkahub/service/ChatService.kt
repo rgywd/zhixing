@@ -69,11 +69,13 @@ import me.rerere.rikkahub.data.ai.shouldAutoCompactPrompt
 import me.rerere.rikkahub.data.ai.splitCompactionContent
 import me.rerere.rikkahub.data.ai.successfulMonthlySpendingSaveToolCalls
 import me.rerere.rikkahub.data.ai.tools.createConversationTools
+import me.rerere.rikkahub.data.ai.tools.createAssistantUserPromptTools
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.ai.tools.createSearchTools
 import me.rerere.rikkahub.data.ai.tools.createSkillTools
 import me.rerere.rikkahub.data.ai.tools.createWorkspaceTools
 import me.rerere.rikkahub.data.ai.tools.createKnowledgeTools
+import me.rerere.rikkahub.data.ai.UserPromptResolver
 import me.rerere.rikkahub.data.knowledge.KnowledgeSpaceService
 import me.rerere.rikkahub.data.files.SkillManager
 import me.rerere.rikkahub.data.ai.transformers.Base64ImageToLocalFileTransformer
@@ -197,6 +199,7 @@ class ChatService(
 ) {
     // workspace 系统提示注入 (依赖 workspaceRepository, 故在类内构造)
     private val workspaceReminderTransformer = WorkspaceReminderTransformer(workspaceRepository)
+    private val userPromptResolver = UserPromptResolver(workspaceRepository)
 
     // 统一会话管理
     private val sessions = ConcurrentHashMap<Uuid, ConversationSession>()
@@ -409,10 +412,15 @@ class ChatService(
                         messageId = userMessage.id.toString(),
                     )
                 }
+                val userPromptSnapshot = userPromptResolver.snapshotForFirstUserMessage(
+                    conversation = currentConversation,
+                    assistant = assistant,
+                )
                 val newConversation = currentConversation.copy(
                     messageNodes = currentConversation.messageNodes + userMessage.copy(
                         annotations = attachedRuntimeContext?.let(::listOf).orEmpty(),
                     ).toMessageNode(),
+                    userPromptSnapshot = userPromptSnapshot,
                 )
                 try {
                     saveConversation(conversationId, newConversation)
@@ -600,9 +608,18 @@ class ChatService(
         messageRange: ClosedRange<Int>? = null
     ) {
         val settings = settingsStore.settingsFlow.first()
-        val initialConversation = getConversationFlow(conversationId).value
+        var initialConversation = getConversationFlow(conversationId).value
         val assistant = settings.getAssistantById(initialConversation.assistantId)
             ?: settings.getCurrentAssistant()
+        if (initialConversation.userPromptSnapshot == null) {
+            initialConversation = initialConversation.copy(
+                userPromptSnapshot = userPromptResolver.snapshotForFirstUserMessage(
+                    conversation = initialConversation,
+                    assistant = assistant,
+                )
+            )
+            saveConversation(conversationId, initialConversation)
+        }
         val model = settings.findModelById(assistant.chatModelId ?: settings.chatModelId) ?: return
 
         val senderName = if (assistant.useAssistantAvatar) {
@@ -696,6 +713,7 @@ class ChatService(
                 },
                 assistant = assistant,
                 conversationSystemPrompt = conversation.customSystemPrompt,
+                conversationUserPromptSnapshot = conversation.userPromptSnapshot,
                 conversationModeInjectionIds = conversation.modeInjectionIds,
                 conversationLorebookIds = conversation.lorebookIds,
                 workspaceCwd = conversation.workspaceCwd,
@@ -727,6 +745,7 @@ class ChatService(
                         addAll(createConversationTools(conversationRepo, assistant.id))
                     }
                     addAll(createKnowledgeTools(assistant.workspaceId?.toString(), workspaceRepository, knowledgeSpaceService))
+                    addAll(createAssistantUserPromptTools(assistant, workspaceRepository))
                     addAll(
                         createWorkspaceToolsIfReady(
                             conversationId = conversationId,
@@ -1775,6 +1794,7 @@ class ChatService(
             assistantId = currentConversation.assistantId,
             messageNodes = copiedNodes,
             customSystemPrompt = currentConversation.customSystemPrompt,
+            userPromptSnapshot = currentConversation.userPromptSnapshot,
             modeInjectionIds = currentConversation.modeInjectionIds,
             lorebookIds = currentConversation.lorebookIds,
         )

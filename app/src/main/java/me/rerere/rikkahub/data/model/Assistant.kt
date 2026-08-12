@@ -21,6 +21,7 @@ data class Assistant(
     val useAssistantAvatar: Boolean = false, // 使用助手头像替代模型头像
     val tags: List<Uuid> = emptyList(),
     val systemPrompt: String = "",
+    val userPromptSource: AssistantUserPromptSource = AssistantUserPromptSource.APP,
     val temperature: Float? = null,
     val topP: Float? = null,
     val contextMessageSize: Int = 0,
@@ -50,6 +51,15 @@ data class Assistant(
     val allowConversationSystemPrompt: Boolean = false, // 允许对话单独重写 system prompt
     val allowConversationPromptInjection: Boolean = false, // 允许对话单独绑定提示词注入
 )
+
+@Serializable
+enum class AssistantUserPromptSource {
+    @SerialName("app")
+    APP,
+
+    @SerialName("knowledge_vault")
+    KNOWLEDGE_VAULT,
+}
 
 @Serializable
 data class QuickMessage(

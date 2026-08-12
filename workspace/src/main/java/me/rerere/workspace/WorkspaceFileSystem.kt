@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import kotlin.io.path.name
 
 class WorkspaceFileSystem(
@@ -51,6 +52,46 @@ class WorkspaceFileSystem(
         file.parentFile?.mkdirs()
         file.writeBytes(bytes)
         return file.toEntry(root)
+    }
+
+    fun writeTextAtomically(
+        root: File,
+        path: String,
+        text: String,
+        charset: Charset = StandardCharsets.UTF_8,
+    ): WorkspaceFileEntry {
+        val bytes = text.toByteArray(charset)
+        require(bytes.size <= config.maxWriteBytes) {
+            "Content is too large to write: ${bytes.size} bytes"
+        }
+        val target = resolvePath(root, path)
+        require(!target.exists() || target.isFile) { "Path is not a file: $path" }
+        val parent = requireNotNull(target.parentFile).apply { mkdirs() }
+        val temp = Files.createTempFile(parent.toPath(), ".l2s-user-prompt-", ".tmp").toFile()
+        try {
+            temp.outputStream().use { output ->
+                output.write(bytes)
+                output.flush()
+                (output as? java.io.FileOutputStream)?.fd?.sync()
+            }
+            runCatching {
+                Files.move(
+                    temp.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            }.getOrElse {
+                Files.move(
+                    temp.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            }
+            return target.toEntry(root)
+        } finally {
+            temp.delete()
+        }
     }
 
     fun importBytes(root: File, path: String, inputStream: InputStream): WorkspaceFileEntry {
