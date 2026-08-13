@@ -17,8 +17,9 @@
 
 当前代码证据：
 
-- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 44。
+- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 45。
 - Room 存在连续迁移注册，未启用 destructive fallback。
+- v44→v45 为对话增加用户提示词快照列；已有对话不会在升级后静默采用知识库提示词。
 - v43→v44 新增记忆文档表，将旧记忆保留到只读 legacy archive，不删除旧表或会话。
 - v42→v43 纯新增普通聊天任务、事件、软链接与隐藏运行时上下文表且零回填；v41→v42 只给待办增加
   可空重复频率与默认间隔；v40→v41 只新增月度收支与渠道汇总表及索引；

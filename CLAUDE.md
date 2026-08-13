@@ -66,10 +66,10 @@ It is built with Jetpack Compose and Kotlin and follows Material Design 3 princi
   Output transformers support `visualTransform()` for UI display during streaming and `onGenerationFinish()` for final processing after generation completes.
   (app/src/main/java/me/rerere/rikkahub/data/ai/transformers/Transformer.kt)
 
-- **Long-term Profile Memory**: Automatic profiles use exact user-message quotes as evidence, accumulate hidden
-  `OBSERVATION` records, apply deterministic longitudinal promotion gates, and maintain at most one automatic summary
-  per built-in dimension. Internal observations never enter prompts. See
-  `docs/zhixing/AUTO_PROFILE_MAINTENANCE.md` for the V2 lifecycle and v35→v36 cleanup contract.
+- **Memory Documents**: Long-term memory is a Room-backed Markdown document layer with pinned profile and preference
+  files plus on-demand topic files. Normal chat exposes visible `memory_read` / `memory_write` tools, binds trusted
+  source IDs inside the host, and allows validation failures to be corrected before a successful finalization. The old
+  background automatic-profile pipeline is retired. See `docs/zhixing/MEMORY_SYSTEM.md` for the current V3 contract.
 
 ## Development Guidelines
 

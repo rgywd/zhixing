@@ -195,7 +195,8 @@ Injection 和 Lorebook 等稳定请求内容由每次请求重新构建；它们
    `workspace_shell`；安全变量只向模型公开名称，并在工具执行时注入环境
 6. **Skill Tools**（`createSkillTools`）— 助手启用的 Skill 列表
 7. **MCP Tools** — 所有已连接 MCP 服务器的工具，命名格式 `mcp__{serverName}__{toolName}`
-8. **Memory Tools**（`buildMemoryTools`，内置于 GenerationHandler）— `enableMemory = true` 时，支持记忆的增删改
+8. **Memory Tools**（`buildMemoryDocumentTools`，由 `GenerationHandler` 注册）— `enableMemory = true` 时提供
+   可见的 `memory_read` / `memory_write`；写入来源 ID 由宿主根据当前对话绑定，校验失败可修正重试，成功后完成本轮记忆收尾
 
 ### 工具问答状态机
 
