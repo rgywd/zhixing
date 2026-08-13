@@ -1,6 +1,6 @@
 # 知行数据安全、升级与备份契约
 
-状态：设计基线，P0 缺口未闭环（2026-07-24）
+状态：设计基线，P0 缺口未闭环（2026-08-13）
 
 目标不是承诺任何故障都不丢数据，而是保证覆盖升级不静默清空、迁移失败可恢复、远端备份可验证。
 
@@ -17,8 +17,12 @@
 
 当前代码证据：
 
-- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 45。
+- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 46。
 - Room 存在连续迁移注册，未启用 destructive fallback。
+- v45→v46 按明确的产品清理边界删除旧 `assistant_tasks`、`assistant_task_events` 和
+  `assistant_task_links`。这些记录只用于普通聊天任务的运行追踪和 Today 投影，不是聊天、记忆、Agenda 或
+  外部写入结果的事实来源；迁移保留这些用户语义数据以及 `assistant_runtime_contexts`，并有 45→46 设备迁移
+  测试验证该边界。
 - v44→v45 为对话增加用户提示词快照列；已有对话不会在升级后静默采用知识库提示词。
 - v43→v44 新增记忆文档表，将旧记忆保留到只读 legacy archive，不删除旧表或会话。
 - v42→v43 纯新增普通聊天任务、事件、软链接与隐藏运行时上下文表且零回填；v41→v42 只给待办增加
@@ -56,6 +60,7 @@ P0 缺口：
 | 会话、消息、记忆、待办、月度收支汇总、工作区元数据 | Room `zhixing` | 必须保留 | 必须 |
 | Provider、助手、外观、同步配置 | DataStore | 必须保留 | 必须 |
 | 普通上传附件、Skills、Workspace 用户文件与 `vault/` 原文 | 应用 `files/` | 必须保留 | 必须 |
+| 普通聊天任务追踪、事件与软链接 | Room `zhixing` 的可重建投影 | 可按明确迁移与生命周期契约清理 | 非恢复真值 |
 | 成功保存月度汇总后的账单附件与对应 OCR 缓存 | 临时输入 | 按月度汇总契约清理 | 不作为持久备份对象 |
 | Workspace RootFS、派生索引、缓存和临时工具输出 | 可重建数据 | 可重建 | 默认不备份 |
 

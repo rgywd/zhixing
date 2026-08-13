@@ -64,7 +64,10 @@ internal fun TodayOverviewCards(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         snapshot.items.filterIsInstance<TodayItem.AssistantTask>().forEach { item ->
-            TodayAssistantTaskCard(item)
+            TodayAssistantTaskCard(
+                item = item,
+                onDismiss = { provider.dismissFailedTask(item.task.id) },
+            )
         }
         snapshot.items.filterIsInstance<TodayItem.CurrentStatus>()
             .firstOrNull()
@@ -86,7 +89,7 @@ internal fun TodayOverviewCards(
             }
             if (showCompleted) {
                 snapshot.completedItems.forEach { item ->
-                    TodayAssistantTaskCard(item)
+                    TodayAssistantTaskCard(item = item)
                 }
             }
         }
@@ -94,7 +97,10 @@ internal fun TodayOverviewCards(
 }
 
 @Composable
-private fun TodayAssistantTaskCard(item: TodayItem.AssistantTask) {
+private fun TodayAssistantTaskCard(
+    item: TodayItem.AssistantTask,
+    onDismiss: (() -> Unit)? = null,
+) {
     val navigator = LocalNavController.current
     val uriHandler = LocalUriHandler.current
     AssistantTaskCard(
@@ -129,6 +135,7 @@ private fun TodayAssistantTaskCard(item: TodayItem.AssistantTask) {
             }
             else -> null
         },
+        onDismiss = onDismiss,
     )
 }
 
@@ -139,6 +146,7 @@ internal fun AssistantTaskCard(
     modifier: Modifier = Modifier,
     resultActionLabel: String? = null,
     onResultClick: (() -> Unit)? = null,
+    onDismiss: (() -> Unit)? = null,
 ) {
     val waiting = task.status == AssistantTaskStatus.WAITING_FOR_INPUT.name
     val failed = task.status == AssistantTaskStatus.FAILED_RETRYABLE.name
@@ -202,6 +210,11 @@ internal fun AssistantTaskCard(
             if (resultActionLabel != null && onResultClick != null) {
                 TextButton(onClick = onResultClick) {
                     Text(resultActionLabel)
+                }
+            }
+            if (failed && onDismiss != null) {
+                TextButton(onClick = onDismiss) {
+                    Text("不再重试")
                 }
             }
         }

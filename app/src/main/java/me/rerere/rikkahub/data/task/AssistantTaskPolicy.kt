@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.model.Conversation
 
 data class AssistantTaskStep(
     val toolName: String,
@@ -21,6 +22,30 @@ data class AssistantTaskStep(
     val requiresUserAnswer: Boolean,
     val hasUserAnswer: Boolean,
 )
+
+data class AssistantTaskSourceAnchor(
+    val messageId: String,
+    val nodeId: String,
+)
+
+internal fun Conversation.assistantTaskSourceAnchorFor(message: UIMessage): AssistantTaskSourceAnchor? {
+    val targetNodeIndex = messageNodes.indexOfFirst { node ->
+        node.messages.any { it.id == message.id }
+    }
+    if (targetNodeIndex < 0) return null
+    val sourceNode = if (message.role == MessageRole.USER) {
+        messageNodes[targetNodeIndex]
+    } else {
+        messageNodes.subList(0, targetNodeIndex)
+            .lastOrNull { it.currentMessage.role == MessageRole.USER }
+            ?: return null
+    }
+    val sourceMessage = if (message.role == MessageRole.USER) message else sourceNode.currentMessage
+    return AssistantTaskSourceAnchor(
+        messageId = sourceMessage.id.toString(),
+        nodeId = sourceNode.id.toString(),
+    )
+}
 
 internal fun AssistantTaskStep.requiresVisibleTask(json: Json): Boolean {
     if (ordinal >= 2) return true

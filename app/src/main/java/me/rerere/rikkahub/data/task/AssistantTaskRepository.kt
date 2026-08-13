@@ -30,6 +30,8 @@ enum class AssistantTaskEventType {
     LINKED,
 }
 
+const val ASSISTANT_TASK_RETRY_RETENTION_MILLIS = 24 * 60 * 60 * 1_000L
+
 internal fun canTransitionAssistantTask(
     from: AssistantTaskStatus,
     to: AssistantTaskStatus,
@@ -69,8 +71,17 @@ class AssistantTaskRepository(
     suspend fun findActiveForConversation(conversationId: String): AssistantTaskEntity? =
         dao.findActiveForConversation(conversationId)
 
-    suspend fun retryLatestForConversation(conversationId: String): String? {
-        val task = dao.findRetryableForConversation(conversationId) ?: return null
+    suspend fun retryForSource(
+        conversationId: String,
+        anchorMessageId: String?,
+        anchorNodeId: String?,
+    ): String? {
+        val task = dao.findRetryableForSource(
+            conversationId = conversationId,
+            anchorMessageId = anchorMessageId,
+            anchorNodeId = anchorNodeId,
+            retryCutoffMillis = clock() - ASSISTANT_TASK_RETRY_RETENTION_MILLIS,
+        ) ?: return null
         retry(task.id)
         return task.id
     }
@@ -101,6 +112,7 @@ class AssistantTaskRepository(
             finishedAt = null,
         )
         database.withTransaction {
+            dao.deleteTaskRecords(dao.getRetryableTaskIdsForConversation(conversationId))
             dao.insertTask(task)
             dao.insertEvent(
                 AssistantTaskEventEntity(
@@ -228,6 +240,23 @@ class AssistantTaskRepository(
         )
     }
 
+    suspend fun dismissFailure(taskId: String) = writeMutex.withLock {
+        database.withTransaction {
+            val task = dao.getTask(taskId) ?: return@withTransaction
+            require(task.status == AssistantTaskStatus.FAILED_RETRYABLE.name) {
+                "Only retryable assistant tasks can be dismissed"
+            }
+            dao.deleteTaskRecords(listOf(taskId))
+        }
+    }
+
+    suspend fun pruneExpiredRetryableTasks(nowMillis: Long = clock()): Int = writeMutex.withLock {
+        database.withTransaction {
+            val cutoffMillis = nowMillis - ASSISTANT_TASK_RETRY_RETENTION_MILLIS
+            dao.deleteTaskRecords(dao.getExpiredRetryableTaskIds(cutoffMillis))
+        }
+    }
+
     suspend fun addLink(
         taskId: String,
         objectType: String,
@@ -279,11 +308,9 @@ class AssistantTaskRepository(
                 message = "应用重新启动，已保留现有结果，可手动重试",
             )
         }
+        pruneExpiredRetryableTasks()
         return runningTasks.size
     }
-
-    suspend fun invalidateConversationLinks(conversationId: String) =
-        dao.invalidateConversationLinks(conversationId)
 
     private suspend fun transition(
         taskId: String,
