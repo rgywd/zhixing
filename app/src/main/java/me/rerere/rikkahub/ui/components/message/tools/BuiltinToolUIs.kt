@@ -171,7 +171,7 @@ object MemoryWriteToolUI : ToolUIRenderer {
         val action = context.arguments.getStringContent("action").orEmpty()
         val path = context.arguments.getStringContent("path").orEmpty()
         return when (action) {
-            "" -> "检查记忆"
+            "", "no_change" -> "检查记忆"
             "delete" -> "删除记忆 $path"
             "append" -> "追加记忆 $path"
             "str_replace" -> "修正记忆 $path"

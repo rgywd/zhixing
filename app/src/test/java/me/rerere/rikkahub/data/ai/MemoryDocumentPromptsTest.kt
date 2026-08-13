@@ -17,7 +17,10 @@ class MemoryDocumentPromptsTest {
         )
 
         assertTrue(prompt.contains("/areas/zhixing.md"))
-        assertTrue(prompt.contains("call memory_write exactly once"))
+        assertTrue(prompt.contains("one successful terminal memory_write"))
+        assertTrue(prompt.contains("no_change"))
+        assertTrue(prompt.contains("correct the arguments and retry"))
+        assertFalse(prompt.contains("call memory_write exactly once"))
         assertTrue(prompt.contains("app binds its current conversation and message IDs"))
         assertTrue(prompt.contains("no hidden follow-up process"))
         assertTrue(prompt.contains("Zhixing project"))

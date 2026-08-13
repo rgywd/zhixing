@@ -36,7 +36,7 @@ internal fun AssistantTaskStep.requiresDurableTask(json: Json): Boolean {
             .jsonObject["action"]?.jsonPrimitive?.content
     }.getOrNull()
     return when (toolName) {
-        "memory_tool", "memory_write" -> action != null
+        "memory_tool", "memory_write" -> action != null && action != "no_change"
         "monthly_spending_summary" -> action in setOf("save", "delete")
         else -> false
     }

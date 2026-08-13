@@ -59,18 +59,25 @@ YAML frontmatter 固定包含 `name / description / sources / aliases`，后接�
 模型侧只有两个能力：
 
 - `memory_read(path)`：读取一份文档；
-- `memory_write(action, path, if_version, ...)`：`write`、`str_replace`、`append`、`delete`。
+- `memory_write(action, ...)`：`no_change`、`write`、`str_replace`、`append`、`delete`。
+
+`action` 必填且每种 action 只携带自己的字段：`no_change` 只提交 action；`write` 提交 path、if_version、
+name、description、可选 aliases、非空 content 和 sources；`str_replace` 提交 path、if_version、非空
+old_text、允许为空的 new_text 和 sources；`append` 提交 path、if_version、非空 content 和 sources；
+`delete` 只提交 path 与 if_version。
 
 新建时 `if_version = 0`；其余操作必须使用 listing 或最近一次读取返回的当前版本。DAO 使用带 version 条件的
 单条 SQL 更新；版本不一致时返回冲突和当前文档，不允许静默覆盖另一个 surface 的更新。删除整个文件仍需
 用户确认；删除会清空正文、元数据和来源，只保留带新版本的 path tombstone 防止并发旧写复活，pinned 文档不允许删除。
 
-每次 chat Run 正常生成并准备结束时，模型会主动检查当前 USER 消息，并在最终回复前调用一次可见的
-`memory_write`。发现明确陈述、长期有用且非敏感的新事实或纠正时，action 只能是 `write`、`str_replace`、
-`append`、`delete`；没有应写内容时省略 action，工具返回 `changed=false`。用户不需要固定说“记住”。这个工具
-调用就是全部收尾；只有成功写入或明确 `changed=false` 才完成本轮记忆收尾，参数、来源、内容或版本校验失败
-后仍允许模型用修正后的参数重试。系统不会启动额外的后台模型任务，也不会按小时、跨天或过期窗口轮询、
-晋升、淘汰记忆。
+每次 chat Run 正常生成并准备结束时，模型会主动检查当前 USER 消息，并在最终回复前完成一个成功的可见
+`memory_write` 终态。发现明确陈述、长期有用且非敏感的新事实或纠正时，action 使用 `write`、`str_replace`、
+`append`、`delete`；没有应写内容时显式使用 `no_change`，工具返回 `success=true / changed=false /
+finalized=true`。用户不需要固定说“记住”。这个工具调用就是全部收尾；“一次”约束的是一次成功终态，不是
+最多一次尝试。参数、来源、内容或版本校验失败时返回 `success=false / finalized=false / retryable /
+error / correction`，不占用成功终态；`retryable=true` 时模型必须按 correction 修正参数并重试。成功写入或
+`no_change` 后才拒绝重复调用。系统不会启动额外的后台模型任务，也不会按小时、跨天或过期窗口轮询、晋升、
+淘汰记忆。
 
 模型写入还必须同时满足：
 
@@ -133,6 +140,7 @@ curated fact 分层；不照搬模型自主改写、云向量库、图数据库�
 5. 43→44 保留旧记录到 archive，不删除旧表或用户会话。
 6. 记忆页可查看和编辑元数据/正文/版本/来源数，删除非 pinned 文件需要确认。
 7. 历史检索关闭时不注册 history tools；开启后仍查询原始 FTS，不读取 MemoryDocument 表。
-8. 每次 Run 在最终回复前成功完成一次可见的 `memory_write`；无内容时 `changed=false`，校验失败可重试，成功后
-   拒绝重复调用，且没有隐藏的二次模型调用。
+8. 每次 Run 在最终回复前成功完成一个可见的 `memory_write` 终态；无内容时显式 `no_change` 且
+   `changed=false`，校验失败返回可纠正的结构化结果并允许重试，成功后拒绝重复调用，且没有隐藏的二次模型
+   调用。
 9. 删除消息/会话会移除对应 source，删除助手会清理其 scope；旧 `MemoryEntity` 不再有当前 UI 写入口。

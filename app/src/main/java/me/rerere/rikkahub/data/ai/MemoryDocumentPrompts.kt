@@ -32,11 +32,15 @@ internal fun buildMemoryDocumentPrompt(documents: List<MemoryDocument>): String 
         )
         appendLine(
             "At the end of each successful chat run, proactively review durable facts explicitly stated in the " +
-                "current USER messages. Immediately before the final answer, call memory_write exactly once. Supply " +
-                "one of write, str_replace, append, or delete when a file must change; omit action when no memory " +
-                "should change. Do not write transient requests, duplicates, inference, or sensitive information. " +
-                "For every source supply only an exact quote; the app binds its current conversation and message IDs. " +
-                "This visible tool call is the only run-finalization step; there is no hidden follow-up process."
+                "current USER messages. Immediately before the final answer, complete one successful terminal " +
+                "memory_write call. Use action=no_change when no memory should change; otherwise use write, " +
+                "str_replace, append, or delete with that action's documented fields. A failed call does not count " +
+                "as terminal: when retryable=true, follow correction, correct the arguments and retry. Do not write " +
+                "transient requests, duplicates, inference, or sensitive information. " +
+                "For every source supply only an exact quote; the app binds its current conversation and " +
+                "message IDs. " +
+                "Do not give the final answer until memory_write returns success=true. This visible tool call is " +
+                "the only run-finalization step; there is no hidden follow-up process."
         )
         appendLine("Available documents:")
         appendLine(listing)

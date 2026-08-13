@@ -41,6 +41,18 @@ class AssistantTaskPolicyTest {
                 input = """{"action":"query"}""",
             ).requiresDurableTask(json)
         )
+        assertTrue(
+            step(
+                toolName = "memory_write",
+                input = """{"action":"append"}""",
+            ).requiresDurableTask(json)
+        )
+        assertFalse(
+            step(
+                toolName = "memory_write",
+                input = """{"action":"no_change"}""",
+            ).requiresDurableTask(json)
+        )
     }
 
     @Test

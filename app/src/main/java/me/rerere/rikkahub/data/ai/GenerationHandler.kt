@@ -147,6 +147,13 @@ internal suspend fun <T, R> executeInOrderedBatches(
     return results
 }
 
+internal fun toolExecutionErrorCode(throwable: Throwable): String =
+    generateSequence(throwable) { current -> current.cause }
+        .filterIsInstance<ToolExecutionException>()
+        .firstOrNull()
+        ?.code
+        ?: "TOOL_EXECUTION_FAILED"
+
 internal class MemoryDocumentPromptSnapshot(initialDocuments: List<MemoryDocument>) {
     private var currentDocuments = initialDocuments
     private var invalidated = false
@@ -487,7 +494,7 @@ class GenerationHandler(
                             val args = runCatching {
                                 json.parseToJsonElement(tool.input.ifBlank { "{}" })
                             }.getOrElse {
-                                error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}")
+                                throw ToolExecutionException("TOOL_INPUT_INVALID")
                             }
                             Log.i(TAG, toolExecutionLogMessage(toolDef.name))
                             val result = toolDef.execute(args)
@@ -497,9 +504,8 @@ class GenerationHandler(
                             )
                         } catch (throwable: Throwable) {
                             if (throwable is CancellationException) throw throwable
-                            Log.w(TAG, "generateText: tool ${tool.toolName} failed")
-                            val errorCode = (throwable as? ToolExecutionException)?.code
-                                ?: "TOOL_EXECUTION_FAILED"
+                            val errorCode = toolExecutionErrorCode(throwable)
+                            Log.w(TAG, "generateText: tool ${tool.toolName} failed ($errorCode)")
                             tool.copy(
                                 output = listOf(
                                     UIMessagePart.Text(
