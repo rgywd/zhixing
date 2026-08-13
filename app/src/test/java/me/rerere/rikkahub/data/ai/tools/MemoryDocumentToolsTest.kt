@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.ai.tools
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.coroutines.runBlocking
@@ -26,6 +27,8 @@ class MemoryDocumentToolsTest {
         assertTrue(tools.last().description.contains("never changes raw conversation history"))
         assertTrue(tools.last().description.contains("special \"remember\" phrase is not required"))
         assertTrue(tools.last().description.contains("app binds"))
+        assertTrue(tools.last().description.contains("A failed call does not finalize"))
+        assertTrue(tools.last().description.contains("no_change"))
         assertTrue(tools.last().description.contains("background memory service"))
     }
 
@@ -39,18 +42,83 @@ class MemoryDocumentToolsTest {
 
     @Test
     fun everyRunCanFinalizeWithoutInventingAMemory() = runBlocking {
-        val result = memoryTools().last().execute(buildJsonObject {}).single() as UIMessagePart.Text
+        val result = memoryTools().last().execute(action("no_change")).single() as UIMessagePart.Text
+        assertTrue(result.text.contains("\"success\":true"))
         assertTrue(result.text.contains("\"changed\":false"))
+        assertTrue(result.text.contains("\"finalized\":true"))
     }
 
     @Test
-    fun memoryWriteSchemaAcceptsQuotesWithoutExposingInternalIds() {
+    fun memoryWriteSchemaRequiresAnExplicitActionAndDescribesSourceBounds() {
         val schema = memoryTools().last().parameters() as InputSchema.Obj
+        val actionSchema = schema.properties.getValue("action").toString()
         val sourcesSchema = schema.properties.getValue("sources").toString()
 
+        assertEquals(listOf("action"), schema.required)
+        assertEquals(false, schema.additionalProperties)
+        assertTrue(actionSchema.contains("no_change"))
         assertTrue(sourcesSchema.contains("quote"))
+        assertTrue(sourcesSchema.contains("minItems"))
+        assertTrue(sourcesSchema.contains("minLength"))
         assertFalse(sourcesSchema.contains("conversationId"))
         assertFalse(sourcesSchema.contains("messageId"))
+    }
+
+    @Test
+    fun malformedAppendReturnsActionableErrorAndCanBeCorrected() = runBlocking {
+        var finalized = false
+        val tool = buildMemoryDocumentTools(
+            json = Json,
+            checkCanFinalize = {
+                if (finalized) throw ToolExecutionException("MEMORY_ALREADY_FINALIZED")
+            },
+            onFinalize = { finalized = true },
+            onRead = { document() },
+            onWrite = { _, _, _, _, _, _, _ -> document() },
+            onReplace = { _, _, _, _, _ -> document() },
+            onAppend = { _, _, _, _ -> document() },
+            onDelete = { _, _ -> },
+        ).last()
+        val malformed = buildJsonObject {
+            put("action", "append")
+            put("path", "/preferences.md")
+            put("if_version", 1)
+            put("name", "Preferences")
+            put("description", "Stable response preferences")
+            put("aliases", buildJsonArray {})
+            put("content", "")
+            put("old_text", "")
+            put("new_text", "")
+            put("sources", buildJsonArray {})
+        }
+
+        val failure = tool.execute(malformed).single() as UIMessagePart.Text
+        assertTrue(failure.text.contains("\"success\":false"))
+        assertTrue(failure.text.contains("MEMORY_APPEND_INPUT_INVALID"))
+        assertTrue(failure.text.contains("\"retryable\":true"))
+        assertTrue(failure.text.contains("\"finalized\":false"))
+        assertTrue(failure.text.contains("content"))
+        assertTrue(failure.text.contains("sources"))
+        assertFalse(finalized)
+
+        val success = tool.execute(appendInput()).single() as UIMessagePart.Text
+        assertTrue(success.text.contains("\"success\":true"))
+        assertTrue(success.text.contains("\"finalized\":true"))
+        assertTrue(finalized)
+
+        val duplicate = tool.execute(appendInput()).single() as UIMessagePart.Text
+        assertTrue(duplicate.text.contains("MEMORY_ALREADY_FINALIZED"))
+        assertTrue(duplicate.text.contains("\"retryable\":false"))
+        assertTrue(duplicate.text.contains("\"finalized\":true"))
+    }
+
+    @Test
+    fun missingActionExplainsTheExplicitNoChangeTerminalCall() = runBlocking {
+        val result = memoryTools().last().execute(buildJsonObject {}).single() as UIMessagePart.Text
+
+        assertTrue(result.text.contains("MEMORY_ACTION_REQUIRED"))
+        assertTrue(result.text.contains("no_change"))
+        assertTrue(result.text.contains("\"retryable\":true"))
     }
 
     @Test
@@ -77,16 +145,19 @@ class MemoryDocumentToolsTest {
         ).last()
 
         val input = appendInput()
-        val firstFailure = runCatching { tool.execute(input) }.exceptionOrNull()
-        assertEquals("MEMORY_WRITE_REJECTED", (firstFailure as ToolExecutionException).code)
+        val firstFailure = tool.execute(input).single() as UIMessagePart.Text
+        assertTrue(firstFailure.text.contains("MEMORY_WRITE_REJECTED"))
+        assertTrue(firstFailure.text.contains("\"retryable\":true"))
         assertFalse(finalized)
 
         val result = tool.execute(input).single() as UIMessagePart.Text
+        assertTrue(result.text.contains("\"success\":true"))
         assertTrue(result.text.contains("\"version\":1"))
         assertTrue(finalized)
 
-        val duplicate = runCatching { tool.execute(input) }.exceptionOrNull()
-        assertEquals("MEMORY_ALREADY_FINALIZED", (duplicate as ToolExecutionException).code)
+        val duplicate = tool.execute(input).single() as UIMessagePart.Text
+        assertTrue(duplicate.text.contains("MEMORY_ALREADY_FINALIZED"))
+        assertTrue(duplicate.text.contains("\"retryable\":false"))
     }
 
     @Test
@@ -157,6 +228,8 @@ class MemoryDocumentToolsTest {
         val result = tool.execute(input).single() as UIMessagePart.Text
 
         assertTrue(result.text.contains("MEMORY_VERSION_CONFLICT"))
+        assertTrue(result.text.contains("\"retryable\":true"))
+        assertTrue(result.text.contains("\"finalized\":false"))
         assertTrue(result.text.contains("\"version\":4"))
         assertTrue(result.text.contains("当前内容"))
         assertFalse(finalized)
@@ -212,7 +285,7 @@ class MemoryDocumentToolsTest {
         put("path", "/profile.md")
         put("if_version", 1)
         put("content", "- [stated] 用户偏好中文回复。")
-        put("sources", kotlinx.serialization.json.buildJsonArray {
+        put("sources", buildJsonArray {
             add(buildJsonObject { put("quote", "偏好中文回复") })
         })
     }

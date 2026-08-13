@@ -6,6 +6,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.withTimeout
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.Tool
+import me.rerere.ai.core.ToolExecutionException
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
@@ -94,6 +95,17 @@ class GenerationHandlerSecurityTest {
         assertEquals("generateText: executing tool memory_tool", message)
         assertFalse(message.contains("content"))
         assertFalse(message.contains("args"))
+    }
+
+    @Test
+    fun wrappedToolExecutionExceptionKeepsItsStableErrorCode() {
+        val wrapped = IllegalStateException(
+            "provider wrapper",
+            ToolExecutionException("MEMORY_SOURCE_INVALID"),
+        )
+
+        assertEquals("MEMORY_SOURCE_INVALID", toolExecutionErrorCode(wrapped))
+        assertEquals("TOOL_EXECUTION_FAILED", toolExecutionErrorCode(IllegalStateException("unknown")))
     }
 
     @Test
