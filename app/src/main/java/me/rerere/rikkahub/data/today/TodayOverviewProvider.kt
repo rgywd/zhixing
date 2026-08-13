@@ -23,6 +23,7 @@ import me.rerere.rikkahub.data.repository.AgendaTaskRepository
 import me.rerere.rikkahub.data.status.MyStatusCoordinator
 import me.rerere.rikkahub.data.status.MyStatusSnapshot
 import me.rerere.rikkahub.data.task.AssistantTaskRepository
+import me.rerere.rikkahub.data.task.ASSISTANT_TASK_RETRY_RETENTION_MILLIS
 import me.rerere.rikkahub.data.task.AssistantTaskStatus
 import me.rerere.rikkahub.data.work.PhoneWorkRepository
 import me.rerere.rikkahub.data.work.PhoneWorkSession
@@ -93,12 +94,16 @@ internal fun buildTodaySnapshot(
     )
     val waitingSessions = sessions.filter { it.status == "WAITING_FOR_USER" }
     val localDate = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
-    val activeTasks = assistantTasks.filter {
-        it.status in setOf(
+    val retryCutoffMillis = nowMillis - ASSISTANT_TASK_RETRY_RETENTION_MILLIS
+    val activeTasks = assistantTasks.filter { task ->
+        when (task.status) {
             AssistantTaskStatus.WAITING_FOR_INPUT.name,
-            AssistantTaskStatus.FAILED_RETRYABLE.name,
             AssistantTaskStatus.RUNNING.name,
-        )
+            -> true
+
+            AssistantTaskStatus.FAILED_RETRYABLE.name -> task.updatedAt > retryCutoffMillis
+            else -> false
+        }
     }
     val completedTasks = assistantTasks.filter {
         it.status == AssistantTaskStatus.COMPLETED.name &&
@@ -158,13 +163,15 @@ internal class TodayOverviewProvider(
     private val phoneWorkRepository: PhoneWorkRepository,
     agendaTaskRepository: AgendaTaskRepository,
     agendaPlanRepository: AgendaPlanRepository,
-    assistantTaskRepository: AssistantTaskRepository,
+    private val assistantTaskRepository: AssistantTaskRepository,
     private val statusCoordinator: MyStatusCoordinator,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val agendaNow = flow {
         while (true) {
-            emit(clock())
+            val now = clock()
+            runCatching { assistantTaskRepository.pruneExpiredRetryableTasks(now) }
+            emit(now)
             delay(AGENDA_REFRESH_INTERVAL_MS)
         }
     }
@@ -210,6 +217,12 @@ internal class TodayOverviewProvider(
                 lastRefreshAtEpochMillis = now
                 runCatching { phoneWorkRepository.refreshSessions() }
             }
+        }
+    }
+
+    fun dismissFailedTask(taskId: String) {
+        appScope.launch {
+            runCatching { assistantTaskRepository.dismissFailure(taskId) }
         }
     }
 

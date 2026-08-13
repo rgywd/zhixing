@@ -131,6 +131,30 @@ class TodayOverviewProviderTest {
         assertEquals(listOf("today"), snapshot.completedItems.map { it.task.id })
     }
 
+    @Test
+    fun `retryable tasks disappear after retention window`() {
+        val expired = assistantTask("expired", AssistantTaskStatus.FAILED_RETRYABLE).copy(
+            updatedAt = now - 24 * 60 * 60 * 1_000L,
+        )
+        val fresh = assistantTask("fresh", AssistantTaskStatus.FAILED_RETRYABLE).copy(
+            updatedAt = now - 24 * 60 * 60 * 1_000L + 1,
+        )
+
+        val snapshot = buildTodaySnapshot(
+            sessions = emptyList(),
+            tasks = emptyList(),
+            plans = emptyList(),
+            nowMillis = now,
+            assistantTasks = listOf(expired, fresh),
+            zoneId = zone,
+        )
+
+        assertEquals(
+            listOf("fresh"),
+            snapshot.items.filterIsInstance<TodayItem.AssistantTask>().map { it.task.id },
+        )
+    }
+
     private fun session(id: String, status: String) = PhoneWorkSession(
         id = id,
         runnerId = "runner",

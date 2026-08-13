@@ -277,6 +277,7 @@ fun AgendaPage(initialTaskId: String? = null) {
                                     )
                                 }
                         },
+                        onDismiss = { todayProvider.dismissFailedTask(taskItem.task.id) },
                     )
                 }
             }

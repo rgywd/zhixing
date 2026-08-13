@@ -384,7 +384,7 @@ class ConversationRepository(
             database.withTransaction {
                 memoryRepository.revokeConversationEvidence(conversation.id.toString())
                 memoryDocumentRepository.revokeChatSources(conversation.id.toString())
-                assistantTaskDAO?.invalidateConversationLinks(conversation.id.toString())
+                assistantTaskDAO?.deleteTasksForConversation(conversation.id.toString())
                 assistantTaskDAO?.deleteRuntimeContextsForConversation(conversation.id.toString())
                 // message_node 会通过 CASCADE 自动删除
                 conversationDAO.delete(

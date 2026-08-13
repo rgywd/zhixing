@@ -383,6 +383,7 @@ private fun LifeOverviewDrawerContent(
                                     )
                                 }
                         },
+                        onDismiss = { todayProvider.dismissFailedTask(taskItem.task.id) },
                     )
                 }
             }

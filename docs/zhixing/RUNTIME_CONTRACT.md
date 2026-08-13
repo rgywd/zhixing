@@ -166,14 +166,20 @@ $$USER_TOKEN=value
 
 - Room schema 43 新增 `assistant_tasks`、`assistant_task_events`、`assistant_task_links` 和
   `assistant_runtime_contexts`。迁移 42→43 为纯新增且不回填旧会话、旧事项或 Work 数据。
+- Room schema 46 的 45→46 迁移会清空升级前的普通聊天任务、任务事件和任务软链接。这三张表只是可重建的
+  运行追踪投影；迁移保留聊天、记忆、Agenda、已经写入的业务结果和 `assistant_runtime_contexts`，不会尝试
+  撤销已经发生的外部操作。
 - 一轮普通聊天始终有内部生成运行，但只有写入/外部副作用、`ask_user`、产物步骤或第二个工具步骤才创建
   用户可见任务。任务状态只使用 `RUNNING`、`WAITING_FOR_INPUT`、`COMPLETED`、
   `FAILED_RETRYABLE`、`STOPPED`；工具调用是顺序事件，不创建子任务。
 - 任务事件只保存短自然语言进度、受限结果引用、错误码、时间和幂等键，不保存完整参数、密钥或远端正文。
   GitHub、MCP、Knowledge 等仍使用原协议，关联只写本地软链接。外部写入结果不确定时进入
   `WAITING_FOR_INPUT`，不得盲目重试。
-- 启动恢复把遗留 `RUNNING` 任务转为 `FAILED_RETRYABLE` 并追加恢复事件；显式重试沿用同一任务并增加
-  attempt。终态不可倒退。停止只取消后续步骤，不声称撤销已发生的外部操作。
+- 启动恢复把遗留 `RUNNING` 任务转为 `FAILED_RETRYABLE` 并追加恢复事件。只有用户从对应来源消息重新生成时，
+  才会按消息或节点锚点恢复该任务并增加 attempt，不能用同一聊天中最新的无关失败任务代替；新一轮创建可见
+  任务时会清理该聊天中更早的可重试失败追踪。终态不可倒退。停止只取消后续步骤，不声称撤销已发生的外部操作。
+- `FAILED_RETRYABLE` 最多在 Today/Agenda 投影保留 24 小时，到期后删除任务、事件和软链接；用户也可通过
+  “不再重试”立即删除。删除来源聊天时，同步删除该聊天的全部任务追踪和隐藏运行时上下文。
 - `TodayOverviewProvider` 是空白 Chat、右栏 Agenda 行动和 Agenda 页的共享投影时钟。排序固定为等待输入、
   可重试、执行中、当前状态、Agenda 行动、独立 Work 提醒；当天完成项单独折叠。Work 只适配提醒，
   Phone-line session/event/ask/report 数据不复制到普通任务表。

@@ -108,6 +108,7 @@ import me.rerere.rikkahub.data.repository.FolderRepository
 import me.rerere.rikkahub.data.repository.MemoryDocumentRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.task.AssistantTaskRepository
+import me.rerere.rikkahub.data.task.assistantTaskSourceAnchorFor
 import me.rerere.rikkahub.data.task.AssistantTaskStep
 import me.rerere.rikkahub.data.task.applyAssistantTaskResultPresentation
 import me.rerere.rikkahub.data.task.extractAssistantTaskFailure
@@ -504,17 +505,29 @@ class ChatService(
                         messageNodes = conversation.messageNodes.subList(0, indexAt + 1)
                     )
                     saveConversation(conversationId, newConversation)
-                    runCatching {
-                        assistantTaskRepository.retryLatestForConversation(conversationId.toString())
-                    }.onFailure { Log.w(TAG, "Unable to resume assistant task retry", it) }
+                    conversation.assistantTaskSourceAnchorFor(message)?.let { source ->
+                        runCatching {
+                            assistantTaskRepository.retryForSource(
+                                conversationId = conversationId.toString(),
+                                anchorMessageId = source.messageId,
+                                anchorNodeId = source.nodeId,
+                            )
+                        }.onFailure { Log.w(TAG, "Unable to resume assistant task retry", it) }
+                    }
                     handleMessageComplete(conversationId)
                 } else {
                     if (regenerateAssistantMsg) {
                         val node = conversation.getMessageNodeByMessage(message)
                         val nodeIndex = conversation.messageNodes.indexOf(node)
-                        runCatching {
-                            assistantTaskRepository.retryLatestForConversation(conversationId.toString())
-                        }.onFailure { Log.w(TAG, "Unable to resume assistant task retry", it) }
+                        conversation.assistantTaskSourceAnchorFor(message)?.let { source ->
+                            runCatching {
+                                assistantTaskRepository.retryForSource(
+                                    conversationId = conversationId.toString(),
+                                    anchorMessageId = source.messageId,
+                                    anchorNodeId = source.nodeId,
+                                )
+                            }.onFailure { Log.w(TAG, "Unable to resume assistant task retry", it) }
+                        }
                         handleMessageComplete(conversationId, messageRange = 0..<nodeIndex)
                     } else {
                         saveConversation(conversationId, conversation)
