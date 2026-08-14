@@ -71,6 +71,7 @@ internal fun AssistantTaskStep.progressText(): String = when {
     requiresUserAnswer && !hasUserAnswer -> "需要你补充信息"
     requiresUserAnswer -> "已收到补充信息"
     toolName == "search_web" -> "正在查找资料"
+    toolName == "get_life_context" -> "正在读取当前生活状态"
     toolName.contains("location") || toolName == "search_nearby" -> "正在核对位置与出行信息"
     toolName.startsWith("task_") || toolName.startsWith("plan_") -> "正在整理安排"
     toolName.startsWith("calendar_") -> "正在更新日程"

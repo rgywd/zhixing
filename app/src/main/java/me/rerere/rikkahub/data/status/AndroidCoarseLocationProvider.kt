@@ -51,6 +51,7 @@ internal class AndroidCoarseLocationProvider(
                     location.hasAccuracy() && location.accuracy <= 5_000f -> MyStatusConfidence.HIGH
                     else -> MyStatusConfidence.MEDIUM
                 },
+                granularity = area?.granularity() ?: MyStatusLocationGranularity.UNKNOWN,
             ),
             weatherQueryPoint = queryPoint,
         )

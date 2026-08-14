@@ -508,6 +508,27 @@ class MyStatusModelsTest {
     }
 
     @Test
+    fun administrativeAreaDistinguishesDistrictGranularityAndDeduplicatesMunicipalities() {
+        val beijing = GeocodedArea(
+            countryName = "中国",
+            adminArea = "北京市",
+            locality = "北京市",
+            subAdminArea = "朝阳区",
+        )
+        val nanjing = GeocodedArea(
+            countryName = "中国",
+            adminArea = "江苏省",
+            locality = "南京市",
+            subAdminArea = "玄武区",
+        )
+
+        assertEquals("北京市 · 朝阳区", buildAreaLabel(beijing))
+        assertEquals(MyStatusLocationGranularity.DISTRICT, beijing.granularity())
+        assertEquals("江苏省 · 南京市 · 玄武区", buildAreaLabel(nanjing))
+        assertEquals(MyStatusLocationGranularity.DISTRICT, nanjing.granularity())
+    }
+
+    @Test
     fun structuredResponseAcceptsFencedJsonAndCapsInsights() {
         val evidence = sampleFacts().evidence
         val raw = """

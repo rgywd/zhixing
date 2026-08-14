@@ -30,6 +30,15 @@ internal enum class MyStatusConfidence {
 }
 
 @Serializable
+internal enum class MyStatusLocationGranularity {
+    COUNTRY,
+    PROVINCE,
+    CITY,
+    DISTRICT,
+    UNKNOWN,
+}
+
+@Serializable
 internal enum class MyStatusInsightKind(val displayName: String) {
     BODY("身体"),
     ENVIRONMENT("环境"),
@@ -94,6 +103,7 @@ internal data class MyStatusLocationContext(
     val scene: String? = null,
     val observedAt: String,
     val confidence: MyStatusConfidence,
+    val granularity: MyStatusLocationGranularity = MyStatusLocationGranularity.UNKNOWN,
 )
 
 @Serializable
