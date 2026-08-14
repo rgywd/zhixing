@@ -53,11 +53,13 @@ Android 的安全机制仍会要求用户在安装新版本时进行系统确认
 ## 验证
 
 ```powershell
-./gradlew.bat :app:testStagingUnitTest --tests me.rerere.rikkahub.AppIdentityTest --tests me.rerere.rikkahub.utils.UpdateCheckerTest
-./gradlew.bat :app:assembleDebug
+git fetch origin main
+node .github/scripts/local-verify.mjs
 ```
 
-合并前必须通过 Android JVM 测试与 APK 构建。
+脚本按 `origin/main...HEAD` 的改动范围选择 Work、Android、文档或发布元数据门禁，并要求在最终 clean commit
+上通过后再 push。GitHub PR 只运行单 Job 轻量策略检查；正式标签仍执行完整云端测试、签名与公开发布。
+详细边界见 [CI 与本地构建流水线](docs/zhixing/CI_PIPELINE.md)。
 
 ## 许可
 

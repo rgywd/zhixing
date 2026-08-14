@@ -129,8 +129,10 @@ node .github/scripts/local-verify.mjs
 
 - **Memory Documents**: Long-term memory is a Room-backed Markdown document layer with a compact listing,
   always-visible `/profile.md` and `/preferences.md`, and on-demand reads for `/areas`, `/topics`, and `/people`.
-  Every persisted fact is `[stated]`, carries a user source, and uses file-level optimistic locking. Raw conversation
-  FTS is a separate capability. The V3 contract and V2 migration boundary are documented in
+  Reads and mutations are optional during the active foreground chat run: unrelated questions do not read memory, and
+  no mutation means no `memory_write` call or Run finalization. Every persisted fact is `[stated]`, carries a user
+  source, and uses file-level optimistic locking. Raw conversation FTS is a separate capability. The V3 contract and
+  V2 migration boundary are documented in
   `docs/zhixing/MEMORY_SYSTEM.md`.
 
 - **Work / Agent Phone-line**: A separate, mobile-created session domain for communicating with Codex or Claude Code

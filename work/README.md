@@ -124,6 +124,18 @@ pwsh -File .\work\runner\start-runner.ps1
 pwsh -File .\work\runner\install-autostart.ps1
 ```
 
+### Codex App Server 生命周期与超时
+
+- 每个 Codex turn 使用一个独立 `codex app-server --stdio` 进程。收到 `turn/completed` 后 Runner 关闭连接、
+  等待进程退出并释放 thread writer，随后会话进入仍可继续的 `IDLE`；不需要为释放内存点击“结束会话”。
+- “结束会话”会进入不可继续的 `COMPLETED`，只表达用户主动结束，不承担进程或内存回收职责；归档与恢复也不
+  改变 App Server 生命周期。
+- `initialize` 使用 60 秒独立预算。首次握手超时会先清理失败进程树，再自动重试一次；重试发生在创建或恢复
+  thread 之前，不会重复创建 turn。
+- `thread/start|resume` 与 `turn/start` 使用 90 秒启动预算，活跃 turn 的 steer/interrupt 等控制请求使用
+  30 秒预算。启动阶段失败必须清理本轮进程树；重复 initialize 超时应检查开发机负载、安全软件扫描和固定
+  Codex 版本，而不是延长所有控制请求的超时。
+
 ## 验证
 
 `npm --prefix work test` 使用假的 Codex/Claude Code 进程覆盖完整协议。本机对应 CLI 已真实登录时，可额外运行：

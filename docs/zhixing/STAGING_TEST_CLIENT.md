@@ -73,7 +73,9 @@ PowerShell 启动：
 
 本场景会真实创建一条 Work 会话。验收环境应使用可识别的测试消息，并在验证后按 Work 的正常归档/结束流程清理。
 
-## CI 门禁
+## 本地与发布门禁
 
-PR CI 必须运行驱动契约单测、Staging JVM 单测，并构建 Staging 应用 APK 与仪器测试 APK。CI 不连接真实 Core；
-真实 Core 场景只在受控开发机或测试设备上执行。
+改动涉及 `staging-driver/` 或 Android 时，push 前的 `.github/scripts/local-verify.mjs` 会按改动范围运行驱动契约
+单测、Android JVM 测试，并构建 Staging 应用 APK 与仪器测试 APK；最终发布前使用 `--mode full`。GitHub PR
+只运行轻量策略检查，不重复这些重任务；正式 tag 的 Release workflow 仍执行发布关键测试与签名构建。自动门禁
+不连接真实 Core，真实 Core 场景只在受控开发机或测试设备上执行。
