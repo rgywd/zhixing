@@ -130,6 +130,7 @@ test("catalog preserves model-specific reasoning efforts and rejects invalid ove
     buildRepositoryCatalog(config)[0].runtimes[0].reasoningEffortsByModel,
     runtime.reasoningEffortsByModel,
   );
+  assert.deepEqual(buildRepositoryCatalog(config)[0].runtimes[0].fastModels, ["gpt-5.6-sol"]);
   assert.throws(() => validateRepositoryConfig({
     ...config,
     defaultRuntimes: [{
@@ -143,6 +144,10 @@ test("catalog preserves model-specific reasoning efforts and rejects invalid ove
       ...runtime,
       reasoningEffortsByModel: { "gpt-5.3-codex-spark": ["ultra"] },
     }],
+  }), /invalid runtime catalog/);
+  assert.throws(() => validateRepositoryConfig({
+    ...config,
+    defaultRuntimes: [{ ...runtime, fastModels: ["gpt-5.3-codex-spark", "unknown-model"] }],
   }), /invalid runtime catalog/);
 });
 

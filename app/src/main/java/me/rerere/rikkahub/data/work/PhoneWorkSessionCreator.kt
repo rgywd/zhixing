@@ -20,6 +20,7 @@ class PhoneWorkSessionCreator(
         model: String,
         reasoningEffort: String,
         message: String,
+        fastMode: Boolean = false,
         runtime: String = "codex",
         attachments: List<PhoneWorkPendingAttachment> = emptyList(),
     ): PhoneWorkSession {
@@ -33,6 +34,7 @@ class PhoneWorkSessionCreator(
                 runtime = runtime,
                 model = model,
                 reasoningEffort = reasoningEffort,
+                fastMode = fastMode,
                 message = message,
             ),
             attachments = attachments,

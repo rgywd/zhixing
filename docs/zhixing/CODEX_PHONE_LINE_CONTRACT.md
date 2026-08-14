@@ -1,6 +1,6 @@
 # Work Phone-line v1：协议契约
 
-状态：v1 现行协议契约（2026-08-10 核对）
+状态：v1 现行协议契约（2026-08-14 核对）
 
 所有 JSON 字段使用 camelCase，时间使用 UTC RFC 3339，ID 使用不可预测的 UUID/ULID。所有写操作带
 `Idempotency-Key`；成功重试返回第一次创建的对象。
@@ -17,6 +17,7 @@
   "runtime": "claude-code",
   "model": "sonnet",
   "reasoningEffort": "high",
+  "fastMode": false,
   "sandboxMode": "danger-full-access",
   "approvalPolicy": "never",
   "status": "QUEUED",
@@ -43,7 +44,8 @@ repo/runtime/model/effort 组合。仓库 catalog 项可携带可选 `group`、`
       "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"],
       "reasoningEffortsByModel": {
         "gpt-5.3-codex-spark": ["low", "medium", "high", "xhigh"]
-      }
+      },
+      "fastModels": ["gpt-5.6-sol"]
     },
     { "id": "claude-code", "name": "Claude Code", "models": ["sonnet"], "reasoningEfforts": ["high"] }
   ]
@@ -53,13 +55,21 @@ repo/runtime/model/effort 组合。仓库 catalog 项可携带可选 `group`、`
 `group` 是 Runner 配置的公开显示标签，不得包含真实绝对路径。Android 只允许创建 `available=true` 的目录会话，
 并可按 `group` 分组和搜索。Android 可在本机保存仓库引用（`runnerId + repoId`）的置顶顺序和最多 5 项最近选择；
 选择器按置顶、最近使用、其余分组展示且不重复。新会话只从仍可用的最近项或置顶项恢复默认，没有本地历史时保持
-未选择。该偏好不上传 Core，也不改变 catalog 或会话创建协议。创建后 runtime/model 固定；`reasoningEffort` 保存
-会话当前默认值，后续消息可选择同一 runtime/model 当前支持的档位并从下一轮生效。旧客户端未提交 `runtime` 时默认
-`codex`。旧 Runner 的扁平 `models/reasoningEfforts` catalog 也继续映射为 Codex。
+未选择。该偏好不上传 Core，也不改变 catalog 或会话创建协议。创建后 runtime/model 固定；`reasoningEffort` 与
+`fastMode` 保存会话当前默认值，后续消息可为下一轮调整。`fastMode` 缺省为 `false`，仅 `runtime=codex` 且模型位于
+`fastModels` 时可设为 `true`。旧客户端未提交 `runtime` 时默认 `codex`。旧 Runner 的扁平
+`models/reasoningEfforts` catalog 也继续映射为 Codex，但不声明 Fast 能力。
 
 `reasoningEffortsByModel` 是可选的按模型覆盖：键必须属于同一 runtime 的 `models`，值必须是
 `reasoningEfforts` 的非空子集。未提供覆盖的模型继续使用 runtime 级 `reasoningEfforts`。Android 在切换模型时
 立即收窄选择器并回落到该模型支持的档位；Core 和 Runner 都按同一有效组合校验，避免客户端绕过显示约束。
+
+`fastModels` 是 Codex runtime 可选的模型子集；Claude Code 和其他 runtime 必须为空。Android 将模型、思考深度和
+Codex 速度收在同一个分层按钮中，速度只提供“标准/快速”。切到不在 `fastModels` 的模型时必须回落为标准；Core 与
+Runner 再次校验，不能仅依赖客户端禁用状态。
+
+Android 新建会话默认选择 Codex `xhigh`、Claude Code `max`；若目标模型不支持该档位，则依次回落到 `high` 和该模型
+公布的第一个档位。默认值只用于尚未创建的会话，不覆盖已有会话快照或用户手动选择。
 
 Android 创建会话时可提交最多 80 字符的 `title`。当前客户端用已配置的快速模型根据首条文本生成标题；模型不可用、
 生成失败或仅发送附件时使用首条文本摘要或仓库名兜底。旧客户端未提交标题时，Core 使用 `repoName`，保持 v1 向后兼容。
@@ -200,13 +210,13 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
 - `GET /v1/work/runners`：Runner 在线状态与缓存版本。
 - `GET /v1/work/repos?runnerId=`：仓库 catalog，支持 `ETag`。
 - `POST /v1/work/attachments`：上传一个受限附件并返回附件元数据。
-- `POST /v1/work/sessions`：创建会话与第一条用户消息，可携带可选 `title`。
+- `POST /v1/work/sessions`：创建会话与第一条用户消息，可携带可选 `title` 与 `fastMode`；缺省速度为标准。
 - `GET /v1/work/sessions?cursor=`：仅返回当前用户的手机会话。
 - `GET /v1/work/sessions?archived=true`：返回已归档会话；默认列表不包含归档项。
 - `GET /v1/work/sessions/{id}/events?afterSeq=`：补拉有序事件。
 - `GET /v1/work/sessions/{id}/stream?afterSeq=`：SSE；断开不影响写入。
-- `POST /v1/work/sessions/{id}/messages`：排队补充消息；可携带 `reasoningEffort`，与消息原子校验和提交并从该消息
-  触发的下一次 START/RESUME 生效。字段缺省时沿用会话当前值，保持旧客户端兼容。
+- `POST /v1/work/sessions/{id}/messages`：排队补充消息；可携带 `reasoningEffort` 与 Codex `fastMode`，与消息原子
+  校验和提交并从该消息触发的下一次 START/RESUME 生效。字段缺省时沿用会话当前值，保持旧客户端兼容。
 - `POST /v1/work/sessions/{id}/asks/{askId}/answer`：提交答案。
 - `POST /v1/work/sessions/{id}/stop`：停止当前进程，会话进入 IDLE。
 - `POST /v1/work/sessions/{id}/complete`：显式结束会话。
@@ -240,9 +250,9 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 - 每个 session 使用独立、单调递增的 `seq`；Android 以 `(sessionId, seq)` 去重。
 - 同一 session 同时最多一个 Runner lease 和一个 CLI 子进程。
 - 手机消息先持久化再入命令队列；Core 返回 2xx 只表示已耐久接收，不表示 CLI 已阅读。
-- 补充消息携带 `reasoningEffort` 时，Core 必须在同一个幂等事务中按会话的 runner/repo/runtime/model 当前 catalog
-  校验档位、写入消息、更新会话默认值并创建命令。无效档位整笔拒绝，不得落下消息或部分更新。该设置只约束新建
-  命令；已经 RUNNING 的子进程继续使用启动时的档位。
+- 补充消息携带 `reasoningEffort` 或 `fastMode` 时，Core 必须在同一个幂等事务中按会话的
+  runner/repo/runtime/model 当前 catalog 校验组合、写入消息、更新会话默认值并创建命令。无效组合整笔拒绝，不得
+  落下消息或部分更新。该设置只约束新建命令；已经 RUNNING 的子进程继续使用启动时的档位和速度。
 - `report` 读取 inbox 时使用租约式 cursor：响应已包含的消息在下一次成功提交 cursor 后才确认，避免进程崩溃丢消息。
 - stop 与新消息竞态时，先完成 stop；新消息保留为待 resume，不静默丢弃。
 - Runner 事件必须携带 `clientEventId`。首期只允许 `ASSISTANT_MESSAGE`，其正文来自公开 `codex exec --json`
@@ -298,7 +308,8 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 不变，新 Android 遇到未声明能力的 Runner 时禁用文件入口，Core 也拒绝绕过客户端的普通文件绑定。
 Phone-line v1 不读取旧 Work/Happy 数据；Room v33 迁移会删除旧 Work/Happy/App Server/Codex catalog 表，只保留
 新版 `phone_work_sessions` 与 `phone_work_events`。Room v39→v40 为现有会话补入 `runtime=codex` 和通用
-`runtime_session_id`；Core 同样从旧 `codex_session_id` 回填通用 ID。`codexSessionId` 仅对 Codex 会话保留为兼容别名。
+`runtime_session_id`；Room v46→v47 为现有 Work 会话补入 `fast_mode=0`（标准）。Core 同样从旧 `codex_session_id`
+回填通用 ID，并为旧会话补入标准速度。`codexSessionId` 仅对 Codex 会话保留为兼容别名。
 
 ## 8. Hook 隔离与失败语义
 

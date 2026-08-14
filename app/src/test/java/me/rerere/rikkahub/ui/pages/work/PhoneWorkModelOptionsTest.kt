@@ -11,6 +11,18 @@ import org.junit.Test
 
 class PhoneWorkModelOptionsTest {
     @Test
+    fun `new sessions prefer xhigh for Codex and max for Claude Code`() {
+        assertEquals(
+            "xhigh",
+            PhoneWorkSessionVM.preferredEffort("codex", listOf("low", "high", "xhigh", "max")),
+        )
+        assertEquals(
+            "max",
+            PhoneWorkSessionVM.preferredEffort("claude-code", listOf("medium", "high", "xhigh", "max")),
+        )
+    }
+
+    @Test
     fun `default Codex catalog exposes four current models without ultra`() {
         assertEquals(
             listOf(
@@ -36,6 +48,7 @@ class PhoneWorkModelOptionsTest {
             models = PhoneWorkSessionVM.DEFAULT_MODELS,
             reasoningEfforts = PhoneWorkSessionVM.DEFAULT_EFFORTS,
             reasoningEffortsByModel = PhoneWorkSessionVM.DEFAULT_REASONING_EFFORTS_BY_MODEL,
+            fastModels = listOf("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"),
         )
 
         assertEquals(
@@ -46,6 +59,7 @@ class PhoneWorkModelOptionsTest {
             PhoneWorkSessionVM.DEFAULT_EFFORTS,
             runtime.effectiveReasoningEfforts("gpt-5.6-luna"),
         )
+        assertFalse(PhoneWorkSessionVM.SPARK_MODEL in runtime.fastModels)
     }
 
     @Test
@@ -177,6 +191,26 @@ class PhoneWorkModelOptionsTest {
             reconcileWorkEffortSelection(
                 selectedEffort = "xhigh",
                 serverEffort = "xhigh",
+                pending = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `background refresh does not overwrite a Fast change waiting to be sent`() {
+        assertEquals(
+            WorkFastSelection(fastMode = true, pending = true),
+            reconcileWorkFastSelection(
+                selectedFastMode = true,
+                serverFastMode = false,
+                pending = true,
+            ),
+        )
+        assertEquals(
+            WorkFastSelection(fastMode = true, pending = false),
+            reconcileWorkFastSelection(
+                selectedFastMode = true,
+                serverFastMode = true,
                 pending = true,
             ),
         )

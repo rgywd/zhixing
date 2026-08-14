@@ -152,12 +152,14 @@ export class WorkRunner {
     const runtimeConfig = repo.runtimes.find((candidate) => candidate.id === runtime);
     const model = command.payload.model ?? previous.model;
     const reasoningEffort = command.payload.reasoningEffort ?? previous.reasoningEffort;
+    const fastMode = command.payload.fastMode ?? previous.fastMode ?? false;
     const sessionToken = command.payload.sessionToken ?? previous.sessionToken;
     if (
       !runtimeConfig
       || (previous.runtime && previous.runtime !== runtime)
       || !runtimeConfig.models.includes(model)
       || !effectiveReasoningEfforts(runtimeConfig, model).includes(reasoningEffort)
+      || (fastMode && (runtime !== "codex" || !runtimeConfig.fastModels.includes(model)))
       || !sessionToken
     ) {
       await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", "Runner rejected the session snapshot"));
@@ -176,6 +178,7 @@ export class WorkRunner {
       runtime,
       model,
       reasoningEffort,
+      fastMode,
       sessionToken,
       pendingAttachments,
       lastCommandId: command.id,
@@ -244,6 +247,7 @@ export class WorkRunner {
           repoPath: repo.path,
           model,
           reasoningEffort,
+          fastMode,
           codexSessionId: previousRuntimeSessionId,
           imagePaths: downloadedAttachments.imagePaths,
           additionalDirectories: downloadedAttachments.filePaths.length && attachmentDirectory

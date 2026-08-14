@@ -13,6 +13,7 @@ data class PhoneWorkSessionEntity(
     @ColumnInfo(defaultValue = "'codex'") val runtime: String,
     val model: String,
     @ColumnInfo(name = "reasoning_effort") val reasoningEffort: String,
+    @ColumnInfo(name = "fast_mode", defaultValue = "0") val fastMode: Boolean = false,
     val status: String,
     @ColumnInfo(name = "runtime_session_id") val runtimeSessionId: String?,
     @ColumnInfo(name = "codex_session_id") val codexSessionId: String?,

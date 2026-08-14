@@ -102,6 +102,13 @@ async function registerAndCreate(baseUrl) {
         name: "zhixing",
         models: ["gpt-5.6-sol"],
         reasoningEfforts: ["high", "xhigh"],
+        runtimes: [{
+          id: "codex",
+          name: "Codex",
+          models: ["gpt-5.6-sol"],
+          reasoningEfforts: ["high", "xhigh"],
+          fastModels: ["gpt-5.6-sol"],
+        }],
       }],
     },
   });
@@ -473,6 +480,7 @@ test("runtime catalog enforces model-specific reasoning efforts", async (t) => {
           reasoningEffortsByModel: {
             "gpt-5.3-codex-spark": ["low", "medium", "high", "xhigh"],
           },
+          fastModels: ["gpt-5.6-sol"],
         }],
       }],
     },
@@ -484,6 +492,7 @@ test("runtime catalog enforces model-specific reasoning efforts", async (t) => {
     repos.payload.repos[0].runtimes[0].reasoningEffortsByModel,
     { "gpt-5.3-codex-spark": ["low", "medium", "high", "xhigh"] },
   );
+  assert.deepEqual(repos.payload.repos[0].runtimes[0].fastModels, ["gpt-5.6-sol"]);
 
   const rejected = await request(baseUrl, "/v1/work/sessions", {
     method: "POST",
@@ -510,6 +519,20 @@ test("runtime catalog enforces model-specific reasoning efforts", async (t) => {
     },
   });
   assert.equal(accepted.response.status, 201);
+
+  const fastRejected = await request(baseUrl, "/v1/work/sessions", {
+    method: "POST",
+    idempotencyKey: "spark-fast-rejected",
+    body: {
+      runnerId: "runner-1",
+      repoId: "zhixing",
+      model: "gpt-5.3-codex-spark",
+      reasoningEffort: "xhigh",
+      fastMode: true,
+      message: "do not start fast",
+    },
+  });
+  assert.equal(fastRejected.response.status, 400);
 });
 
 test("a follow-up message atomically changes the reasoning effort for its resume turn", async (t) => {
@@ -532,6 +555,24 @@ test("a follow-up message atomically changes the reasoning effort for its resume
   assert.equal(resume.payload.reasoningEffort, "xhigh");
   const sessions = await request(baseUrl, "/v1/work/sessions");
   assert.equal(sessions.payload.sessions.find((candidate) => candidate.id === session.id).reasoningEffort, "xhigh");
+});
+
+test("a follow-up message atomically changes Codex speed for its resume turn", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const { session } = await registerAndCreate(baseUrl);
+
+  const changed = await request(baseUrl, `/v1/work/sessions/${session.id}/messages`, {
+    method: "POST",
+    idempotencyKey: "resume-with-fast",
+    body: { text: "快速继续", fastMode: true, clientMessageId: "message-fast" },
+  });
+
+  assert.equal(changed.response.status, 202);
+  const commands = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  const resume = commands.payload.commands.find((command) => command.kind === "RESUME");
+  assert.equal(resume.payload.fastMode, true);
+  const sessions = await request(baseUrl, "/v1/work/sessions");
+  assert.equal(sessions.payload.sessions.find((candidate) => candidate.id === session.id).fastMode, true);
 });
 
 test("an invalid follow-up reasoning effort rejects the message without partial writes", async (t) => {

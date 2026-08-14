@@ -115,11 +115,13 @@ class PhoneWorkApiClient(
         text: String,
         attachmentIds: List<String>,
         reasoningEffort: String? = null,
+        fastMode: Boolean? = null,
     ): PhoneWorkEvent {
         val body = SendMessageRequest(
             text = text,
             attachmentIds = attachmentIds,
             reasoningEffort = reasoningEffort,
+            fastMode = fastMode,
             clientMessageId = UUID.randomUUID().toString(),
         )
         return post<PhoneWorkEvent, SendMessageRequest>(
@@ -306,6 +308,7 @@ data class CreateSessionRequest(
     val runtime: String = "codex",
     val model: String,
     val reasoningEffort: String,
+    val fastMode: Boolean = false,
     val message: String,
     val attachmentIds: List<String> = emptyList(),
     val clientMessageId: String = UUID.randomUUID().toString(),
@@ -315,6 +318,7 @@ data class CreateSessionRequest(
     val text: String,
     val attachmentIds: List<String>,
     val reasoningEffort: String? = null,
+    val fastMode: Boolean? = null,
     val clientMessageId: String,
 )
 @Serializable private data class AnswerRequest(val answers: List<PhoneWorkAnswer>)

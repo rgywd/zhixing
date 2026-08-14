@@ -17,7 +17,8 @@
       "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"],
       "reasoningEffortsByModel": {
         "gpt-5.3-codex-spark": ["low", "medium", "high", "xhigh"]
-      }
+      },
+      "fastModels": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
     },
     {
       "id": "claude-code",

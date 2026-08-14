@@ -28,6 +28,7 @@ data class PhoneWorkRuntime(
     val models: List<String>,
     val reasoningEfforts: List<String>,
     val reasoningEffortsByModel: Map<String, List<String>> = emptyMap(),
+    val fastModels: List<String> = emptyList(),
 )
 
 @Serializable
@@ -66,6 +67,7 @@ data class PhoneWorkSession(
     val runtime: String = "codex",
     val model: String,
     val reasoningEffort: String,
+    val fastMode: Boolean = false,
     val sandboxMode: String = "danger-full-access",
     val approvalPolicy: String = "never",
     val status: String,

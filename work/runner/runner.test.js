@@ -42,6 +42,7 @@ test("Codex args isolate user config and fix model, effort, access and phone-lin
     repoPath: "C:/repo",
     model: "gpt-5.6-sol",
     reasoningEffort: "high",
+    fastMode: true,
     profileName: "zhixing-phone",
     developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
     imagePaths: ["C:/temp/screen.png"],
@@ -69,10 +70,31 @@ test("Codex args isolate user config and fix model, effort, access and phone-lin
   assert.match(instructionOverride, /report_html\(html, title\)/);
   assert.match(instructionOverride, /final result before ending/);
   assert.ok(args.includes("model_reasoning_effort=\"high\""));
+  assert.ok(args.includes("service_tier=\"fast\""));
   assert.ok(args.some((arg) => arg.startsWith("mcp_servers.zhixing_phone.command=")));
   assert.deepEqual(args.slice(args.indexOf("--image"), args.indexOf("--image") + 2), ["--image", "C:/temp/screen.png"]);
   assert.deepEqual(args.slice(args.indexOf("--add-dir"), args.indexOf("--add-dir") + 2), ["--add-dir", "C:/temp"]);
   assert.equal(args.at(-1), "-");
+});
+
+test("Codex standard speed explicitly clears a persisted fast service tier", () => {
+  const args = buildCodexArgs({
+    kind: "START",
+    repoPath: "C:/repo",
+    model: "gpt-5.6-sol",
+    reasoningEffort: "high",
+    fastMode: false,
+    mcp: {
+      nodePath: "C:/node.exe",
+      mcpServerPath: "C:/mcp-server.js",
+      coreUrl: "https://core.example.com",
+      sessionId: "work-1",
+      sessionToken: "secret",
+      cursorFile: "C:/cursor.json",
+    },
+  });
+
+  assert.ok(args.includes("service_tier=\"default\""));
 });
 
 test("Codex JSONL mapper only exposes completed assistant-visible messages", () => {
@@ -286,6 +308,56 @@ test("runner rejects a reasoning effort that is unsupported by the selected mode
         repoId: "repo",
         model: "gpt-5.3-codex-spark",
         reasoningEffort: "max",
+        sessionToken: "session-token",
+        message: "do not run",
+      },
+    });
+
+    assert.equal(acknowledgements.at(-1)[1], "FAILED");
+    assert.equal(acknowledgements.at(-1)[2].detail, "Runner rejected the session snapshot");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("runner rejects Fast mode for a Codex model that does not advertise it", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-fast-model-"));
+  try {
+    const state = new RunnerState(join(directory, "state.json"));
+    const acknowledgements = [];
+    const runner = new WorkRunner({
+      config: {
+        id: "runner",
+        coreUrl: "https://core",
+        stateFile: state.filename,
+        repos: [{
+          id: "repo",
+          name: "repo",
+          path: directory,
+          runtimes: [{
+            id: "codex",
+            name: "Codex",
+            models: ["gpt-5.3-codex-spark"],
+            reasoningEfforts: ["high"],
+            fastModels: [],
+          }],
+        }],
+      },
+      state,
+      client: { ack: async (...args) => acknowledgements.push(args) },
+      spawnCodex: () => { throw new Error("unsupported Fast mode must not start Codex"); },
+    });
+
+    await runner.startCommand({
+      id: "cmd-spark-fast",
+      sessionId: "work-spark-fast",
+      kind: "START",
+      payload: {
+        repoId: "repo",
+        runtime: "codex",
+        model: "gpt-5.3-codex-spark",
+        reasoningEffort: "high",
+        fastMode: true,
         sessionToken: "session-token",
         message: "do not run",
       },

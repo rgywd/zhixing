@@ -97,6 +97,7 @@ class PhoneWorkRepository(
         text: String,
         attachments: List<PhoneWorkPendingAttachment> = emptyList(),
         reasoningEffort: String? = null,
+        fastMode: Boolean? = null,
     ) {
         val attachmentIds = uploadAttachments(attachments)
         val event = api.sendMessage(
@@ -104,6 +105,7 @@ class PhoneWorkRepository(
             text = text,
             attachmentIds = attachmentIds,
             reasoningEffort = reasoningEffort,
+            fastMode = fastMode,
         )
         dao.upsertEvents(listOf(event.toEntity()))
         refreshSessions()
@@ -138,6 +140,7 @@ class PhoneWorkRepository(
         runtime = runtime,
         model = model,
         reasoningEffort = reasoningEffort,
+        fastMode = fastMode,
         status = status,
         runtimeSessionId = runtimeSessionId,
         codexSessionId = codexSessionId,
@@ -156,6 +159,7 @@ class PhoneWorkRepository(
         runtime = runtime,
         model = model,
         reasoningEffort = reasoningEffort,
+        fastMode = fastMode,
         status = status,
         runtimeSessionId = runtimeSessionId,
         codexSessionId = codexSessionId,

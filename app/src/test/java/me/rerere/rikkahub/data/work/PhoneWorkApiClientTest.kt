@@ -41,6 +41,20 @@ class PhoneWorkApiClientTest {
     }
 
     @Test
+    fun `follow-up message serializes an optional Fast mode change`() {
+        val encoded = Json.encodeToString(
+            SendMessageRequest(
+                text = "快速继续",
+                attachmentIds = emptyList(),
+                fastMode = true,
+                clientMessageId = "message-fast",
+            ),
+        )
+
+        assertTrue(encoded.contains("\"fastMode\":true"))
+    }
+
+    @Test
     fun `legacy follow-up message omits a missing reasoning effort`() {
         val encoded = Json.encodeToString(
             SendMessageRequest(
@@ -51,5 +65,6 @@ class PhoneWorkApiClientTest {
         )
 
         assertFalse(encoded.contains("reasoningEffort"))
+        assertFalse(encoded.contains("fastMode"))
     }
 }

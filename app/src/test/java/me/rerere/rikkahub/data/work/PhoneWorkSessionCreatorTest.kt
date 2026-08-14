@@ -55,6 +55,25 @@ class PhoneWorkSessionCreatorTest {
     }
 
     @Test
+    fun `selected Codex Fast mode is preserved in create request`() = runBlocking {
+        val gateway = RecordingGateway()
+        val creator = PhoneWorkSessionCreator(
+            gateway = gateway,
+            titleGenerator = PhoneWorkTitleGenerator { "快速会话" },
+        )
+
+        creator.create(
+            repo = REPO,
+            model = "gpt-5.6-sol",
+            reasoningEffort = "high",
+            message = "快速处理",
+            fastMode = true,
+        )
+
+        assertEquals(true, gateway.request?.fastMode)
+    }
+
+    @Test
     fun `pending files are forwarded without losing their original metadata`() = runBlocking {
         val gateway = RecordingGateway()
         val creator = PhoneWorkSessionCreator(
@@ -100,6 +119,7 @@ class PhoneWorkSessionCreatorTest {
                 runtime = request.runtime,
                 model = request.model,
                 reasoningEffort = request.reasoningEffort,
+                fastMode = request.fastMode,
                 status = "QUEUED",
                 createdAt = "2026-07-22T00:00:00Z",
                 updatedAt = "2026-07-22T00:00:00Z",
