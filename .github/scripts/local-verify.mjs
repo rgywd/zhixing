@@ -328,11 +328,13 @@ async function main() {
     paths,
     appBuildDiff(root, options.baseRef, paths),
   )
+  const headSha = runGit(["rev-parse", "HEAD"], { cwd: root })
   const commands = buildVerificationCommands({
     plan,
     mode: options.mode,
     platform: process.platform,
     baseRef: options.baseRef,
+    headRef: headSha,
   })
 
   console.log(`Local verification plan: ${plan.reason}`)
@@ -354,7 +356,7 @@ async function main() {
     schemaVersion: 1,
     result: "passed",
     branch: runGit(["branch", "--show-current"], { cwd: root }),
-    headSha: runGit(["rev-parse", "HEAD"], { cwd: root }),
+    headSha,
     baseRef: options.baseRef,
     diffSha256: createHash("sha256").update(diff).digest("hex"),
     mode: options.mode,
