@@ -339,7 +339,10 @@ private fun WorkSessionCard(
                 }
             }
             Text(
-                "${session.runtime.workRuntimeName()} · ${session.repoName} · ${session.model} · ${session.reasoningEffort}",
+                buildString {
+                    append("${session.runtime.workRuntimeName()} · ${session.repoName} · ${session.model} · ${session.reasoningEffort}")
+                    if (session.runtime == "codex") append(if (session.fastMode) " · 快速" else " · 标准")
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = if (waiting) {
                     MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.72f)

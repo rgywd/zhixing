@@ -27,6 +27,12 @@ const DEFAULT_EXCLUDES = new Set([
   "venv",
 ]);
 
+const DEFAULT_CODEX_FAST_MODELS = new Set([
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+]);
+
 export function buildRepositoryCatalog(config, env = process.env) {
   const repositories = [];
   const claimedPaths = new Set();
@@ -192,14 +198,21 @@ function discoveredRepoId(rootId, relativePath) {
 function runtimeCatalog(source, config) {
   const configured = source.runtimes ?? config.defaultRuntimes;
   if (Array.isArray(configured) && configured.length) {
-    return configured.map((runtime) => ({
-      id: String(runtime.id ?? "").trim(),
-      name: String(runtime.name ?? runtime.id ?? "").trim(),
-      command: String(runtime.command ?? defaultRuntimeCommand(runtime.id)).trim(),
-      models: [...(runtime.models ?? [])],
-      reasoningEfforts: [...(runtime.reasoningEfforts ?? [])],
-      reasoningEffortsByModel: cloneReasoningEffortOverrides(runtime.reasoningEffortsByModel),
-    }));
+    return configured.map((runtime) => {
+      const id = String(runtime.id ?? "").trim();
+      const models = [...(runtime.models ?? [])];
+      return {
+        id,
+        name: String(runtime.name ?? runtime.id ?? "").trim(),
+        command: String(runtime.command ?? defaultRuntimeCommand(runtime.id)).trim(),
+        models,
+        reasoningEfforts: [...(runtime.reasoningEfforts ?? [])],
+        reasoningEffortsByModel: cloneReasoningEffortOverrides(runtime.reasoningEffortsByModel),
+        fastModels: runtime.fastModels == null
+          ? defaultFastModels(id, models)
+          : [...runtime.fastModels],
+      };
+    });
   }
   const models = source.models ?? config.defaultModels ?? [];
   const reasoningEfforts = source.reasoningEfforts ?? config.defaultReasoningEfforts ?? [];
@@ -210,6 +223,7 @@ function runtimeCatalog(source, config) {
     models,
     reasoningEfforts,
     reasoningEffortsByModel: {},
+    fastModels: defaultFastModels("codex", models),
   }];
 }
 
@@ -224,6 +238,7 @@ function validateRuntimeCatalog(runtimes, owner) {
       || !runtime.models.length
       || !runtime.reasoningEfforts.length
       || !validReasoningEffortOverrides(runtime)
+      || !validFastModels(runtime)
       || seen.has(runtime.id)
     ) {
       throw new Error(`${owner} has an invalid runtime catalog`);
@@ -247,7 +262,17 @@ function publicRuntime(runtime) {
     models: runtime.models,
     reasoningEfforts: runtime.reasoningEfforts,
     reasoningEffortsByModel: runtime.reasoningEffortsByModel ?? {},
+    fastModels: runtime.fastModels ?? [],
   };
+}
+
+function defaultFastModels(runtimeId, models) {
+  return runtimeId === "codex" ? models.filter((model) => DEFAULT_CODEX_FAST_MODELS.has(model)) : [];
+}
+
+function validFastModels(runtime) {
+  return Array.isArray(runtime.fastModels)
+    && runtime.fastModels.every((model) => runtime.id === "codex" && runtime.models.includes(model));
 }
 
 function cloneReasoningEffortOverrides(value) {

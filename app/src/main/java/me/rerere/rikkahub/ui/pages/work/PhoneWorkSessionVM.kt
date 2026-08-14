@@ -47,12 +47,14 @@ class PhoneWorkSessionVM(
     val selectedRepo = MutableStateFlow<PhoneWorkRepo?>(null)
     val selectedRuntime = MutableStateFlow("codex")
     val selectedModel = MutableStateFlow(DEFAULT_MODELS.first())
-    val selectedEffort = MutableStateFlow("high")
+    val selectedEffort = MutableStateFlow("xhigh")
+    val selectedFastMode = MutableStateFlow(false)
     val sending = MutableStateFlow(false)
     val sendError = MutableStateFlow<String?>(null)
     val error = MutableStateFlow<String?>(null)
     private var initialDefaultResolved = false
     private var pendingEffortChange = false
+    private var pendingFastModeChange = false
 
     init {
         viewModelScope.launch {
@@ -70,6 +72,7 @@ class PhoneWorkSessionVM(
                             name = runtimeDisplayName(current.runtime),
                             models = listOf(current.model),
                             reasoningEfforts = listOf(current.reasoningEffort),
+                            fastModels = listOf(current.model).takeIf { current.fastMode }.orEmpty(),
                         )
                     ),
                 )
@@ -82,6 +85,13 @@ class PhoneWorkSessionVM(
                 )
                 selectedEffort.value = effortSelection.effort
                 pendingEffortChange = effortSelection.pending
+                val fastSelection = reconcileWorkFastSelection(
+                    selectedFastMode = selectedFastMode.value,
+                    serverFastMode = current.fastMode,
+                    pending = pendingFastModeChange,
+                )
+                selectedFastMode.value = fastSelection.fastMode
+                pendingFastModeChange = fastSelection.pending
             }
         }
         viewModelScope.launch {
@@ -160,8 +170,9 @@ class PhoneWorkSessionVM(
             .orEmpty()
             .ifEmpty { defaultReasoningEfforts(model) }
         if (selectedEffort.value !in efforts) {
-            selectedEffort.value = preferredEffort(efforts)
+            selectedEffort.value = preferredEffort(selectedRuntime.value, efforts)
         }
+        if (model !in runtime?.fastModels.orEmpty()) selectedFastMode.value = false
     }
 
     fun selectEffort(effort: String) {
@@ -176,6 +187,16 @@ class PhoneWorkSessionVM(
             selectedEffort.value = effort
             pendingEffortChange = currentSession != null && effort != currentSession.reasoningEffort
         }
+    }
+
+    fun selectFastMode(enabled: Boolean) {
+        val currentSession = session.value
+        val runtime = currentSession?.let { workSessionRuntime(catalog.value, it) }
+            ?: selectedRepo.value?.effectiveRuntimes()?.firstOrNull { it.id == selectedRuntime.value }
+        val model = currentSession?.model ?: selectedModel.value
+        if (enabled && (runtime?.id != "codex" || model !in runtime.fastModels)) return
+        selectedFastMode.value = enabled
+        pendingFastModeChange = currentSession != null && enabled != currentSession.fastMode
     }
 
     fun send(
@@ -197,6 +218,7 @@ class PhoneWorkSessionVM(
                         runtime = selectedRuntime.value,
                         model = selectedModel.value,
                         reasoningEffort = selectedEffort.value,
+                        fastMode = selectedFastMode.value,
                         message = text,
                         attachments = attachments,
                     ).also {
@@ -209,6 +231,7 @@ class PhoneWorkSessionVM(
                         text = text,
                         attachments = attachments,
                         reasoningEffort = selectedEffort.value.takeIf { pendingEffortChange },
+                        fastMode = selectedFastMode.value.takeIf { pendingFastModeChange },
                     )
                     repository.refreshEvents(id)
                     onAccepted(null)
@@ -282,8 +305,9 @@ class PhoneWorkSessionVM(
                 }
                 val efforts = runtime.effectiveReasoningEfforts(selectedModel.value)
                 if (selectedEffort.value !in efforts) {
-                    selectedEffort.value = preferredEffort(efforts)
+                    selectedEffort.value = preferredEffort(runtime.id, efforts)
                 }
+                if (selectedModel.value !in runtime.fastModels) selectedFastMode.value = false
             }
         }
     }
@@ -291,7 +315,8 @@ class PhoneWorkSessionVM(
     private fun applyRuntime(runtime: PhoneWorkRuntime) {
         selectedRuntime.value = runtime.id
         selectedModel.value = runtime.models.firstOrNull() ?: DEFAULT_MODELS.first()
-        selectedEffort.value = preferredEffort(runtime.effectiveReasoningEfforts(selectedModel.value))
+        selectedEffort.value = preferredEffort(runtime.id, runtime.effectiveReasoningEfforts(selectedModel.value))
+        selectedFastMode.value = false
     }
 
     companion object {
@@ -305,8 +330,13 @@ class PhoneWorkSessionVM(
         fun defaultReasoningEfforts(model: String): List<String> =
             DEFAULT_REASONING_EFFORTS_BY_MODEL[model] ?: DEFAULT_EFFORTS
 
-        private fun preferredEffort(efforts: List<String>): String =
-            efforts.firstOrNull { it == "high" } ?: efforts.firstOrNull() ?: "high"
+        fun preferredEffort(runtimeId: String, efforts: List<String>): String {
+            val preferred = if (runtimeId == "claude-code") "max" else "xhigh"
+            return efforts.firstOrNull { it == preferred }
+                ?: efforts.firstOrNull { it == "high" }
+                ?: efforts.firstOrNull()
+                ?: preferred
+        }
     }
 }
 
@@ -327,6 +357,13 @@ internal fun workSessionReasoningEfforts(
     .orEmpty()
     .ifEmpty { listOf(session.reasoningEffort) }
 
+internal fun workSessionFastAvailable(
+    catalog: PhoneWorkCatalog,
+    session: PhoneWorkSession,
+): Boolean = session.runtime == "codex" && (
+    session.fastMode || session.model in workSessionRuntime(catalog, session)?.fastModels.orEmpty()
+)
+
 internal data class WorkEffortSelection(
     val effort: String,
     val pending: Boolean,
@@ -340,6 +377,21 @@ internal fun reconcileWorkEffortSelection(
     WorkEffortSelection(effort = serverEffort, pending = false)
 } else {
     WorkEffortSelection(effort = selectedEffort, pending = true)
+}
+
+internal data class WorkFastSelection(
+    val fastMode: Boolean,
+    val pending: Boolean,
+)
+
+internal fun reconcileWorkFastSelection(
+    selectedFastMode: Boolean,
+    serverFastMode: Boolean,
+    pending: Boolean,
+): WorkFastSelection = if (!pending || selectedFastMode == serverFastMode) {
+    WorkFastSelection(fastMode = serverFastMode, pending = false)
+} else {
+    WorkFastSelection(fastMode = selectedFastMode, pending = true)
 }
 
 private fun runtimeDisplayName(runtime: String): String = when (runtime) {

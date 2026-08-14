@@ -183,6 +183,7 @@ fun PhoneWorkSessionPage(sessionId: String) {
     val selectedRuntime by vm.selectedRuntime.collectAsStateWithLifecycle()
     val selectedModel by vm.selectedModel.collectAsStateWithLifecycle()
     val selectedEffort by vm.selectedEffort.collectAsStateWithLifecycle()
+    val selectedFastMode by vm.selectedFastMode.collectAsStateWithLifecycle()
     val sending by vm.sending.collectAsStateWithLifecycle()
     val sendError by vm.sendError.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
@@ -196,6 +197,8 @@ fun PhoneWorkSessionPage(sessionId: String) {
             ?.effectiveReasoningEfforts(selectedModel)
             .orEmpty()
             .ifEmpty { PhoneWorkSessionVM.defaultReasoningEfforts(selectedModel) }
+    val fastAvailable = session?.let { workSessionFastAvailable(catalog, it) }
+        ?: (selectedRuntime == "codex" && selectedModel in selectedRuntimeConfig?.fastModels.orEmpty())
     val selectedRunnerId = session?.runnerId ?: selectedRepo?.runnerId
     val fileAttachmentsSupported = catalog.supportsFileAttachments(selectedRunnerId)
     val canCompose = session?.status != "COMPLETED" && session?.archivedAt == null
@@ -301,7 +304,9 @@ fun PhoneWorkSessionPage(sessionId: String) {
                 Column {
                     Text(
                         if (draft) {
-                            "运行引擎、仓库和模型在会话创建后固定；思考深度后续仍可调整"
+                            "运行引擎、仓库和模型在会话创建后固定；思考深度与速度后续仍可调整"
+                        } else if (session?.runtime == "codex") {
+                            "思考深度与速度调整将在下一轮生效"
                         } else {
                             "思考深度调整将在下一轮生效"
                         },
@@ -351,21 +356,20 @@ fun PhoneWorkSessionPage(sessionId: String) {
                                 },
                                 onSelect = vm::selectRuntime,
                             )
-                            WorkChoiceButton(
-                                label = selectedModel,
-                                options = selectedRuntimeConfig?.models.orEmpty().ifEmpty {
+                            WorkModelSettingsButton(
+                                model = selectedModel,
+                                models = selectedRuntimeConfig?.models.orEmpty().ifEmpty {
                                     PhoneWorkSessionVM.DEFAULT_MODELS
                                 },
-                                enabled = draft,
-                                icon = { Icon(HugeIcons.AiMagic, null, Modifier.size(18.dp)) },
-                                onSelect = vm::selectModel,
-                            )
-                            WorkChoiceButton(
-                                label = selectedEffort,
-                                options = reasoningEffortOptions,
-                                enabled = draft || session != null,
-                                icon = { Text("A", style = MaterialTheme.typography.labelLarge) },
-                                onSelect = vm::selectEffort,
+                                modelEnabled = draft,
+                                reasoningEffort = selectedEffort,
+                                reasoningEfforts = reasoningEffortOptions,
+                                codex = selectedRuntime == "codex",
+                                fastMode = selectedFastMode,
+                                fastAvailable = fastAvailable,
+                                onSelectModel = vm::selectModel,
+                                onSelectReasoningEffort = vm::selectEffort,
+                                onSelectFastMode = vm::selectFastMode,
                             )
                         },
                     )
@@ -678,6 +682,176 @@ private fun WorkChoiceButton(
             }
         }
     }
+}
+
+private enum class WorkModelSettingsPane {
+    ROOT,
+    MODEL,
+    REASONING,
+    SPEED,
+}
+
+@Composable
+private fun WorkModelSettingsButton(
+    model: String,
+    models: List<String>,
+    modelEnabled: Boolean,
+    reasoningEffort: String,
+    reasoningEfforts: List<String>,
+    codex: Boolean,
+    fastMode: Boolean,
+    fastAvailable: Boolean,
+    onSelectModel: (String) -> Unit,
+    onSelectReasoningEffort: (String) -> Unit,
+    onSelectFastMode: (Boolean) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var pane by remember { mutableStateOf(WorkModelSettingsPane.ROOT) }
+    fun dismiss() {
+        expanded = false
+        pane = WorkModelSettingsPane.ROOT
+    }
+    val speedLabel = if (fastMode) "快速" else "标准"
+    Box {
+        Surface(
+            onClick = { expanded = true },
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(HugeIcons.AiMagic, null, Modifier.size(18.dp))
+                Text(
+                    buildString {
+                        append(model)
+                        append(" · ")
+                        append(reasoningEffort)
+                        if (codex) {
+                            append(" · ")
+                            append(speedLabel)
+                        }
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = ::dismiss) {
+            when (pane) {
+                WorkModelSettingsPane.ROOT -> {
+                    WorkSettingsRootItem(
+                        title = "模型名称",
+                        value = model,
+                        enabled = modelEnabled,
+                        onClick = { pane = WorkModelSettingsPane.MODEL },
+                    )
+                    WorkSettingsRootItem(
+                        title = "思考深度",
+                        value = reasoningEffort,
+                        onClick = { pane = WorkModelSettingsPane.REASONING },
+                    )
+                    if (codex) {
+                        WorkSettingsRootItem(
+                            title = "速度",
+                            value = speedLabel,
+                            onClick = { pane = WorkModelSettingsPane.SPEED },
+                        )
+                    }
+                }
+                WorkModelSettingsPane.MODEL -> WorkSettingsOptions(
+                    title = "模型名称",
+                    options = models.distinct(),
+                    selected = model,
+                    onBack = { pane = WorkModelSettingsPane.ROOT },
+                    onSelect = { onSelectModel(it); dismiss() },
+                )
+                WorkModelSettingsPane.REASONING -> WorkSettingsOptions(
+                    title = "思考深度",
+                    options = reasoningEfforts.distinct(),
+                    selected = reasoningEffort,
+                    onBack = { pane = WorkModelSettingsPane.ROOT },
+                    onSelect = { onSelectReasoningEffort(it); dismiss() },
+                )
+                WorkModelSettingsPane.SPEED -> {
+                    WorkSettingsBackItem("速度") { pane = WorkModelSettingsPane.ROOT }
+                    DropdownMenuItem(
+                        text = { Text("标准") },
+                        trailingIcon = { if (!fastMode) Text("✓", color = MaterialTheme.colorScheme.primary) },
+                        onClick = { onSelectFastMode(false); dismiss() },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text("快速")
+                                if (!fastAvailable) {
+                                    Text(
+                                        "当前模型不支持",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        },
+                        enabled = fastAvailable,
+                        trailingIcon = { if (fastMode) Text("✓", color = MaterialTheme.colorScheme.primary) },
+                        onClick = { onSelectFastMode(true); dismiss() },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkSettingsRootItem(
+    title: String,
+    value: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    DropdownMenuItem(
+        text = {
+            Column {
+                Text(title)
+                Text(value, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        enabled = enabled,
+        trailingIcon = { Icon(HugeIcons.ArrowRight01, contentDescription = null, modifier = Modifier.size(18.dp)) },
+        onClick = onClick,
+    )
+}
+
+@Composable
+private fun WorkSettingsOptions(
+    title: String,
+    options: List<String>,
+    selected: String,
+    onBack: () -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    WorkSettingsBackItem(title, onBack)
+    options.forEach { option ->
+        DropdownMenuItem(
+            text = { Text(option) },
+            trailingIcon = { if (option == selected) Text("✓", color = MaterialTheme.colorScheme.primary) },
+            onClick = { onSelect(option) },
+        )
+    }
+}
+
+@Composable
+private fun WorkSettingsBackItem(title: String, onBack: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(title, style = MaterialTheme.typography.labelLarge) },
+        leadingIcon = { Text("‹", style = MaterialTheme.typography.titleLarge) },
+        onClick = onBack,
+    )
+    HorizontalDivider()
 }
 
 private fun workRuntimeDisplayName(runtime: String): String = when (runtime) {

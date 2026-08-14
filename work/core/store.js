@@ -35,7 +35,11 @@ function normalizeRuntimeCatalog(repo) {
   const seen = new Set();
   return runtimes.map((runtime) => {
     const rawOverrides = runtime.reasoningEffortsByModel ?? {};
+    const rawFastModels = runtime.fastModels ?? [];
     if (typeof rawOverrides !== "object" || Array.isArray(rawOverrides)) {
+      throw Object.assign(new Error("Runner advertised an invalid runtime catalog"), { statusCode: 400 });
+    }
+    if (!Array.isArray(rawFastModels)) {
       throw Object.assign(new Error("Runner advertised an invalid runtime catalog"), { statusCode: 400 });
     }
     const normalized = {
@@ -47,6 +51,7 @@ function normalizeRuntimeCatalog(repo) {
         String(model),
         [...new Set((Array.isArray(efforts) ? efforts : []).map(String).filter(Boolean))],
       ])),
+      fastModels: [...new Set(rawFastModels.map(String).filter(Boolean))],
     };
     if (
       !normalized.id
@@ -54,6 +59,7 @@ function normalizeRuntimeCatalog(repo) {
       || !normalized.models.length
       || !normalized.reasoningEfforts.length
       || !validReasoningEffortOverrides(normalized)
+      || !validFastModels(normalized)
       || seen.has(normalized.id)
     ) {
       throw Object.assign(new Error("Runner advertised an invalid runtime catalog"), { statusCode: 400 });
@@ -72,6 +78,7 @@ function runtimeCatalogFromRow(row) {
     models: parseJson(row.models_json, []),
     reasoningEfforts: parseJson(row.efforts_json, []),
     reasoningEffortsByModel: {},
+    fastModels: [],
   }];
 }
 
@@ -85,6 +92,15 @@ function validReasoningEffortOverrides(runtime) {
 
 function effectiveReasoningEfforts(runtime, model) {
   return runtime.reasoningEffortsByModel?.[model] ?? runtime.reasoningEfforts;
+}
+
+function validFastModels(runtime) {
+  return Array.isArray(runtime.fastModels)
+    && runtime.fastModels.every((model) => runtime.id === "codex" && runtime.models.includes(model));
+}
+
+function supportsFastMode(runtime, model) {
+  return runtime.id === "codex" && runtime.fastModels?.includes(model);
 }
 
 function id(prefix) {
@@ -141,6 +157,7 @@ export class WorkStore {
         title TEXT NOT NULL DEFAULT '',
         model TEXT NOT NULL,
         reasoning_effort TEXT NOT NULL,
+        fast_mode INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL,
         runtime TEXT NOT NULL DEFAULT 'codex',
         runtime_session_id TEXT,
@@ -226,6 +243,7 @@ export class WorkStore {
     this.ensureColumn("sessions", "title", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("sessions", "runtime", "TEXT NOT NULL DEFAULT 'codex'");
     this.ensureColumn("sessions", "runtime_session_id", "TEXT");
+    this.ensureColumn("sessions", "fast_mode", "INTEGER NOT NULL DEFAULT 0");
     this.db.prepare("UPDATE sessions SET title=repo_name WHERE title=''").run();
     this.db.prepare(
       "UPDATE sessions SET runtime_session_id=codex_session_id WHERE runtime='codex' AND runtime_session_id IS NULL",
@@ -557,13 +575,17 @@ export class WorkStore {
       if (!repo) throw Object.assign(new Error("Repository is not available"), { statusCode: 409 });
       const runtime = String(input.runtime ?? "codex").trim();
       const advertisedRuntime = runtimeCatalogFromRow(repo).find((candidate) => candidate.id === runtime);
+      if (input.fastMode != null && typeof input.fastMode !== "boolean") {
+        throw Object.assign(new Error("Fast mode must be a boolean"), { statusCode: 400 });
+      }
       if (
         !advertisedRuntime
         || !advertisedRuntime.models.includes(input.model)
         || !effectiveReasoningEfforts(advertisedRuntime, input.model).includes(input.reasoningEffort)
+        || (input.fastMode === true && !supportsFastMode(advertisedRuntime, input.model))
       ) {
         throw Object.assign(
-          new Error("Runtime, model or reasoning effort is not advertised by the runner"),
+          new Error("Runtime, model, reasoning effort or speed is not advertised by the runner"),
           { statusCode: 400 },
         );
       }
@@ -582,8 +604,9 @@ export class WorkStore {
       const now = new Date().toISOString();
       this.db.prepare(`
           INSERT INTO sessions(
-            id, runner_id, repo_id, repo_name, title, runtime, model, reasoning_effort, status, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?)
+            id, runner_id, repo_id, repo_name, title, runtime, model, reasoning_effort, fast_mode,
+            status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?)
       `).run(
         sessionId,
         input.runnerId,
@@ -593,6 +616,7 @@ export class WorkStore {
         runtime,
         input.model,
         input.reasoningEffort,
+        input.fastMode === true ? 1 : 0,
         now,
         now,
       );
@@ -609,6 +633,7 @@ export class WorkStore {
         runtime,
         model: input.model,
         reasoningEffort: input.reasoningEffort,
+        fastMode: input.fastMode === true,
         sessionToken: this.createSessionToken(sessionId),
         inboxCursor: firstMessage.seq,
       }, now);
@@ -648,6 +673,7 @@ export class WorkStore {
       runtime: row.runtime ?? "codex",
       model: row.model,
       reasoningEffort: row.reasoning_effort,
+      fastMode: Boolean(row.fast_mode),
       sandboxMode: "danger-full-access",
       approvalPolicy: "never",
       status: row.status,
@@ -709,7 +735,11 @@ export class WorkStore {
       const reasoningEffort = input.reasoningEffort == null
         ? session.reasoningEffort
         : String(input.reasoningEffort).trim();
-      if (input.reasoningEffort != null) {
+      const fastMode = input.fastMode == null ? session.fastMode : input.fastMode === true;
+      if (input.fastMode != null && typeof input.fastMode !== "boolean") {
+        throw Object.assign(new Error("Fast mode must be a boolean"), { statusCode: 400 });
+      }
+      if (input.reasoningEffort != null || input.fastMode != null) {
         const repo = this.db.prepare(
           "SELECT * FROM repos WHERE runner_id=? AND id=? AND available=1",
         ).get(session.runnerId, session.repoId);
@@ -720,9 +750,10 @@ export class WorkStore {
           !advertisedRuntime
           || !advertisedRuntime.models.includes(session.model)
           || !effectiveReasoningEfforts(advertisedRuntime, session.model).includes(reasoningEffort)
+          || (fastMode && !supportsFastMode(advertisedRuntime, session.model))
         ) {
           throw Object.assign(
-            new Error("Runtime, model or reasoning effort is not advertised by the runner"),
+            new Error("Runtime, model, reasoning effort or speed is not advertised by the runner"),
             { statusCode: 400 },
           );
         }
@@ -731,6 +762,10 @@ export class WorkStore {
       if (reasoningEffort !== session.reasoningEffort) {
         this.db.prepare("UPDATE sessions SET reasoning_effort=?, updated_at=? WHERE id=?")
           .run(reasoningEffort, new Date().toISOString(), sessionId);
+      }
+      if (fastMode !== session.fastMode) {
+        this.db.prepare("UPDATE sessions SET fast_mode=?, updated_at=? WHERE id=?")
+          .run(fastMode ? 1 : 0, new Date().toISOString(), sessionId);
       }
       const event = this.appendEvent(sessionId, "USER_MESSAGE", {
         text: input.text ?? "",
@@ -747,6 +782,7 @@ export class WorkStore {
         runtime: session.runtime,
         model: session.model,
         reasoningEffort,
+        fastMode,
         inboxCursor: event.seq,
         sessionToken: this.createSessionToken(sessionId),
       });
