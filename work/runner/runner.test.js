@@ -1190,8 +1190,13 @@ test("session id parser accepts current Codex JSONL event", () => {
 test("Windows resolves the real Codex executable instead of an npm shell shim", () => {
   assert.equal(resolveCodexCommand("codex", "win32", () => "C:/Codex/codex.exe"), "C:/Codex/codex.exe");
   assert.equal(
-    resolveCodexCommand("%USERPROFILE%/.zhixing-work/codex.exe", "win32"),
-    `${process.env.USERPROFILE}/.zhixing-work/codex.exe`,
+    resolveCodexCommand(
+      "%USERPROFILE%/.zhixing-work/codex.exe",
+      "win32",
+      undefined,
+      { USERPROFILE: "C:/Users/test" },
+    ),
+    "C:/Users/test/.zhixing-work/codex.exe",
   );
   assert.throws(
     () => resolveCodexCommand("C:/Users/me/AppData/Roaming/npm/codex.cmd", "win32"),

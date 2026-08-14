@@ -144,8 +144,13 @@ export function runCodex({ command, args, prompt, cwd, env = process.env, spawnI
   return { child, completed };
 }
 
-export function resolveCodexCommand(command, platform = process.platform, findExecutable = defaultFindExecutable) {
-  const expanded = expandExecutablePath(command);
+export function resolveCodexCommand(
+  command,
+  platform = process.platform,
+  findExecutable = defaultFindExecutable,
+  env = process.env,
+) {
+  const expanded = expandExecutablePath(command, env);
   if (platform !== "win32") return expanded;
   const extension = extname(expanded).toLowerCase();
   if ([".cmd", ".bat", ".ps1"].includes(extension)) {
