@@ -1,7 +1,7 @@
 # 知行记忆 MVP：我的画像与记住的事（已归档）
 
 > 归档于 2026-07-21。MVP 已交付，本文件保留 v27 迁移和首版验收证据；当前画像演进见
-> [`../AUTO_PROFILE_MAINTENANCE.md`](../AUTO_PROFILE_MAINTENANCE.md)，长期产品边界见
+> [`../MEMORY_SYSTEM.md`](../MEMORY_SYSTEM.md)，长期产品边界见
 > [`../AI_ASSISTANT_VISION.md`](../AI_ASSISTANT_VISION.md)。
 
 状态：MVP 已实现（2026-07-19）

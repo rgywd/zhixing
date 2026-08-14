@@ -1,6 +1,6 @@
 # 知行数据安全、升级与备份契约
 
-状态：设计基线，P0 缺口未闭环（2026-08-13）
+状态：设计基线，P0 缺口未闭环（2026-08-14）
 
 目标不是承诺任何故障都不丢数据，而是保证覆盖升级不静默清空、迁移失败可恢复、远端备份可验证。
 
@@ -17,8 +17,10 @@
 
 当前代码证据：
 
-- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 46。
+- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 48。
 - Room 存在连续迁移注册，未启用 destructive fallback。
+- v47→v48 只为 Work 会话增加可空 `active_turn_id`；v46→v47 只增加默认关闭的 `fast_mode`。两次迁移
+  都保留既有聊天、记忆、Work 会话、Agenda、长期计划、知识库和用户文件；0.4.13→0.4.14 schema 保持 48。
 - v45→v46 按明确的产品清理边界删除旧 `assistant_tasks`、`assistant_task_events` 和
   `assistant_task_links`。这些记录只用于普通聊天任务的运行追踪和 Today 投影，不是聊天、记忆、Agenda 或
   外部写入结果的事实来源；迁移保留这些用户语义数据以及 `assistant_runtime_contexts`，并有 45→46 设备迁移
@@ -46,7 +48,7 @@ P0 缺口：
 | FILES 备份未覆盖 `files/workspaces/` | Workspace 与知识原文可能遗漏 |
 | 定时备份只是提醒，没有后台备份 Worker | 用户以为有自动保护但实际未执行 |
 | 同步凭据尚未完成 Keystore 边界 | Secret 保护不足 |
-| 缺少公开版本到当前版本的完整升级测试 | 覆盖升级安全没有机器证据 |
+| 缺少可重复执行的公开版本种子到当前版本自动化升级测试 | 每次发布仍依赖候选包与正式签名包的覆盖升级验收，无法持续回归全部数据不变量 |
 | 备份缺少统一 manifest、哈希、读回校验和恢复演练 | 无法证明备份真的可恢复 |
 | Settings、FILES 与数据库尚未形成统一 staging/回滚事务，FILES 路径校验未统一 | 整包恢复中途失败仍可能产生部分恢复 |
 | 数据库主库/WAL/SHM 仍是进程内多文件替换，启动时未自动接管中断遗留的 rollback 目录 | 替换窗口内进程退出仍需恢复机制 |
