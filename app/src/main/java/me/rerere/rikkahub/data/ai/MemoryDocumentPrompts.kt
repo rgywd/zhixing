@@ -36,6 +36,12 @@ internal fun buildMemoryDocumentPrompt(documents: List<MemoryDocument>): String 
                 "when its contents can materially improve the answer."
         )
         appendLine(
+            "memory_read returns one document per call. You may make multiple sequential memory_read calls when " +
+                "one relevant document exposes a directly relevant relationship to another person, area, or topic " +
+                "needed for the answer. Follow only that path, stop once you have enough evidence, and do not fan " +
+                "out across unrelated documents."
+        )
+        appendLine(
             "Memory writes are optional during the active foreground chat run. Call memory_write only when current " +
                 "USER messages contain a clear, durable, non-sensitive stated fact that should be added or " +
                 "corrected, or when the user explicitly asks to remember, correct, or delete memory. When no " +
@@ -45,6 +51,11 @@ internal fun buildMemoryDocumentPrompt(documents: List<MemoryDocument>): String 
                 "fails with retryable=true, follow correction and retry before claiming it succeeded. An " +
                 "opportunistic write failure must not replace the requested answer or be reported as saved. Memory " +
                 "work happens only in this foreground chat run; there is no background or follow-up memory pass."
+        )
+        appendLine(
+            "memory_write mutates one document per call. Use multiple memory_write calls when distinct durable " +
+                "facts belong in different documents. If mutating the same document again, use the version returned " +
+                "by the preceding result."
         )
         appendLine("Available documents:")
         appendLine(listing)
