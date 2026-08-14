@@ -33,7 +33,7 @@ class AssistantTaskPolicyTest {
     }
 
     @Test
-    fun `writes external calls and user questions require durable tasks`() {
+    fun `writes external calls and user questions require durable tasks while legacy memory no change does not`() {
         assertTrue(step("task_create").requiresDurableTask(json))
         assertTrue(step("gh").requiresDurableTask(json))
         assertTrue(step("mcp__life__digest").requiresDurableTask(json))

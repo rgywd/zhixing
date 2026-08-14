@@ -220,7 +220,6 @@ class GenerationHandler(
             null
         }
         val memoryPromptSnapshot = MemoryDocumentPromptSnapshot(memoryDocuments.orEmpty())
-        var memoryWriteFinalized = false
         val reportedToolCalls = mutableSetOf<String>()
         var toolOrdinal = 0
 
@@ -262,14 +261,6 @@ class GenerationHandler(
                 if (memoryScopeId != null) {
                     buildMemoryDocumentTools(
                         json = json,
-                        checkCanFinalize = {
-                            if (memoryWriteFinalized) {
-                                throw ToolExecutionException("MEMORY_ALREADY_FINALIZED")
-                            }
-                        },
-                        onFinalize = {
-                            memoryWriteFinalized = true
-                        },
                         onRead = { path -> memoryDocumentRepository.read(memoryScopeId, path) },
                         onWrite = { path, ifVersion, name, description, aliases, content, sources ->
                             val conversationId = memoryConversationId
