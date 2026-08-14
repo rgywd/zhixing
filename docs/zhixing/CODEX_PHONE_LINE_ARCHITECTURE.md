@@ -101,6 +101,9 @@ Tailscale/VPN 共存。
   turn 终态；收到终态后关闭 App Server stdin，并等待进程完全退出、释放 thread single-writer 锁，才能 ACK 和启动下一轮。
   超时则清理整棵子进程树；Claude Code 以最终 `result` 事件和 `is_error/api_error_status` 判定结果。
   终态先写本地 outbox，再向 Core 原子提交并在断网/重启后重放。
+- App Server 的进程与内存生命周期严格以单个 turn 为边界：本轮进入语义终态后即释放，不需要用户“结束会话”。
+  `IDLE` 只保留 Core 中的事件和 Runner 中用于 `thread/resume` 的轻量 session 映射，不保留 App Server 进程或其堆；
+  `COMPLETED` 是用户明确选择的不可继续业务终态，不承担资源回收职责。
 - JSONL 消息也先写本地 outbox，再异步上传；Core 通过客户端事件 ID 幂等去重，保证消息先于本轮终态落库。
 - 接收 Core 为每次 START/RESUME 签发的 24 小时 session token，并写入单轮专用 MCP 配置，不污染用户的普通 CLI 配置。
 
@@ -159,6 +162,9 @@ service_tier = "<fast-or-default>"
 首轮使用 `thread/start`，继续消息使用 `thread/resume(runtimeSessionId)`，再执行 `turn/start`；现有 `codex exec`
 产生的 thread ID 可直接恢复。App Server 终态后必须关闭连接并等待进程退出，不能与同一 thread 的下一进程并发。
 稳定版 resume 会返回完整历史，应监控长会话启动延迟；未来只有在相应能力稳定后才启用分页或排除历史。
+Runner 为 `initialize` 使用独立的 60 秒预算；仅当该握手超时时，先清理整个失败进程树再自动重试一次。重试发生在
+`thread/start|resume` 之前，因此不会重复创建 thread 或 turn。`thread/start|resume` 与 `turn/start` 使用 90 秒启动预算，
+活跃 turn 的普通控制 RPC 保持 30 秒预算。
 
 ### Claude Code
 

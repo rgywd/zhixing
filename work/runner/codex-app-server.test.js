@@ -129,6 +129,79 @@ test("App Server turn initializes, starts, steers, and interrupts on one connect
   assert.equal((await running.completed).code, 0);
 });
 
+test("App Server retries one timed out initialize after terminating the first process", async () => {
+  const children = [];
+  const terminated = [];
+  const spawnImpl = () => {
+    const attempt = children.length + 1;
+    const child = fakeAppServerChild((message) => {
+      if (attempt === 1 && message.method === "initialize") return undefined;
+      if (message.method === "initialize") return { platformFamily: "windows" };
+      if (message.method === "thread/start") return { thread: { id: "thread-retried" } };
+      if (message.method === "turn/start") return { turn: { id: "turn-retried", status: "inProgress" } };
+      return undefined;
+    });
+    children.push(child);
+    if (attempt === 1) {
+      setTimeout(() => child.stdout.write(`${JSON.stringify({
+        id: 1,
+        result: { platformFamily: "windows" },
+      })}\n`), 20);
+    }
+    return child;
+  };
+
+  const running = await startCodexAppServerTurn({
+    command: "codex",
+    args: ["app-server", "--stdio"],
+    cwd: "C:\\repo",
+    runtimeSessionId: null,
+    prompt: "start",
+    model: "gpt-5.6-sol",
+    reasoningEffort: "high",
+    initializeTimeoutMs: 5,
+    initializeAttempts: 2,
+    spawnImpl,
+    terminateProcess: async (child) => {
+      terminated.push(child);
+      child.emit("close", 1, null);
+    },
+  });
+
+  assert.equal(children.length, 2);
+  assert.deepEqual(terminated, [children[0]]);
+  assert.equal(running.runtimeSessionId, "thread-retried");
+  assert.equal(running.turnId, "turn-retried");
+  running.close();
+  children[1].emit("close", 0, null);
+  await running.completed;
+});
+
+test("App Server terminates the process tree when startup fails after initialize", async () => {
+  const child = fakeAppServerChild((message) => {
+    if (message.method === "initialize") return { platformFamily: "windows" };
+    if (message.method === "thread/start") {
+      queueMicrotask(() => child.emit("close", 1, null));
+    }
+    return undefined;
+  });
+  const terminated = [];
+
+  await assert.rejects(() => startCodexAppServerTurn({
+    command: "codex",
+    args: ["app-server", "--stdio"],
+    cwd: "C:\\repo",
+    runtimeSessionId: null,
+    prompt: "start",
+    model: "gpt-5.6-sol",
+    reasoningEffort: "high",
+    spawnImpl: () => child,
+    terminateProcess: async (value) => terminated.push(value),
+  }), /exited with code 1/);
+
+  assert.deepEqual(terminated, [child]);
+});
+
 function fakeAppServerChild(respond) {
   const child = new EventEmitter();
   child.stdout = new PassThrough();
