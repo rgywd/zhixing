@@ -75,11 +75,16 @@ Codex / Claude Code 手机电话线仍然只有 `report`、`ask`、`report_html`
 
 1. 安装 Node.js 22.5+、Git，以及需要开放给手机使用的 CLI。
 
-   Codex 使用独立 `codexHome`，先为该目录完成一次登录：
+   Codex 固定使用稳定版 `0.147.0`，侧装到 Work 专用版本目录，不覆盖电脑上的普通 Codex。安装后为独立
+   `codexHome` 完成一次登录：
 
 ```powershell
-$env:CODEX_HOME = "$HOME\.zhixing-work\codex-home"
-codex login
+$workCodexRoot = "$env:USERPROFILE\.zhixing-work\codex-cli\0.147.0"
+npm install --prefix $workCodexRoot --save-exact @openai/codex@0.147.0
+$workCodexExe = "$workCodexRoot\node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe"
+& $workCodexExe --version
+$env:CODEX_HOME = "$env:USERPROFILE\.zhixing-work\codex-home"
+& $workCodexExe login
 ```
 
    Claude Code 复用当前 Windows 用户自己的 user settings。订阅登录态或 `settings.json.env` 中的第三方 API
@@ -95,7 +100,8 @@ claude -p "只回复 CLAUDE_WORK_READY" --model sonnet --effort low --tools ""
    OAuth 失效时才执行 `claude auth login`。
 
 2. 复制 `runner/work-runner.example.json` 为 `runner/work-runner.json`，填写 Core HTTPS 地址、Runner token
-   和仓库白名单。token 不要提交到 Git。`defaultRuntimes` 定义手机可选择的运行时、模型和思考深度；
+   和仓库白名单。token 不要提交到 Git。Codex runtime 的 `command` 指向上述固定 `codex.exe`，并设置
+   `transport: "app-server"`；删除该字段或改为 `exec` 可临时回退旧适配器。`defaultRuntimes` 定义手机可选择的运行时、模型和思考深度；
    runtime 可用 `reasoningEffortsByModel` 为个别模型声明 `reasoningEfforts` 的非空子集；
    单个 `repos` 或 `repoRoots` 项也可用 `runtimes` 覆盖默认值。旧版 `defaultModels/models/reasoningEfforts`
    配置继续按 Codex catalog 读取。目录来源支持两种方式：
@@ -127,5 +133,5 @@ npm --prefix work run e2e:codex
 npm --prefix work run e2e:claude
 ```
 
-真实测试在临时 Git 仓库中启动 Core 与 Runner，自动回答 `ask`，并确认三个 MCP 工具、通用
-`runtimeSessionId` 和最终 IDLE 状态均完成，不会修改产品仓库。
+真实 Codex 测试在临时 Git 仓库中启动 Core 与 Runner，自动回答 `ask`，并确认三个 MCP 工具、App Server
+`turn/steer`、FIFO 下一轮、通用 `runtimeSessionId` 和最终 IDLE 状态均完成，不会修改产品仓库。

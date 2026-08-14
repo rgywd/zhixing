@@ -85,6 +85,8 @@ import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.hugeicons.stroke.Files02
 import me.rerere.hugeicons.stroke.Image02
 import me.rerere.hugeicons.stroke.Book03
+import me.rerere.hugeicons.stroke.Delete01
+import me.rerere.hugeicons.stroke.PencilEdit01
 import me.rerere.hugeicons.stroke.Pin
 import me.rerere.hugeicons.stroke.PinOff
 import me.rerere.rikkahub.Screen
@@ -96,11 +98,13 @@ import me.rerere.rikkahub.data.work.PhoneWorkEvent
 import me.rerere.rikkahub.data.work.PhoneWorkHtmlReportPayload
 import me.rerere.rikkahub.data.work.PhoneWorkQuestion
 import me.rerere.rikkahub.data.work.PhoneWorkPendingAttachment
+import me.rerere.rikkahub.data.work.PhoneWorkQueueItem
 import me.rerere.rikkahub.data.work.PhoneWorkRepo
 import me.rerere.rikkahub.data.work.PhoneWorkRepoKey
 import me.rerere.rikkahub.data.work.PhoneWorkRepoPreferences
 import me.rerere.rikkahub.data.work.PhoneWorkReportPayload
 import me.rerere.rikkahub.data.work.PhoneWorkRunStatePayload
+import me.rerere.rikkahub.data.work.PhoneWorkSystemErrorPayload
 import me.rerere.rikkahub.data.work.PhoneWorkRuntime
 import me.rerere.rikkahub.data.work.PhoneWorkUserMessagePayload
 import me.rerere.rikkahub.data.work.effectiveReasoningEfforts
@@ -177,6 +181,7 @@ fun PhoneWorkSessionPage(sessionId: String) {
     }
     val session by vm.session.collectAsStateWithLifecycle()
     val events by vm.events.collectAsStateWithLifecycle()
+    val queue by vm.queue.collectAsStateWithLifecycle()
     val catalog by vm.catalog.collectAsStateWithLifecycle()
     val repoPreferences by vm.repoPreferences.collectAsStateWithLifecycle()
     val selectedRepo by vm.selectedRepo.collectAsStateWithLifecycle()
@@ -201,9 +206,18 @@ fun PhoneWorkSessionPage(sessionId: String) {
         ?: (selectedRuntime == "codex" && selectedModel in selectedRuntimeConfig?.fastModels.orEmpty())
     val selectedRunnerId = session?.runnerId ?: selectedRepo?.runnerId
     val fileAttachmentsSupported = catalog.supportsFileAttachments(selectedRunnerId)
+    val runnerCapabilities = workRunnerCapabilities(catalog, session)
     val canCompose = session?.status != "COMPLETED" && session?.archivedAt == null
+    val canSubmitInput = (
+        !inputState.isEmpty() || inputState.messageContent.any {
+            it is UIMessagePart.Image || it is UIMessagePart.Document
+        }
+    ) && selectedRepo != null && (
+        fileAttachmentsSupported || inputState.messageContent.none { it is UIMessagePart.Document }
+    )
     var showAttachmentPicker by remember { mutableStateOf(false) }
     var messageActionTarget by remember { mutableStateOf<WorkMessageActionTarget?>(null) }
+    var editingQueueItem by remember { mutableStateOf<PhoneWorkQueueItem?>(null) }
     var statusClockMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val statusPresentation = remember(session, catalog, events, statusClockMillis) {
         buildWorkSessionStatusPresentation(
@@ -229,7 +243,7 @@ fun PhoneWorkSessionPage(sessionId: String) {
         }
     }
 
-    fun sendCurrentInput() {
+    fun sendCurrentInput(longPress: Boolean = false) {
         val text = inputState.textContent.text.toString().trim()
         val attachments = inputState.messageContent.mapNotNull { part ->
             when (part) {
@@ -243,7 +257,7 @@ fun PhoneWorkSessionPage(sessionId: String) {
             }
         }
         if (text.isNotEmpty() || attachments.isNotEmpty()) {
-            vm.send(text, attachments) { createdId ->
+            val onAccepted: (String?) -> Unit = { createdId ->
                 filesManager.deleteChatFiles(attachments.map { it.uri.toUri() })
                 inputState.clearInput()
                 if (createdId != null) {
@@ -251,6 +265,23 @@ fun PhoneWorkSessionPage(sessionId: String) {
                         popUpTo(Screen.PhoneWorkSession("")) { inclusive = true }
                     }
                 }
+            }
+            when (resolveWorkInputAction(session, runnerCapabilities, longPress)) {
+                WorkInputAction.DIRECT -> vm.send(text, attachments, onAccepted)
+                WorkInputAction.QUEUE -> vm.enqueue(text, attachments) { onAccepted(null) }
+                WorkInputAction.STEER -> vm.steer(text, attachments) {
+                    onAccepted(null)
+                    Toast.makeText(context, "已引导当前任务", Toast.LENGTH_SHORT).show()
+                }
+                WorkInputAction.STEER_UNAVAILABLE -> Toast.makeText(
+                    context,
+                    if (session?.status == "WAITING_FOR_USER") {
+                        "请先回答当前问题；这条消息可点按加入队列"
+                    } else {
+                        "当前任务不支持实时引导，请点按加入队列"
+                    },
+                    Toast.LENGTH_SHORT,
+                ).show()
             }
         }
     }
@@ -302,9 +333,20 @@ fun PhoneWorkSessionPage(sessionId: String) {
         bottomBar = {
             if (canCompose) {
                 Column {
+                    if (queue.isNotEmpty()) {
+                        WorkPendingQueuePanel(
+                            items = queue,
+                            onEdit = { editingQueueItem = it },
+                            onCancel = vm::cancelQueueItem,
+                        )
+                    }
                     Text(
                         if (draft) {
                             "运行引擎、仓库和模型在会话创建后固定；思考深度与速度后续仍可调整"
+                        } else if (session?.status == "WAITING_FOR_USER" && runnerCapabilities.editableQueue) {
+                            "请先回答当前问题；点按发送可加入队列"
+                        } else if (session?.status == "RUNNING" && runnerCapabilities.editableQueue && runnerCapabilities.steer) {
+                            "点按加入队列 · 长按引导当前任务"
                         } else if (session?.runtime == "codex") {
                             "思考深度与速度调整将在下一轮生效"
                         } else {
@@ -315,10 +357,24 @@ fun PhoneWorkSessionPage(sessionId: String) {
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (
+                        session?.status == "RUNNING" &&
+                        runnerCapabilities.appServerTurns &&
+                        runnerCapabilities.steer &&
+                        !session?.activeTurnId.isNullOrBlank()
+                    ) {
+                        TextButton(
+                            onClick = { sendCurrentInput(longPress = true) },
+                            enabled = canSubmitInput && !sending,
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                        ) {
+                            Text("引导当前任务")
+                        }
+                    }
                     sendError?.let { message ->
                         WorkSendErrorBar(
                             message = message,
-                            onRetry = ::sendCurrentInput,
+                            onRetry = { sendCurrentInput() },
                             onDismiss = vm::clearSendError,
                         )
                     }
@@ -334,15 +390,9 @@ fun PhoneWorkSessionPage(sessionId: String) {
                         onUpdateSearchService = { _, _ -> },
                         onMoreClick = { showAttachmentPicker = true },
                         onCancelClick = {},
-                        onSendClick = ::sendCurrentInput,
-                        onLongSendClick = {},
-                        canSend = (
-                            !inputState.isEmpty() || inputState.messageContent.any {
-                                it is UIMessagePart.Image || it is UIMessagePart.Document
-                            }
-                        ) && selectedRepo != null && (
-                            fileAttachmentsSupported || inputState.messageContent.none { it is UIMessagePart.Document }
-                        ),
+                        onSendClick = { sendCurrentInput() },
+                        onLongSendClick = { sendCurrentInput(longPress = true) },
+                        canSend = canSubmitInput,
                         showMoreButton = true,
                         customLeadingControls = {
                             WorkChoiceButton(
@@ -416,6 +466,17 @@ fun PhoneWorkSessionPage(sessionId: String) {
                 inputState.clearInput()
                 inputState.setMessageText(text)
                 messageActionTarget = null
+            },
+        )
+    }
+
+    editingQueueItem?.let { item ->
+        WorkQueueEditSheet(
+            item = item,
+            saving = sending,
+            onDismiss = { editingQueueItem = null },
+            onSave = { text ->
+                vm.updateQueueItem(item, text) { editingQueueItem = null }
             },
         )
     }
@@ -1131,6 +1192,26 @@ private fun WorkEventEntry(
                 status = state.status,
             )
         }
+        "SYSTEM_ERROR" -> {
+            val failure = workJson.decodeFromJsonElement<PhoneWorkSystemErrorPayload>(event.payload)
+            WorkSystemErrorCard(failure.message)
+        }
+    }
+}
+
+@Composable
+private fun WorkSystemErrorCard(message: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+    ) {
+        Text(
+            message,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+        )
     }
 }
 
@@ -1287,6 +1368,148 @@ private fun WorkUserMessageBubble(message: PhoneWorkUserMessagePayload, onLongCl
                     }
                     if (message.text.isNotBlank()) Text(message.text)
                 }
+            }
+        }
+    }
+}
+
+internal fun workQueueItemPreview(item: PhoneWorkQueueItem): String = item.text
+    .trim()
+    .lineSequence()
+    .firstOrNull(String::isNotBlank)
+    ?.take(80)
+    ?: if (item.attachments.isNotEmpty()) "${item.attachments.size} 个附件" else "空消息"
+
+@Composable
+private fun WorkPendingQueuePanel(
+    items: List<PhoneWorkQueueItem>,
+    onEdit: (PhoneWorkQueueItem) -> Unit,
+    onCancel: (PhoneWorkQueueItem) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val first = items.first()
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "待执行队列 · ${items.size} 项",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        "队首：${workQueueItemPreview(first)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Icon(
+                    if (expanded) HugeIcons.ArrowDown01 else HugeIcons.ArrowRight01,
+                    if (expanded) "折叠待执行队列" else "展开待执行队列",
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            if (expanded) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                items.forEachIndexed { index, item ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "${index + 1}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                workQueueItemPreview(item),
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            val details = buildList {
+                                if (item.attachments.isNotEmpty()) add("${item.attachments.size} 个附件")
+                                if (item.state == "DISPATCHING") add("正在派发")
+                            }.joinToString(" · ")
+                            if (details.isNotBlank()) {
+                                Text(
+                                    details,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = { onEdit(item) },
+                            enabled = item.state == "QUEUED",
+                        ) {
+                            Icon(HugeIcons.PencilEdit01, "编辑第 ${index + 1} 条队列消息")
+                        }
+                        IconButton(
+                            onClick = { onCancel(item) },
+                            enabled = item.state == "QUEUED",
+                        ) {
+                            Icon(HugeIcons.Delete01, "撤回第 ${index + 1} 条队列消息")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkQueueEditSheet(
+    item: PhoneWorkQueueItem,
+    saving: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var text by remember(item.id, item.revision) { mutableStateOf(item.text) }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("编辑队列消息", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "只修改这条待执行消息，不会覆盖输入框中的草稿。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
+                label = { Text("消息内容") },
+            )
+            if (item.attachments.isNotEmpty()) {
+                Text(
+                    "保留 ${item.attachments.size} 个附件",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = onDismiss, enabled = !saving) { Text("取消") }
+                Button(
+                    onClick = { onSave(text.trim()) },
+                    enabled = (text.isNotBlank() || item.attachments.isNotEmpty()) && !saving,
+                ) { Text(if (saving) "保存中…" else "保存") }
             }
         }
     }

@@ -19,6 +19,9 @@ data class PhoneWorkRunnerCapabilities(
     val claudeCode: Boolean = false,
     val phoneLineProtocol: Int = 1,
     val fileAttachments: Int = 0,
+    val appServerTurns: Boolean = false,
+    val steer: Boolean = false,
+    val editableQueue: Boolean = false,
 )
 
 @Serializable
@@ -73,6 +76,7 @@ data class PhoneWorkSession(
     val status: String,
     val runtimeSessionId: String? = null,
     val codexSessionId: String? = null,
+    val activeTurnId: String? = null,
     val lastSeq: Long = 0,
     val archivedAt: String? = null,
     val createdAt: String,
@@ -96,6 +100,28 @@ data class PhoneWorkAttachment(
     val mimeType: String,
     val size: Long,
     val sha256: String,
+)
+
+@Serializable
+data class PhoneWorkQueueItem(
+    val id: String,
+    val sessionId: String,
+    val text: String = "",
+    val attachments: List<PhoneWorkAttachment> = emptyList(),
+    val reasoningEffort: String? = null,
+    val fastMode: Boolean? = null,
+    val state: String,
+    val revision: Int,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
+@Serializable
+data class PhoneWorkSteerReceipt(
+    val accepted: Boolean,
+    val commandId: String,
+    val expectedTurnId: String,
+    val state: String,
 )
 
 @Serializable
@@ -158,6 +184,12 @@ data class PhoneWorkHtmlReportPayload(
 data class PhoneWorkRunStatePayload(
     val status: String,
     val detail: String? = null,
+)
+
+@Serializable
+data class PhoneWorkSystemErrorPayload(
+    val message: String,
+    val code: String? = null,
 )
 
 @Serializable

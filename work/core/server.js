@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import sanitizeHtml from "sanitize-html";
 import { inspectAttachment, MAX_ATTACHMENT_BYTES } from "../attachments.js";
 
-const PROTOCOL_VERSION = "1";
+const PROTOCOL_VERSIONS = new Set(["1", "2"]);
 
 function sendJson(response, statusCode, body, headers = {}) {
   response.writeHead(statusCode, {
@@ -47,7 +47,7 @@ function bearer(request) {
 }
 
 function requireProtocol(request) {
-  if (request.headers["x-zhixing-work-protocol"] !== PROTOCOL_VERSION) {
+  if (!PROTOCOL_VERSIONS.has(request.headers["x-zhixing-work-protocol"])) {
     throw Object.assign(new Error("Unsupported Work protocol version"), { statusCode: 426 });
   }
 }
@@ -131,7 +131,7 @@ export function createWorkServer({
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url, "http://localhost");
-      if (url.pathname === "/healthz") return sendJson(response, 200, { ok: true, protocol: 1 });
+      if (url.pathname === "/healthz") return sendJson(response, 200, { ok: true, protocol: 2, supportedProtocols: [1, 2] });
       requireProtocol(request);
 
       if (request.method === "GET" && url.pathname === "/v1/life/quotas") {
@@ -274,6 +274,47 @@ export function createWorkServer({
       if (request.method === "POST" && match) {
         requireUser(store, request);
         return sendJson(response, 202, store.postUserMessage(match[1], await readJson(request), request.headers["idempotency-key"]));
+      }
+      match = url.pathname.match(/^\/v1\/work\/sessions\/([^/]+)\/queue$/);
+      if (request.method === "GET" && match) {
+        requireUser(store, request);
+        return sendJson(response, 200, { items: store.getQueue(match[1]) });
+      }
+      if (request.method === "POST" && match) {
+        requireUser(store, request);
+        return sendJson(response, 201, store.enqueueInput(
+          match[1],
+          await readJson(request),
+          request.headers["idempotency-key"],
+        ));
+      }
+      match = url.pathname.match(/^\/v1\/work\/sessions\/([^/]+)\/queue\/([^/]+)$/);
+      if (request.method === "PATCH" && match) {
+        requireUser(store, request);
+        return sendJson(response, 200, store.updateQueuedInput(
+          match[1],
+          match[2],
+          await readJson(request),
+          request.headers["idempotency-key"],
+        ));
+      }
+      if (request.method === "DELETE" && match) {
+        requireUser(store, request);
+        return sendJson(response, 200, store.cancelQueuedInput(
+          match[1],
+          match[2],
+          await readJson(request),
+          request.headers["idempotency-key"],
+        ));
+      }
+      match = url.pathname.match(/^\/v1\/work\/sessions\/([^/]+)\/steer$/);
+      if (request.method === "POST" && match) {
+        requireUser(store, request);
+        return sendJson(response, 202, store.steerTurn(
+          match[1],
+          await readJson(request),
+          request.headers["idempotency-key"],
+        ));
       }
       match = url.pathname.match(/^\/v1\/work\/sessions\/([^/]+)\/asks\/([^/]+)\/answer$/);
       if (request.method === "POST" && match) {

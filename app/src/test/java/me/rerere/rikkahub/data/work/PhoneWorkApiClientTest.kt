@@ -67,4 +67,35 @@ class PhoneWorkApiClientTest {
         assertFalse(encoded.contains("reasoningEffort"))
         assertFalse(encoded.contains("fastMode"))
     }
+
+    @Test
+    fun `queued message carries a client id and optional next-turn settings`() {
+        val encoded = Json.encodeToString(
+            QueueMessageRequest(
+                text = "下一轮先检查测试",
+                attachmentIds = listOf("attachment-1"),
+                reasoningEffort = "high",
+                fastMode = true,
+                clientMessageId = "queue-1",
+            ),
+        )
+
+        assertTrue(encoded.contains("\"clientMessageId\":\"queue-1\""))
+        assertTrue(encoded.contains("\"reasoningEffort\":\"high\""))
+        assertTrue(encoded.contains("\"fastMode\":true"))
+    }
+
+    @Test
+    fun `steer request pins input to the expected active turn`() {
+        val encoded = Json.encodeToString(
+            SteerRequest(
+                text = "改为先处理登录问题",
+                expectedTurnId = "turn-7",
+                clientMessageId = "steer-1",
+            ),
+        )
+
+        assertTrue(encoded.contains("\"expectedTurnId\":\"turn-7\""))
+        assertTrue(encoded.contains("\"clientMessageId\":\"steer-1\""))
+    }
 }

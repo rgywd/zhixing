@@ -26,6 +26,10 @@ import {
   runCodex,
   terminateProcessTree,
 } from "./codex-process.js";
+import {
+  buildCodexAppServerArgs,
+  startCodexAppServerTurn,
+} from "./codex-app-server.js";
 import { ensurePhoneHookProfile } from "./phone-hook-profile.js";
 import {
   buildRepositoryCatalog,
@@ -49,6 +53,7 @@ export class WorkRunner {
     state,
     client,
     spawnCodex = runCodex,
+    spawnCodexAppServer = startCodexAppServerTurn,
     spawnClaude = runClaude,
     terminateCodex = terminateProcessTree,
     nodePath = process.execPath,
@@ -59,6 +64,7 @@ export class WorkRunner {
     this.state = state;
     this.client = client;
     this.spawnCodex = spawnCodex;
+    this.spawnCodexAppServer = spawnCodexAppServer;
     this.spawnClaude = spawnClaude;
     this.terminateCodex = terminateCodex;
     this.nodePath = nodePath;
@@ -113,7 +119,8 @@ export class WorkRunner {
       clearInterval(heartbeat);
       await Promise.all([...this.active.values()].map(async (value) => {
         try {
-          await this.terminateCodex(value.child);
+          if (value.close) value.close();
+          else await this.terminateCodex(value.child);
         } catch (error) {
           this.logError("shutdown-cleanup", error);
         }
@@ -130,9 +137,11 @@ export class WorkRunner {
     await this.flushOutbox();
     const commands = await this.client.commands(this.config.id);
     for (const command of commands) {
-      if (this.active.has(command.sessionId) && !["STOP", "COMPLETE"].includes(command.kind)) continue;
+      if (this.active.has(command.sessionId) && !["STOP", "COMPLETE", "STEER"].includes(command.kind)) continue;
       if (command.kind === "START" || command.kind === "RESUME") {
         await this.startCommand(command);
+      } else if (command.kind === "STEER") {
+        await this.steerCommand(command);
       } else if (command.kind === "STOP" || command.kind === "COMPLETE") {
         await this.stopCommand(command);
       } else {
@@ -150,6 +159,7 @@ export class WorkRunner {
     }
     const runtime = command.payload.runtime ?? previous.runtime ?? "codex";
     const runtimeConfig = repo.runtimes.find((candidate) => candidate.id === runtime);
+    const usesAppServer = runtime === "codex" && runtimeConfig?.transport === "app-server";
     const model = command.payload.model ?? previous.model;
     const reasoningEffort = command.payload.reasoningEffort ?? previous.reasoningEffort;
     const fastMode = command.payload.fastMode ?? previous.fastMode ?? false;
@@ -200,7 +210,7 @@ export class WorkRunner {
       downloadedAttachments = await this.downloadAttachments(command, pendingAttachments);
       attachmentDirectory = downloadedAttachments.directory;
       const effectiveKind = command.kind === "RESUME" && !previousRuntimeSessionId ? "START" : command.kind;
-      if (runtime === "codex" && this.config.codexHome) {
+      if (runtime === "codex" && this.config.codexHome && !usesAppServer) {
         try {
           profileName = ensurePhoneHookProfile({
             codexHome: this.config.codexHome,
@@ -242,21 +252,26 @@ export class WorkRunner {
           additionalDirectories: attachmentDirectory ? [attachmentDirectory] : [],
         });
       } else {
-        args = buildCodexArgs({
-          kind: effectiveKind,
-          repoPath: repo.path,
-          model,
-          reasoningEffort,
-          fastMode,
-          codexSessionId: previousRuntimeSessionId,
-          imagePaths: downloadedAttachments.imagePaths,
-          additionalDirectories: downloadedAttachments.filePaths.length && attachmentDirectory
-            ? [attachmentDirectory]
-            : [],
-          profileName,
-          developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
-          mcp,
-        });
+        args = usesAppServer
+          ? buildCodexAppServerArgs({
+            developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
+            mcp,
+          })
+          : buildCodexArgs({
+            kind: effectiveKind,
+            repoPath: repo.path,
+            model,
+            reasoningEffort,
+            fastMode,
+            codexSessionId: previousRuntimeSessionId,
+            imagePaths: downloadedAttachments.imagePaths,
+            additionalDirectories: downloadedAttachments.filePaths.length && attachmentDirectory
+              ? [attachmentDirectory]
+              : [],
+            profileName,
+            developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
+            mcp,
+          });
       }
     } catch (error) {
       if (attachmentDirectory) rmSync(attachmentDirectory, { recursive: true, force: true });
@@ -270,16 +285,28 @@ export class WorkRunner {
     const semanticOutcome = new Promise((resolve) => { resolveSemanticOutcome = resolve; });
     let running;
     try {
-      const spawnRuntime = runtime === "claude-code" ? this.spawnClaude : this.spawnCodex;
+      const spawnRuntime = runtime === "claude-code"
+        ? this.spawnClaude
+        : usesAppServer
+          ? this.spawnCodexAppServer
+          : this.spawnCodex;
       const parseSessionId = runtime === "claude-code" ? parseClaudeSessionId : parseCodexSessionId;
       const parseAssistantMessage = runtime === "claude-code"
         ? parseClaudeAssistantMessage
         : parseCodexAssistantMessage;
       const parseTurnOutcome = runtime === "claude-code" ? parseClaudeTurnOutcome : parseCodexTurnOutcome;
-      running = spawnRuntime({
+      running = await spawnRuntime({
         command: runtimeConfig.command,
         args,
         prompt: promptForRuntime(command.payload.message, downloadedAttachments),
+        imagePaths: downloadedAttachments.imagePaths,
+        runtimeSessionId: previousRuntimeSessionId,
+        model,
+        reasoningEffort,
+        fastMode,
+        clientUserMessageId: command.payload.clientMessageId ?? null,
+        developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
+        clientVersion: this.config.version,
         cwd: repo.path,
         env: runtime === "codex"
           ? isolatedCodexEnv(this.config.codexHome, process.env, hookOutboxDirectory ? {
@@ -313,6 +340,24 @@ export class WorkRunner {
           if (outcome) resolveSemanticOutcome(outcome);
         },
       });
+      if (usesAppServer) {
+        discoveredSessionId = running.runtimeSessionId;
+        this.state.set(command.sessionId, {
+          runtime,
+          runtimeSessionId: running.runtimeSessionId,
+          codexSessionId: running.runtimeSessionId,
+          activeTurnId: running.turnId,
+          pendingAttachments: [],
+        });
+        await this.client.updateState(
+          command.sessionId,
+          "RUNNING",
+          null,
+          running.runtimeSessionId,
+          runtime,
+          running.turnId,
+        );
+      }
     } catch (error) {
       if (attachmentDirectory) rmSync(attachmentDirectory, { recursive: true, force: true });
       if (hookOutboxDirectory) rmSync(hookOutboxDirectory, { recursive: true, force: true });
@@ -320,7 +365,14 @@ export class WorkRunner {
       await this.commitTransition(command.id, "FAILED", sessionState(command.sessionId, "FAILED", safeError(error)));
       return;
     }
-    this.active.set(command.sessionId, { ...running, startCommandId: command.id, stoppedByUser: false });
+    this.active.set(command.sessionId, {
+      ...running,
+      startCommandId: command.id,
+      stoppedByUser: false,
+      runtime,
+      turnId: running.turnId ?? null,
+      attachmentDirectories: [],
+    });
     this.monitorCommand({
       command,
       running,
@@ -330,6 +382,7 @@ export class WorkRunner {
       attachmentDirectory,
       hookOutboxDirectory,
       runtimeConfigDirectory,
+      requiresSemanticOutcome: usesAppServer,
     }).catch((error) => this.logError("process-exit", error));
   }
 
@@ -342,6 +395,7 @@ export class WorkRunner {
     attachmentDirectory,
     hookOutboxDirectory,
     runtimeConfigDirectory,
+    requiresSemanticOutcome = false,
   }) {
     const processOutcome = running.completed.then(
       (result) => ({ source: "process", result }),
@@ -352,6 +406,7 @@ export class WorkRunner {
       semanticOutcome.then((outcome) => ({ source: "semantic", outcome })),
     ]);
     if (first.source === "semantic") {
+      if (running.close) running.close();
       const graceMs = this.config.semanticExitGraceMs ?? 2_000;
       const exited = await Promise.race([
         processOutcome.then(() => true),
@@ -365,8 +420,8 @@ export class WorkRunner {
         }
       }
     }
+    const active = this.active.get(command.sessionId);
     try {
-      const active = this.active.get(command.sessionId);
       this.active.delete(command.sessionId);
       if (active?.stoppedByUser) {
         if (!active.startCommandAcknowledged) await this.commitTransition(command.id, "COMPLETED", null);
@@ -374,7 +429,7 @@ export class WorkRunner {
       }
       const discoveredSessionId = getDiscoveredSessionId();
       const semanticSuccess = first.source === "semantic" && first.outcome.status === "COMPLETED";
-      const processSuccess = first.source === "process" && first.result.code === 0;
+      const processSuccess = !requiresSemanticOutcome && first.source === "process" && first.result.code === 0;
       const runtimeName = runtimeDisplayName(runtime);
       if ((semanticSuccess || processSuccess) && discoveredSessionId) {
         await this.commitTransition(command.id, "COMPLETED", sessionState(
@@ -383,6 +438,7 @@ export class WorkRunner {
           `${runtimeName} 本轮已完成`,
           runtime,
           discoveredSessionId,
+          null,
         ));
       } else {
         const detail = first.source === "semantic" && first.outcome.detail
@@ -400,6 +456,49 @@ export class WorkRunner {
       if (attachmentDirectory) rmSync(attachmentDirectory, { recursive: true, force: true });
       if (hookOutboxDirectory) rmSync(hookOutboxDirectory, { recursive: true, force: true });
       if (runtimeConfigDirectory) rmSync(runtimeConfigDirectory, { recursive: true, force: true });
+      for (const directory of active?.attachmentDirectories ?? []) {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    }
+  }
+
+  async steerCommand(command) {
+    const running = this.active.get(command.sessionId);
+    const previous = this.state.get(command.sessionId) ?? {};
+    const expectedTurnId = String(command.payload.expectedTurnId ?? "").trim();
+    if (
+      !running?.steer
+      || running.runtime !== "codex"
+      || !expectedTurnId
+      || expectedTurnId !== running.turnId
+    ) {
+      await this.commitTransition(command.id, "FAILED", null);
+      return;
+    }
+    await this.client.ack(command.id, "CLAIMED", null);
+    let downloaded = { directory: null, imagePaths: [], filePaths: [], manifest: [] };
+    try {
+      downloaded = await this.downloadAttachments(command);
+      const acceptedTurnId = await running.steer({
+        expectedTurnId,
+        prompt: promptForRuntime(command.payload.message, downloaded),
+        imagePaths: downloaded.imagePaths,
+        clientUserMessageId: command.payload.clientMessageId ?? null,
+      });
+      if (acceptedTurnId !== expectedTurnId) throw new Error("Codex accepted steer on an unexpected turn");
+      if (downloaded.directory) running.attachmentDirectories.push(downloaded.directory);
+      await this.commitTransition(command.id, "COMPLETED", sessionState(
+        command.sessionId,
+        "RUNNING",
+        null,
+        "codex",
+        previous.runtimeSessionId ?? previous.codexSessionId ?? running.runtimeSessionId ?? null,
+        expectedTurnId,
+      ));
+    } catch (error) {
+      if (downloaded.directory) rmSync(downloaded.directory, { recursive: true, force: true });
+      this.logError("steer", error);
+      await this.commitTransition(command.id, "FAILED", null);
     }
   }
 
@@ -462,7 +561,16 @@ export class WorkRunner {
     if (running) {
       running.stoppedByUser = true;
       running.startCommandAcknowledged = true;
-      await this.terminateCodex(running.child);
+      if (running.interrupt && running.turnId) {
+        try {
+          await running.interrupt(running.turnId);
+        } catch (error) {
+          this.logError("turn-interrupt", error);
+          await this.terminateCodex(running.child);
+        }
+      } else {
+        await this.terminateCodex(running.child);
+      }
       this.state.enqueueTransition(running.startCommandId, "COMPLETED", null);
     }
     let finalState;
@@ -573,13 +681,21 @@ function normalizeMimeType(mimeType) {
   return String(mimeType ?? "").split(";", 1)[0].trim().toLowerCase();
 }
 
-function sessionState(sessionId, status, detail = null, runtime = null, runtimeSessionId = null) {
+function sessionState(
+  sessionId,
+  status,
+  detail = null,
+  runtime = null,
+  runtimeSessionId = null,
+  activeTurnId = null,
+) {
   return {
     sessionId,
     status,
     detail,
     runtime,
     runtimeSessionId,
+    activeTurnId,
     ...(runtime === "codex" ? { codexSessionId: runtimeSessionId } : {}),
   };
 }

@@ -151,6 +151,25 @@ test("catalog preserves model-specific reasoning efforts and rejects invalid ove
   }), /invalid runtime catalog/);
 });
 
+test("Codex transport accepts only exec or app-server", () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-transport-"));
+  assert.throws(() => validateRepositoryConfig({
+    repos: [{
+      id: "repo",
+      name: "repo",
+      path: directory,
+      runtimes: [{
+        id: "codex",
+        name: "Codex",
+        command: "codex",
+        transport: "desktop-private",
+        models: ["gpt-5.6-sol"],
+        reasoningEfforts: ["high"],
+      }],
+    }],
+  }), /invalid runtime catalog/);
+});
+
 test("runner republishes the catalog when a discovered directory changes", async () => {
   const directory = mkdtempSync(join(tmpdir(), "zhixing-catalog-refresh-"));
   try {

@@ -19,8 +19,10 @@ import me.rerere.rikkahub.data.work.PhoneWorkEvent
 import me.rerere.rikkahub.data.work.PhoneWorkDraftStore
 import me.rerere.rikkahub.data.work.PhoneWorkRepo
 import me.rerere.rikkahub.data.work.PhoneWorkPendingAttachment
+import me.rerere.rikkahub.data.work.PhoneWorkQueueItem
 import me.rerere.rikkahub.data.work.PhoneWorkRepoPreferenceStore
 import me.rerere.rikkahub.data.work.PhoneWorkRepository
+import me.rerere.rikkahub.data.work.PhoneWorkRunnerCapabilities
 import me.rerere.rikkahub.data.work.PhoneWorkRuntime
 import me.rerere.rikkahub.data.work.PhoneWorkSession
 import me.rerere.rikkahub.data.work.PhoneWorkSessionCreator
@@ -41,6 +43,9 @@ class PhoneWorkSessionVM(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val events: StateFlow<List<PhoneWorkEvent>> = sessionId.flatMapLatest { id ->
         id?.let(repository::observeEvents) ?: flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val queue: StateFlow<List<PhoneWorkQueueItem>> = sessionId.flatMapLatest { id ->
+        id?.let(repository::observeQueue) ?: flowOf(emptyList())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val catalog: StateFlow<PhoneWorkCatalog> = repository.catalog
     val repoPreferences = repoPreferenceStore.state
@@ -103,9 +108,12 @@ class PhoneWorkSessionVM(
                     true
                 }
                 .collect {
-                    if (sessionId.value == null) return@collect
+                    val id = sessionId.value ?: return@collect
                     error.value = null
                     runCatching { repository.refreshSessions() }
+                    if (supportsEditableQueue(catalog.value, session.value)) {
+                        runCatching { repository.refreshQueue(id) }
+                    }
                 }
         }
         viewModelScope.launch {
@@ -122,6 +130,9 @@ class PhoneWorkSessionVM(
                         .onFailure { error.value = it.message ?: "无法刷新开发机目录，正在重试" }
                 } else {
                     val eventResult = runCatching { repository.refreshEvents(id) }
+                    if (supportsEditableQueue(catalog.value, session.value)) {
+                        runCatching { repository.refreshQueue(id) }
+                    }
                     error.value = when {
                         eventResult.isFailure -> eventResult.exceptionOrNull()?.message ?: "消息同步失败，正在重试"
                         catalogResult.isFailure -> "开发机状态刷新失败，消息仍会继续同步"
@@ -242,6 +253,92 @@ class PhoneWorkSessionVM(
             }.onFailure {
                 sendError.value = it.message ?: "发送失败"
             }
+            sending.value = false
+        }
+    }
+
+    fun enqueue(
+        text: String,
+        attachments: List<PhoneWorkPendingAttachment> = emptyList(),
+        onAccepted: () -> Unit = {},
+    ) {
+        val id = sessionId.value ?: return
+        if ((text.isBlank() && attachments.isEmpty()) || sending.value) return
+        viewModelScope.launch {
+            sending.value = true
+            sendError.value = null
+            runCatching {
+                repository.enqueue(
+                    sessionId = id,
+                    text = text,
+                    attachments = attachments,
+                    reasoningEffort = selectedEffort.value.takeIf { pendingEffortChange },
+                    fastMode = selectedFastMode.value.takeIf { pendingFastModeChange },
+                )
+            }.onSuccess {
+                error.value = null
+                draftStore.clear(id)
+                onAccepted()
+            }.onFailure {
+                sendError.value = it.message ?: "加入队列失败"
+            }
+            sending.value = false
+        }
+    }
+
+    fun steer(
+        text: String,
+        attachments: List<PhoneWorkPendingAttachment> = emptyList(),
+        onAccepted: () -> Unit = {},
+    ) {
+        val current = session.value ?: return
+        val turnId = current.activeTurnId ?: run {
+            sendError.value = "当前 turn 已结束，请改为加入队列"
+            return
+        }
+        if ((text.isBlank() && attachments.isEmpty()) || sending.value) return
+        viewModelScope.launch {
+            sending.value = true
+            sendError.value = null
+            runCatching {
+                repository.steer(
+                    sessionId = current.id,
+                    expectedTurnId = turnId,
+                    text = text,
+                    attachments = attachments,
+                )
+            }.onSuccess {
+                error.value = null
+                draftStore.clear(current.id)
+                onAccepted()
+            }.onFailure {
+                sendError.value = it.message ?: "引导当前任务失败"
+            }
+            sending.value = false
+        }
+    }
+
+    fun updateQueueItem(item: PhoneWorkQueueItem, text: String, onAccepted: () -> Unit = {}) {
+        val id = sessionId.value ?: return
+        if ((text.isBlank() && item.attachments.isEmpty()) || sending.value || item.state != "QUEUED") return
+        viewModelScope.launch {
+            sending.value = true
+            sendError.value = null
+            runCatching { repository.updateQueueItem(id, item.id, item.revision, text.trim()) }
+                .onSuccess { onAccepted() }
+                .onFailure { sendError.value = it.message ?: "编辑队列失败" }
+            sending.value = false
+        }
+    }
+
+    fun cancelQueueItem(item: PhoneWorkQueueItem) {
+        val id = sessionId.value ?: return
+        if (sending.value || item.state != "QUEUED") return
+        viewModelScope.launch {
+            sending.value = true
+            sendError.value = null
+            runCatching { repository.cancelQueueItem(id, item.id, item.revision) }
+                .onFailure { sendError.value = it.message ?: "撤回队列失败" }
             sending.value = false
         }
     }
@@ -397,4 +494,44 @@ internal fun reconcileWorkFastSelection(
 private fun runtimeDisplayName(runtime: String): String = when (runtime) {
     "claude-code" -> "Claude Code"
     else -> "Codex"
+}
+
+internal enum class WorkInputAction {
+    DIRECT,
+    QUEUE,
+    STEER,
+    STEER_UNAVAILABLE,
+}
+
+internal fun workRunnerCapabilities(
+    catalog: PhoneWorkCatalog,
+    session: PhoneWorkSession?,
+): PhoneWorkRunnerCapabilities = session?.runnerId
+    ?.let { runnerId -> catalog.runners.firstOrNull { it.id == runnerId }?.capabilities }
+    ?: PhoneWorkRunnerCapabilities()
+
+internal fun supportsEditableQueue(catalog: PhoneWorkCatalog, session: PhoneWorkSession?): Boolean =
+    workRunnerCapabilities(catalog, session).editableQueue
+
+internal fun resolveWorkInputAction(
+    session: PhoneWorkSession?,
+    capabilities: PhoneWorkRunnerCapabilities,
+    longPress: Boolean,
+): WorkInputAction {
+    if (session == null || session.status !in setOf("RUNNING", "WAITING_FOR_USER")) {
+        return WorkInputAction.DIRECT
+    }
+    if (longPress) {
+        return if (
+            session.status == "RUNNING" &&
+            capabilities.appServerTurns &&
+            capabilities.steer &&
+            !session.activeTurnId.isNullOrBlank()
+        ) {
+            WorkInputAction.STEER
+        } else {
+            WorkInputAction.STEER_UNAVAILABLE
+        }
+    }
+    return if (capabilities.editableQueue) WorkInputAction.QUEUE else WorkInputAction.DIRECT
 }

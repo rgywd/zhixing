@@ -118,6 +118,7 @@ test("Codex JSONL mapper only exposes completed assistant-visible messages", () 
 
 test("Codex JSONL mapper treats turn events as the semantic terminal state", () => {
   assert.deepEqual(parseCodexTurnOutcome({ type: "turn.completed" }), { status: "COMPLETED", detail: null });
+  assert.deepEqual(parseCodexTurnOutcome({ type: "turn.interrupted" }), { status: "INTERRUPTED", detail: null });
   assert.deepEqual(parseCodexTurnOutcome({
     type: "turn.failed",
     error: { message: "tool host failed" },
@@ -739,6 +740,165 @@ test("runner persists discovered session id and completes one turn", async () =>
   assert.deepEqual(persisted.eventOutbox, {});
 });
 
+test("runner keeps an App Server turn active for steer and closes it after completion", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-app-server-"));
+  const state = new RunnerState(join(directory, "state.json"));
+  const calls = [];
+  const steerCalls = [];
+  let emit;
+  let resolveProcess;
+  const runner = new WorkRunner({
+    config: {
+      id: "runner",
+      version: "1.0.0",
+      coreUrl: "https://core",
+      stateFile: state.filename,
+      semanticExitGraceMs: 0,
+      repos: [{
+        id: "repo",
+        name: "repo",
+        path: directory,
+        runtimes: [{
+          id: "codex",
+          name: "Codex",
+          command: "codex.exe",
+          transport: "app-server",
+          models: ["gpt-5.6-sol"],
+          reasoningEfforts: ["high"],
+        }],
+      }],
+    },
+    state,
+    client: {
+      ack: async (...args) => calls.push(["ack", ...args]),
+      updateState: async (...args) => calls.push(["state", ...args]),
+      publishEvent: async (...args) => calls.push(["event", ...args]),
+    },
+    spawnCodexAppServer: async (input) => {
+      emit = input.onEvent;
+      return {
+        child: { kill() {} },
+        completed: new Promise((resolve) => { resolveProcess = resolve; }),
+        runtimeSessionId: "thread-app-server",
+        turnId: "turn-app-server",
+        steer: async (steerInput) => {
+          steerCalls.push(steerInput);
+          return "turn-app-server";
+        },
+        interrupt: async () => {},
+        close: () => {
+          calls.push(["close"]);
+          resolveProcess({ code: 0, signal: null, stderr: "" });
+        },
+      };
+    },
+  });
+  await runner.startCommand({
+    id: "cmd-start",
+    sessionId: "work-app-server",
+    kind: "START",
+    payload: {
+      repoId: "repo",
+      runtime: "codex",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      sessionToken: "session-token",
+      clientMessageId: "message-start",
+      message: "start",
+    },
+  });
+  assert.equal(runner.active.get("work-app-server").turnId, "turn-app-server");
+  assert.ok(calls.some((call) =>
+    call[0] === "state"
+    && call[1] === "work-app-server"
+    && call[4] === "thread-app-server"
+    && call[6] === "turn-app-server"));
+
+  await runner.steerCommand({
+    id: "cmd-steer",
+    sessionId: "work-app-server",
+    kind: "STEER",
+    payload: {
+      expectedTurnId: "turn-app-server",
+      clientMessageId: "message-steer",
+      message: "focus on tests",
+    },
+  });
+  assert.deepEqual(steerCalls, [{
+    expectedTurnId: "turn-app-server",
+    prompt: "focus on tests",
+    imagePaths: [],
+    clientUserMessageId: "message-steer",
+  }]);
+  assert.ok(calls.some((call) => call[0] === "ack" && call[1] === "cmd-steer" && call[2] === "COMPLETED"));
+
+  emit({ type: "item.completed", item: { id: "agent-app-server", type: "agent_message", text: "done" } });
+  emit({ type: "turn.completed" });
+  await waitForCondition(() => runner.active.size === 0);
+  assert.ok(calls.some((call) => call[0] === "ack" && call[1] === "cmd-start" && call[2] === "COMPLETED"));
+  assert.ok(
+    calls.findIndex((call) => call[0] === "close")
+      < calls.findIndex((call) => call[0] === "ack" && call[1] === "cmd-start" && call[2] === "COMPLETED"),
+  );
+});
+
+test("runner fails an App Server turn that exits cleanly without turn/completed", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-app-server-early-exit-"));
+  const state = new RunnerState(join(directory, "state.json"));
+  const calls = [];
+  const runner = new WorkRunner({
+    config: {
+      id: "runner",
+      version: "1.0.0",
+      coreUrl: "https://core",
+      stateFile: state.filename,
+      repos: [{
+        id: "repo",
+        name: "repo",
+        path: directory,
+        runtimes: [{
+          id: "codex",
+          name: "Codex",
+          command: "codex.exe",
+          transport: "app-server",
+          models: ["gpt-5.6-sol"],
+          reasoningEfforts: ["high"],
+        }],
+      }],
+    },
+    state,
+    client: {
+      ack: async (...args) => calls.push(args),
+      updateState: async () => {},
+      publishEvent: async () => {},
+    },
+    spawnCodexAppServer: async () => ({
+      child: { kill() {} },
+      completed: Promise.resolve({ code: 0, signal: null, stderr: "" }),
+      runtimeSessionId: "thread-early-exit",
+      turnId: "turn-early-exit",
+      steer: async () => "turn-early-exit",
+      interrupt: async () => {},
+      close: () => {},
+    }),
+  });
+  await runner.startCommand({
+    id: "cmd-early-exit",
+    sessionId: "work-early-exit",
+    kind: "START",
+    payload: {
+      repoId: "repo",
+      runtime: "codex",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      sessionToken: "session-token",
+      message: "start",
+    },
+  });
+  await waitForCondition(() => calls.some((call) => call[0] === "cmd-early-exit" && call[1] === "FAILED"));
+  assert.equal(calls.find((call) => call[0] === "cmd-early-exit" && call[1] === "FAILED")[2].status, "FAILED");
+});
+
 test("runner starts and resumes Claude Code with a generic runtime session id", async () => {
   const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-claude-"));
   const state = new RunnerState(join(directory, "state.json"));
@@ -996,6 +1156,32 @@ test("stop kills the local Codex process before attempting Core acknowledgement"
   assert.equal(state.transitions().find((item) => item.commandId === "cmd-stop").sessionState.status, "IDLE");
 });
 
+test("stop interrupts an active App Server turn before acknowledging", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "zhixing-runner-app-server-stop-"));
+  const state = new RunnerState(join(directory, "state.json"));
+  const calls = [];
+  const runner = new WorkRunner({
+    config: { id: "runner", stateFile: state.filename, repos: [] },
+    state,
+    client: { ack: async (...args) => calls.push(args) },
+  });
+  let interrupted = null;
+  runner.active.set("work-stop", {
+    startCommandId: "cmd-start",
+    stoppedByUser: false,
+    runtime: "codex",
+    turnId: "turn-1",
+    interrupt: async (turnId) => { interrupted = turnId; },
+    child: { kill() { throw new Error("App Server should be interrupted before process cleanup"); } },
+  });
+
+  await runner.stopCommand({ id: "cmd-stop", sessionId: "work-stop", kind: "STOP" });
+
+  assert.equal(interrupted, "turn-1");
+  assert.equal(runner.active.get("work-stop").stoppedByUser, true);
+  assert.ok(calls.some((call) => call[0] === "cmd-stop" && call[1] === "COMPLETED"));
+});
+
 test("session id parser accepts current Codex JSONL event", () => {
   assert.equal(parseCodexSessionId({ type: "thread.started", thread_id: "abc" }), "abc");
   assert.equal(parseCodexSessionId({ type: "item.completed" }), null);
@@ -1003,6 +1189,15 @@ test("session id parser accepts current Codex JSONL event", () => {
 
 test("Windows resolves the real Codex executable instead of an npm shell shim", () => {
   assert.equal(resolveCodexCommand("codex", "win32", () => "C:/Codex/codex.exe"), "C:/Codex/codex.exe");
+  assert.equal(
+    resolveCodexCommand(
+      "%USERPROFILE%/.zhixing-work/codex.exe",
+      "win32",
+      undefined,
+      { USERPROFILE: "C:/Users/test" },
+    ),
+    "C:/Users/test/.zhixing-work/codex.exe",
+  );
   assert.throws(
     () => resolveCodexCommand("C:/Users/me/AppData/Roaming/npm/codex.cmd", "win32"),
     /codex\.exe/,

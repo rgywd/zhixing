@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+// Runner control remains wire-compatible with v1 during the staged rollout.
+// Capability negotiation enables the v2 queue/turn features after Core upgrades.
 const PROTOCOL_HEADERS = { "x-zhixing-work-protocol": "1" };
 
 export class CoreClient {
@@ -33,6 +35,8 @@ export class CoreClient {
   }
 
   register(config) {
+    const appServerTurns = config.repos.some((repo) => repo.runtimes.some((runtime) =>
+      runtime.id === "codex" && runtime.transport === "app-server"));
     return this.request("/v1/runner/register", {
       method: "POST",
       body: {
@@ -43,8 +47,11 @@ export class CoreClient {
         capabilities: {
           codex: config.repos.some((repo) => repo.runtimes.some((runtime) => runtime.id === "codex")),
           claudeCode: config.repos.some((repo) => repo.runtimes.some((runtime) => runtime.id === "claude-code")),
-          phoneLineProtocol: 1,
+          phoneLineProtocol: 2,
           fileAttachments: 1,
+          appServerTurns,
+          steer: appServerTurns,
+          editableQueue: true,
         },
         repos: config.repos.map((repo) => ({
           id: repo.id,
@@ -126,7 +133,7 @@ export class CoreClient {
     throw lastError;
   }
 
-  updateState(sessionId, status, detail = null, runtimeSessionId = null, runtime = null) {
+  updateState(sessionId, status, detail = null, runtimeSessionId = null, runtime = null, activeTurnId = null) {
     return this.request(`/v1/runner/sessions/${encodeURIComponent(sessionId)}/state`, {
       method: "POST",
       body: {
@@ -134,6 +141,7 @@ export class CoreClient {
         detail,
         runtime,
         runtimeSessionId,
+        activeTurnId,
         ...(runtime === "codex" ? { codexSessionId: runtimeSessionId } : {}),
         instanceId: this.instanceId,
       },

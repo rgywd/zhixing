@@ -1,6 +1,6 @@
-# Work Phone-line v1：Codex / Claude Code 手机电话线架构
+# Work Phone-line v2：Codex / Claude Code 手机电话线架构
 
-状态：v1 现行架构契约（2026-08-14 核对）
+状态：v2 现行架构契约（2026-08-14 核对）
 
 ## 1. 问题与设计原则
 
@@ -25,9 +25,9 @@ Work Core（公网、自建）
   | 耐久队列 + 会话状态 + 认证
   ^ HTTPS 长轮询/出站连接
 Work Runner（Windows 开发机）
-  | spawn / resume + public stream event bridge
+  | Codex App Server turn bridge / Claude stream-json bridge
   v
-Codex CLI（隔离 profile）或 Claude Code CLI（隔离启动参数）
+Codex CLI 0.147.0 App Server（单轮双向 JSONL）或 Claude Code CLI（隔离启动参数）
   | stdio MCP
   v
 Phone-line MCP（report / ask / report_html）
@@ -59,6 +59,8 @@ Tailscale/VPN 共存。
 - Work 消息必须具备普通聊天的基础操作：用户与 AI 文本均可选择和复制全文，代码块保留独立复制入口，消息可引用到输入框；
   用户消息可载入输入框修改后作为新消息发送，不改写已执行历史。
 - 文本草稿按 Work 会话保存在本机，发送被 Core 耐久接受后才清除；失败时保留正文和本轮附件并提供原地重试。
+- 当前 turn 运行时，点按发送把输入加入 Core 持久化 FIFO 队列，长按发送通过 `turn/steer` 引导当前 turn；
+  输入框上方默认折叠展示队首和数量，展开后可编辑或撤回尚未派发的条目。`WAITING_FOR_USER` 只允许入队，必须先回答问题。
 - 图片与文件共用每条消息最多 4 个、单个最大 10 MiB 的限制。只有 Runner 声明 `fileAttachments >= 1` 时才开放
   普通文件选择；旧 Runner 继续保持图片能力。
 - 打开会话仍定位最新进展；用户上滑阅读历史时，新事件不得强制抢回底部，而应显示“新消息/跳到最新”入口。
@@ -66,6 +68,7 @@ Tailscale/VPN 共存。
 ### Work Core
 
 - 是 Work 会话、消息、问题、答案、报告和命令的事实来源。
+- 持久化未派发输入及 revision；队列项进入实际 turn 前不写 `USER_MESSAGE`。正常完成时原子提升队首，用户停止或失败时冻结。
 - 保存用户附件及摘要，并只向所属 Runner 提供鉴权下载。图片沿用 SQLite BLOB；普通文件写入
   `WORK_CORE_ATTACHMENT_DIR`，SQLite 只存相对 `storage_key`、文件名、MIME、大小和 SHA-256。
 - 按类型组合校验附件扩展名、MIME、文件签名或 UTF-8 文本内容；拒绝伪装文件、可执行二进制与安装包。文本脚本
@@ -86,23 +89,25 @@ Tailscale/VPN 共存。
   支持发现一级子目录或按项目标记递归发现；不得使用 Windows Search 或 Codex Desktop 私有数据库作为事实来源。
 - Runner 启动及配置的刷新周期内重新校验目录。新增目录自动加入 catalog，删除的固定目录标为不可用，删除的发现目录
   从 catalog 移除；符号链接或 junction 不得借机越过授权根目录。
-- 拉取启动、继续、停止命令；在仓库目录启动会话已固定的 Codex 或 Claude Code CLI。
-- 把会话附件下载到单轮临时目录并校验摘要。Codex 图片使用 `--image`，普通文件通过提示中的精确路径读取，START
-  额外用 `--add-dir` 授权附件目录；当前 `codex exec resume` 不支持 `--add-dir`，但 Work 固定的
-  `danger-full-access` 允许其按绝对路径读取。Claude Code 用 `--add-dir` 授权目录。两种运行时都收到结构化附件清单，
+- 拉取启动、继续、实时引导和停止命令；在仓库目录启动会话已固定的 Codex 或 Claude Code CLI。
+- 把会话附件下载到单轮临时目录并校验摘要。Codex 图片使用 App Server `localImage` input，普通文件通过提示中的
+  精确路径与固定 `danger-full-access` 读取；Claude Code 用 `--add-dir` 授权目录。两种运行时都收到结构化附件清单，
   压缩包只在任务需要时检查或解压，绝不因被附加就执行；CLI 退出后立即清理副本。
 - 保存 Work session 与通用 `runtimeSessionId` 映射，并在重启后恢复；`codexSessionId` 只作为旧客户端兼容别名。
-- 消费 `codex exec --json` 或 `claude -p --output-format stream-json` 的公开事件，只把完成的 assistant 文本映射成
+- Codex 每个活跃 turn 启动一个 `codex app-server --stdio`：完成握手后执行 `thread/start|resume` 与 `turn/start`，
+  活跃期间接受 `turn/steer` 和 `turn/interrupt`。Claude Code 继续使用 `-p --output-format stream-json`。两者只把完成的 assistant 文本映射成
   普通 AI 消息；不上传 reasoning、命令正文、工具参数或原始工具输出。
-- 观察各 CLI 的公开语义终态、子进程退出和错误。Codex 到达 `turn.completed/turn.failed` 后若未在短暂宽限期内
-  退出，Runner 清理整棵子进程树；Claude Code 以最终 `result` 事件和 `is_error/api_error_status` 判定结果。
+- 观察各 CLI 的公开语义终态、子进程退出和错误。Codex 以 `turn/completed` 的 completed/interrupted/failed 为唯一
+  turn 终态；收到终态后关闭 App Server stdin，并等待进程完全退出、释放 thread single-writer 锁，才能 ACK 和启动下一轮。
+  超时则清理整棵子进程树；Claude Code 以最终 `result` 事件和 `is_error/api_error_status` 判定结果。
   终态先写本地 outbox，再向 Core 原子提交并在断网/重启后重放。
 - JSONL 消息也先写本地 outbox，再异步上传；Core 通过客户端事件 ID 幂等去重，保证消息先于本轮终态落库。
 - 接收 Core 为每次 START/RESUME 签发的 24 小时 session token，并写入单轮专用 MCP 配置，不污染用户的普通 CLI 配置。
 
-### Codex 手机专属 Stop Hook
+### Codex exec 兼容路径的手机专属 Stop Hook
 
-- Hook 只安装到 Runner 的隔离 `CODEX_HOME` profile，普通 `~/.codex` 与仓库 `.codex/` 均不写入，因此电脑端
+- Hook 仅供短期保留的 `codex exec` 回退路径。App Server 路径显式禁用 hooks，并以 turn 通知和 interrupt 为准。
+  Hook 只安装到 Runner 的隔离 `CODEX_HOME` profile，普通 `~/.codex` 与仓库 `.codex/` 均不写入，因此电脑端
   Codex Desktop/CLI 不加载。
 - 只启用 `Stop`，不启用可能位于工具执行前的 `PreToolUse`、权限 Hook 或逐工具 `PostToolUse`。
 - Hook 不联网、不持有 Core/Runner/session token，只把小于 1 KiB 的结束标记原子写入单轮本地 outbox。
@@ -130,14 +135,15 @@ Tailscale/VPN 共存。
 
 ## 4. CLI 启动契约
 
-模型和运行时是 Work 会话的不可变快照；思考深度与 Codex 速度是会话当前默认值，可随用户消息原子更新并应用于
-该消息触发的下一次 CLI START/RESUME。已经运行的子进程不接受中途改写。Runner 不读取任何桌面客户端的 SQLite、
+模型和运行时是 Work 会话的不可变快照；思考深度与 Codex 速度是会话当前默认值，可随队列消息原子更新并应用于
+该消息触发的下一次 CLI START/RESUME。`turn/steer` 只增加当前 turn 的输入，不改模型、effort、速度、cwd 或权限。
+Runner 不读取任何桌面客户端的 SQLite、
 缓存或任务目录。
 
 ### Codex
 
-在白名单仓库中，用用户选择的 model/effort 启动一次非交互 `codex exec`。Runner 写入专用临时
-`CODEX_HOME` 或 profile，只注册 Phone-line MCP，并固定：
+Work 固定使用稳定版 Codex CLI `0.147.0`。在白名单仓库中，每个活跃 turn 启动一次 stdio App Server，使用隔离
+`CODEX_HOME`，只注册 Phone-line MCP，并固定：
 
 ```toml
 sandbox_mode = "danger-full-access"
@@ -150,10 +156,9 @@ service_tier = "<fast-or-default>"
 禁用“快速”。Runner 对标准速度显式传 `service_tier=default`，避免恢复会话继承旧的 Fast 偏好；快速传
 `service_tier=fast`。该值表达服务速度层，不替换模型，也不改变思考深度。
 
-继续消息使用 `codex exec resume <runtimeSessionId>`。
-
-Runner 使用隔离 `CODEX_HOME` 的显式 phone profile 加载上述 Stop Hook，并继续忽略普通用户配置。该 profile 仅由
-Runner 生成和维护；日常电脑会话不会携带 profile 参数，也不会使用 Work 的 hook outbox。
+首轮使用 `thread/start`，继续消息使用 `thread/resume(runtimeSessionId)`，再执行 `turn/start`；现有 `codex exec`
+产生的 thread ID 可直接恢复。App Server 终态后必须关闭连接并等待进程退出，不能与同一 thread 的下一进程并发。
+稳定版 resume 会返回完整历史，应监控长会话启动延迟；未来只有在相应能力稳定后才启用分页或排除历史。
 
 ### Claude Code
 
@@ -180,7 +185,7 @@ CREATED -> QUEUED -> RUNNING -> WAITING_FOR_USER -> RUNNING
 - `CREATED/QUEUED`：Core 已接收，等待 Runner。
 - `RUNNING`：当前 CLI 本轮尚未产生语义终态；不能仅因 CLI 进程仍存活就继续显示运行中。
 - `WAITING_FOR_USER`：存在尚未回答的 `ask`；180 秒超时后按推荐答案落定并回到 `RUNNING`，不宣告失败。
-- `IDLE`：本轮 CLI 已退出，但会话可用下一条手机消息 resume。
+- `IDLE`：本轮 CLI/App Server 已退出并释放 thread writer，但会话可用下一条手机消息 resume。
 - `COMPLETED`：用户主动结束；不可再发送。
 - `FAILED`：启动或 resume 失败，可重试；已有消息与报告仍可读。
 
@@ -212,5 +217,5 @@ Runner 离线是连接状态，不改写会话状态。手机允许排队发送�
 
 ## 8. 明确废弃
 
-以下内容不允许作为新版捷径重新引入：Happy 账户/恢复密钥/加密协议、Blind Relay、App Server 客户端与 catalog、
-Codex Desktop 历史扫描、旧 Agent 消息映射、Tailscale 直连要求，以及独立于普通聊天视觉体系的 Work 输入框。
+以下内容不允许作为新版捷径重新引入：Happy 账户/恢复密钥/加密协议、Blind Relay、把 App Server 私有协议或 catalog
+直接暴露给手机、Codex Desktop 历史扫描、旧 Agent 消息映射、Tailscale 直连要求，以及独立于普通聊天视觉体系的 Work 输入框。
