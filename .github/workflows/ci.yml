@@ -24,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       run_full: ${{ steps.plan.outputs.run_full }}
+      run_work: ${{ steps.plan.outputs.run_work }}
+      run_android: ${{ steps.plan.outputs.run_android }}
       metadata_only: ${{ steps.plan.outputs.metadata_only }}
       reason: ${{ steps.plan.outputs.reason }}
     steps:
@@ -59,6 +61,8 @@ jobs:
         env:
           REASON: ${{ steps.plan.outputs.reason }}
           RUN_FULL: ${{ steps.plan.outputs.run_full }}
+          RUN_WORK: ${{ steps.plan.outputs.run_work }}
+          RUN_ANDROID: ${{ steps.plan.outputs.run_android }}
           METADATA_ONLY: ${{ steps.plan.outputs.metadata_only }}
         run: |
           {
@@ -66,6 +70,8 @@ jobs:
             echo
             echo "- reason: \`${REASON}\`"
             echo "- full checks: \`${RUN_FULL}\`"
+            echo "- Work checks: \`${RUN_WORK}\`"
+            echo "- Android checks: \`${RUN_ANDROID}\`"
             echo "- release metadata fast path: \`${METADATA_ONLY}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -85,7 +91,7 @@ jobs:
   work-tests:
     name: Work and JS tests
     needs: plan
-    if: needs.plan.outputs.run_full == 'true'
+    if: needs.plan.outputs.run_work == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -119,7 +125,7 @@ jobs:
   android-unit:
     name: Android unit tests
     needs: plan
-    if: needs.plan.outputs.run_full == 'true'
+    if: needs.plan.outputs.run_android == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -185,7 +191,7 @@ jobs:
   android-lint:
     name: Android lint
     needs: plan
-    if: needs.plan.outputs.run_full == 'true'
+    if: needs.plan.outputs.run_android == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -228,7 +234,7 @@ jobs:
   android-build:
     name: Android build smoke
     needs: plan
-    if: needs.plan.outputs.run_full == 'true'
+    if: needs.plan.outputs.run_android == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
