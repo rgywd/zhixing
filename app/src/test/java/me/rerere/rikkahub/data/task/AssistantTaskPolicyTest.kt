@@ -24,6 +24,15 @@ class AssistantTaskPolicyTest {
     }
 
     @Test
+    fun `life context read stays in chat and uses a natural progress label`() {
+        val lifeContextRead = step(toolName = "get_life_context", ordinal = 1)
+
+        assertFalse(lifeContextRead.requiresVisibleTask(json))
+        assertFalse(lifeContextRead.requiresDurableTask(json))
+        assertEquals("正在读取当前生活状态", lifeContextRead.progressText())
+    }
+
+    @Test
     fun `writes external calls and user questions require durable tasks`() {
         assertTrue(step("task_create").requiresDurableTask(json))
         assertTrue(step("gh").requiresDurableTask(json))

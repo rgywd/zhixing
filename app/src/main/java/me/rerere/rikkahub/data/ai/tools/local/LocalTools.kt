@@ -19,6 +19,7 @@ class LocalTools(
     private val agendaTaskRepository: AgendaTaskRepository,
     private val agendaPlanRepository: AgendaPlanRepository,
     private val monthlyLedgerRepository: MonthlyLedgerRepository,
+    private val lifeContextProvider: LifeContextProvider,
     private val phoneWorkApiClient: PhoneWorkApiClient,
     private val phoneWorkCredentialStore: PhoneWorkCredentialStore,
     private val locationTravelGateway: LocationTravelGateway,
@@ -46,6 +47,13 @@ class LocalTools(
         buildMonthlySpendingSummaryTool(monthlyLedgerRepository)
     }
 
+    val lifeContextTool by lazy {
+        buildLifeContextTool(
+            provider = lifeContextProvider,
+            allowAiHealthData = { settingsStore.settingsFlow.value.allowAiHealthData },
+        )
+    }
+
     val inboxMonitorTool by lazy {
         buildInboxMonitorTool(phoneWorkApiClient, phoneWorkCredentialStore)
     }
@@ -66,6 +74,7 @@ class LocalTools(
         val tools = buildAgendaTaskTools(agendaTaskRepository, conversationId).toMutableList()
         tools.addAll(buildAgendaPlanTools(agendaPlanRepository, conversationId))
         tools.add(monthlySpendingSummaryTool)
+        tools.add(lifeContextTool)
         if (phoneWorkCredentialStore.connection.value.configured) {
             tools.add(inboxMonitorTool)
         }

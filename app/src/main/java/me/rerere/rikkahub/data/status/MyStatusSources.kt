@@ -100,6 +100,14 @@ internal fun buildAreaLabel(area: GeocodedArea): String? {
         ?: area.countryName?.trim()?.takeIf(String::isNotEmpty)
 }
 
+internal fun GeocodedArea.granularity(): MyStatusLocationGranularity = when {
+    !subAdminArea.isNullOrBlank() -> MyStatusLocationGranularity.DISTRICT
+    !locality.isNullOrBlank() -> MyStatusLocationGranularity.CITY
+    !adminArea.isNullOrBlank() -> MyStatusLocationGranularity.PROVINCE
+    !countryName.isNullOrBlank() -> MyStatusLocationGranularity.COUNTRY
+    else -> MyStatusLocationGranularity.UNKNOWN
+}
+
 internal class MyStatusContextAssembler(
     private val locationProvider: MyStatusLocationProvider,
     private val weatherProvider: WeatherProvider,

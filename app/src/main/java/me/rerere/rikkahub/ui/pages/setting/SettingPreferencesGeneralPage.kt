@@ -74,7 +74,7 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                     item(
                         headlineContent = { Text("允许 AI 使用身体数据") },
                         supportingContent = {
-                            Text("开启后，快速模型可使用当前睡眠、心率、血氧、步数、卡路里和运动次数")
+                            Text("开启后，快速模型和普通 Chat 的生活上下文工具可使用当前睡眠、心率、血氧、步数、卡路里和运动次数")
                         },
                         trailingContent = {
                             Switch(

@@ -6,6 +6,7 @@ import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.data.ai.tools.local.LocationTravelGateway
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
+import me.rerere.rikkahub.data.ai.tools.local.LifeContextProvider
 import me.rerere.rikkahub.data.ai.tools.local.NavigationLauncher
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.event.AppEventBus
@@ -77,6 +78,7 @@ val appModule = module {
     single<MyStatusBodySource> { LenovoWatchBodyStatusSource(get(), get()) }
     single<MyStatusAgendaSource> { LocalAgendaStatusSource(get(), get(), get()) }
     single { MyStatusContextAssembler(get(), get(), get(), get(), get()) }
+    single { LifeContextProvider(get()) }
     single<MyStatusTextGenerator> { FastModelStatusGenerator(get(), get()) }
     single { MyStatusSnapshotStore(get()) }
     single(createdAtStart = true) {
@@ -114,6 +116,7 @@ val appModule = module {
             agendaTaskRepository = get(),
             agendaPlanRepository = get(),
             monthlyLedgerRepository = get(),
+            lifeContextProvider = get(),
             phoneWorkApiClient = get(),
             phoneWorkCredentialStore = get(),
             locationTravelGateway = get(),
