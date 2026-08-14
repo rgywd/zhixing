@@ -1,6 +1,6 @@
 # 记忆文档与历史对话检索 V3
 
-状态：V3 实施基线（Issue #208，2026-08-11）。
+状态：V3 现行契约（Issue #208；前台按需写入于 2026-08-14 更新）。
 
 ## 1. 两套机制，不能混用
 
@@ -8,7 +8,7 @@
 
 | 机制 | 事实来源 | 用途 | 写入方式 |
 | --- | --- | --- | --- |
-| 记忆文档 | Room `MemoryDocumentEntity` | 用户希望长期保留、可编辑的陈述事实 | 用户编辑器，或每次 chat Run 收尾时可见的 `memory_write` |
+| 记忆文档 | Room `MemoryDocumentEntity` | 用户希望长期保留、可编辑的陈述事实 | 用户编辑器，或 App 活跃时由当前 chat Run 按需调用可见的 `memory_write` |
 | 历史对话检索 | Room 会话/消息 + 可重建 FTS5 | 按关键词或最近时间找回原始聊天 | 只由会话持久化链维护，不自动写入记忆 |
 
 `conversation_search` 的命中不能自动变成记忆，删除记忆文档也不会删除原始聊天；删除原始聊天或单条消息时，
@@ -59,10 +59,10 @@ YAML frontmatter 固定包含 `name / description / sources / aliases`，后接�
 模型侧只有两个能力：
 
 - `memory_read(path)`：读取一份文档；
-- `memory_write(action, ...)`：`no_change`、`write`、`str_replace`、`append`、`delete`。
+- `memory_write(action, ...)`：`write`、`str_replace`、`append`、`delete`。
 
-`action` 必填且每种 action 只携带自己的字段：`no_change` 只提交 action；`write` 提交 path、if_version、
-name、description、可选 aliases、非空 content 和 sources；`str_replace` 提交 path、if_version、非空
+`action` 必填且每种 action 只携带自己的字段：`write` 提交 path、if_version、name、description、可选
+aliases、非空 content 和 sources；`str_replace` 提交 path、if_version、非空
 old_text、允许为空的 new_text 和 sources；`append` 提交 path、if_version、非空 content 和 sources；
 `delete` 只提交 path 与 if_version。
 
@@ -70,14 +70,15 @@ old_text、允许为空的 new_text 和 sources；`append` 提交 path、if_vers
 单条 SQL 更新；版本不一致时返回冲突和当前文档，不允许静默覆盖另一个 surface 的更新。删除整个文件仍需
 用户确认；删除会清空正文、元数据和来源，只保留带新版本的 path tombstone 防止并发旧写复活，pinned 文档不允许删除。
 
-每次 chat Run 正常生成并准备结束时，模型会主动检查当前 USER 消息，并在最终回复前完成一个成功的可见
-`memory_write` 终态。发现明确陈述、长期有用且非敏感的新事实或纠正时，action 使用 `write`、`str_replace`、
-`append`、`delete`；没有应写内容时显式使用 `no_change`，工具返回 `success=true / changed=false /
-finalized=true`。用户不需要固定说“记住”。这个工具调用就是全部收尾；“一次”约束的是一次成功终态，不是
-最多一次尝试。参数、来源、内容或版本校验失败时返回 `success=false / finalized=false / retryable /
-error / correction`，不占用成功终态；`retryable=true` 时模型必须按 correction 修正参数并重试。成功写入或
-`no_change` 后才拒绝重复调用。系统不会启动额外的后台模型任务，也不会按小时、跨天或过期窗口轮询、晋升、
-淘汰记忆。
+记忆只在 App 活跃的当前 chat Run 内实时工作，不注册后台模型维护、回答后二次模型调用、定时整理或下次启动
+补扫。`memory_write` 是可选 mutation，不是 Run 终态：只有当前 USER 消息包含明确陈述、长期有用且非敏感的
+新事实或纠正，或者用户明确要求记住、纠正、删除时才调用；没有文档要变更时不调用任何写入工具，普通回答直接
+完成。用户不需要固定说“记住”，但模糊、推断或一次性内容宁可不写。
+
+参数、来源、内容或版本校验失败时返回 `success=false / changed=false / retryable / error / correction`；成功
+mutation 返回 `success=true / changed=true`。用户明确要求的记忆变更在 `retryable=true` 时必须按 correction
+修正后重试，成功前不得声称已经记住；机会式写入失败不能替代或阻塞用户原本请求的回答，也不能冒充保存成功。
+一次 Run 可以按实际需要修改多份文档，DAO 的版本条件与工具校验负责并发和重复内容边界。
 
 模型写入还必须同时满足：
 
@@ -140,7 +141,7 @@ curated fact 分层；不照搬模型自主改写、云向量库、图数据库�
 5. 43→44 保留旧记录到 archive，不删除旧表或用户会话。
 6. 记忆页可查看和编辑元数据/正文/版本/来源数，删除非 pinned 文件需要确认。
 7. 历史检索关闭时不注册 history tools；开启后仍查询原始 FTS，不读取 MemoryDocument 表。
-8. 每次 Run 在最终回复前成功完成一个可见的 `memory_write` 终态；无内容时显式 `no_change` 且
-   `changed=false`，校验失败返回可纠正的结构化结果并允许重试，成功后拒绝重复调用，且没有隐藏的二次模型
-   调用。
+8. 无记忆变化的 Run 不调用 `memory_write`；有真实 mutation 时才出现可见工具调用。显式记忆请求的可重试
+   失败会修正后重试，机会式写入失败不阻塞普通回答；响应不包含 Run `finalized` 语义，且没有后台或隐藏的
+   二次模型调用。
 9. 删除消息/会话会移除对应 source，删除助手会清理其 scope；旧 `MemoryEntity` 不再有当前 UI 写入口。

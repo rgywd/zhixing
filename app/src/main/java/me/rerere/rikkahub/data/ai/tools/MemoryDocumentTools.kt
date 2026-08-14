@@ -61,7 +61,6 @@ private data class MemoryDocumentMutation(
 private data class MemoryWriteFailureGuidance(
     val retryable: Boolean,
     val correction: String,
-    val finalized: Boolean = false,
 )
 
 internal fun bindMemoryDocumentChatSources(
@@ -93,8 +92,6 @@ internal fun bindMemoryDocumentChatSources(
 
 fun buildMemoryDocumentTools(
     json: Json,
-    checkCanFinalize: suspend () -> Unit = {},
-    onFinalize: suspend () -> Unit = {},
     onRead: suspend (String) -> MemoryDocument,
     onWrite: suspend (
         path: String,
@@ -125,7 +122,9 @@ fun buildMemoryDocumentTools(
         description = """
             Read one curated memory document by exact path. The system prompt contains only a listing plus
             /profile.md and /preferences.md; read /areas, /topics, or /people before using their contents.
-            This never searches raw chat history; use conversation_search for that separate capability.
+            Call only when the document can materially help answer the current request; do not read memory for an
+            unrelated question that can be answered from supplied content or general knowledge. This never searches
+            raw chat history; use conversation_search for that separate capability.
         """.trimIndent(),
         parameters = {
             InputSchema.Obj(
@@ -150,12 +149,12 @@ fun buildMemoryDocumentTools(
     Tool(
         name = "memory_write",
         description = """
-            Finish each successful chat run with one successful terminal memory call immediately before the final
-            answer. A failed call does not finalize the run. When the result has success=false and retryable=true,
-            follow correction and retry with fixed arguments; stop calling after success=true.
+            Call only when a real memory mutation is needed during the active foreground chat run. If no document
+            should change, do not call this tool; continue answering normally. There is no background memory pass.
+            When the user explicitly requests a memory change, correct retryable failures before claiming success.
+            An opportunistic write failure must not replace the requested answer or be reported as saved.
 
             Choose exactly one action and omit fields not used by that action:
-            - no_change: only action; use when current USER messages contain no new durable memory.
             - write: path, if_version, name, description, optional aliases, non-blank content, and sources.
             - str_replace: path, if_version, non-blank old_text, new_text (which may be empty), and sources.
             - append: path, if_version, non-blank content, and sources.
@@ -164,9 +163,8 @@ fun buildMemoryDocumentTools(
             Use if_version=0 only when creating a document. Every added fact must be a Markdown bullet beginning
             `- [stated] `. Each source contains only an exact quote from a current USER message; the app binds its
             current conversation and message IDs. Never persist transient requests, duplicates, inference, sensitive
-            information, or assistant/tool text. A special "remember" phrase is not required. This visible tool call
-            is the only run-finalization step, not a background memory service.
-            It never changes raw conversation history.
+            information, or assistant/tool text. A special "remember" phrase is not required. This tool never changes
+            raw conversation history.
         """.trimIndent(),
         needsApproval = { input ->
             val action = (input as? JsonObject)?.get("action") as? JsonPrimitive
@@ -179,10 +177,9 @@ fun buildMemoryDocumentTools(
                         put("type", "string")
                         put(
                             "description",
-                            "Required terminal decision: no_change, write, str_replace, append, or delete."
+                            "Required mutation action: write, str_replace, append, or delete."
                         )
                         put("enum", buildJsonArray {
-                            add("no_change")
                             add("write")
                             add("str_replace")
                             add("append")
@@ -191,7 +188,7 @@ fun buildMemoryDocumentTools(
                     })
                     put("path", buildJsonObject {
                         put("type", "string")
-                        put("description", "Required for every mutation; omit for no_change.")
+                        put("description", "Required for every mutation.")
                         put("minLength", 1)
                     })
                     put("if_version", buildJsonObject {
@@ -233,7 +230,7 @@ fun buildMemoryDocumentTools(
                     })
                     put("sources", buildJsonObject {
                         put("type", "array")
-                        put("description", "Required for write, str_replace, and append; omit for no_change/delete.")
+                        put("description", "Required for write, str_replace, and append; omit for delete.")
                         put("minItems", 1)
                         put("maxItems", MEMORY_DOCUMENT_SOURCE_LIMIT)
                         put("items", buildJsonObject {
@@ -259,13 +256,8 @@ fun buildMemoryDocumentTools(
         },
         execute = { input ->
             try {
-                checkCanFinalize()
                 val params = input as? JsonObject ?: throw ToolExecutionException("MEMORY_INPUT_INVALID")
                 val action = params.requiredAction()
-                if (action == "no_change") {
-                    onFinalize()
-                    return@Tool memoryWriteSuccess(json = json, changed = false)
-                }
 
                 val mutation = try {
                     when (action) {
@@ -333,7 +325,6 @@ fun buildMemoryDocumentTools(
                         current = conflict.current,
                     )
                 }
-                onFinalize()
                 memoryWriteSuccess(
                     json = json,
                     changed = true,
@@ -361,7 +352,6 @@ private fun memoryWriteSuccess(
         buildJsonObject {
             put("success", true)
             put("changed", changed)
-            put("finalized", true)
             if (document != null) {
                 json.encodeToJsonElement(
                     MemoryDocumentToolResult.serializer(),
@@ -385,7 +375,6 @@ private fun memoryWriteFailure(
             buildJsonObject {
                 put("success", false)
                 put("changed", false)
-                put("finalized", guidance.finalized)
                 put("retryable", guidance.retryable)
                 put("error", code)
                 put("correction", guidance.correction)
@@ -407,11 +396,17 @@ private fun memoryWriteFailure(
 private fun memoryWriteFailureGuidance(code: String): MemoryWriteFailureGuidance = when (code) {
     "MEMORY_ACTION_REQUIRED" -> MemoryWriteFailureGuidance(
         retryable = true,
-        correction = "Set action explicitly. Use no_change with no other fields when nothing should be stored.",
+        correction = "If nothing should change, do not call memory_write. Otherwise set one mutation action: " +
+            "write, str_replace, append, or delete.",
+    )
+    "MEMORY_NO_CHANGE_UNSUPPORTED" -> MemoryWriteFailureGuidance(
+        retryable = false,
+        correction = "No memory mutation is needed. Continue the answer without another memory_write call.",
     )
     "MEMORY_ACTION_INVALID" -> MemoryWriteFailureGuidance(
         retryable = true,
-        correction = "Use exactly one supported action: no_change, write, str_replace, append, or delete.",
+        correction = "Use exactly one supported mutation action: write, str_replace, append, or delete. If nothing " +
+            "should change, stop calling memory_write and continue the answer.",
     )
     "MEMORY_WRITE_INPUT_INVALID" -> MemoryWriteFailureGuidance(
         retryable = true,
@@ -457,11 +452,6 @@ private fun memoryWriteFailureGuidance(code: String): MemoryWriteFailureGuidance
         retryable = false,
         correction = "This run has no persisted conversation context, so a sourced memory mutation cannot be retried.",
     )
-    "MEMORY_ALREADY_FINALIZED" -> MemoryWriteFailureGuidance(
-        retryable = false,
-        finalized = true,
-        correction = "A successful terminal memory call already completed this run; do not call memory_write again.",
-    )
     else -> MemoryWriteFailureGuidance(
         retryable = true,
         correction = "Use the documented action-specific shape, correct the arguments, and retry.",
@@ -487,9 +477,11 @@ private fun JsonObject.requireSources(): List<MemoryDocumentSource> {
 
 private fun JsonObject.requiredAction(): String {
     val value = this["action"] ?: throw ToolExecutionException("MEMORY_ACTION_REQUIRED")
-    return (value as? JsonPrimitive)?.contentOrNull
+    val action = (value as? JsonPrimitive)?.contentOrNull
         ?.takeIf { it.isNotBlank() }
         ?: throw ToolExecutionException("MEMORY_ACTION_INVALID")
+    if (action == "no_change") throw ToolExecutionException("MEMORY_NO_CHANGE_UNSUPPORTED")
+    return action
 }
 
 private fun JsonObject.requiredString(name: String, errorCode: String = "MEMORY_INPUT_INVALID"): String =

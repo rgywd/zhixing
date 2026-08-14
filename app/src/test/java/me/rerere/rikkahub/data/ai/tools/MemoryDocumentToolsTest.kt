@@ -23,13 +23,20 @@ class MemoryDocumentToolsTest {
     fun memoryAndRawHistoryRemainDifferentTools() {
         val tools = memoryTools()
         assertEquals(listOf("memory_read", "memory_write"), tools.map { it.name })
-        assertTrue(tools.first().description.contains("never searches raw chat history"))
-        assertTrue(tools.last().description.contains("never changes raw conversation history"))
+        assertTrue(tools.first().description.contains("never searches"))
+        assertTrue(tools.first().description.contains("raw chat history"))
+        assertTrue(tools.first().description.contains("materially help answer"))
+        assertTrue(tools.first().description.contains("general knowledge"))
+        assertTrue(tools.last().description.contains("never changes"))
+        assertTrue(tools.last().description.contains("raw conversation history"))
         assertTrue(tools.last().description.contains("special \"remember\" phrase is not required"))
         assertTrue(tools.last().description.contains("app binds"))
-        assertTrue(tools.last().description.contains("A failed call does not finalize"))
-        assertTrue(tools.last().description.contains("no_change"))
-        assertTrue(tools.last().description.contains("background memory service"))
+        assertTrue(tools.last().description.contains("Call only when a real memory mutation is needed"))
+        assertTrue(tools.last().description.contains("do not call this tool"))
+        assertTrue(tools.last().description.contains("foreground chat run"))
+        assertTrue(tools.last().description.contains("no background memory pass"))
+        assertFalse(tools.last().description.contains("no_change"))
+        assertFalse(tools.last().description.contains("finalize"))
     }
 
     @Test
@@ -41,11 +48,14 @@ class MemoryDocumentToolsTest {
     }
 
     @Test
-    fun everyRunCanFinalizeWithoutInventingAMemory() = runBlocking {
+    fun legacyNoChangeCallIsRejectedWithoutRequestingAnotherMemoryCall() = runBlocking {
         val result = memoryTools().last().execute(action("no_change")).single() as UIMessagePart.Text
-        assertTrue(result.text.contains("\"success\":true"))
+
+        assertTrue(result.text.contains("\"success\":false"))
         assertTrue(result.text.contains("\"changed\":false"))
-        assertTrue(result.text.contains("\"finalized\":true"))
+        assertTrue(result.text.contains("MEMORY_NO_CHANGE_UNSUPPORTED"))
+        assertTrue(result.text.contains("\"retryable\":false"))
+        assertFalse(result.text.contains("finalized"))
     }
 
     @Test
@@ -56,7 +66,11 @@ class MemoryDocumentToolsTest {
 
         assertEquals(listOf("action"), schema.required)
         assertEquals(false, schema.additionalProperties)
-        assertTrue(actionSchema.contains("no_change"))
+        assertFalse(actionSchema.contains("no_change"))
+        assertTrue(actionSchema.contains("write"))
+        assertTrue(actionSchema.contains("str_replace"))
+        assertTrue(actionSchema.contains("append"))
+        assertTrue(actionSchema.contains("delete"))
         assertTrue(sourcesSchema.contains("quote"))
         assertTrue(sourcesSchema.contains("minItems"))
         assertTrue(sourcesSchema.contains("minLength"))
@@ -66,13 +80,8 @@ class MemoryDocumentToolsTest {
 
     @Test
     fun malformedAppendReturnsActionableErrorAndCanBeCorrected() = runBlocking {
-        var finalized = false
         val tool = buildMemoryDocumentTools(
             json = Json,
-            checkCanFinalize = {
-                if (finalized) throw ToolExecutionException("MEMORY_ALREADY_FINALIZED")
-            },
-            onFinalize = { finalized = true },
             onRead = { document() },
             onWrite = { _, _, _, _, _, _, _ -> document() },
             onReplace = { _, _, _, _, _ -> document() },
@@ -96,43 +105,31 @@ class MemoryDocumentToolsTest {
         assertTrue(failure.text.contains("\"success\":false"))
         assertTrue(failure.text.contains("MEMORY_APPEND_INPUT_INVALID"))
         assertTrue(failure.text.contains("\"retryable\":true"))
-        assertTrue(failure.text.contains("\"finalized\":false"))
+        assertFalse(failure.text.contains("finalized"))
         assertTrue(failure.text.contains("content"))
         assertTrue(failure.text.contains("sources"))
-        assertFalse(finalized)
 
         val success = tool.execute(appendInput()).single() as UIMessagePart.Text
         assertTrue(success.text.contains("\"success\":true"))
-        assertTrue(success.text.contains("\"finalized\":true"))
-        assertTrue(finalized)
-
-        val duplicate = tool.execute(appendInput()).single() as UIMessagePart.Text
-        assertTrue(duplicate.text.contains("MEMORY_ALREADY_FINALIZED"))
-        assertTrue(duplicate.text.contains("\"retryable\":false"))
-        assertTrue(duplicate.text.contains("\"finalized\":true"))
+        assertTrue(success.text.contains("\"changed\":true"))
+        assertFalse(success.text.contains("finalized"))
     }
 
     @Test
-    fun missingActionExplainsTheExplicitNoChangeTerminalCall() = runBlocking {
+    fun missingActionExplainsThatNoMutationNeedsNoToolCall() = runBlocking {
         val result = memoryTools().last().execute(buildJsonObject {}).single() as UIMessagePart.Text
 
         assertTrue(result.text.contains("MEMORY_ACTION_REQUIRED"))
-        assertTrue(result.text.contains("no_change"))
+        assertTrue(result.text.contains("do not call memory_write"))
         assertTrue(result.text.contains("\"retryable\":true"))
+        assertFalse(result.text.contains("finalized"))
     }
 
     @Test
-    fun failedWriteCanRetryButSuccessfulWriteFinalizesTheRun() = runBlocking {
-        var finalized = false
+    fun failedWriteCanRetryWithoutTurningMemoryIntoRunFinalization() = runBlocking {
         var attempts = 0
         val tool = buildMemoryDocumentTools(
             json = Json,
-            checkCanFinalize = {
-                if (finalized) throw ToolExecutionException("MEMORY_ALREADY_FINALIZED")
-            },
-            onFinalize = {
-                finalized = true
-            },
             onRead = { document() },
             onWrite = { _, _, _, _, _, _, _ -> document() },
             onReplace = { _, _, _, _, _ -> document() },
@@ -148,16 +145,16 @@ class MemoryDocumentToolsTest {
         val firstFailure = tool.execute(input).single() as UIMessagePart.Text
         assertTrue(firstFailure.text.contains("MEMORY_WRITE_REJECTED"))
         assertTrue(firstFailure.text.contains("\"retryable\":true"))
-        assertFalse(finalized)
+        assertFalse(firstFailure.text.contains("finalized"))
 
         val result = tool.execute(input).single() as UIMessagePart.Text
         assertTrue(result.text.contains("\"success\":true"))
         assertTrue(result.text.contains("\"version\":1"))
-        assertTrue(finalized)
+        assertFalse(result.text.contains("finalized"))
 
-        val duplicate = tool.execute(input).single() as UIMessagePart.Text
-        assertTrue(duplicate.text.contains("MEMORY_ALREADY_FINALIZED"))
-        assertTrue(duplicate.text.contains("\"retryable\":false"))
+        val laterMutation = tool.execute(input).single() as UIMessagePart.Text
+        assertTrue(laterMutation.text.contains("\"success\":true"))
+        assertEquals(3, attempts)
     }
 
     @Test
@@ -194,13 +191,8 @@ class MemoryDocumentToolsTest {
     fun versionConflictReturnsTheCurrentDocument() = runBlocking {
         val current = document().copy(content = "- [stated] 当前内容。", version = 4)
         var conflict = true
-        var finalized = false
         val tool = buildMemoryDocumentTools(
             json = Json,
-            checkCanFinalize = {
-                if (finalized) throw ToolExecutionException("MEMORY_ALREADY_FINALIZED")
-            },
-            onFinalize = { finalized = true },
             onRead = { current },
             onWrite = { _, _, _, _, _, _, _ ->
                 if (conflict) throw MemoryDocumentConflictException(current)
@@ -229,15 +221,14 @@ class MemoryDocumentToolsTest {
 
         assertTrue(result.text.contains("MEMORY_VERSION_CONFLICT"))
         assertTrue(result.text.contains("\"retryable\":true"))
-        assertTrue(result.text.contains("\"finalized\":false"))
+        assertFalse(result.text.contains("finalized"))
         assertTrue(result.text.contains("\"version\":4"))
         assertTrue(result.text.contains("当前内容"))
-        assertFalse(finalized)
 
         conflict = false
         val retried = tool.execute(input).single() as UIMessagePart.Text
         assertTrue(retried.text.contains("\"version\":4"))
-        assertTrue(finalized)
+        assertFalse(retried.text.contains("finalized"))
     }
 
     @Test

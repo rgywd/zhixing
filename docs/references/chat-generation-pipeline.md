@@ -196,8 +196,9 @@ Injection 和 Lorebook 等稳定请求内容由每次请求重新构建；它们
 6. **Skill Tools**（`createSkillTools`）— 助手启用的 Skill 列表
 7. **MCP Tools** — 所有已连接 MCP 服务器的工具，命名格式 `mcp__{serverName}__{toolName}`
 8. **Memory Tools**（`buildMemoryDocumentTools`，由 `GenerationHandler` 注册）— `enableMemory = true` 时提供
-   可见的 `memory_read` / `memory_write`；`no_change` 显式表示无变更，写入来源 ID 由宿主根据当前对话绑定；
-   校验失败返回 retryable/error/correction 且不 finalize，模型修正重试，只有成功终态完成本轮记忆收尾
+   可见的 `memory_read` / `memory_write`。两者只在 App 活跃的当前 Run 内按需调用；无变更时不调用
+   `memory_write`，也没有 Run 终态或后台补扫。写入来源 ID 由宿主根据当前对话绑定；校验失败返回
+   `retryable/error/correction`，显式记忆请求修正后重试，机会式失败不阻塞普通回答
 
 ### 工具问答状态机
 

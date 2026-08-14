@@ -61,6 +61,7 @@ internal fun AssistantTaskStep.requiresDurableTask(json: Json): Boolean {
             .jsonObject["action"]?.jsonPrimitive?.content
     }.getOrNull()
     return when (toolName) {
+        // `no_change` remains readable for persisted pre-P0 tool calls but is not in the active memory_write schema.
         "memory_tool", "memory_write" -> action != null && action != "no_change"
         "monthly_spending_summary" -> action in setOf("save", "delete")
         else -> false
