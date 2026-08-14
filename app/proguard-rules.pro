@@ -51,6 +51,8 @@
 -keep class com.amap.api.trace.** { *; }
 -keep class com.amap.api.location.** { *; }
 -keep class com.amap.api.fence.** { *; }
+# libapssdk.so loads internal location classes by name through JNI.
+-keep class com.amap.location.** { *; }
 -keep class com.loc.** { *; }
 -keep class com.autonavi.** { *; }
 -keep class com.amap.api.services.** { *; }
