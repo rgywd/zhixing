@@ -4,7 +4,13 @@ import { createInterface } from "node:readline";
 import {
   mcpConfigArgs,
   resolveCodexCommand,
+  terminateProcessTree,
 } from "./codex-process.js";
+
+const DEFAULT_STARTUP_TIMEOUT_MS = 90_000;
+const DEFAULT_INITIALIZE_TIMEOUT_MS = 60_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_INITIALIZE_ATTEMPTS = 2;
 
 function tomlString(value) {
   return JSON.stringify(String(value));
@@ -47,7 +53,68 @@ export async function startCodexAppServerTurn({
   developerInstructions = null,
   clientVersion = "1",
   spawnImpl = spawn,
+  terminateProcess = terminateProcessTree,
+  startupTimeoutMs = DEFAULT_STARTUP_TIMEOUT_MS,
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  initializeTimeoutMs = DEFAULT_INITIALIZE_TIMEOUT_MS,
+  initializeAttempts = DEFAULT_INITIALIZE_ATTEMPTS,
+  onInitializeRetry = () => {},
   onEvent = () => {},
+}) {
+  const attempts = Number.isInteger(initializeAttempts) && initializeAttempts > 0
+    ? initializeAttempts
+    : DEFAULT_INITIALIZE_ATTEMPTS;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await startCodexAppServerAttempt({
+        command,
+        args,
+        cwd,
+        env,
+        runtimeSessionId,
+        prompt,
+        imagePaths,
+        model,
+        reasoningEffort,
+        fastMode,
+        clientUserMessageId,
+        developerInstructions,
+        clientVersion,
+        spawnImpl,
+        terminateProcess,
+        startupTimeoutMs,
+        requestTimeoutMs,
+        initializeTimeoutMs,
+        onEvent,
+      });
+    } catch (error) {
+      if (!isInitializeTimeout(error) || attempt >= attempts) throw error;
+      try { onInitializeRetry({ attempt, error }); } catch { /* Diagnostics must not block recovery. */ }
+    }
+  }
+  throw new Error("Codex App Server initialize attempts were exhausted");
+}
+
+async function startCodexAppServerAttempt({
+  command,
+  args,
+  cwd,
+  env,
+  runtimeSessionId,
+  prompt,
+  imagePaths,
+  model,
+  reasoningEffort,
+  fastMode,
+  clientUserMessageId,
+  developerInstructions,
+  clientVersion,
+  spawnImpl,
+  terminateProcess,
+  startupTimeoutMs,
+  requestTimeoutMs,
+  initializeTimeoutMs,
+  onEvent,
 }) {
   const executable = resolveCodexCommand(command);
   const child = spawnImpl(executable, args, {
@@ -65,7 +132,7 @@ export async function startCodexAppServerTurn({
         version: String(clientVersion),
       },
       capabilities: {},
-    });
+    }, initializeTimeoutMs);
     rpc.notify("initialized", {});
 
     const threadResult = runtimeSessionId
@@ -77,7 +144,7 @@ export async function startCodexAppServerTurn({
         sandbox: "danger-full-access",
         developerInstructions,
         serviceTier: fastMode ? "fast" : "default",
-      })
+      }, startupTimeoutMs)
       : await rpc.request("thread/start", {
         model,
         cwd,
@@ -86,7 +153,7 @@ export async function startCodexAppServerTurn({
         developerInstructions,
         serviceName: "zhixing_work",
         serviceTier: fastMode ? "fast" : "default",
-      });
+      }, startupTimeoutMs);
     const threadId = String(threadResult?.thread?.id ?? runtimeSessionId ?? "").trim();
     if (!threadId) throw new Error("Codex App Server did not return a thread ID");
 
@@ -100,7 +167,7 @@ export async function startCodexAppServerTurn({
       model,
       effort: reasoningEffort,
       serviceTier: fastMode ? "fast" : "default",
-    });
+    }, startupTimeoutMs);
     const turnId = String(turnResult?.turn?.id ?? "").trim();
     if (!turnId) throw new Error("Codex App Server did not return a turn ID");
 
@@ -120,18 +187,32 @@ export async function startCodexAppServerTurn({
           input: codexInputItems(nextPrompt, nextImages),
           expectedTurnId,
           ...(nextClientUserMessageId ? { clientUserMessageId: nextClientUserMessageId } : {}),
-        });
+        }, requestTimeoutMs);
         return String(result?.turnId ?? "").trim();
       },
       interrupt: (expectedTurnId = turnId) => rpc.request("turn/interrupt", {
         threadId,
         turnId: expectedTurnId,
-      }),
+      }, requestTimeoutMs),
       close: () => rpc.close(),
     };
   } catch (error) {
-    rpc.close();
+    await terminateFailedAppServer(rpc, child, terminateProcess);
     throw error;
+  }
+}
+
+function isInitializeTimeout(error) {
+  return error?.code === "APP_SERVER_REQUEST_TIMEOUT" && error.method === "initialize";
+}
+
+async function terminateFailedAppServer(rpc, child, terminateProcess) {
+  rpc.completed.catch(() => {});
+  rpc.close();
+  try {
+    await terminateProcess(child);
+  } catch {
+    try { child.kill(); } catch { /* Process already exited. */ }
   }
 }
 
@@ -200,7 +281,11 @@ class CodexAppServerRpc {
     const result = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         if (!this.pending.delete(id)) return;
-        reject(new Error(`Codex App Server request timed out: ${method}`));
+        const error = new Error(`Codex App Server request timed out: ${method}`);
+        error.code = "APP_SERVER_REQUEST_TIMEOUT";
+        error.method = method;
+        error.timeoutMs = timeoutMs;
+        reject(error);
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timeout });
     });

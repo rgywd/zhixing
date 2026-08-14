@@ -307,6 +307,10 @@ export class WorkRunner {
         clientUserMessageId: command.payload.clientMessageId ?? null,
         developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
         clientVersion: this.config.version,
+        terminateProcess: this.terminateCodex,
+        onInitializeRetry: ({ attempt, error }) => {
+          this.logError(`app-server-initialize-retry-${attempt}`, error);
+        },
         cwd: repo.path,
         env: runtime === "codex"
           ? isolatedCodexEnv(this.config.codexHome, process.env, hookOutboxDirectory ? {

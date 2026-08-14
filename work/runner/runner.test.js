@@ -745,6 +745,7 @@ test("runner keeps an App Server turn active for steer and closes it after compl
   const state = new RunnerState(join(directory, "state.json"));
   const calls = [];
   const steerCalls = [];
+  const appServerStarts = [];
   let emit;
   let resolveProcess;
   const runner = new WorkRunner({
@@ -775,6 +776,7 @@ test("runner keeps an App Server turn active for steer and closes it after compl
       publishEvent: async (...args) => calls.push(["event", ...args]),
     },
     spawnCodexAppServer: async (input) => {
+      appServerStarts.push(input);
       emit = input.onEvent;
       return {
         child: { kill() {} },
@@ -835,11 +837,34 @@ test("runner keeps an App Server turn active for steer and closes it after compl
   emit({ type: "item.completed", item: { id: "agent-app-server", type: "agent_message", text: "done" } });
   emit({ type: "turn.completed" });
   await waitForCondition(() => runner.active.size === 0);
-  assert.ok(calls.some((call) => call[0] === "ack" && call[1] === "cmd-start" && call[2] === "COMPLETED"));
+  const completed = calls.find((call) =>
+    call[0] === "ack" && call[1] === "cmd-start" && call[2] === "COMPLETED");
+  assert.equal(completed[3].status, "IDLE");
+  assert.equal(completed[3].runtimeSessionId, "thread-app-server");
+  assert.equal(completed[3].activeTurnId, null);
   assert.ok(
     calls.findIndex((call) => call[0] === "close")
       < calls.findIndex((call) => call[0] === "ack" && call[1] === "cmd-start" && call[2] === "COMPLETED"),
   );
+
+  await runner.startCommand({
+    id: "cmd-resume",
+    sessionId: "work-app-server",
+    kind: "RESUME",
+    payload: {
+      repoId: "repo",
+      runtime: "codex",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      sessionToken: "session-token-2",
+      clientMessageId: "message-resume",
+      message: "continue",
+    },
+  });
+  assert.equal(appServerStarts.length, 2);
+  assert.equal(appServerStarts[1].runtimeSessionId, "thread-app-server");
+  emit({ type: "turn.completed" });
+  await waitForCondition(() => runner.active.size === 0);
 });
 
 test("runner fails an App Server turn that exits cleanly without turn/completed", async () => {

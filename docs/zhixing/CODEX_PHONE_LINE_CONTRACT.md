@@ -224,7 +224,8 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
 - `POST /v1/work/sessions/{id}/steer`：携带 `expectedTurnId` 引导当前 Codex turn；Runner 接受后才写 `USER_MESSAGE`。
 - `POST /v1/work/sessions/{id}/asks/{askId}/answer`：提交答案。
 - `POST /v1/work/sessions/{id}/stop`：停止当前进程，会话进入 IDLE。
-- `POST /v1/work/sessions/{id}/complete`：显式结束会话。
+- `POST /v1/work/sessions/{id}/complete`：显式结束会话并进入不可继续的业务终态；它不是释放 CLI/App Server
+  资源所必需的操作，正常 turn 结束进入 IDLE 时进程已经退出。
 - `POST /v1/work/sessions/{id}/archive`：归档非活跃会话；运行中、等待中和排队中的会话返回 409。
 - `POST /v1/work/sessions/{id}/unarchive`：恢复到默认列表；保留原事件和 `runtimeSessionId`。
 - `POST /v1/work/sessions/{id}/revoke-tokens`：立即撤销该会话已签发的全部 MCP token。
@@ -331,6 +332,9 @@ Phone-line 不读取旧 Work/Happy 数据；Room v33 迁移会删除旧 Work/Hap
 - Hook handler 的超时上限为 1 秒并必须静默、fail-open。Hook 没有运行、没有写入标记或写入失败时，Runner 仍按
   JSONL 的 `turn.completed` / `turn.failed` 完成会话，并以子进程退出结果作为兼容兜底。收到语义终态后 CLI
   若未在短暂宽限期内退出，Runner 必须清理其进程树；不得把 Hook 失败转换成任务失败。
+- App Server `initialize` 使用 60 秒超时并且只允许一次自动重试；第一次超时后必须先清理完整进程树。该重试发生在
+  任何 `thread/start|resume` 之前，不得造成重复 thread/turn。`thread/start|resume` 与 `turn/start` 使用 90 秒启动
+  超时，`turn/steer|interrupt` 使用 30 秒控制超时；任何启动阶段失败都必须清理本次 App Server 进程树。
 - Claude Code 会话不用该 Hook；Runner 在命令级 settings 中设置 `disableAllHooks=true`，并通过
   `--setting-sources user,project` 复用本机订阅登录或第三方 API env，通过 `--mcp-config` +
   `--strict-mcp-config` 只注入本轮 Phone-line MCP。最终 `result` 的 `is_error`、
