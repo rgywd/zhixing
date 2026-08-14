@@ -18,6 +18,16 @@
 ./gradlew lint                   # 运行 Android Lint
 ```
 
+提交最终改动后、push 或创建 PR 前，统一运行本地门禁：
+
+```bash
+git fetch origin main
+node .github/scripts/local-verify.mjs
+```
+
+脚本要求工作树干净，按 `origin/main...HEAD` 自动选择 Work、Android、纯文档或发布元数据检查，并把
+通过记录写入当前 worktree 的 Git 元数据目录。GitHub PR 只做轻量策略校验，不替代这条本地门禁。
+
 构建应用不依赖 `google-services.json`。`web` 模块会在 `preBuild` 阶段构建
 `web-ui/` 并复制静态资源，需要本地可用 `pnpm`。
 
@@ -37,7 +47,8 @@
 
 - 分支前缀和简述使用规范英语；简述采用小写 `kebab-case`，`feat`、`fix` 必须带需求号或问题号。
 - Commit header 使用英文 Conventional Commit 类型与 scope，摘要和正文使用中文；正文用 `1.`、`2.` 编号说明改动与验证。
-- 所有可发布改动先通过短分支 PR 合入 `main`。`main` CI 通过后，才从最新 `main` 切出 `release/x.y.z`。
+- 所有可发布改动先通过短分支 PR 合入 `main`。本地门禁和 PR policy 通过后，才从最新 `main` 切出
+  `release/x.y.z`。
 - `release/x.y.z` 是主干的冻结快照，不是把尚未进入主干的功能整体合回 `main` 的入口。
 - 禁止直接推送、强推或删除 `main`；正式标签使用严格的 `vX.Y.Z`，且必须指向 `origin/main` 历史中的提交。
 - 单线开发可直接从 `main` 切短分支；检测到其他分支、脏改动或并行任务正在操作时，从干净的
@@ -61,6 +72,9 @@
 
 - 单元测试：`FooTest.kt`
 - 仪器测试：`FooInstrumentedTest.kt` 或 `*Test.kt`
+
+日常重测试默认在开发机运行；GitHub-hosted runner 仅保留单 Job PR policy 和正式 tag 的 Release 门禁。
+局部开发可先运行目标测试，但 push 前仍需在最终 clean commit 上运行 `local-verify.mjs`。
 
 ## Module Structure
 

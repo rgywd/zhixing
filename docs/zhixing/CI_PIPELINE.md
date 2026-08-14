@@ -1,59 +1,66 @@
-# CI 与构建流水线
+# CI 与本地构建流水线
 
 状态：生效
 
-目标是在不降低门禁的前提下避免重复构建。CI 的事实来源是 `.github/workflows/ci.yml`、
-`.github/workflows/release.yml` 与 `.github/scripts/ci-plan.mjs`。
+目标是在 GitHub Free 的 Actions 月度额度内保留正式发布可信度。日常重测试由注册开发机执行，GitHub
+PR 只运行轻量策略门禁，正式 tag 仍由 `.github/workflows/release.yml` 完成测试、签名和公开发布。
+事实来源是 `.github/scripts/local-verify.mjs`、`.github/workflows/ci.yml` 与
+`.github/workflows/release.yml`。
 
-## PR 门禁
+## 本地门禁
 
-`Plan CI` 先运行自身规则测试，并校验 `.agents/skills` 与 `.claude/skills` 的完整文件集合和文件内容
-逐字节一致，再按完整 PR diff 判断改动域。各域对应的门禁如下：
+最终 commit 完成后、push 或创建 PR 前运行：
 
-| 改动域 | 执行的域门禁 |
+```powershell
+git fetch origin main
+node .github/scripts/local-verify.mjs
+```
+
+脚本默认要求 clean worktree，以 `origin/main...HEAD` 的完整 diff 选择门禁：
+
+| 改动域 | 本地执行内容 |
 | --- | --- |
-| `work/`、`staging-driver/` | `Work and JS tests` |
-| Android 模块、`web-ui/`、Gradle 配置与 wrapper | `Android unit tests`、`Android lint`、`Android build smoke` |
-| 同时涉及 Work 与 Android | 上述两组全部执行 |
-| `docs/`、Markdown、agent/Claude skill mirror | 仅执行规划器内建测试、skill mirror 校验与 `Branch policy` |
-| CI、仓库基础设施或无法明确归类的路径 | 保守执行 Work 与 Android 全量门禁 |
+| `work/`、`staging-driver/` | Work、staging driver 与 quota monitor 测试 |
+| Android 模块、`web-ui/`、Gradle 配置与 wrapper | 递归初始化 submodule、web 依赖、完整 Android JVM 测试、lint、debug/staging/androidTest 构建 |
+| 同时涉及 Work 与 Android | 两组全部执行 |
+| `docs/`、Markdown、agent/Claude skill mirror | 仓库策略测试与 skill mirror 校验 |
+| 纯版本号与发布说明 | 仓库策略和 release metadata 校验 |
+| CI、仓库基础设施、空 diff 或无法明确归类的路径 | 保守执行 Work 与 Android 全量门禁 |
 
-被规划器排除的 Job 使用 job-level condition 标记为 skipped；workflow 本身始终触发，避免必需检查因
-workflow path filter 缺失而长期 Pending。实际启用的构建与测试互不串行等待，其中 `Android lint` 执行
-`:app:lintStaging`。任一应执行检查失败或缺失，合并后的 `main` 都不会复用该 PR 结果。
+通过后，脚本把 commit、diff SHA-256、执行计划、命令集合和耗时写入当前 worktree 的 Git 元数据目录；
+记录不进入提交，也不包含 credential。局部开发可使用 `--mode work`、`--mode android` 或 `--dry-run`，
+但交付前必须在最终 clean commit 上使用默认 `auto` 或更严格的 `full` 模式重新运行。
 
-只有 diff 严格限定为以下内容时，PR 才进入 `Release metadata` 快线：
+## GitHub PR policy
 
-- `app/build.gradle.kts` 中纯数字 `versionCode` 和严格 `X.Y.Z` `versionName` 赋值；
-- `release-notes/` 下的发布说明。
+`.github/workflows/ci.yml` 只响应面向 `main` 或 `release/**` 的 pull request，并只创建一个 `PR policy`
+Job。该 Job 执行：
 
-快线仍校验版本号递增、`versionCode` 递增、发布说明存在且非空。任何其他 Gradle 或源码改动自动回到
-普通全量门禁。
+- CI 规划、release metadata 与本地验证脚本的规则测试；
+- `.agents/skills` 与 `.claude/skills` 镜像一致性；
+- 短分支命名；
+- 完整 diff 分类；
+- 纯版本号和发布说明 PR 的 metadata 校验。
 
-## main push
-
-GitHub 私有仓当前没有平台级分支保护，因此 `main` push 不能被简单忽略：
-
-- 合并提交能关联到同一 SHA 的已完成 PR，且规划器、分支策略及该改动域要求的检查全部成功时，只运行
-  来源校验，不重复执行已经通过的构建、测试与 lint；校验会重新读取 PR 文件列表并按同一保守规则计算
-  应执行检查，不能仅凭 skipped 结果放行；
-- 直接 push、API 查询失败、检查缺失或失败时，自动运行完整 CI。
-
-这保留了直接 push 的兜底，同时避免绿色 PR 合并后再重复约十分钟的相同任务。
-
-## Gradle 缓存
-
-`org.gradle.caching=true` 启用 Gradle task build cache。受信任的本仓分支和正式 tag 可以写入缓存；
-外部 fork PR 只读。缓存是性能优化，不是正确性来源，缓存未命中时所有任务仍可从零完成。
+它不运行 Work 测试、Gradle、Android lint 或 APK 构建。单 Job 避免多个不足一分钟的任务分别向上取整。
+`main` push 不触发 workflow；本仓当前没有私有仓平台级分支保护，因此合并纪律由本地门禁、PR policy、
+Release workflow 和本文件共同约束。
 
 ## Release
 
-正式 tag 触发后：
+正式 tag 仍触发完整云端门禁：
 
 1. `Resolve release` 校验 tag、版本号和 `origin/main` 祖先关系；
-2. `Release tests` 与 `Signed release APK` 在独立 runner 上并行；签名构建会注入并校验正式版所需的
-   生产服务配置，缺失时在构建前失败；
-3. 两者都成功后，`Publish public release` 下载同一次运行的签名 APK，生成源码、更新清单和校验和；
+2. `Release tests` 与 `Signed release APK` 在独立 runner 上并行；签名构建注入并校验生产配置；
+3. 两者成功后，`Publish public release` 下载同一次运行的签名 APK，生成源码、更新清单与校验和；
 4. 正式资产只发布到 `rgywd/zhixing-releases`。
 
-发布失败重跑同一 tag，不移动或复用标签。并行只缩短等待时间，不跳过测试、R8、签名或公开资产校验。
+GitHub 上的 release tests 是发布门禁，不因本地已通过而跳过。发布失败重跑同一 tag，不移动或复用标签。
+
+## 故障处理
+
+- 本地门禁失败：修复后在最终 commit 上完整重跑，不通过删测试或伪造记录绕过。
+- 开发机缺少 JDK、Node、pnpm、Python 或 Android SDK：先修复环境，不回退到日常云端重任务。
+- PR policy 失败：修复策略、分支或发布元数据后再合并。
+- 开发机不可用且存在紧急修复：先恢复或切换受控开发机；若确需临时云端全量验证，必须通过单独的手动
+  workflow 和明确决策恢复，不能把日常全量触发静默加回。

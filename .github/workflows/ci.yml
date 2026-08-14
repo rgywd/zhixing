@@ -1,33 +1,22 @@
-name: CI
+name: PR policy
 
 on:
   pull_request:
     branches:
       - main
       - "release/**"
-  push:
-    branches:
-      - main
 
 permissions:
-  checks: read
   contents: read
-  pull-requests: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: pr-policy-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  plan:
-    name: Plan CI
+  policy:
+    name: PR policy
     runs-on: ubuntu-latest
-    outputs:
-      run_full: ${{ steps.plan.outputs.run_full }}
-      run_work: ${{ steps.plan.outputs.run_work }}
-      run_android: ${{ steps.plan.outputs.run_android }}
-      metadata_only: ${{ steps.plan.outputs.metadata_only }}
-      reason: ${{ steps.plan.outputs.reason }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -39,259 +28,31 @@ jobs:
         with:
           node-version: 22
 
-      - name: Test CI planning rules
+      - name: Test repository policy
         run: >-
           node --test
           .github/scripts/check-skill-parity.test.mjs
           .github/scripts/ci-plan.test.mjs
           .github/scripts/check-release-metadata.test.mjs
+          .github/scripts/local-verify.test.mjs
 
       - name: Validate agent skill mirrors
         run: node .github/scripts/check-skill-parity.mjs
-
-      - name: Plan required checks
-        id: plan
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: node .github/scripts/ci-plan.mjs
-
-      - name: Summarize plan
-        env:
-          REASON: ${{ steps.plan.outputs.reason }}
-          RUN_FULL: ${{ steps.plan.outputs.run_full }}
-          RUN_WORK: ${{ steps.plan.outputs.run_work }}
-          RUN_ANDROID: ${{ steps.plan.outputs.run_android }}
-          METADATA_ONLY: ${{ steps.plan.outputs.metadata_only }}
-        run: |
-          {
-            echo "### CI plan"
-            echo
-            echo "- reason: \`${REASON}\`"
-            echo "- full checks: \`${RUN_FULL}\`"
-            echo "- Work checks: \`${RUN_WORK}\`"
-            echo "- Android checks: \`${RUN_ANDROID}\`"
-            echo "- release metadata fast path: \`${METADATA_ONLY}\`"
-          } >> "${GITHUB_STEP_SUMMARY}"
-
-  branch-policy:
-    name: Branch policy
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
 
       - name: Validate source branch name
         env:
           HEAD_REF: ${{ github.head_ref }}
         run: bash .github/scripts/check-branch-name.sh "${HEAD_REF}"
 
-  work-tests:
-    name: Work and JS tests
-    needs: plan
-    if: needs.plan.outputs.run_work == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - name: Plan local verification
+        id: plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node .github/scripts/ci-plan.mjs
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: work/package-lock.json
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Work runtime dependencies
-        working-directory: work
-        run: npm ci
-
-      - name: Test Work and staging driver
-        run: |
-          npm --prefix work test
-          npm --prefix staging-driver test
-
-      - name: Test quota monitor inventory
-        working-directory: work/quota-monitor
-        run: python -m unittest discover -s tests -p "test_*.py" -v
-
-  android-unit:
-    name: Android unit tests
-    needs: plan
-    if: needs.plan.outputs.run_android == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web-ui/pnpm-lock.yaml
-
-      - name: Install web dependencies
-        working-directory: web-ui
-        run: pnpm install --frozen-lockfile
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: >-
-            ${{ github.event_name == 'pull_request' &&
-                github.event.pull_request.head.repo.full_name != github.repository }}
-
-      - name: Test release-critical paths
-        run: |
-          ./gradlew :ai:testDebugUnitTest :speech:testDebugUnitTest :workspace:testDebugUnitTest
-          ./gradlew :app:testStagingUnitTest \
-            --tests me.rerere.rikkahub.AppIdentityTest \
-            --tests me.rerere.rikkahub.DistributionIdentityTest \
-            --tests me.rerere.rikkahub.utils.UpdateCheckerTest \
-            --tests me.rerere.rikkahub.data.work.PhoneWorkSessionCreatorTest \
-            --tests me.rerere.rikkahub.service.WorkSessionTitleTest \
-            --tests me.rerere.rikkahub.data.datastore.DefaultProvidersTest \
-            --tests me.rerere.rikkahub.data.ai.tools.GitHubCliToolTest \
-            --tests me.rerere.rikkahub.data.ai.GenerationHandlerSecurityTest \
-            --tests me.rerere.rikkahub.data.ai.GenerationPromptsTest \
-            --tests me.rerere.rikkahub.data.ai.MemoryDocumentPromptsTest \
-            --tests me.rerere.rikkahub.data.ai.tools.MemoryDocumentToolsTest \
-            --tests me.rerere.rikkahub.data.ai.tools.MemoryToolsTest \
-            --tests me.rerere.rikkahub.data.memory.MemoryDocumentPolicyTest \
-            --tests me.rerere.rikkahub.data.repository.MemoryDocumentRepositoryTest \
-            --tests me.rerere.rikkahub.data.repository.MemoryForgetPolicyTest \
-            --tests me.rerere.rikkahub.data.repository.MemoryRepositoryTest \
-            --tests me.rerere.rikkahub.data.sync.DatabaseBackupContractTest \
-            --tests me.rerere.rikkahub.data.status.MyStatusModelsTest \
-            --tests me.rerere.rikkahub.data.task.AssistantTaskPolicyTest \
-            --tests me.rerere.rikkahub.ui.pages.chat.AgendaTaskEditorSourceTest \
-            --tests me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigureConvertToTest
-
-  android-lint:
-    name: Android lint
-    needs: plan
-    if: needs.plan.outputs.run_android == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web-ui/pnpm-lock.yaml
-
-      - name: Install web dependencies
-        working-directory: web-ui
-        run: pnpm install --frozen-lockfile
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: >-
-            ${{ github.event_name == 'pull_request' &&
-                github.event.pull_request.head.repo.full_name != github.repository }}
-
-      - name: Run Android lint
-        run: ./gradlew :app:lintStaging
-
-  android-build:
-    name: Android build smoke
-    needs: plan
-    if: needs.plan.outputs.run_android == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web-ui/pnpm-lock.yaml
-
-      - name: Install web dependencies
-        working-directory: web-ui
-        run: pnpm install --frozen-lockfile
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: >-
-            ${{ github.event_name == 'pull_request' &&
-                github.event.pull_request.head.repo.full_name != github.repository }}
-
-      - name: Build debug and staging test clients
-        run: ./gradlew :app:assembleDebug :app:assembleStaging :app:assembleStagingAndroidTest
-
-  release-metadata:
-    name: Release metadata
-    needs: plan
-    if: needs.plan.outputs.metadata_only == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Validate version and release notes
+      - name: Validate release metadata
+        if: steps.plan.outputs.metadata_only == 'true'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -299,3 +60,19 @@ jobs:
           node .github/scripts/check-release-metadata.mjs
           "${BASE_SHA}"
           "${HEAD_SHA}"
+
+      - name: Summarize policy
+        env:
+          REASON: ${{ steps.plan.outputs.reason }}
+          RUN_WORK: ${{ steps.plan.outputs.run_work }}
+          RUN_ANDROID: ${{ steps.plan.outputs.run_android }}
+          METADATA_ONLY: ${{ steps.plan.outputs.metadata_only }}
+        run: |
+          {
+            echo "### PR policy"
+            echo
+            echo "- change class: \`${REASON}\`"
+            echo "- local Work verification required: \`${RUN_WORK}\`"
+            echo "- local Android verification required: \`${RUN_ANDROID}\`"
+            echo "- release metadata validated here: \`${METADATA_ONLY}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
