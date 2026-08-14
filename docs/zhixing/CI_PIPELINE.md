@@ -8,16 +8,19 @@
 ## PR 门禁
 
 `Plan CI` 先运行自身规则测试，并校验 `.agents/skills` 与 `.claude/skills` 的完整文件集合和文件内容
-逐字节一致，再判断改动类型。普通 PR 并行运行：
+逐字节一致，再按完整 PR diff 判断改动域。各域对应的门禁如下：
 
-- `Work and JS tests`
-- `Android unit tests`
-- `Android lint`
-- `Android build smoke`
-- `Branch policy`
+| 改动域 | 执行的域门禁 |
+| --- | --- |
+| `work/`、`staging-driver/` | `Work and JS tests` |
+| Android 模块、`web-ui/`、Gradle 配置与 wrapper | `Android unit tests`、`Android lint`、`Android build smoke` |
+| 同时涉及 Work 与 Android | 上述两组全部执行 |
+| `docs/`、Markdown、agent/Claude skill mirror | 仅执行规划器内建测试、skill mirror 校验与 `Branch policy` |
+| CI、仓库基础设施或无法明确归类的路径 | 保守执行 Work 与 Android 全量门禁 |
 
-四组构建与测试互不串行等待，其中 `Android lint` 执行 `:app:lintStaging`。任一必需检查失败或缺失，
-合并后的 `main` 都不会复用该 PR 结果。
+被规划器排除的 Job 使用 job-level condition 标记为 skipped；workflow 本身始终触发，避免必需检查因
+workflow path filter 缺失而长期 Pending。实际启用的构建与测试互不串行等待，其中 `Android lint` 执行
+`:app:lintStaging`。任一应执行检查失败或缺失，合并后的 `main` 都不会复用该 PR 结果。
 
 只有 diff 严格限定为以下内容时，PR 才进入 `Release metadata` 快线：
 
@@ -31,8 +34,9 @@
 
 GitHub 私有仓当前没有平台级分支保护，因此 `main` push 不能被简单忽略：
 
-- 合并提交能关联到同一 SHA 的已完成 PR，且该 PR 的必需检查（包括 `Android lint`）全部成功时，只运行
-  来源校验，不重复执行已经通过的构建、测试与 lint；
+- 合并提交能关联到同一 SHA 的已完成 PR，且规划器、分支策略及该改动域要求的检查全部成功时，只运行
+  来源校验，不重复执行已经通过的构建、测试与 lint；校验会重新读取 PR 文件列表并按同一保守规则计算
+  应执行检查，不能仅凭 skipped 结果放行；
 - 直接 push、API 查询失败、检查缺失或失败时，自动运行完整 CI。
 
 这保留了直接 push 的兜底，同时避免绿色 PR 合并后再重复约十分钟的相同任务。

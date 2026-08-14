@@ -4,11 +4,40 @@ import { appendFileSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { pathToFileURL } from "node:url"
 
-const FULL_PR_CHECKS = [
-  "Work and JS tests",
+const ANDROID_PR_CHECKS = [
   "Android unit tests",
   "Android lint",
   "Android build smoke",
+]
+
+const WORK_PATH_PREFIXES = ["work/", "staging-driver/"]
+const ANDROID_PATH_PREFIXES = [
+  "app/",
+  "ai/",
+  "common/",
+  "document/",
+  "gradle/",
+  "highlight/",
+  "material3/",
+  "search/",
+  "speech/",
+  "web/",
+  "web-ui/",
+  "workspace/",
+]
+const ANDROID_ROOT_FILES = new Set([
+  ".gitmodules",
+  "build.gradle.kts",
+  "gradle.properties",
+  "gradlew",
+  "gradlew.bat",
+  "settings.gradle.kts",
+])
+const DOCUMENTATION_PATH_PREFIXES = [
+  ".agents/",
+  ".claude/",
+  "docs/",
+  "release-notes/",
 ]
 
 function runGit(args) {
@@ -63,6 +92,79 @@ export function isReleaseMetadataOnly(paths, appBuildDiff = "") {
   )
 }
 
+function startsWithAny(path, prefixes) {
+  return prefixes.some((prefix) => path.startsWith(prefix))
+}
+
+function isDocumentationPath(path) {
+  return (
+    startsWithAny(path, DOCUMENTATION_PATH_PREFIXES) ||
+    path.endsWith(".md") ||
+    path === "LICENSE"
+  )
+}
+
+export function planPullRequest(paths, appBuildDiff = "") {
+  if (isReleaseMetadataOnly(paths, appBuildDiff)) {
+    return {
+      run_full: "false",
+      run_work: "false",
+      run_android: "false",
+      metadata_only: "true",
+      reason: "release-metadata-only",
+    }
+  }
+
+  if (paths.length === 0) {
+    return {
+      run_full: "true",
+      run_work: "true",
+      run_android: "true",
+      metadata_only: "false",
+      reason: "cross-domain-or-infrastructure",
+    }
+  }
+
+  let runWork = false
+  let runAndroid = false
+  let runConservatively = false
+
+  for (const path of paths) {
+    if (startsWithAny(path, WORK_PATH_PREFIXES)) {
+      runWork = true
+    } else if (
+      startsWithAny(path, ANDROID_PATH_PREFIXES) ||
+      ANDROID_ROOT_FILES.has(path)
+    ) {
+      runAndroid = true
+    } else if (!isDocumentationPath(path)) {
+      runConservatively = true
+    }
+  }
+
+  if (runConservatively) {
+    runWork = true
+    runAndroid = true
+  }
+
+  const runFull = runWork && runAndroid
+  const reason = runFull
+    ? "cross-domain-or-infrastructure"
+    : runWork
+      ? "work-only"
+      : runAndroid
+        ? "android-only"
+        : "documentation-only"
+
+  return {
+    run_full: String(runFull),
+    run_work: String(runWork),
+    run_android: String(runAndroid),
+    metadata_only: "false",
+    reason,
+  }
+}
+
 function latestChecksByName(checkRuns) {
   const latest = new Map()
   for (const check of checkRuns) {
@@ -78,7 +180,14 @@ function checkSucceeded(check) {
   return check?.status === "completed" && check?.conclusion === "success"
 }
 
-export function hasVerifiedPullRequestChecks(checkRuns) {
+export function hasVerifiedPullRequestChecks(
+  checkRuns,
+  plan = {
+    run_work: "true",
+    run_android: "true",
+    metadata_only: "false",
+  },
+) {
   const checks = latestChecksByName(checkRuns)
   if (
     !checkSucceeded(checks.get("Plan CI")) ||
@@ -87,11 +196,22 @@ export function hasVerifiedPullRequestChecks(checkRuns) {
     return false
   }
 
-  const fullChecksPassed = FULL_PR_CHECKS.every((name) =>
-    checkSucceeded(checks.get(name)),
-  )
-  const metadataCheckPassed = checkSucceeded(checks.get("Release metadata"))
-  return fullChecksPassed || metadataCheckPassed
+  if (plan.metadata_only === "true") {
+    return checkSucceeded(checks.get("Release metadata"))
+  }
+  if (
+    plan.run_work === "true" &&
+    !checkSucceeded(checks.get("Work and JS tests"))
+  ) {
+    return false
+  }
+  if (
+    plan.run_android === "true" &&
+    !ANDROID_PR_CHECKS.every((name) => checkSucceeded(checks.get(name)))
+  ) {
+    return false
+  }
+  return true
 }
 
 async function githubApi(path, token) {
@@ -107,6 +227,24 @@ async function githubApi(path, token) {
     throw new Error(`GitHub API ${path} returned ${response.status}`)
   }
   return response.json()
+}
+
+async function githubApiPages(path, token) {
+  const items = []
+  for (let page = 1; ; page += 1) {
+    const separator = path.includes("?") ? "&" : "?"
+    const chunk = await githubApi(
+      `${path}${separator}per_page=100&page=${page}`,
+      token,
+    )
+    if (!Array.isArray(chunk)) {
+      throw new Error(`GitHub API ${path} did not return a list`)
+    }
+    items.push(...chunk)
+    if (chunk.length < 100) {
+      return items
+    }
+  }
 }
 
 export async function mergedCommitHasVerifiedPullRequest({
@@ -132,7 +270,25 @@ export async function mergedCommitHasVerifiedPullRequest({
     `/repos/${repository}/commits/${pull.head.sha}/check-runs?per_page=100`,
     token,
   )
-  return hasVerifiedPullRequestChecks(response.check_runs ?? [])
+  const checkRuns = response.check_runs ?? []
+  const releaseMetadataPassed = checkSucceeded(
+    latestChecksByName(checkRuns).get("Release metadata"),
+  )
+  const plan = releaseMetadataPassed
+    ? {
+        run_work: "false",
+        run_android: "false",
+        metadata_only: "true",
+      }
+    : planPullRequest(
+        (
+          await githubApiPages(
+            `/repos/${repository}/pulls/${pull.number}/files`,
+            token,
+          )
+        ).map((file) => file.filename),
+      )
+  return hasVerifiedPullRequestChecks(checkRuns, plan)
 }
 
 export async function planPush(params, verify = mergedCommitHasVerifiedPullRequest) {
@@ -140,6 +296,8 @@ export async function planPush(params, verify = mergedCommitHasVerifiedPullReque
     const verified = await verify(params)
     return {
       run_full: String(!verified),
+      run_work: String(!verified),
+      run_android: String(!verified),
       metadata_only: "false",
       reason: verified
         ? "verified-pull-request-merge"
@@ -151,6 +309,8 @@ export async function planPush(params, verify = mergedCommitHasVerifiedPullReque
     )
     return {
       run_full: "true",
+      run_work: "true",
+      run_android: "true",
       metadata_only: "false",
       reason: "verification-unavailable",
     }
@@ -192,12 +352,7 @@ async function main() {
           "app/build.gradle.kts",
         ])
       : ""
-    const metadataOnly = isReleaseMetadataOnly(paths, appBuildDiff)
-    writeOutputs({
-      run_full: String(!metadataOnly),
-      metadata_only: String(metadataOnly),
-      reason: metadataOnly ? "release-metadata-only" : "pull-request",
-    })
+    writeOutputs(planPullRequest(paths, appBuildDiff))
     return
   }
 
