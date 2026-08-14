@@ -120,11 +120,15 @@ fun buildMemoryDocumentTools(
     Tool(
         name = "memory_read",
         description = """
-            Read one curated memory document by exact path. The system prompt contains only a listing plus
+            Read one curated memory document by exact path, one document per call. The system prompt contains only
+            a listing plus
             /profile.md and /preferences.md; read /areas, /topics, or /people before using their contents.
             Call only when the document can materially help answer the current request; do not read memory for an
-            unrelated question that can be answered from supplied content or general knowledge. This never searches
-            raw chat history; use conversation_search for that separate capability.
+            unrelated question that can be answered from supplied content or general knowledge. Multiple sequential
+            calls are allowed when a relevant document exposes a directly relevant relationship to another listed
+            document needed for the answer; follow only that path and stop once you have enough evidence. Do not fan
+            out across unrelated documents. This never searches raw chat history; use conversation_search for that
+            separate capability.
         """.trimIndent(),
         parameters = {
             InputSchema.Obj(
@@ -153,6 +157,9 @@ fun buildMemoryDocumentTools(
             should change, do not call this tool; continue answering normally. There is no background memory pass.
             When the user explicitly requests a memory change, correct retryable failures before claiming success.
             An opportunistic write failure must not replace the requested answer or be reported as saved.
+
+            Mutate one document per call. Use multiple calls when distinct durable facts belong in different
+            documents. If mutating the same document again, use the version returned by the preceding result.
 
             Choose exactly one action and omit fields not used by that action:
             - write: path, if_version, name, description, optional aliases, non-blank content, and sources.

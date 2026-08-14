@@ -22,11 +22,17 @@ class MemoryDocumentToolsTest {
     @Test
     fun memoryAndRawHistoryRemainDifferentTools() {
         val tools = memoryTools()
+        val readDescription = tools.first().description.replace(Regex("\\s+"), " ")
+        val writeDescription = tools.last().description.replace(Regex("\\s+"), " ")
         assertEquals(listOf("memory_read", "memory_write"), tools.map { it.name })
         assertTrue(tools.first().description.contains("never searches"))
         assertTrue(tools.first().description.contains("raw chat history"))
         assertTrue(tools.first().description.contains("materially help answer"))
         assertTrue(tools.first().description.contains("general knowledge"))
+        assertTrue(readDescription.contains("one document per call"))
+        assertTrue(readDescription.contains("Multiple sequential calls"))
+        assertTrue(readDescription.contains("directly relevant relationship"))
+        assertTrue(readDescription.contains("stop once you have enough"))
         assertTrue(tools.last().description.contains("never changes"))
         assertTrue(tools.last().description.contains("raw conversation history"))
         assertTrue(tools.last().description.contains("special \"remember\" phrase is not required"))
@@ -35,6 +41,9 @@ class MemoryDocumentToolsTest {
         assertTrue(tools.last().description.contains("do not call this tool"))
         assertTrue(tools.last().description.contains("foreground chat run"))
         assertTrue(tools.last().description.contains("no background memory pass"))
+        assertTrue(writeDescription.contains("one document per call"))
+        assertTrue(writeDescription.contains("multiple calls"))
+        assertTrue(writeDescription.contains("version returned by the preceding result"))
         assertFalse(tools.last().description.contains("no_change"))
         assertFalse(tools.last().description.contains("finalize"))
     }
@@ -255,6 +264,97 @@ class MemoryDocumentToolsTest {
         assertTrue(result.text.contains("[stated]"))
     }
 
+    @Test
+    fun multipleSequentialReadsCanFollowDirectlyRelatedDocuments() = runBlocking {
+        val readPaths = mutableListOf<String>()
+        val tool = buildMemoryDocumentTools(
+            json = Json,
+            onRead = { path ->
+                readPaths += path
+                when (path) {
+                    "/people/alice.md" -> document(
+                        path = path,
+                        name = "Alice",
+                        description = "Alice's durable work context",
+                        content = "- [stated] Alice works on /areas/phoenix.md.",
+                        version = 2,
+                    )
+
+                    "/areas/phoenix.md" -> document(
+                        path = path,
+                        name = "Phoenix",
+                        description = "Phoenix project context",
+                        content = "- [stated] Phoenix ships offline search.",
+                        version = 5,
+                    )
+
+                    else -> error("unexpected path: $path")
+                }
+            },
+            onWrite = { _, _, _, _, _, _, _ -> document() },
+            onReplace = { _, _, _, _, _ -> document() },
+            onAppend = { _, _, _, _ -> document() },
+            onDelete = { _, _ -> },
+        ).first()
+
+        val person = tool.execute(buildJsonObject { put("path", "/people/alice.md") })
+            .single() as UIMessagePart.Text
+        val project = tool.execute(buildJsonObject { put("path", "/areas/phoenix.md") })
+            .single() as UIMessagePart.Text
+
+        assertEquals(listOf("/people/alice.md", "/areas/phoenix.md"), readPaths)
+        assertTrue(person.text.contains("Alice works on /areas/phoenix.md"))
+        assertTrue(project.text.contains("Phoenix ships offline search"))
+    }
+
+    @Test
+    fun multipleWritesCanMutateDifferentDocumentsInOneRun() = runBlocking {
+        val mutations = mutableListOf<Pair<String, Long>>()
+        val tool = buildMemoryDocumentTools(
+            json = Json,
+            onRead = { document() },
+            onWrite = { _, _, _, _, _, _, _ -> document() },
+            onReplace = { _, _, _, _, _ -> document() },
+            onAppend = { path, ifVersion, content, _ ->
+                mutations += path to ifVersion
+                document(
+                    path = path,
+                    name = path.substringAfterLast('/').substringBeforeLast('.'),
+                    description = "Durable linked context",
+                    content = content,
+                    version = ifVersion + 1,
+                )
+            },
+            onDelete = { _, _ -> },
+        ).last()
+
+        val person = tool.execute(
+            appendInput(
+                path = "/people/alice.md",
+                ifVersion = 2,
+                content = "- [stated] Alice owns Phoenix delivery.",
+                quote = "Alice owns Phoenix",
+            )
+        ).single() as UIMessagePart.Text
+        val project = tool.execute(
+            appendInput(
+                path = "/areas/phoenix.md",
+                ifVersion = 7,
+                content = "- [stated] Phoenix delivery is owned by Alice.",
+                quote = "Phoenix delivery",
+            )
+        ).single() as UIMessagePart.Text
+
+        assertEquals(
+            listOf("/people/alice.md" to 2L, "/areas/phoenix.md" to 7L),
+            mutations,
+        )
+        assertTrue(person.text.contains("/people/alice.md"))
+        assertTrue(person.text.contains("\"version\":3"))
+        assertTrue(project.text.contains("/areas/phoenix.md"))
+        assertTrue(project.text.contains("\"version\":8"))
+    }
+
     private fun memoryTools() = buildMemoryDocumentTools(
         json = Json,
         onRead = { document() },
@@ -264,20 +364,33 @@ class MemoryDocumentToolsTest {
         onDelete = { _, _ -> },
     )
 
-    private fun document() = MemoryDocument(
+    private fun document(
+        path: String = "/profile.md",
+        name: String = "Profile",
+        description: String = "Stable profile",
+        content: String = "",
+        version: Long = 1,
+    ) = MemoryDocument(
         scopeId = "__global__",
-        path = "/profile.md",
-        name = "Profile",
-        description = "Stable profile",
+        path = path,
+        name = name,
+        description = description,
+        content = content,
+        version = version,
     )
 
-    private fun appendInput() = buildJsonObject {
+    private fun appendInput(
+        path: String = "/profile.md",
+        ifVersion: Long = 1,
+        content: String = "- [stated] 用户偏好中文回复。",
+        quote: String = "偏好中文回复",
+    ) = buildJsonObject {
         put("action", "append")
-        put("path", "/profile.md")
-        put("if_version", 1)
-        put("content", "- [stated] 用户偏好中文回复。")
+        put("path", path)
+        put("if_version", ifVersion)
+        put("content", content)
         put("sources", buildJsonArray {
-            add(buildJsonObject { put("quote", "偏好中文回复") })
+            add(buildJsonObject { put("quote", quote) })
         })
     }
 

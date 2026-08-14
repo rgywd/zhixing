@@ -54,6 +54,9 @@ YAML frontmatter 固定包含 `name / description / sources / aliases`，后接�
 与返回在聊天中可见。listing 和文档存储均有字符上限，pinned 虚拟文件不会被半截截断；所有记忆内容按不可信数据处理，不能
 成为指令。
 
+每次 `memory_read` 只读取一份文档，但同一 Run 可以沿文档中直接相关的关系连续读取，例如先读同事文档，再读其中
+关联的项目文档。证据足够后即停止，不横向扫描无关文档，也不无理由重复读取。
+
 ## 4. 写入与并发
 
 模型侧只有两个能力：
@@ -66,7 +69,7 @@ aliases、非空 content 和 sources；`str_replace` 提交 path、if_version、
 old_text、允许为空的 new_text 和 sources；`append` 提交 path、if_version、非空 content 和 sources；
 `delete` 只提交 path 与 if_version。
 
-新建时 `if_version = 0`；其余操作必须使用 listing 或最近一次读取返回的当前版本。DAO 使用带 version 条件的
+新建时 `if_version = 0`；其余操作必须使用 listing 或最近一次读写返回的当前版本。DAO 使用带 version 条件的
 单条 SQL 更新；版本不一致时返回冲突和当前文档，不允许静默覆盖另一个 surface 的更新。删除整个文件仍需
 用户确认；删除会清空正文、元数据和来源，只保留带新版本的 path tombstone 防止并发旧写复活，pinned 文档不允许删除。
 
@@ -78,7 +81,8 @@ old_text、允许为空的 new_text 和 sources；`append` 提交 path、if_vers
 参数、来源、内容或版本校验失败时返回 `success=false / changed=false / retryable / error / correction`；成功
 mutation 返回 `success=true / changed=true`。用户明确要求的记忆变更在 `retryable=true` 时必须按 correction
 修正后重试，成功前不得声称已经记住；机会式写入失败不能替代或阻塞用户原本请求的回答，也不能冒充保存成功。
-一次 Run 可以按实际需要修改多份文档，DAO 的版本条件与工具校验负责并发和重复内容边界。
+每次 `memory_write` 只修改一份文档；一次 Run 可以按事实归属连续修改多份文档。再次修改同一份文档时，必须使用
+前一次写入结果返回的 version。DAO 的版本条件与工具校验负责并发和重复内容边界。
 
 模型写入还必须同时满足：
 
