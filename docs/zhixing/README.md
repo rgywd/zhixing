@@ -17,7 +17,7 @@
 
 | 领域 | 文档 | 状态 |
 | --- | --- | --- |
-| Work（Codex / Claude Code） | [架构](./CODEX_PHONE_LINE_ARCHITECTURE.md) · [协议](./CODEX_PHONE_LINE_CONTRACT.md) | v1 已实现；多运行时手机会话、三条电话线、图片与普通文件附件、后台跟踪与归档均以这两份契约为准 |
+| Work（Codex / Claude Code） | [架构](./CODEX_PHONE_LINE_ARCHITECTURE.md) · [协议](./CODEX_PHONE_LINE_CONTRACT.md) | v2 已实现；Codex App Server turn 控制、可编辑 FIFO 队列、三条电话线、附件、后台跟踪与归档均以这两份契约为准 |
 | Staging 测试客户端 | [分发、受限 API 与验收](./STAGING_TEST_CLIENT.md) | 与正式版并存；用于本机机器验证，不进入正式 Release |
 | 记忆 | [记忆文档与历史对话检索 V3](./MEMORY_SYSTEM.md) | V3 实施基线；文件 listing、按需读取、用户原话来源、乐观锁与原始历史检索分离 |
 | 知识空间 | [OrbitOS CN Vault v0.3](./KNOWLEDGE_SPACE.md) | 已实现；以 `/workspace/vault`、知识库浏览、Git 绑定、收件箱导入、来源引用和 vault-local skills 为现行契约 |

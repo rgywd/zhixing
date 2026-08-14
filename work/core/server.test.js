@@ -54,11 +54,11 @@ const FETCH_BLOCKED_PORTS = new Set([
   6668, 6669, 6697, 10080,
 ]);
 
-async function request(baseUrl, path, { token = USER_TOKEN, method = "GET", body, idempotencyKey } = {}) {
+async function request(baseUrl, path, { token = USER_TOKEN, method = "GET", body, idempotencyKey, protocol = "1" } = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     method,
     headers: {
-      ...PROTOCOL,
+      "x-zhixing-work-protocol": protocol,
       authorization: `Bearer ${token}`,
       ...(body ? { "content-type": "application/json" } : {}),
       ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
@@ -97,6 +97,7 @@ async function registerAndCreate(baseUrl) {
       instanceId: RUNNER_INSTANCE,
       name: "Minecraft",
       version: "test",
+      capabilities: { appServerTurns: 1, editableQueue: 1, steer: 1 },
       repos: [{
         id: "zhixing",
         name: "zhixing",
@@ -1415,4 +1416,239 @@ test("runner credentials cannot read or acknowledge another runner's commands", 
     body: { state: "CLAIMED", instanceId: RUNNER_INSTANCE },
   });
   assert.equal(crossAck.response.status, 401);
+});
+
+test("protocol v2 queue is durable, editable and does not create chat events before dispatch", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const { session } = await registerAndCreate(baseUrl);
+  const before = await request(baseUrl, `/v1/work/sessions/${session.id}/events`, { protocol: "2" });
+
+  const queued = await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, {
+    protocol: "2",
+    method: "POST",
+    idempotencyKey: "queue-one",
+    body: {
+      text: "先检查失败测试",
+      reasoningEffort: "xhigh",
+      fastMode: true,
+      clientMessageId: "queue-client-one",
+    },
+  });
+  assert.equal(queued.response.status, 201);
+  assert.equal(queued.payload.state, "QUEUED");
+  assert.equal(queued.payload.revision, 1);
+  assert.equal(queued.payload.reasoningEffort, "xhigh");
+  assert.equal(queued.payload.fastMode, true);
+
+  const afterQueue = await request(baseUrl, `/v1/work/sessions/${session.id}/events`, { protocol: "2" });
+  assert.equal(afterQueue.payload.events.length, before.payload.events.length);
+
+  const edited = await request(baseUrl, `/v1/work/sessions/${session.id}/queue/${queued.payload.id}`, {
+    protocol: "2",
+    method: "PATCH",
+    idempotencyKey: "edit-queue-1",
+    body: { revision: 1, text: "先检查失败测试并修复" },
+  });
+  assert.equal(edited.response.status, 200);
+  assert.equal(edited.payload.text, "先检查失败测试并修复");
+  assert.equal(edited.payload.revision, 2);
+
+  const replayedEdit = await request(baseUrl, `/v1/work/sessions/${session.id}/queue/${queued.payload.id}`, {
+    protocol: "2",
+    method: "PATCH",
+    idempotencyKey: "edit-queue-1",
+    body: { revision: 1, text: "先检查失败测试并修复" },
+  });
+  assert.deepEqual(replayedEdit.payload, edited.payload);
+
+  const staleEdit = await request(baseUrl, `/v1/work/sessions/${session.id}/queue/${queued.payload.id}`, {
+    protocol: "2",
+    method: "PATCH",
+    idempotencyKey: "edit-queue-stale",
+    body: { revision: 1, text: "过期编辑" },
+  });
+  assert.equal(staleEdit.response.status, 409);
+
+  const listed = await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, { protocol: "2" });
+  assert.equal(listed.response.status, 200);
+  assert.deepEqual(listed.payload.items.map((item) => item.text), ["先检查失败测试并修复"]);
+
+  const canceled = await request(baseUrl, `/v1/work/sessions/${session.id}/queue/${queued.payload.id}`, {
+    protocol: "2",
+    method: "DELETE",
+    idempotencyKey: "cancel-queue-1",
+    body: { revision: 2 },
+  });
+  assert.deepEqual(canceled.payload, { accepted: true, id: queued.payload.id, state: "CANCELED" });
+  const replayedCancel = await request(baseUrl, `/v1/work/sessions/${session.id}/queue/${queued.payload.id}`, {
+    protocol: "2",
+    method: "DELETE",
+    idempotencyKey: "cancel-queue-1",
+    body: { revision: 2 },
+  });
+  assert.deepEqual(replayedCancel.payload, canceled.payload);
+  const empty = await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, { protocol: "2" });
+  assert.deepEqual(empty.payload.items, []);
+});
+
+test("normal turn completion promotes queued inputs in FIFO order while stop freezes them", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const { session } = await registerAndCreate(baseUrl);
+  const initial = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  const start = initial.payload.commands.find((command) => command.kind === "START");
+
+  for (const [key, text] of [["fifo-1", "第一项"], ["fifo-2", "第二项"]]) {
+    const result = await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, {
+      protocol: "2",
+      method: "POST",
+      idempotencyKey: key,
+      body: { text, clientMessageId: key },
+    });
+    assert.equal(result.response.status, 201);
+  }
+
+  await request(baseUrl, `/v1/runner/commands/${start.id}/ack`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      instanceId: RUNNER_INSTANCE,
+      state: "COMPLETED",
+      sessionState: { sessionId: session.id, status: "IDLE", runtimeSessionId: "thread-1" },
+    },
+  });
+  const afterFirst = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  const firstResume = afterFirst.payload.commands.find((command) => command.kind === "RESUME");
+  assert.equal(firstResume.payload.message, "第一项");
+  let queue = await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, { protocol: "2" });
+  assert.deepEqual(queue.payload.items.map((item) => [item.text, item.state]), [
+    ["第一项", "DISPATCHING"],
+    ["第二项", "QUEUED"],
+  ]);
+
+  await request(baseUrl, `/v1/runner/commands/${firstResume.id}/ack`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      instanceId: RUNNER_INSTANCE,
+      state: "COMPLETED",
+      sessionState: { sessionId: session.id, status: "IDLE", runtimeSessionId: "thread-1" },
+    },
+  });
+  const afterSecond = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  const secondResume = afterSecond.payload.commands.find((command) => command.kind === "RESUME");
+  assert.equal(secondResume.payload.message, "第二项");
+
+  await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, {
+    protocol: "2",
+    method: "POST",
+    idempotencyKey: "fifo-3",
+    body: { text: "停止后保留", clientMessageId: "fifo-3" },
+  });
+  await request(baseUrl, `/v1/work/sessions/${session.id}/stop`, { method: "POST" });
+  await request(baseUrl, `/v1/runner/commands/${secondResume.id}/ack`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      instanceId: RUNNER_INSTANCE,
+      state: "COMPLETED",
+      sessionState: { sessionId: session.id, status: "IDLE", runtimeSessionId: "thread-1" },
+    },
+  });
+  queue = await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, { protocol: "2" });
+  assert.deepEqual(queue.payload.items.map((item) => item.text), ["停止后保留"]);
+});
+
+test("steer targets the active turn and writes history only after runner completion", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const { session } = await registerAndCreate(baseUrl);
+  await request(baseUrl, `/v1/runner/sessions/${session.id}/state`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      instanceId: RUNNER_INSTANCE,
+      status: "RUNNING",
+      runtimeSessionId: "thread-steer",
+      activeTurnId: "turn-current",
+    },
+  });
+  const before = await request(baseUrl, `/v1/work/sessions/${session.id}/events`, { protocol: "2" });
+  const stale = await request(baseUrl, `/v1/work/sessions/${session.id}/steer`, {
+    protocol: "2",
+    method: "POST",
+    idempotencyKey: "steer-stale",
+    body: { text: "错误目标", expectedTurnId: "turn-old" },
+  });
+  assert.equal(stale.response.status, 409);
+
+  const steered = await request(baseUrl, `/v1/work/sessions/${session.id}/steer`, {
+    protocol: "2",
+    method: "POST",
+    idempotencyKey: "steer-current",
+    body: { text: "改为只读调查", expectedTurnId: "turn-current", clientMessageId: "steer-message" },
+  });
+  assert.equal(steered.response.status, 202);
+  const pendingEvents = await request(baseUrl, `/v1/work/sessions/${session.id}/events`, { protocol: "2" });
+  assert.equal(pendingEvents.payload.events.length, before.payload.events.length);
+
+  const commands = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  const command = commands.payload.commands.find((item) => item.id === steered.payload.commandId);
+  assert.equal(command.kind, "STEER");
+  assert.equal(command.payload.expectedTurnId, "turn-current");
+  await request(baseUrl, `/v1/runner/commands/${command.id}/ack`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: { instanceId: RUNNER_INSTANCE, state: "COMPLETED" },
+  });
+  const completedEvents = await request(baseUrl, `/v1/work/sessions/${session.id}/events`, { protocol: "2" });
+  const steeredMessage = completedEvents.payload.events.find((event) => event.payload.steeredTurnId === "turn-current");
+  assert.equal(steeredMessage.type, "USER_MESSAGE");
+  assert.equal(steeredMessage.payload.text, "改为只读调查");
+
+  const rejected = await request(baseUrl, `/v1/work/sessions/${session.id}/steer`, {
+    protocol: "2",
+    method: "POST",
+    idempotencyKey: "steer-rejected",
+    body: { text: "来不及的引导", expectedTurnId: "turn-current", clientMessageId: "steer-rejected-message" },
+  });
+  await request(baseUrl, `/v1/runner/commands/${rejected.payload.commandId}/ack`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: { instanceId: RUNNER_INSTANCE, state: "FAILED" },
+  });
+  const rejectedEvents = await request(baseUrl, `/v1/work/sessions/${session.id}/events`, { protocol: "2" });
+  const error = rejectedEvents.payload.events.find((event) => event.payload.code === "STEER_REJECTED");
+  assert.equal(error.type, "SYSTEM_ERROR");
+  assert.equal(error.payload.clientMessageId, "steer-rejected-message");
+  assert.match(error.payload.message, /引导未送达/);
+});
+
+test("queue and steer endpoints are gated by runner capabilities", async (t) => {
+  const { baseUrl, store } = await fixture(t);
+  const { session } = await registerAndCreate(baseUrl);
+  store.db.prepare("UPDATE runners SET capabilities_json='{}' WHERE id='runner-1'").run();
+  const queue = await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, { protocol: "2" });
+  assert.equal(queue.response.status, 409);
+  const steer = await request(baseUrl, `/v1/work/sessions/${session.id}/steer`, {
+    protocol: "2",
+    method: "POST",
+    idempotencyKey: "unsupported-steer",
+    body: { text: "引导", expectedTurnId: "turn-1" },
+  });
+  assert.equal(steer.response.status, 409);
+
+  store.db.prepare("UPDATE runners SET capabilities_json=? WHERE id='runner-1'")
+    .run(JSON.stringify({ editableQueue: true }));
+  const runtimeNeutralQueue = await request(
+    baseUrl,
+    `/v1/work/sessions/${session.id}/queue`,
+    { protocol: "2" },
+  );
+  assert.equal(runtimeNeutralQueue.response.status, 200);
+  const stillUnsupportedSteer = await request(baseUrl, `/v1/work/sessions/${session.id}/steer`, {
+    protocol: "2",
+    method: "POST",
+    idempotencyKey: "still-unsupported-steer",
+    body: { text: "引导", expectedTurnId: "turn-1" },
+  });
+  assert.equal(stillUnsupportedSteer.response.status, 409);
 });

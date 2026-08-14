@@ -10,7 +10,7 @@ import { WorkRunner } from "../runner/runner.js";
 
 const USER_TOKEN = "real-e2e-user-token";
 const RUNNER_TOKEN = "real-e2e-runner-token";
-const PROTOCOL_HEADERS = { "x-zhixing-work-protocol": "1" };
+const PROTOCOL_HEADERS = { "x-zhixing-work-protocol": "2" };
 const root = mkdtempSync(join(tmpdir(), "zhixing-work-e2e-"));
 const repo = join(root, "repo");
 const store = new WorkStore({
@@ -46,6 +46,10 @@ try {
     defaultRuntimes: [{
       id: runtime,
       name: runtimeName,
+      command: runtime === "codex"
+        ? process.env.WORK_E2E_CODEX ?? "codex"
+        : process.env.WORK_E2E_CLAUDE ?? "claude",
+      ...(runtime === "codex" ? { transport: process.env.WORK_E2E_CODEX_TRANSPORT ?? "app-server" } : {}),
       models: [model],
       reasoningEfforts: [effort],
     }],
@@ -84,8 +88,34 @@ try {
   });
 
   let answered = false;
+  let queued = false;
+  let steered = false;
   const result = await waitFor(async () => {
     const events = (await api(baseUrl, `/v1/work/sessions/${session.id}/events?afterSeq=0`)).events;
+    const current = (await api(baseUrl, "/v1/work/sessions")).sessions.find((item) => item.id === session.id);
+    if (runtime === "codex" && current?.status === "RUNNING" && current.activeTurnId && !steered) {
+      await api(baseUrl, `/v1/work/sessions/${session.id}/steer`, {
+        method: "POST",
+        idempotencyKey: "real-e2e-steer",
+        body: {
+          text: "实时引导验收：最终普通回复必须包含 PHONE_LINE_STEER_OK。",
+          expectedTurnId: current.activeTurnId,
+          clientMessageId: "real-e2e-steer-message",
+        },
+      });
+      steered = true;
+    }
+    if (runtime === "codex" && current?.status === "RUNNING" && !queued) {
+      await api(baseUrl, `/v1/work/sessions/${session.id}/queue`, {
+        method: "POST",
+        idempotencyKey: "real-e2e-queue",
+        body: {
+          text: "这是自动派发的下一轮，只回复 PHONE_LINE_QUEUE_OK。",
+          clientMessageId: "real-e2e-queue-message",
+        },
+      });
+      queued = true;
+    }
     const ask = events.find((event) => event.type === "ASK");
     if (ask && !answered) {
       answered = true;
@@ -101,11 +131,24 @@ try {
         },
       });
     }
-    const current = (await api(baseUrl, "/v1/work/sessions")).sessions.find((item) => item.id === session.id);
+    const assistantTexts = events
+      .filter((event) => event.type === "ASSISTANT_MESSAGE")
+      .map((event) => event.payload.text);
+    const queueItems = runtime === "codex"
+      ? (await api(baseUrl, `/v1/work/sessions/${session.id}/queue`)).items
+      : [];
     const complete = events.some((event) => event.type === "REPORT" && event.payload.text.includes("PHONE_LINE_REPORT_OK"))
       && events.some((event) => event.type === "ASK_ANSWERED")
       && events.some((event) => event.type === "HTML_REPORT" && event.payload.title.includes("PHONE_LINE_HTML_OK"))
       && events.some((event) => event.type === "ASSISTANT_MESSAGE")
+      && (runtime !== "codex" || (
+        steered
+        && queued
+        && events.some((event) => event.type === "USER_MESSAGE" && event.payload.steeredTurnId)
+        && assistantTexts.some((text) => text.includes("PHONE_LINE_STEER_OK"))
+        && assistantTexts.some((text) => text.includes("PHONE_LINE_QUEUE_OK"))
+        && queueItems.length === 0
+      ))
       && current?.status === "IDLE";
     return complete || current?.status === "FAILED" ? { events, current } : null;
   }, 300_000, 500);

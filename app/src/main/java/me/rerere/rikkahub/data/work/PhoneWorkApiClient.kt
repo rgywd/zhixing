@@ -82,7 +82,7 @@ class PhoneWorkApiClient(
             val request = Request.Builder()
                 .url(url("/v1/work/sessions/${sessionId.urlEncode()}/stream?afterSeq=$afterSeq"))
                 .header("Authorization", "Bearer $token")
-                .header("X-Zhixing-Work-Protocol", "1")
+                .header("X-Zhixing-Work-Protocol", WORK_PROTOCOL_VERSION)
                 .build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw response.toApiException()
@@ -126,6 +126,68 @@ class PhoneWorkApiClient(
         )
         return post<PhoneWorkEvent, SendMessageRequest>(
             path = "/v1/work/sessions/${sessionId.urlEncode()}/messages",
+            body = body,
+            idempotencyKey = body.clientMessageId,
+        )
+    }
+
+    suspend fun queue(sessionId: String): List<PhoneWorkQueueItem> =
+        get<QueueResponse>("/v1/work/sessions/${sessionId.urlEncode()}/queue").items
+
+    suspend fun enqueue(
+        sessionId: String,
+        text: String,
+        attachmentIds: List<String>,
+        reasoningEffort: String? = null,
+        fastMode: Boolean? = null,
+    ): PhoneWorkQueueItem {
+        val body = QueueMessageRequest(
+            text = text,
+            attachmentIds = attachmentIds,
+            reasoningEffort = reasoningEffort,
+            fastMode = fastMode,
+            clientMessageId = UUID.randomUUID().toString(),
+        )
+        return post(
+            path = "/v1/work/sessions/${sessionId.urlEncode()}/queue",
+            body = body,
+            idempotencyKey = body.clientMessageId,
+        )
+    }
+
+    suspend fun updateQueueItem(
+        sessionId: String,
+        itemId: String,
+        revision: Int,
+        text: String,
+    ): PhoneWorkQueueItem = patch(
+        path = "/v1/work/sessions/${sessionId.urlEncode()}/queue/${itemId.urlEncode()}",
+        body = UpdateQueueItemRequest(revision = revision, text = text),
+        idempotencyKey = UUID.randomUUID().toString(),
+    )
+
+    suspend fun cancelQueueItem(sessionId: String, itemId: String, revision: Int) {
+        delete<QueueMutationResponse, CancelQueueItemRequest>(
+            path = "/v1/work/sessions/${sessionId.urlEncode()}/queue/${itemId.urlEncode()}",
+            body = CancelQueueItemRequest(revision),
+            idempotencyKey = UUID.randomUUID().toString(),
+        )
+    }
+
+    suspend fun steer(
+        sessionId: String,
+        expectedTurnId: String,
+        text: String,
+        attachmentIds: List<String>,
+    ): PhoneWorkSteerReceipt {
+        val body = SteerRequest(
+            text = text,
+            attachmentIds = attachmentIds,
+            expectedTurnId = expectedTurnId,
+            clientMessageId = UUID.randomUUID().toString(),
+        )
+        return post(
+            path = "/v1/work/sessions/${sessionId.urlEncode()}/steer",
             body = body,
             idempotencyKey = body.clientMessageId,
         )
@@ -207,12 +269,42 @@ class PhoneWorkApiClient(
         return request(builder) { response -> json.decodeFromString(response.body?.string().orEmpty()) }
     }
 
+    private suspend inline fun <reified T, reified B> patch(
+        path: String,
+        body: B,
+        idempotencyKey: String,
+    ): T {
+        val requestBody = json.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE)
+        val builder = Request.Builder()
+            .url(url(path))
+            .header("Idempotency-Key", idempotencyKey)
+            .patch(requestBody)
+        return request(builder) { response ->
+            json.decodeFromString(response.body?.string().orEmpty())
+        }
+    }
+
+    private suspend inline fun <reified T, reified B> delete(
+        path: String,
+        body: B,
+        idempotencyKey: String,
+    ): T {
+        val requestBody = json.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE)
+        val builder = Request.Builder()
+            .url(url(path))
+            .header("Idempotency-Key", idempotencyKey)
+            .delete(requestBody)
+        return request(builder) { response ->
+            json.decodeFromString(response.body?.string().orEmpty())
+        }
+    }
+
     private suspend fun <T> request(builder: Request.Builder, transform: (okhttp3.Response) -> T): T =
         withContext(Dispatchers.IO) {
             val token = credentialStore.token() ?: throw PhoneWorkApiException("请先在设置中连接 Work Core")
             val request = builder
                 .header("Authorization", "Bearer $token")
-                .header("X-Zhixing-Work-Protocol", "1")
+                .header("X-Zhixing-Work-Protocol", WORK_PROTOCOL_VERSION)
                 .build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw response.toApiException()
@@ -283,6 +375,7 @@ class PhoneWorkApiClient(
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
         const val MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
         const val INFORMATION_MONITOR_CACHE_HEADER = "X-Zhixing-Life-Cache"
+        const val WORK_PROTOCOL_VERSION = "2"
     }
 }
 
@@ -321,6 +414,24 @@ data class CreateSessionRequest(
     val fastMode: Boolean? = null,
     val clientMessageId: String,
 )
+@Serializable internal data class QueueMessageRequest(
+    val text: String,
+    val attachmentIds: List<String> = emptyList(),
+    val reasoningEffort: String? = null,
+    val fastMode: Boolean? = null,
+    val clientMessageId: String,
+)
+@Serializable internal data class UpdateQueueItemRequest(
+    val revision: Int,
+    val text: String,
+)
+@Serializable internal data class CancelQueueItemRequest(val revision: Int)
+@Serializable internal data class SteerRequest(
+    val text: String,
+    val attachmentIds: List<String> = emptyList(),
+    val expectedTurnId: String,
+    val clientMessageId: String,
+)
 @Serializable private data class AnswerRequest(val answers: List<PhoneWorkAnswer>)
 @Serializable private data object EmptyRequest
 @Serializable private class UnitResponse
@@ -328,3 +439,9 @@ data class CreateSessionRequest(
 @Serializable private data class ReposResponse(val repos: List<PhoneWorkRepo>)
 @Serializable private data class SessionsResponse(val sessions: List<PhoneWorkSession>)
 @Serializable private data class EventsResponse(val events: List<PhoneWorkEvent>)
+@Serializable private data class QueueResponse(val items: List<PhoneWorkQueueItem>)
+@Serializable private data class QueueMutationResponse(
+    val accepted: Boolean,
+    val id: String,
+    val state: String,
+)

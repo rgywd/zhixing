@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import me.rerere.rikkahub.data.db.dao.PhoneWorkDAO
@@ -23,6 +24,7 @@ class PhoneWorkRepository(
 ) : PhoneWorkSessionGateway {
     private val json = Json { ignoreUnknownKeys = true }
     private val mutableCatalog = MutableStateFlow(catalogStore.load())
+    private val mutableQueues = MutableStateFlow<Map<String, List<PhoneWorkQueueItem>>>(emptyMap())
     val catalog: StateFlow<PhoneWorkCatalog> = mutableCatalog
 
     fun observeSessions(): Flow<List<PhoneWorkSession>> = dao.observeSessions().map { rows -> rows.map { it.toModel() } }
@@ -38,6 +40,10 @@ class PhoneWorkRepository(
             PhoneWorkEvent(row.sessionId, row.seq, row.id, row.type, json.parseToJsonElement(row.payloadJson), row.createdAt)
         }
     }
+
+    fun observeQueue(id: String): Flow<List<PhoneWorkQueueItem>> = mutableQueues
+        .map { it[id].orEmpty() }
+        .distinctUntilChanged()
 
     suspend fun refreshCatalog(): PhoneWorkCatalog {
         val runners = api.runners()
@@ -58,6 +64,10 @@ class PhoneWorkRepository(
         if (events.isNotEmpty()) dao.upsertEvents(events.map { it.toEntity() })
         refreshSessions()
         return events
+    }
+
+    suspend fun refreshQueue(sessionId: String): List<PhoneWorkQueueItem> = api.queue(sessionId).also { items ->
+        mutableQueues.value = mutableQueues.value + (sessionId to items)
     }
 
     suspend fun activeSessionsSnapshot(): List<PhoneWorkSession> = observeActiveSessions().first()
@@ -112,6 +122,61 @@ class PhoneWorkRepository(
         PhoneWorkTrackingService.start(context)
     }
 
+    suspend fun enqueue(
+        sessionId: String,
+        text: String,
+        attachments: List<PhoneWorkPendingAttachment> = emptyList(),
+        reasoningEffort: String? = null,
+        fastMode: Boolean? = null,
+    ) {
+        val attachmentIds = uploadAttachments(attachments)
+        val item = api.enqueue(
+            sessionId = sessionId,
+            text = text,
+            attachmentIds = attachmentIds,
+            reasoningEffort = reasoningEffort,
+            fastMode = fastMode,
+        )
+        mutableQueues.value = mutableQueues.value + (
+            sessionId to (mutableQueues.value[sessionId].orEmpty().filterNot { it.id == item.id } + item)
+                .sortedBy { it.createdAt }
+        )
+        refreshSessions()
+        PhoneWorkTrackingService.start(context)
+    }
+
+    suspend fun updateQueueItem(sessionId: String, itemId: String, revision: Int, text: String) {
+        val updated = api.updateQueueItem(sessionId, itemId, revision, text)
+        mutableQueues.value = mutableQueues.value + (
+            sessionId to mutableQueues.value[sessionId].orEmpty().map { item ->
+                if (item.id == itemId) updated else item
+            }
+        )
+    }
+
+    suspend fun cancelQueueItem(sessionId: String, itemId: String, revision: Int) {
+        api.cancelQueueItem(sessionId, itemId, revision)
+        mutableQueues.value = mutableQueues.value + (
+            sessionId to mutableQueues.value[sessionId].orEmpty().filterNot { it.id == itemId }
+        )
+    }
+
+    suspend fun steer(
+        sessionId: String,
+        expectedTurnId: String,
+        text: String,
+        attachments: List<PhoneWorkPendingAttachment> = emptyList(),
+    ) {
+        val attachmentIds = uploadAttachments(attachments)
+        api.steer(
+            sessionId = sessionId,
+            expectedTurnId = expectedTurnId,
+            text = text,
+            attachmentIds = attachmentIds,
+        )
+        PhoneWorkTrackingService.start(context)
+    }
+
     private suspend fun uploadAttachments(attachments: List<PhoneWorkPendingAttachment>): List<String> {
         require(attachments.size <= 4) { "每条 Work 消息最多发送 4 个附件" }
         return attachments.map { api.uploadAttachment(it).id }
@@ -144,6 +209,7 @@ class PhoneWorkRepository(
         status = status,
         runtimeSessionId = runtimeSessionId,
         codexSessionId = codexSessionId,
+        activeTurnId = activeTurnId,
         lastSeq = lastSeq,
         archivedAt = archivedAt,
         createdAt = createdAt,
@@ -163,6 +229,7 @@ class PhoneWorkRepository(
         status = status,
         runtimeSessionId = runtimeSessionId,
         codexSessionId = codexSessionId,
+        activeTurnId = activeTurnId,
         lastSeq = lastSeq,
         archivedAt = archivedAt,
         createdAt = createdAt,

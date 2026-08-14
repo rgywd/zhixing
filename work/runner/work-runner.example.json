@@ -12,7 +12,8 @@
     {
       "id": "codex",
       "name": "Codex",
-      "command": "codex",
+      "command": "%USERPROFILE%/.zhixing-work/codex-cli/0.147.0/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe",
+      "transport": "app-server",
       "models": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.3-codex-spark"],
       "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"],
       "reasoningEffortsByModel": {

@@ -205,6 +205,7 @@ function runtimeCatalog(source, config) {
         id,
         name: String(runtime.name ?? runtime.id ?? "").trim(),
         command: String(runtime.command ?? defaultRuntimeCommand(runtime.id)).trim(),
+        transport: id === "codex" ? String(runtime.transport ?? "exec").trim() : "exec",
         models,
         reasoningEfforts: [...(runtime.reasoningEfforts ?? [])],
         reasoningEffortsByModel: cloneReasoningEffortOverrides(runtime.reasoningEffortsByModel),
@@ -220,6 +221,7 @@ function runtimeCatalog(source, config) {
     id: "codex",
     name: "Codex",
     command: String(config.codexCommand ?? "codex"),
+    transport: String(config.codexTransport ?? "exec"),
     models,
     reasoningEfforts,
     reasoningEffortsByModel: {},
@@ -235,6 +237,7 @@ function validateRuntimeCatalog(runtimes, owner) {
       !["codex", "claude-code"].includes(runtime.id)
       || !runtime.name
       || !runtime.command
+      || (runtime.id === "codex" && !["exec", "app-server"].includes(runtime.transport))
       || !runtime.models.length
       || !runtime.reasoningEfforts.length
       || !validReasoningEffortOverrides(runtime)

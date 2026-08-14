@@ -3,6 +3,9 @@ package me.rerere.rikkahub.ui.pages.work
 import me.rerere.rikkahub.data.work.PhoneWorkRepo
 import me.rerere.rikkahub.data.work.PhoneWorkRepoKey
 import me.rerere.rikkahub.data.work.PhoneWorkRepoPreferences
+import me.rerere.rikkahub.data.work.PhoneWorkQueueItem
+import me.rerere.rikkahub.data.work.PhoneWorkRunnerCapabilities
+import me.rerere.rikkahub.data.work.PhoneWorkSession
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -91,6 +94,62 @@ class PhoneWorkChatInteractionTest {
         assertEquals(0, decision.addedItems)
     }
 
+    @Test
+    fun `tap queues while a capable runner is running`() {
+        assertEquals(
+            WorkInputAction.QUEUE,
+            resolveWorkInputAction(
+                session = session(status = "RUNNING", activeTurnId = "turn-1"),
+                capabilities = PhoneWorkRunnerCapabilities(editableQueue = true),
+                longPress = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `long press steers only a live supported turn`() {
+        val capabilities = PhoneWorkRunnerCapabilities(appServerTurns = true, steer = true, editableQueue = true)
+
+        assertEquals(
+            WorkInputAction.STEER,
+            resolveWorkInputAction(session("RUNNING", "turn-1"), capabilities, longPress = true),
+        )
+        assertEquals(
+            WorkInputAction.STEER_UNAVAILABLE,
+            resolveWorkInputAction(session("RUNNING", null), capabilities, longPress = true),
+        )
+        assertEquals(
+            WorkInputAction.STEER_UNAVAILABLE,
+            resolveWorkInputAction(session("WAITING_FOR_USER", "turn-1"), capabilities, longPress = true),
+        )
+    }
+
+    @Test
+    fun `idle and legacy runners preserve direct send`() {
+        assertEquals(
+            WorkInputAction.DIRECT,
+            resolveWorkInputAction(
+                session("IDLE", null),
+                PhoneWorkRunnerCapabilities(editableQueue = true),
+                longPress = false,
+            ),
+        )
+        assertEquals(
+            WorkInputAction.DIRECT,
+            resolveWorkInputAction(
+                session("RUNNING", "turn-1"),
+                PhoneWorkRunnerCapabilities(),
+                longPress = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `queue preview shows first text line and attachment fallback`() {
+        assertEquals("first", workQueueItemPreview(queueItem(text = " first\nsecond ")))
+        assertEquals("1 个附件", workQueueItemPreview(queueItem(text = "", attachments = 1)))
+    }
+
     private fun repo(
         id: String,
         name: String,
@@ -107,4 +166,36 @@ class PhoneWorkChatInteractionTest {
     )
 
     private fun key(repoId: String) = PhoneWorkRepoKey(runnerId = "runner", repoId = repoId)
+
+    private fun session(status: String, activeTurnId: String?) = PhoneWorkSession(
+        id = "session",
+        runnerId = "runner",
+        repoId = "repo",
+        repoName = "repo",
+        model = "gpt-5.6-sol",
+        reasoningEffort = "high",
+        status = status,
+        activeTurnId = activeTurnId,
+        createdAt = "2026-08-14T00:00:00Z",
+        updatedAt = "2026-08-14T00:00:00Z",
+    )
+
+    private fun queueItem(text: String, attachments: Int = 0) = PhoneWorkQueueItem(
+        id = "queue",
+        sessionId = "session",
+        text = text,
+        attachments = List(attachments) {
+            me.rerere.rikkahub.data.work.PhoneWorkAttachment(
+                id = "attachment-$it",
+                fileName = "file-$it.txt",
+                mimeType = "text/plain",
+                size = 1,
+                sha256 = "sha",
+            )
+        },
+        state = "QUEUED",
+        revision = 1,
+        createdAt = "2026-08-14T00:00:00Z",
+        updatedAt = "2026-08-14T00:00:00Z",
+    )
 }

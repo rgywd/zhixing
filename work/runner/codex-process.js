@@ -2,7 +2,8 @@ import { spawn } from "node:child_process";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { extname, join } from "node:path";
+import { extname, join, resolve } from "node:path";
+import { homedir } from "node:os";
 
 function tomlString(value) {
   return JSON.stringify(String(value));
@@ -76,6 +77,7 @@ export function parseCodexAssistantMessage(event) {
 
 export function parseCodexTurnOutcome(event) {
   if (event?.type === "turn.completed") return { status: "COMPLETED", detail: null };
+  if (event?.type === "turn.interrupted") return { status: "INTERRUPTED", detail: null };
   if (event?.type !== "turn.failed") return null;
   const detail = typeof event.error === "string"
     ? event.error
@@ -143,13 +145,23 @@ export function runCodex({ command, args, prompt, cwd, env = process.env, spawnI
 }
 
 export function resolveCodexCommand(command, platform = process.platform, findExecutable = defaultFindExecutable) {
-  if (platform !== "win32") return command;
-  const extension = extname(command).toLowerCase();
+  const expanded = expandExecutablePath(command);
+  if (platform !== "win32") return expanded;
+  const extension = extname(expanded).toLowerCase();
   if ([".cmd", ".bat", ".ps1"].includes(extension)) {
     throw new Error("codexCommand must point to codex.exe on Windows, not a shell shim");
   }
-  if (extension || /[\\/]/.test(command)) return command;
-  return findExecutable(`${command}.exe`) ?? command;
+  if (extension || /[\\/]/.test(expanded)) return expanded;
+  return findExecutable(`${expanded}.exe`) ?? expanded;
+}
+
+function expandExecutablePath(command, env = process.env) {
+  let value = String(command ?? "").trim();
+  value = value.replace(/%([^%]+)%/g, (match, name) => env[name] ?? match);
+  value = value.replace(/\$\{([^}]+)\}/g, (match, name) => env[name] ?? match);
+  if (value === "~") return homedir();
+  if (value.startsWith("~/") || value.startsWith("~\\")) return resolve(homedir(), value.slice(2));
+  return value;
 }
 
 function defaultFindExecutable(candidate) {

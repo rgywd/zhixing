@@ -200,6 +200,20 @@ export class WorkStore {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS pending_inputs (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        client_message_id TEXT,
+        text TEXT NOT NULL,
+        attachments_json TEXT NOT NULL DEFAULT '[]',
+        reasoning_effort TEXT NOT NULL,
+        fast_mode INTEGER NOT NULL DEFAULT 0,
+        state TEXT NOT NULL DEFAULT 'QUEUED',
+        revision INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(session_id, client_message_id)
+      );
       CREATE TABLE IF NOT EXISTS asks (
         id TEXT PRIMARY KEY,
         session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -244,6 +258,7 @@ export class WorkStore {
     this.ensureColumn("sessions", "runtime", "TEXT NOT NULL DEFAULT 'codex'");
     this.ensureColumn("sessions", "runtime_session_id", "TEXT");
     this.ensureColumn("sessions", "fast_mode", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("sessions", "active_turn_id", "TEXT");
     this.db.prepare("UPDATE sessions SET title=repo_name WHERE title=''").run();
     this.db.prepare(
       "UPDATE sessions SET runtime_session_id=codex_session_id WHERE runtime='codex' AND runtime_session_id IS NULL",
@@ -556,9 +571,28 @@ export class WorkStore {
   }
 
   runnerSupportsFileAttachments(runnerId) {
-    const row = this.db.prepare("SELECT capabilities_json FROM runners WHERE id=?").get(runnerId);
-    const version = Number(parseJson(row?.capabilities_json, {}).fileAttachments ?? 0);
+    const version = Number(this.runnerCapabilities(runnerId).fileAttachments ?? 0);
     return Number.isFinite(version) && version >= 1;
+  }
+
+  runnerCapabilities(runnerId) {
+    const row = this.db.prepare("SELECT capabilities_json FROM runners WHERE id=?").get(runnerId);
+    return parseJson(row?.capabilities_json, {});
+  }
+
+  runnerHasCapability(runnerId, name) {
+    const value = this.runnerCapabilities(runnerId)[name];
+    return value === true || (Number.isFinite(Number(value)) && Number(value) >= 1);
+  }
+
+  requireTurnControlCapability(session, capability) {
+    const needsAppServer = capability === "steer";
+    if (
+      !this.runnerHasCapability(session.runnerId, capability)
+      || (needsAppServer && !this.runnerHasCapability(session.runnerId, "appServerTurns"))
+    ) {
+      throw Object.assign(new Error(`Runner does not support ${capability}`), { statusCode: 409 });
+    }
   }
 
   bindAttachments(sessionId, attachmentIds, runnerId = null) {
@@ -629,6 +663,7 @@ export class WorkStore {
       this.createCommand(input.runnerId, sessionId, "START", {
         message: input.message ?? "",
         attachments,
+        clientMessageId: input.clientMessageId ?? null,
         repoId: input.repoId,
         runtime,
         model: input.model,
@@ -678,6 +713,7 @@ export class WorkStore {
       approvalPolicy: "never",
       status: row.status,
       runtimeSessionId: row.runtime_session_id ?? row.codex_session_id,
+      activeTurnId: row.active_turn_id ?? null,
       codexSessionId: (row.runtime ?? "codex") === "codex"
         ? row.runtime_session_id ?? row.codex_session_id
         : null,
@@ -778,6 +814,7 @@ export class WorkStore {
         : { message: input.text ?? "", attachments };
       this.createCommand(session.runnerId, sessionId, restartFailedStart ? "START" : "RESUME", {
         ...commandInput,
+        clientMessageId: input.clientMessageId ?? null,
         repoId: session.repoId,
         runtime: session.runtime,
         model: session.model,
@@ -788,6 +825,291 @@ export class WorkStore {
       });
       return event;
     });
+  }
+
+  validateTurnInputSettings(session, input) {
+    const reasoningEffort = input.reasoningEffort == null
+      ? session.reasoningEffort
+      : String(input.reasoningEffort).trim();
+    const fastMode = input.fastMode == null ? session.fastMode : input.fastMode === true;
+    if (input.fastMode != null && typeof input.fastMode !== "boolean") {
+      throw Object.assign(new Error("Fast mode must be a boolean"), { statusCode: 400 });
+    }
+    const repo = this.db.prepare(
+      "SELECT * FROM repos WHERE runner_id=? AND id=? AND available=1",
+    ).get(session.runnerId, session.repoId);
+    const advertisedRuntime = repo
+      ? runtimeCatalogFromRow(repo).find((candidate) => candidate.id === session.runtime)
+      : null;
+    if (
+      !advertisedRuntime
+      || !advertisedRuntime.models.includes(session.model)
+      || !effectiveReasoningEfforts(advertisedRuntime, session.model).includes(reasoningEffort)
+      || (fastMode && !supportsFastMode(advertisedRuntime, session.model))
+    ) {
+      throw Object.assign(
+        new Error("Runtime, model, reasoning effort or speed is not advertised by the runner"),
+        { statusCode: 400 },
+      );
+    }
+    return { reasoningEffort, fastMode };
+  }
+
+  pendingInputFromRow(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      sessionId: row.session_id,
+      text: row.text,
+      attachments: parseJson(row.attachments_json, []),
+      reasoningEffort: row.reasoning_effort,
+      fastMode: Boolean(row.fast_mode),
+      state: row.state,
+      revision: Number(row.revision),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  getQueue(sessionId) {
+    const session = this.getSession(sessionId);
+    if (!session) throw Object.assign(new Error("Session not found"), { statusCode: 404 });
+    this.requireTurnControlCapability(session, "editableQueue");
+    return this.db.prepare(`
+      SELECT * FROM pending_inputs
+      WHERE session_id=? AND state IN ('QUEUED', 'DISPATCHING')
+      ORDER BY created_at, rowid
+    `).all(sessionId).map((row) => this.pendingInputFromRow(row));
+  }
+
+  validatePendingAttachments(session, attachmentIds, currentAttachments = []) {
+    if (attachmentIds == null) return currentAttachments;
+    if (!Array.isArray(attachmentIds) || attachmentIds.some((attachmentId) => typeof attachmentId !== "string")) {
+      throw Object.assign(new Error("attachmentIds must be an array of IDs"), { statusCode: 400 });
+    }
+    const ids = [...new Set(attachmentIds)];
+    if (ids.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+      throw Object.assign(
+        new Error(`At most ${MAX_ATTACHMENTS_PER_MESSAGE} attachments are allowed per message`),
+        { statusCode: 400 },
+      );
+    }
+    const currentIds = new Set(currentAttachments.map((attachment) => attachment.id));
+    return ids.map((attachmentId) => {
+      const row = this.db.prepare("SELECT session_id, mime_type FROM attachments WHERE id=?").get(attachmentId);
+      const retained = row?.session_id === session.id && currentIds.has(attachmentId);
+      if (!row || (row.session_id && !retained)) {
+        throw Object.assign(new Error("Attachment is missing or already used"), { statusCode: 409 });
+      }
+      if (!isImageMimeType(row.mime_type) && !this.runnerSupportsFileAttachments(session.runnerId)) {
+        throw Object.assign(new Error("Selected runner does not support file attachments"), { statusCode: 409 });
+      }
+      return this.attachmentMetadata(attachmentId);
+    });
+  }
+
+  replacePendingAttachments(sessionId, previous, next) {
+    const nextIds = new Set(next.map((attachment) => attachment.id));
+    const previousIds = new Set(previous.map((attachment) => attachment.id));
+    for (const attachment of previous) {
+      if (!nextIds.has(attachment.id)) {
+        this.db.prepare("UPDATE attachments SET session_id=NULL WHERE id=? AND session_id=?")
+          .run(attachment.id, sessionId);
+      }
+    }
+    for (const attachment of next) {
+      if (!previousIds.has(attachment.id)) {
+        const result = this.db.prepare("UPDATE attachments SET session_id=? WHERE id=? AND session_id IS NULL")
+          .run(sessionId, attachment.id);
+        if (!result.changes) throw Object.assign(new Error("Attachment is missing or already used"), { statusCode: 409 });
+      }
+    }
+  }
+
+  enqueueInput(sessionId, input, idempotencyKey) {
+    return this.withIdempotency(`queue:${sessionId}`, idempotencyKey, () => {
+      const session = this.getSession(sessionId);
+      if (!session) throw Object.assign(new Error("Session not found"), { statusCode: 404 });
+      this.requireTurnControlCapability(session, "editableQueue");
+      if (session.archivedAt) throw Object.assign(new Error("Restore the archived session before queueing"), { statusCode: 409 });
+      if (SESSION_TERMINAL.has(session.status)) throw Object.assign(new Error("Session is completed"), { statusCode: 409 });
+      if (input.clientMessageId) {
+        const existing = this.db.prepare(
+          "SELECT * FROM pending_inputs WHERE session_id=? AND client_message_id=?",
+        ).get(sessionId, input.clientMessageId);
+        if (existing) return this.pendingInputFromRow(existing);
+      }
+      if (!String(input.text ?? "").trim() && !(input.attachmentIds?.length)) {
+        throw Object.assign(new Error("Message or attachment is required"), { statusCode: 400 });
+      }
+      const settings = this.validateTurnInputSettings(session, input);
+      const attachments = this.validatePendingAttachments(session, input.attachmentIds ?? [], []);
+      const now = new Date().toISOString();
+      const itemId = id("queue");
+      this.replacePendingAttachments(sessionId, [], attachments);
+      this.db.prepare(`
+        INSERT INTO pending_inputs(
+          id, session_id, client_message_id, text, attachments_json, reasoning_effort,
+          fast_mode, state, revision, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'QUEUED', 1, ?, ?)
+      `).run(
+        itemId,
+        sessionId,
+        input.clientMessageId ?? null,
+        input.text ?? "",
+        json(attachments),
+        settings.reasoningEffort,
+        settings.fastMode ? 1 : 0,
+        now,
+        now,
+      );
+      return this.pendingInputFromRow(this.db.prepare("SELECT * FROM pending_inputs WHERE id=?").get(itemId));
+    });
+  }
+
+  updateQueuedInput(sessionId, itemId, input, idempotencyKey) {
+    return this.withIdempotency(`queue-update:${sessionId}:${itemId}`, idempotencyKey, () => {
+      const session = this.getSession(sessionId);
+      if (!session) throw Object.assign(new Error("Session not found"), { statusCode: 404 });
+      this.requireTurnControlCapability(session, "editableQueue");
+      const row = this.db.prepare("SELECT * FROM pending_inputs WHERE id=? AND session_id=?").get(itemId, sessionId);
+      if (!row) throw Object.assign(new Error("Queue item not found"), { statusCode: 404 });
+      if (row.state !== "QUEUED") throw Object.assign(new Error("Queue item is already dispatching"), { statusCode: 409 });
+      if (!Number.isInteger(input.revision)) {
+        throw Object.assign(new Error("revision is required"), { statusCode: 400 });
+      }
+      const current = this.pendingInputFromRow(row);
+      const text = input.text == null ? current.text : String(input.text);
+      const attachments = this.validatePendingAttachments(session, input.attachmentIds, current.attachments);
+      if (!text.trim() && !attachments.length) {
+        throw Object.assign(new Error("Message or attachment is required"), { statusCode: 400 });
+      }
+      const settings = this.validateTurnInputSettings(session, {
+        reasoningEffort: input.reasoningEffort ?? current.reasoningEffort,
+        fastMode: input.fastMode ?? current.fastMode,
+      });
+      const now = new Date().toISOString();
+      const result = this.db.prepare(`
+        UPDATE pending_inputs
+        SET text=?, attachments_json=?, reasoning_effort=?, fast_mode=?, revision=revision+1, updated_at=?
+        WHERE id=? AND session_id=? AND state='QUEUED' AND revision=?
+      `).run(
+        text,
+        json(attachments),
+        settings.reasoningEffort,
+        settings.fastMode ? 1 : 0,
+        now,
+        itemId,
+        sessionId,
+        input.revision,
+      );
+      if (!result.changes) throw Object.assign(new Error("Queue item revision conflict"), { statusCode: 409 });
+      this.replacePendingAttachments(sessionId, current.attachments, attachments);
+      return this.pendingInputFromRow(this.db.prepare("SELECT * FROM pending_inputs WHERE id=?").get(itemId));
+    });
+  }
+
+  cancelQueuedInput(sessionId, itemId, input, idempotencyKey) {
+    return this.withIdempotency(`queue-cancel:${sessionId}:${itemId}`, idempotencyKey, () => {
+      const session = this.getSession(sessionId);
+      if (!session) throw Object.assign(new Error("Session not found"), { statusCode: 404 });
+      this.requireTurnControlCapability(session, "editableQueue");
+      const row = this.db.prepare("SELECT * FROM pending_inputs WHERE id=? AND session_id=?").get(itemId, sessionId);
+      if (!row) throw Object.assign(new Error("Queue item not found"), { statusCode: 404 });
+      if (row.state !== "QUEUED") throw Object.assign(new Error("Queue item is already dispatching"), { statusCode: 409 });
+      if (!Number.isInteger(input.revision)) {
+        throw Object.assign(new Error("revision is required"), { statusCode: 400 });
+      }
+      const current = this.pendingInputFromRow(row);
+      const now = new Date().toISOString();
+      const result = this.db.prepare(`
+        UPDATE pending_inputs SET state='CANCELED', revision=revision+1, updated_at=?
+        WHERE id=? AND session_id=? AND state='QUEUED' AND revision=?
+      `).run(now, itemId, sessionId, input.revision);
+      if (!result.changes) throw Object.assign(new Error("Queue item revision conflict"), { statusCode: 409 });
+      this.replacePendingAttachments(sessionId, current.attachments, []);
+      return { accepted: true, id: itemId, state: "CANCELED" };
+    });
+  }
+
+  steerTurn(sessionId, input, idempotencyKey) {
+    return this.withIdempotency(`steer:${sessionId}`, idempotencyKey, () => {
+      const session = this.getSession(sessionId);
+      if (!session) throw Object.assign(new Error("Session not found"), { statusCode: 404 });
+      this.requireTurnControlCapability(session, "steer");
+      if (session.status !== "RUNNING" || !session.activeTurnId) {
+        throw Object.assign(new Error("Session has no steerable active turn"), { statusCode: 409 });
+      }
+      if (!String(input.expectedTurnId ?? "").trim() || input.expectedTurnId !== session.activeTurnId) {
+        throw Object.assign(new Error("Active turn changed"), { statusCode: 409 });
+      }
+      if (!String(input.text ?? "").trim() && !(input.attachmentIds?.length)) {
+        throw Object.assign(new Error("Message or attachment is required"), { statusCode: 400 });
+      }
+      const attachments = this.bindAttachments(sessionId, input.attachmentIds, session.runnerId);
+      const commandId = this.createCommand(session.runnerId, sessionId, "STEER", {
+        message: input.text ?? "",
+        attachments,
+        expectedTurnId: session.activeTurnId,
+        clientMessageId: input.clientMessageId ?? null,
+      });
+      return { accepted: true, commandId, expectedTurnId: session.activeTurnId, state: "PENDING" };
+    });
+  }
+
+  promoteNextQueuedInput(sessionId) {
+    const session = this.getSession(sessionId);
+    if (!session || SESSION_TERMINAL.has(session.status)) return null;
+    const pendingControl = this.db.prepare(`
+      SELECT 1 FROM commands
+      WHERE session_id=? AND kind IN ('STOP', 'COMPLETE') AND state IN ('PENDING', 'CLAIMED')
+      LIMIT 1
+    `).get(sessionId);
+    if (pendingControl) return null;
+    const pendingLegacyTurn = this.db.prepare(`
+      SELECT 1 FROM commands
+      WHERE session_id=? AND kind IN ('START', 'RESUME') AND state IN ('PENDING', 'CLAIMED')
+      LIMIT 1
+    `).get(sessionId);
+    if (pendingLegacyTurn) return null;
+    const row = this.db.prepare(`
+      SELECT * FROM pending_inputs
+      WHERE session_id=? AND state='QUEUED'
+      ORDER BY created_at, rowid LIMIT 1
+    `).get(sessionId);
+    if (!row) return null;
+    const item = this.pendingInputFromRow(row);
+    const now = new Date().toISOString();
+    const claimed = this.db.prepare(`
+      UPDATE pending_inputs SET state='DISPATCHING', revision=revision+1, updated_at=?
+      WHERE id=? AND state='QUEUED' AND revision=?
+    `).run(now, item.id, item.revision);
+    if (!claimed.changes) return null;
+    this.db.prepare("UPDATE sessions SET reasoning_effort=?, fast_mode=?, status='QUEUED', updated_at=? WHERE id=?")
+      .run(item.reasoningEffort, item.fastMode ? 1 : 0, now, sessionId);
+    const event = this.appendEvent(sessionId, "USER_MESSAGE", {
+      text: item.text,
+      attachments: item.attachments,
+      clientMessageId: row.client_message_id ?? null,
+      queueItemId: item.id,
+    }, now);
+    const restartFailedStart = session.status === "FAILED" && !session.runtimeSessionId;
+    const commandInput = restartFailedStart
+      ? this.buildFailedStartInput(sessionId)
+      : { message: item.text, attachments: item.attachments };
+    this.createCommand(session.runnerId, sessionId, restartFailedStart ? "START" : "RESUME", {
+      ...commandInput,
+      repoId: session.repoId,
+      runtime: session.runtime,
+      model: session.model,
+      reasoningEffort: item.reasoningEffort,
+      fastMode: item.fastMode,
+      inboxCursor: event.seq,
+      sessionToken: this.createSessionToken(sessionId),
+      queueItemId: item.id,
+      clientMessageId: row.client_message_id ?? null,
+    }, now);
+    return this.pendingInputFromRow(this.db.prepare("SELECT * FROM pending_inputs WHERE id=?").get(item.id));
   }
 
   buildFailedStartInput(sessionId) {
@@ -870,6 +1192,44 @@ export class WorkStore {
       }
       if (!result.changes) throw Object.assign(new Error("Command state conflict"), { statusCode: 409 });
       if (input.sessionState) this.updateSessionState(command.session_id, input.sessionState);
+      const commandPayload = parseJson(command.payload_json, {});
+      if (command.kind === "STEER" && input.state === "COMPLETED") {
+        this.appendEvent(command.session_id, "USER_MESSAGE", {
+          text: commandPayload.message ?? "",
+          attachments: commandPayload.attachments ?? [],
+          clientMessageId: commandPayload.clientMessageId ?? null,
+          steeredTurnId: commandPayload.expectedTurnId,
+        }, now);
+      }
+      if (command.kind === "STEER" && input.state === "FAILED") {
+        for (const attachment of commandPayload.attachments ?? []) {
+          this.db.prepare("UPDATE attachments SET session_id=NULL WHERE id=? AND session_id=?")
+            .run(attachment.id, command.session_id);
+        }
+        this.appendEvent(command.session_id, "SYSTEM_ERROR", {
+          code: "STEER_REJECTED",
+          message: "当前任务已结束或发生变化，引导未送达；可重新加入队列。",
+          clientMessageId: commandPayload.clientMessageId ?? null,
+          expectedTurnId: commandPayload.expectedTurnId ?? null,
+        }, now);
+      }
+      if (["START", "RESUME"].includes(command.kind) && input.state === "CLAIMED" && commandPayload.queueItemId) {
+        this.db.prepare(`
+          UPDATE pending_inputs SET state='DISPATCHED', revision=revision+1, updated_at=?
+          WHERE id=? AND session_id=? AND state='DISPATCHING'
+        `).run(now, commandPayload.queueItemId, command.session_id);
+      }
+      if (["START", "RESUME"].includes(command.kind) && ["COMPLETED", "FAILED"].includes(input.state)) {
+        if (commandPayload.queueItemId) {
+          this.db.prepare(`
+            UPDATE pending_inputs SET state='DISPATCHED', revision=revision+1, updated_at=?
+            WHERE id=? AND session_id=? AND state='DISPATCHING'
+          `).run(now, commandPayload.queueItemId, command.session_id);
+        }
+        if (input.state === "COMPLETED" && input.sessionState?.status === "IDLE") {
+          this.promoteNextQueuedInput(command.session_id);
+        }
+      }
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -889,10 +1249,20 @@ export class WorkStore {
     const runtimeSessionId = input.runtimeSessionId
       ?? (session.runtime === "codex" ? input.codexSessionId : null)
       ?? null;
+    if (Object.hasOwn(input, "activeTurnId") && input.activeTurnId != null && !String(input.activeTurnId).trim()) {
+      throw Object.assign(new Error("activeTurnId must be a non-empty string or null"), { statusCode: 400 });
+    }
+    const clearsActiveTurn = ["IDLE", "COMPLETED", "FAILED"].includes(input.status);
+    const activeTurnId = clearsActiveTurn
+      ? null
+      : Object.hasOwn(input, "activeTurnId")
+        ? input.activeTurnId
+        : session.activeTurnId;
     this.db.prepare(`
       UPDATE sessions
       SET status=?,
           runtime_session_id=COALESCE(?, runtime_session_id),
+          active_turn_id=?,
           codex_session_id=CASE
             WHEN runtime='codex' THEN COALESCE(?, codex_session_id)
             ELSE codex_session_id
@@ -902,6 +1272,7 @@ export class WorkStore {
     `).run(
       input.status,
       runtimeSessionId,
+      activeTurnId,
       runtimeSessionId,
       new Date().toISOString(),
       sessionId,

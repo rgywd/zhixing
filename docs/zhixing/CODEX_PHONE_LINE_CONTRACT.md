@@ -1,6 +1,6 @@
-# Work Phone-line v1：协议契约
+# Work Phone-line v2：协议契约
 
-状态：v1 现行协议契约（2026-08-14 核对）
+状态：v2 现行协议契约（2026-08-14 核对）
 
 所有 JSON 字段使用 camelCase，时间使用 UTC RFC 3339，ID 使用不可预测的 UUID/ULID。所有写操作带
 `Idempotency-Key`；成功重试返回第一次创建的对象。
@@ -22,6 +22,7 @@
   "approvalPolicy": "never",
   "status": "QUEUED",
   "runtimeSessionId": null,
+  "activeTurnId": null,
   "lastSeq": 0,
   "archivedAt": null,
   "createdAt": "2026-07-20T00:00:00Z"
@@ -86,8 +87,8 @@ SQLite 只保存相对 `storage_key` 与元数据。未绑定会话超过 24 小
 
 普通文件只有在目标 Runner 注册 `capabilities.fileAttachments >= 1` 时才能绑定到消息；旧 Runner 的图片路径保持兼容。
 只有会话所属 Runner 能下载附件。Runner 对命令元数据和响应体分别校验 SHA-256，再写入本轮专用临时目录。Codex
-图片继续通过 `--image` 接收；普通文件通过提示中的结构化清单和精确本机路径交付，START 可用 `--add-dir`，RESUME
-依靠固定的 `danger-full-access` 读取清单路径。Claude Code 通过 `--add-dir` 获得该目录访问权。ZIP、7z、GZip
+图片通过 Codex App Server `localImage` input 接收；普通文件通过提示中的结构化清单和固定
+`danger-full-access` 读取精确本机路径。Claude Code 通过 `--add-dir` 获得该目录访问权。ZIP、7z、GZip
 保持压缩状态，由 Agent 按任务需要检查或解压，不自动执行。该轮进程退出后删除 Runner 临时副本。
 
 ## 2. 三个 MCP 工具
@@ -215,8 +216,12 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
 - `GET /v1/work/sessions?archived=true`：返回已归档会话；默认列表不包含归档项。
 - `GET /v1/work/sessions/{id}/events?afterSeq=`：补拉有序事件。
 - `GET /v1/work/sessions/{id}/stream?afterSeq=`：SSE；断开不影响写入。
-- `POST /v1/work/sessions/{id}/messages`：排队补充消息；可携带 `reasoningEffort` 与 Codex `fastMode`，与消息原子
-  校验和提交并从该消息触发的下一次 START/RESUME 生效。字段缺省时沿用会话当前值，保持旧客户端兼容。
+- `POST /v1/work/sessions/{id}/messages`：v1 兼容入口；立即写 `USER_MESSAGE` 并创建下一次 START/RESUME。
+- `GET /v1/work/sessions/{id}/queue`：读取尚未派发或正在派发的 FIFO 输入。
+- `POST /v1/work/sessions/{id}/queue`：耐久入队；可携带 `reasoningEffort` 与 Codex `fastMode`，但派发前不写聊天事件。
+- `PATCH /v1/work/sessions/{id}/queue/{itemId}`：携带 `revision` 编辑仍为 `QUEUED` 的正文；附件和运行设置保持不变。
+- `DELETE /v1/work/sessions/{id}/queue/{itemId}`：携带 `revision` 撤回仍为 `QUEUED` 的条目。
+- `POST /v1/work/sessions/{id}/steer`：携带 `expectedTurnId` 引导当前 Codex turn；Runner 接受后才写 `USER_MESSAGE`。
 - `POST /v1/work/sessions/{id}/asks/{askId}/answer`：提交答案。
 - `POST /v1/work/sessions/{id}/stop`：停止当前进程，会话进入 IDLE。
 - `POST /v1/work/sessions/{id}/complete`：显式结束会话。
@@ -227,8 +232,9 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
 
 ### Runner scope
 
-- `POST /v1/runner/register`：登记进程级 `instanceId`、版本、能力和仓库 catalog；支持普通文件的 Runner 声明
-  `capabilities.fileAttachments=1`。同一实例可在本机目录变化后重新登记 catalog，新实例回收旧实例命令。
+- `POST /v1/runner/register`：登记进程级 `instanceId`、版本、能力和仓库 catalog；除 `fileAttachments=1` 外，
+  v2 Runner 声明 `editableQueue=true`，Codex App Server 声明 `appServerTurns=true` 与 `steer=true`。
+  同一实例可在本机目录变化后重新登记 catalog，新实例回收旧实例命令。
 - `POST /v1/runner/heartbeat`：按 `runnerId + instanceId` 续租当前实例持有的命令。
 - `GET /v1/runner/commands?runnerId=&instanceId=`：拉取当前实例的有序命令。
 - `POST /v1/runner/commands/{id}/ack`：当前实例领取/完成/失败。
@@ -248,15 +254,19 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 ## 4. 事件顺序与并发
 
 - 每个 session 使用独立、单调递增的 `seq`；Android 以 `(sessionId, seq)` 去重。
-- 同一 session 同时最多一个 Runner lease 和一个 CLI 子进程。
-- 手机消息先持久化再入命令队列；Core 返回 2xx 只表示已耐久接收，不表示 CLI 已阅读。
+- 同一 session 同时最多一个 Runner lease、一个 CLI 子进程和一个 `activeTurnId`。
+- 队列项状态为 `QUEUED -> DISPATCHING -> DISPATCHED` 或 `CANCELED`。只有 `QUEUED` 可按 revision 编辑/撤回。
+  正常 START/RESUME 完成且状态为 IDLE 时，Core 在同一事务中提升队首、写 `USER_MESSAGE`、创建下一命令；STOP、
+  COMPLETE、FAILED 不提升。Core 返回入队 2xx 只表示已耐久接收，不表示 CLI 已阅读。
 - 补充消息携带 `reasoningEffort` 或 `fastMode` 时，Core 必须在同一个幂等事务中按会话的
   runner/repo/runtime/model 当前 catalog 校验组合、写入消息、更新会话默认值并创建命令。无效组合整笔拒绝，不得
   落下消息或部分更新。该设置只约束新建命令；已经 RUNNING 的子进程继续使用启动时的档位和速度。
 - `report` 读取 inbox 时使用租约式 cursor：响应已包含的消息在下一次成功提交 cursor 后才确认，避免进程崩溃丢消息。
-- stop 与新消息竞态时，先完成 stop；新消息保留为待 resume，不静默丢弃。
-- Runner 事件必须携带 `clientEventId`。首期只允许 `ASSISTANT_MESSAGE`，其正文来自公开 `codex exec --json`
-  的 `item.completed + agent_message`，或 Claude Code stream-json 的 assistant text block；带错误标记的 synthetic
+- stop 与队列竞态时，先完成 stop；队列保留并冻结，不静默丢弃或自动重启。
+- `STEER` 必须携带 Core 当时保存的 `expectedTurnId`。Runner 只在同一活跃 turn 接受；成功 ACK 后 Core 才写用户事件，
+  失败则写 `SYSTEM_ERROR(code=STEER_REJECTED)`，不得静默改成队列或自动重放。
+- Runner 事件必须携带 `clientEventId`。只允许 `ASSISTANT_MESSAGE`，其正文来自 Codex App Server
+  `item/completed + agentMessage`（exec 回退映射 `item.completed + agent_message`），或 Claude Code stream-json 的 assistant text block；带错误标记的 synthetic
   assistant 事件不得展示为正常回复。Core 拒绝 reasoning、命令、工具参数和任意自定义事件类型。
 - Runner 必须先把消息写入本地 outbox，再异步上传；本轮 `IDLE/FAILED` transition 必须排在尚未确认的消息之后。
 - 与紧邻 `REPORT` 或既有 `ASSISTANT_MESSAGE` 完全相同的文本由 Core 幂等合并，避免模型显式汇报后重复展示。
@@ -286,6 +296,8 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 - `USER_MESSAGE`、`REPORT` 与 `ASSISTANT_MESSAGE` 正文都支持选择文字、复制全文和引用；Markdown 代码块继续提供独立复制。
 - “编辑后发送”只把既有用户消息载入输入框并创建新消息，不修改服务端历史事件。
 - 文本草稿使用本地会话 ID 隔离；新会话使用独立临时键。只有写请求成功后才能清除草稿。
+- `RUNNING` 时点按发送入队，长按发送引导当前 turn；同时提供可访问的显式“引导当前任务”动作。队列面板默认折叠并
+  展示队首和数量，展开后按 FIFO 顺序编辑或撤回。`WAITING_FOR_USER` 只允许入队，长按提示先回答问题。
 - SSE 或轮询追加事件时，只有用户原本位于列表底部才自动跟随；否则累计新消息数量并由用户主动跳转。
 
 ## 6. Android 后台跟踪与提醒
@@ -303,17 +315,18 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 
 ## 7. 版本与兼容
 
-请求头携带 `X-Zhixing-Work-Protocol: 1`。Core 在不认识主版本时返回 `426 Upgrade Required`；新增可选字段保持向后兼容。
-普通文件通过 Runner 能力字段渐进启用，部署顺序为 Runner、Core、Android；升级期间旧 Android 与旧 Runner 的图片流程
-不变，新 Android 遇到未声明能力的 Runner 时禁用文件入口，Core 也拒绝绕过客户端的普通文件绑定。
-Phone-line v1 不读取旧 Work/Happy 数据；Room v33 迁移会删除旧 Work/Happy/App Server/Codex catalog 表，只保留
+Android v2 请求携带 `X-Zhixing-Work-Protocol: 2`；Core 在迁移期同时接受 1 和 2，Runner 控制面继续用 v1 头并通过
+capability 协商启用新能力。部署顺序为 Runner、Core、Android；旧 `/messages` 与附件流程保持不变，未声明能力时
+Android 不展示队列或 steer，Core 也拒绝绕过能力门禁。
+Phone-line 不读取旧 Work/Happy 数据；Room v33 迁移会删除旧 Work/Happy/App Server/Codex catalog 表，只保留
 新版 `phone_work_sessions` 与 `phone_work_events`。Room v39→v40 为现有会话补入 `runtime=codex` 和通用
-`runtime_session_id`；Room v46→v47 为现有 Work 会话补入 `fast_mode=0`（标准）。Core 同样从旧 `codex_session_id`
+`runtime_session_id`；Room v46→v47 为现有 Work 会话补入 `fast_mode=0`（标准），Room v47→v48 增加可空
+`active_turn_id`。Core 同样从旧 `codex_session_id`
 回填通用 ID，并为旧会话补入标准速度。`codexSessionId` 仅对 Codex 会话保留为兼容别名。
 
 ## 8. Hook 隔离与失败语义
 
-- 仅 Runner 发起的手机会话携带显式 phone profile；普通 Codex Desktop/CLI 不安装、不继承该 Hook。
+- `codex exec` 回退路径才携带显式 phone profile；App Server 路径显式禁用 hooks。普通 Codex Desktop/CLI 不安装、不继承该 Hook。
 - 只允许 `Stop` Hook。Hook 输入只提取 `session_id`、`turn_id` 和事件名，输出只写本机单轮 outbox，不包含正文或密钥。
 - Hook handler 的超时上限为 1 秒并必须静默、fail-open。Hook 没有运行、没有写入标记或写入失败时，Runner 仍按
   JSONL 的 `turn.completed` / `turn.failed` 完成会话，并以子进程退出结果作为兼容兜底。收到语义终态后 CLI

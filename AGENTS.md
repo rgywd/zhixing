@@ -121,8 +121,9 @@
 
 - **Work / Agent Phone-line**: A separate, mobile-created session domain for communicating with Codex or Claude Code
   processes on a registered development machine. It uses a durable Work Core, an outbound-only local Runner, and exactly
-  three MCP tools (`report`, `ask`, `report_html`). It must not read desktop history, depend on Happy/App Server
-  protocols, expose arbitrary repository paths, or reuse the normal Provider generation pipeline. Product and protocol
+  three MCP tools (`report`, `ask`, `report_html`). Codex turns use a Runner-internal, version-pinned App Server adapter;
+  that private JSONL protocol must never be exposed to the phone. Work must not read desktop history, depend on Happy,
+  expose arbitrary repository paths, or reuse the normal Provider generation pipeline. Product and protocol
   boundaries are defined in `docs/zhixing/CODEX_PHONE_LINE_ARCHITECTURE.md` and
   `docs/zhixing/CODEX_PHONE_LINE_CONTRACT.md`.
 
