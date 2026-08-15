@@ -1390,4 +1390,5 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="chat_message_tool_open_navigation">ナビを開く：%1$s</string>
   <string name="tool_ui_navigation_amap_app">AMap で開きました</string>
   <string name="tool_ui_navigation_amap_web">AMap Web ナビを開きました</string>
+  <string name="chat_search_failure_fallback">設定済みの検索サービスでエラーが発生し、続きの回答を生成できませんでした。再試行するか、別の検索サービスに切り替えてください。</string>
 </resources>

@@ -1390,4 +1390,5 @@
   <string name="chat_message_tool_open_navigation">Открыть навигацию: %1$s</string>
   <string name="tool_ui_navigation_amap_app">Открыто в AMap</string>
   <string name="tool_ui_navigation_amap_web">Открыта веб-навигация AMap</string>
+  <string name="chat_search_failure_fallback">Настроенная служба поиска не сработала, и последующий ответ не был создан. Повторите попытку или выберите другую службу поиска.</string>
 </resources>

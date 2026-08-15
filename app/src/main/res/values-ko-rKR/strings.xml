@@ -1390,4 +1390,5 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="chat_message_tool_open_navigation">길안내 열기: %1$s</string>
   <string name="tool_ui_navigation_amap_app">AMap에서 열었습니다</string>
   <string name="tool_ui_navigation_amap_web">AMap 웹 길안내를 열었습니다</string>
+  <string name="chat_search_failure_fallback">설정된 검색 서비스 호출에 실패하여 후속 답변이 생성되지 않았습니다. 다시 시도하거나 다른 검색 서비스로 전환해 주세요.</string>
 </resources>

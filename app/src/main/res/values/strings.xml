@@ -1388,4 +1388,5 @@
   <string name="chat_page_folder_add">New</string>
   <string name="chat_page_delete_folder_confirm">Delete folder "%1$s"? Conversations inside will not be deleted, only removed from the folder.</string>
   <string name="chat_page_delete_folder_generating">Some conversations in this folder are still generating. Please stop them before deleting.</string>
+  <string name="chat_search_failure_fallback">The configured search service failed, and no follow-up answer was generated. Please retry or switch search providers.</string>
 </resources>
