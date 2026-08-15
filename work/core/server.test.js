@@ -1622,9 +1622,148 @@ test("steer targets the active turn and writes history only after runner complet
   assert.match(error.payload.message, /引导未送达/);
 });
 
+test("queued input converts atomically to steer while retaining bound attachments", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const { session } = await registerAndCreate(baseUrl);
+  await request(baseUrl, `/v1/runner/sessions/${session.id}/state`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      instanceId: RUNNER_INSTANCE,
+      status: "RUNNING",
+      runtimeSessionId: "thread-queue-steer",
+      activeTurnId: "turn-queue-steer",
+    },
+  });
+  const uploaded = await uploadImage(baseUrl, Buffer.from("89504e470d0a1a0a", "hex"));
+  assert.equal(uploaded.response.status, 201);
+  const queued = await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, {
+    protocol: "2",
+    method: "POST",
+    idempotencyKey: "queue-for-steer",
+    body: {
+      text: "按这张图调整当前实现",
+      attachmentIds: [uploaded.payload.id],
+      clientMessageId: "queue-steer-message",
+    },
+  });
+  assert.equal(queued.response.status, 201);
+
+  const steered = await request(
+    baseUrl,
+    `/v1/work/sessions/${session.id}/queue/${queued.payload.id}/steer`,
+    {
+      protocol: "2",
+      method: "POST",
+      idempotencyKey: "convert-queue-to-steer",
+      body: { revision: 1, expectedTurnId: "turn-queue-steer" },
+    },
+  );
+  assert.equal(steered.response.status, 202);
+  assert.equal(steered.payload.queueItemId, queued.payload.id);
+  const replayed = await request(
+    baseUrl,
+    `/v1/work/sessions/${session.id}/queue/${queued.payload.id}/steer`,
+    {
+      protocol: "2",
+      method: "POST",
+      idempotencyKey: "convert-queue-to-steer",
+      body: { revision: 1, expectedTurnId: "turn-queue-steer" },
+    },
+  );
+  assert.deepEqual(replayed.payload, steered.payload);
+
+  let queue = await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, { protocol: "2" });
+  assert.deepEqual(queue.payload.items.map((item) => [item.state, item.revision]), [["DISPATCHING", 2]]);
+
+  const commands = await request(baseUrl, runnerCommandsPath(), { token: RUNNER_TOKEN });
+  const command = commands.payload.commands.find((item) => item.id === steered.payload.commandId);
+  assert.equal(command.kind, "STEER");
+  assert.equal(command.payload.queueItemId, queued.payload.id);
+  assert.equal(command.payload.attachments[0].id, uploaded.payload.id);
+
+  await request(baseUrl, `/v1/runner/commands/${command.id}/ack`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: { instanceId: RUNNER_INSTANCE, state: "COMPLETED" },
+  });
+  queue = await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, { protocol: "2" });
+  assert.deepEqual(queue.payload.items, []);
+  const events = await request(baseUrl, `/v1/work/sessions/${session.id}/events`, { protocol: "2" });
+  const message = events.payload.events.find((event) => event.payload.queueItemId === queued.payload.id);
+  assert.equal(message.type, "USER_MESSAGE");
+  assert.equal(message.payload.attachments[0].id, uploaded.payload.id);
+});
+
+test("failed queued steer restores the queue item and stale requests leave it untouched", async (t) => {
+  const { baseUrl } = await fixture(t);
+  const { session } = await registerAndCreate(baseUrl);
+  await request(baseUrl, `/v1/runner/sessions/${session.id}/state`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: {
+      instanceId: RUNNER_INSTANCE,
+      status: "RUNNING",
+      runtimeSessionId: "thread-queue-steer-failure",
+      activeTurnId: "turn-current",
+    },
+  });
+  const queued = await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, {
+    protocol: "2",
+    method: "POST",
+    idempotencyKey: "queue-for-failed-steer",
+    body: { text: "不要丢失这条消息", clientMessageId: "queue-failed-steer-message" },
+  });
+
+  for (const [key, body] of [
+    ["stale-turn", { revision: 1, expectedTurnId: "turn-old" }],
+    ["stale-revision", { revision: 0, expectedTurnId: "turn-current" }],
+  ]) {
+    const rejected = await request(
+      baseUrl,
+      `/v1/work/sessions/${session.id}/queue/${queued.payload.id}/steer`,
+      { protocol: "2", method: "POST", idempotencyKey: key, body },
+    );
+    assert.equal(rejected.response.status, 409);
+  }
+  let queue = await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, { protocol: "2" });
+  assert.deepEqual(queue.payload.items.map((item) => [item.state, item.revision]), [["QUEUED", 1]]);
+
+  const steered = await request(
+    baseUrl,
+    `/v1/work/sessions/${session.id}/queue/${queued.payload.id}/steer`,
+    {
+      protocol: "2",
+      method: "POST",
+      idempotencyKey: "accepted-then-failed",
+      body: { revision: 1, expectedTurnId: "turn-current" },
+    },
+  );
+  await request(baseUrl, `/v1/runner/commands/${steered.payload.commandId}/ack`, {
+    token: RUNNER_TOKEN,
+    method: "POST",
+    body: { instanceId: RUNNER_INSTANCE, state: "FAILED" },
+  });
+
+  queue = await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, { protocol: "2" });
+  assert.deepEqual(queue.payload.items.map((item) => [item.text, item.state, item.revision]), [
+    ["不要丢失这条消息", "QUEUED", 3],
+  ]);
+  const events = await request(baseUrl, `/v1/work/sessions/${session.id}/events`, { protocol: "2" });
+  const error = events.payload.events.find((event) => event.payload.code === "QUEUE_STEER_REJECTED");
+  assert.equal(error.type, "SYSTEM_ERROR");
+  assert.match(error.payload.message, /已保留在队列/);
+});
+
 test("queue and steer endpoints are gated by runner capabilities", async (t) => {
   const { baseUrl, store } = await fixture(t);
   const { session } = await registerAndCreate(baseUrl);
+  const queued = await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, {
+    protocol: "2",
+    method: "POST",
+    idempotencyKey: "capability-queue",
+    body: { text: "等待转换", clientMessageId: "capability-queue-message" },
+  });
   store.db.prepare("UPDATE runners SET capabilities_json='{}' WHERE id='runner-1'").run();
   const queue = await request(baseUrl, `/v1/work/sessions/${session.id}/queue`, { protocol: "2" });
   assert.equal(queue.response.status, 409);
@@ -1635,6 +1774,17 @@ test("queue and steer endpoints are gated by runner capabilities", async (t) => 
     body: { text: "引导", expectedTurnId: "turn-1" },
   });
   assert.equal(steer.response.status, 409);
+  const queuedSteer = await request(
+    baseUrl,
+    `/v1/work/sessions/${session.id}/queue/${queued.payload.id}/steer`,
+    {
+      protocol: "2",
+      method: "POST",
+      idempotencyKey: "unsupported-queue-steer",
+      body: { revision: 1, expectedTurnId: "turn-1" },
+    },
+  );
+  assert.equal(queuedSteer.response.status, 409);
 
   store.db.prepare("UPDATE runners SET capabilities_json=? WHERE id='runner-1'")
     .run(JSON.stringify({ editableQueue: true }));

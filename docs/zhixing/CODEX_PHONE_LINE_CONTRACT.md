@@ -221,6 +221,8 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
 - `POST /v1/work/sessions/{id}/queue`：耐久入队；可携带 `reasoningEffort` 与 Codex `fastMode`，但派发前不写聊天事件。
 - `PATCH /v1/work/sessions/{id}/queue/{itemId}`：携带 `revision` 编辑仍为 `QUEUED` 的正文；附件和运行设置保持不变。
 - `DELETE /v1/work/sessions/{id}/queue/{itemId}`：携带 `revision` 撤回仍为 `QUEUED` 的条目。
+- `POST /v1/work/sessions/{id}/queue/{itemId}/steer`：携带 `revision` 与 `expectedTurnId`，把仍为 `QUEUED`
+  的正文和既有附件原子转换为当前 Codex turn 的引导；不应用该队列项的下一轮思考深度或速度。
 - `POST /v1/work/sessions/{id}/steer`：携带 `expectedTurnId` 引导当前 Codex turn；Runner 接受后才写 `USER_MESSAGE`。
 - `POST /v1/work/sessions/{id}/asks/{askId}/answer`：提交答案。
 - `POST /v1/work/sessions/{id}/stop`：停止当前进程，会话进入 IDLE。
@@ -259,6 +261,10 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 - 队列项状态为 `QUEUED -> DISPATCHING -> DISPATCHED` 或 `CANCELED`。只有 `QUEUED` 可按 revision 编辑/撤回。
   正常 START/RESUME 完成且状态为 IDLE 时，Core 在同一事务中提升队首、写 `USER_MESSAGE`、创建下一命令；STOP、
   COMPLETE、FAILED 不提升。Core 返回入队 2xx 只表示已耐久接收，不表示 CLI 已阅读。
+- 队列转引导必须在一个幂等事务中同时校验 `revision`、`RUNNING`、`activeTurnId` 和 Runner 能力，再把条目从
+  `QUEUED` 改为 `DISPATCHING` 并创建 `STEER`。Runner 成功 ACK 后才写带 `queueItemId` 的 `USER_MESSAGE` 并改为
+  `DISPATCHED`；失败时恢复为 `QUEUED`、保留原附件，并写
+  `SYSTEM_ERROR(code=QUEUE_STEER_REJECTED)`。客户端不得用“撤回后普通 steer”拼接该操作。
 - 补充消息携带 `reasoningEffort` 或 `fastMode` 时，Core 必须在同一个幂等事务中按会话的
   runner/repo/runtime/model 当前 catalog 校验组合、写入消息、更新会话默认值并创建命令。无效组合整笔拒绝，不得
   落下消息或部分更新。该设置只约束新建命令；已经 RUNNING 的子进程继续使用启动时的档位和速度。
@@ -298,7 +304,8 @@ MCP token 只允许以上三个接口，且 URL 中 session ID 必须与 token c
 - “编辑后发送”只把既有用户消息载入输入框并创建新消息，不修改服务端历史事件。
 - 文本草稿使用本地会话 ID 隔离；新会话使用独立临时键。只有写请求成功后才能清除草稿。
 - `RUNNING` 时点按发送入队，长按发送引导当前 turn；同时提供可访问的显式“引导当前任务”动作。队列面板默认折叠并
-  展示队首和数量，展开后按 FIFO 顺序编辑或撤回。`WAITING_FOR_USER` 只允许入队，长按提示先回答问题。
+  展示队首和数量，展开后按 FIFO 顺序将 `QUEUED` 条目转为当前任务引导、编辑或撤回。转引导入口仅在当前 turn
+  可 steer 时启用；`WAITING_FOR_USER` 只允许入队，必须先回答问题。
 - SSE 或轮询追加事件时，只有用户原本位于列表底部才自动跟随；否则累计新消息数量并由用户主动跳转。
 
 ## 6. Android 后台跟踪与提醒

@@ -125,6 +125,18 @@ class PhoneWorkChatInteractionTest {
     }
 
     @Test
+    fun `queued item can steer only a live supported turn`() {
+        val capabilities = PhoneWorkRunnerCapabilities(appServerTurns = true, steer = true, editableQueue = true)
+        val queued = queueItem(text = "调整当前实现")
+
+        assertTrue(canSteerQueueItem(session("RUNNING", "turn-1"), capabilities, queued))
+        assertFalse(canSteerQueueItem(session("WAITING_FOR_USER", "turn-1"), capabilities, queued))
+        assertFalse(canSteerQueueItem(session("RUNNING", null), capabilities, queued))
+        assertFalse(canSteerQueueItem(session("RUNNING", "turn-1"), capabilities.copy(steer = false), queued))
+        assertFalse(canSteerQueueItem(session("RUNNING", "turn-1"), capabilities, queued.copy(state = "DISPATCHING")))
+    }
+
+    @Test
     fun `idle and legacy runners preserve direct send`() {
         assertEquals(
             WorkInputAction.DIRECT,

@@ -1032,6 +1032,48 @@ export class WorkStore {
     });
   }
 
+  steerQueuedInput(sessionId, itemId, input, idempotencyKey) {
+    return this.withIdempotency(`queue-steer:${sessionId}:${itemId}`, idempotencyKey, () => {
+      const session = this.getSession(sessionId);
+      if (!session) throw Object.assign(new Error("Session not found"), { statusCode: 404 });
+      this.requireTurnControlCapability(session, "editableQueue");
+      this.requireTurnControlCapability(session, "steer");
+      if (session.status !== "RUNNING" || !session.activeTurnId) {
+        throw Object.assign(new Error("Session has no steerable active turn"), { statusCode: 409 });
+      }
+      if (!String(input.expectedTurnId ?? "").trim() || input.expectedTurnId !== session.activeTurnId) {
+        throw Object.assign(new Error("Active turn changed"), { statusCode: 409 });
+      }
+      if (!Number.isInteger(input.revision)) {
+        throw Object.assign(new Error("revision is required"), { statusCode: 400 });
+      }
+      const row = this.db.prepare("SELECT * FROM pending_inputs WHERE id=? AND session_id=?").get(itemId, sessionId);
+      if (!row) throw Object.assign(new Error("Queue item not found"), { statusCode: 404 });
+      if (row.state !== "QUEUED") throw Object.assign(new Error("Queue item is already dispatching"), { statusCode: 409 });
+      const item = this.pendingInputFromRow(row);
+      const now = new Date().toISOString();
+      const claimed = this.db.prepare(`
+        UPDATE pending_inputs SET state='DISPATCHING', revision=revision+1, updated_at=?
+        WHERE id=? AND session_id=? AND state='QUEUED' AND revision=?
+      `).run(now, itemId, sessionId, input.revision);
+      if (!claimed.changes) throw Object.assign(new Error("Queue item revision conflict"), { statusCode: 409 });
+      const commandId = this.createCommand(session.runnerId, sessionId, "STEER", {
+        message: item.text,
+        attachments: item.attachments,
+        expectedTurnId: session.activeTurnId,
+        clientMessageId: row.client_message_id ?? null,
+        queueItemId: item.id,
+      }, now);
+      return {
+        accepted: true,
+        commandId,
+        expectedTurnId: session.activeTurnId,
+        queueItemId: item.id,
+        state: "PENDING",
+      };
+    });
+  }
+
   steerTurn(sessionId, input, idempotencyKey) {
     return this.withIdempotency(`steer:${sessionId}`, idempotencyKey, () => {
       const session = this.getSession(sessionId);
@@ -1199,18 +1241,35 @@ export class WorkStore {
           attachments: commandPayload.attachments ?? [],
           clientMessageId: commandPayload.clientMessageId ?? null,
           steeredTurnId: commandPayload.expectedTurnId,
+          ...(commandPayload.queueItemId ? { queueItemId: commandPayload.queueItemId } : {}),
         }, now);
+        if (commandPayload.queueItemId) {
+          this.db.prepare(`
+            UPDATE pending_inputs SET state='DISPATCHED', revision=revision+1, updated_at=?
+            WHERE id=? AND session_id=? AND state='DISPATCHING'
+          `).run(now, commandPayload.queueItemId, command.session_id);
+        }
       }
       if (command.kind === "STEER" && input.state === "FAILED") {
-        for (const attachment of commandPayload.attachments ?? []) {
-          this.db.prepare("UPDATE attachments SET session_id=NULL WHERE id=? AND session_id=?")
-            .run(attachment.id, command.session_id);
+        if (commandPayload.queueItemId) {
+          this.db.prepare(`
+            UPDATE pending_inputs SET state='QUEUED', revision=revision+1, updated_at=?
+            WHERE id=? AND session_id=? AND state='DISPATCHING'
+          `).run(now, commandPayload.queueItemId, command.session_id);
+        } else {
+          for (const attachment of commandPayload.attachments ?? []) {
+            this.db.prepare("UPDATE attachments SET session_id=NULL WHERE id=? AND session_id=?")
+              .run(attachment.id, command.session_id);
+          }
         }
         this.appendEvent(command.session_id, "SYSTEM_ERROR", {
-          code: "STEER_REJECTED",
-          message: "当前任务已结束或发生变化，引导未送达；可重新加入队列。",
+          code: commandPayload.queueItemId ? "QUEUE_STEER_REJECTED" : "STEER_REJECTED",
+          message: commandPayload.queueItemId
+            ? "当前任务已结束或发生变化，引导未送达；消息已保留在队列。"
+            : "当前任务已结束或发生变化，引导未送达；可重新加入队列。",
           clientMessageId: commandPayload.clientMessageId ?? null,
           expectedTurnId: commandPayload.expectedTurnId ?? null,
+          ...(commandPayload.queueItemId ? { queueItemId: commandPayload.queueItemId } : {}),
         }, now);
       }
       if (["START", "RESUME"].includes(command.kind) && input.state === "CLAIMED" && commandPayload.queueItemId) {

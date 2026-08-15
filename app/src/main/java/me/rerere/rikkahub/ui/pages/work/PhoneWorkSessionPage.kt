@@ -79,6 +79,7 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.AiMagic
 import me.rerere.hugeicons.stroke.ArrowDown01
 import me.rerere.hugeicons.stroke.ArrowRight01
+import me.rerere.hugeicons.stroke.Forward02
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Folder01
@@ -336,6 +337,16 @@ fun PhoneWorkSessionPage(sessionId: String) {
                     if (queue.isNotEmpty()) {
                         WorkPendingQueuePanel(
                             items = queue,
+                            canSteer = session?.status == "RUNNING" &&
+                                runnerCapabilities.appServerTurns &&
+                                runnerCapabilities.editableQueue &&
+                                runnerCapabilities.steer &&
+                                !session?.activeTurnId.isNullOrBlank(),
+                            onSteer = { item ->
+                                vm.steerQueueItem(item) {
+                                    Toast.makeText(context, "已转为引导当前任务", Toast.LENGTH_SHORT).show()
+                                }
+                            },
                             onEdit = { editingQueueItem = it },
                             onCancel = vm::cancelQueueItem,
                         )
@@ -1383,6 +1394,8 @@ internal fun workQueueItemPreview(item: PhoneWorkQueueItem): String = item.text
 @Composable
 private fun WorkPendingQueuePanel(
     items: List<PhoneWorkQueueItem>,
+    canSteer: Boolean,
+    onSteer: (PhoneWorkQueueItem) -> Unit,
     onEdit: (PhoneWorkQueueItem) -> Unit,
     onCancel: (PhoneWorkQueueItem) -> Unit,
 ) {
@@ -1449,6 +1462,12 @@ private fun WorkPendingQueuePanel(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                        }
+                        IconButton(
+                            onClick = { onSteer(item) },
+                            enabled = canSteer && item.state == "QUEUED",
+                        ) {
+                            Icon(HugeIcons.Forward02, "将第 ${index + 1} 条队列消息转为引导当前任务")
                         }
                         IconButton(
                             onClick = { onEdit(item) },
