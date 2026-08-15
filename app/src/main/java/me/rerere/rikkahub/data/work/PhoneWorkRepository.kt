@@ -161,6 +161,17 @@ class PhoneWorkRepository(
         )
     }
 
+    suspend fun steerQueueItem(
+        sessionId: String,
+        itemId: String,
+        revision: Int,
+        expectedTurnId: String,
+    ) {
+        api.steerQueueItem(sessionId, itemId, revision, expectedTurnId)
+        refreshQueue(sessionId)
+        PhoneWorkTrackingService.start(context)
+    }
+
     suspend fun steer(
         sessionId: String,
         expectedTurnId: String,

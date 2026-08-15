@@ -174,6 +174,17 @@ class PhoneWorkApiClient(
         )
     }
 
+    suspend fun steerQueueItem(
+        sessionId: String,
+        itemId: String,
+        revision: Int,
+        expectedTurnId: String,
+    ): PhoneWorkSteerReceipt = post(
+        path = "/v1/work/sessions/${sessionId.urlEncode()}/queue/${itemId.urlEncode()}/steer",
+        body = QueueSteerRequest(revision = revision, expectedTurnId = expectedTurnId),
+        idempotencyKey = UUID.randomUUID().toString(),
+    )
+
     suspend fun steer(
         sessionId: String,
         expectedTurnId: String,
@@ -426,6 +437,10 @@ data class CreateSessionRequest(
     val text: String,
 )
 @Serializable internal data class CancelQueueItemRequest(val revision: Int)
+@Serializable internal data class QueueSteerRequest(
+    val revision: Int,
+    val expectedTurnId: String,
+)
 @Serializable internal data class SteerRequest(
     val text: String,
     val attachmentIds: List<String> = emptyList(),

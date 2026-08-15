@@ -343,6 +343,26 @@ class PhoneWorkSessionVM(
         }
     }
 
+    fun steerQueueItem(item: PhoneWorkQueueItem, onAccepted: () -> Unit = {}) {
+        val current = session.value ?: return
+        val capabilities = workRunnerCapabilities(catalog.value, current)
+        if (sending.value || !canSteerQueueItem(current, capabilities, item)) return
+        val turnId = current.activeTurnId ?: return
+        viewModelScope.launch {
+            sending.value = true
+            sendError.value = null
+            runCatching {
+                repository.steerQueueItem(current.id, item.id, item.revision, turnId)
+            }.onSuccess {
+                error.value = null
+                onAccepted()
+            }.onFailure {
+                sendError.value = it.message ?: "队列消息转为引导失败"
+            }
+            sending.value = false
+        }
+    }
+
     fun loadDraft(): String = draftStore.load(sessionId.value)
 
     fun saveDraft(text: String) {
@@ -512,6 +532,17 @@ internal fun workRunnerCapabilities(
 
 internal fun supportsEditableQueue(catalog: PhoneWorkCatalog, session: PhoneWorkSession?): Boolean =
     workRunnerCapabilities(catalog, session).editableQueue
+
+internal fun canSteerQueueItem(
+    session: PhoneWorkSession?,
+    capabilities: PhoneWorkRunnerCapabilities,
+    item: PhoneWorkQueueItem,
+): Boolean = item.state == "QUEUED" &&
+    session?.status == "RUNNING" &&
+    capabilities.appServerTurns &&
+    capabilities.editableQueue &&
+    capabilities.steer &&
+    !session.activeTurnId.isNullOrBlank()
 
 internal fun resolveWorkInputAction(
     session: PhoneWorkSession?,

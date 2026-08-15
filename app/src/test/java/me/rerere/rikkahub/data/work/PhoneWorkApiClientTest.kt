@@ -98,4 +98,17 @@ class PhoneWorkApiClientTest {
         assertTrue(encoded.contains("\"expectedTurnId\":\"turn-7\""))
         assertTrue(encoded.contains("\"clientMessageId\":\"steer-1\""))
     }
+
+    @Test
+    fun `queued steer request pins both queue revision and active turn`() {
+        val encoded = Json.encodeToString(
+            QueueSteerRequest(
+                revision = 4,
+                expectedTurnId = "turn-8",
+            ),
+        )
+
+        assertTrue(encoded.contains("\"revision\":4"))
+        assertTrue(encoded.contains("\"expectedTurnId\":\"turn-8\""))
+    }
 }
