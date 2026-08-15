@@ -1351,4 +1351,5 @@
   <string name="chat_page_delete_folder_generating">此資料夾中的部分對話仍在生成中。請先停止它們再刪除。</string>
   <string name="setting_display_page_tts_read_outside_brackets_title">TTS 不朗讀括號內的內容</string>
   <string name="setting_display_page_tts_read_outside_brackets_desc">啟用後，TTS 將不朗讀括號內的內容</string>
+  <string name="chat_search_failure_fallback">已設定的搜尋服務呼叫失敗，這次沒有產生後續回答。您可以重試，或切換其他搜尋服務。</string>
 </resources>

@@ -73,6 +73,23 @@ class SearchToolsTest {
     }
 
     @Test
+    fun `search tool descriptions keep provider-native fallback out of normal execution`() {
+        val anySearch: SearchServiceOptions = SearchServiceOptions.AnySearchOptions()
+        val jina: SearchServiceOptions = SearchServiceOptions.JinaOptions()
+        val settings = Settings(
+            searchServices = listOf(anySearch, jina),
+            searchServiceSelectedIds = setOf(anySearch.id, jina.id),
+        )
+
+        listOf("search_web", "search_images", "scrape_web").forEach { toolName ->
+            val description = createSearchTools(settings).single { it.name == toolName }.description
+            assertTrue(description.contains("If this tool returns an error"))
+            assertTrue(description.contains("do not call provider-native or undeclared search tools"))
+            assertTrue(description.contains("Continue without search"))
+        }
+    }
+
+    @Test
     fun `selected providers start concurrently`() = runBlocking {
         val startedCount = AtomicInteger()
         val bothStarted = CompletableDeferred<Unit>()

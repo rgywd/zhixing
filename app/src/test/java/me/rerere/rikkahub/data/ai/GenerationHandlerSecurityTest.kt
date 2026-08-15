@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.Tool
 import me.rerere.ai.core.ToolExecutionException
@@ -106,6 +107,116 @@ class GenerationHandlerSecurityTest {
 
         assertEquals("MEMORY_SOURCE_INVALID", toolExecutionErrorCode(wrapped))
         assertEquals("TOOL_EXECUTION_FAILED", toolExecutionErrorCode(IllegalStateException("unknown")))
+    }
+
+    @Test
+    fun providerNativeSearchAliasesUseTheSearchFailureRecoveryPath() {
+        listOf(
+            "search_web",
+            "search_images",
+            "scrape_web",
+            "web_search",
+            "web_search_with_snippets",
+            "x_search",
+            "browse_page",
+            "open_page",
+        ).forEach { toolName ->
+            assertTrue("Expected $toolName to be treated as search", isSearchLikeToolName(toolName))
+        }
+
+        assertFalse(isSearchLikeToolName("memory_read"))
+        assertFalse(isSearchLikeToolName("workspace_shell"))
+    }
+
+    @Test
+    fun searchFailuresTellTheModelToContinueWithoutUndeclaredProviderTools() {
+        val searchFailure = toolExecutionFailureMessage("web_search", "TOOL_EXECUTION_FAILED")
+        val ordinaryFailure = toolExecutionFailureMessage("memory_read", "TOOL_EXECUTION_FAILED")
+
+        assertTrue(searchFailure.contains("Do not call provider-native or undeclared search tools"))
+        assertTrue(searchFailure.contains("Continue without search"))
+        assertEquals(
+            "[TOOL_EXECUTION_FAILED] 工具执行失败，请检查连接、权限或输入后重试",
+            ordinaryFailure,
+        )
+    }
+
+    @Test
+    fun failedSearchToolsAreDetectedFromStructuredToolOutput() {
+        val json = Json { ignoreUnknownKeys = true }
+        val failedSearch = UIMessagePart.Tool(
+            toolCallId = "search-1",
+            toolName = "web_search",
+            input = "{}",
+            output = listOf(UIMessagePart.Text("""{"error":"unavailable"}""")),
+        )
+        val successfulSearch = failedSearch.copy(
+            output = listOf(UIMessagePart.Text("""{"items":[]}""")),
+        )
+        val failedMemory = failedSearch.copy(toolName = "memory_read")
+
+        assertTrue(isFailedSearchTool(failedSearch, json))
+        assertFalse(isFailedSearchTool(successfulSearch, json))
+        assertFalse(isFailedSearchTool(failedMemory, json))
+    }
+
+    @Test
+    fun onlyNewActionableProviderOutputSuppressesTheLocalSearchFallback() {
+        val existing = listOf(
+            UIMessagePart.Text("I will search first."),
+            UIMessagePart.Tool(
+                toolCallId = "search-1",
+                toolName = "search_images",
+                input = "{}",
+                output = listOf(UIMessagePart.Text("""{"error":"unavailable"}""")),
+            ),
+        )
+
+        assertFalse(
+            hasNewActionableProviderOutput(
+                before = existing,
+                after = existing + UIMessagePart.Reasoning("Trying another approach"),
+            )
+        )
+        assertFalse(
+            hasNewActionableProviderOutput(
+                before = existing,
+                after = existing + UIMessagePart.Text(""),
+            )
+        )
+        assertTrue(
+            hasNewActionableProviderOutput(
+                before = existing,
+                after = existing + UIMessagePart.Text("Search is unavailable, but here is what I know."),
+            )
+        )
+        assertTrue(
+            hasNewActionableProviderOutput(
+                before = existing,
+                after = existing + UIMessagePart.Tool("search-2", "search_web", "{}"),
+            )
+        )
+        assertFalse(
+            shouldAddSearchFailureFallback(
+                recoveringFromSearchFailure = false,
+                before = existing,
+                after = existing,
+            )
+        )
+        assertTrue(
+            shouldAddSearchFailureFallback(
+                recoveringFromSearchFailure = true,
+                before = existing,
+                after = existing + UIMessagePart.Reasoning("No actionable output"),
+            )
+        )
+        assertFalse(
+            shouldAddSearchFailureFallback(
+                recoveringFromSearchFailure = true,
+                before = existing,
+                after = existing + UIMessagePart.Text("A normal answer"),
+            )
+        )
     }
 
     @Test

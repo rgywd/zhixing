@@ -17,6 +17,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
@@ -36,6 +37,7 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.handleMessageChunk
 import me.rerere.ai.ui.limitContext
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.transformers.InputMessageTransformer
 import me.rerere.rikkahub.data.ai.transformers.MessageTransformer
 import me.rerere.rikkahub.data.ai.transformers.OutputMessageTransformer
@@ -62,6 +64,21 @@ import kotlin.uuid.Uuid
 private const val TAG = "GenerationHandler"
 private const val MAX_TOOL_OUTPUT_CHARS = 32 * 1024
 private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
+private val SEARCH_LIKE_TOOL_NAMES = setOf(
+    "search_web",
+    "search_images",
+    "scrape_web",
+    "web_search",
+    "web_search_with_snippets",
+    "x_search",
+    "x_user_search",
+    "x_keyword_search",
+    "x_semantic_search",
+    "x_thread_fetch",
+    "browse_page",
+    "open_page",
+    "open_page_with_find",
+)
 
 internal fun toolExecutionLogMessage(toolName: String) = "generateText: executing tool $toolName"
 
@@ -154,6 +171,61 @@ internal fun toolExecutionErrorCode(throwable: Throwable): String =
         ?.code
         ?: "TOOL_EXECUTION_FAILED"
 
+internal fun isSearchLikeToolName(toolName: String): Boolean =
+    toolName.lowercase(Locale.ROOT) in SEARCH_LIKE_TOOL_NAMES
+
+internal fun toolExecutionFailureMessage(toolName: String, errorCode: String): String =
+    if (isSearchLikeToolName(toolName)) {
+        "[$errorCode] Search failed. Do not call provider-native or undeclared search tools. " +
+            "Continue without search and clearly explain the limitation."
+    } else {
+        "[$errorCode] 工具执行失败，请检查连接、权限或输入后重试"
+    }
+
+internal fun isFailedSearchTool(tool: UIMessagePart.Tool, json: Json): Boolean {
+    if (!isSearchLikeToolName(tool.toolName)) return false
+    return tool.output
+        .asSequence()
+        .filterIsInstance<UIMessagePart.Text>()
+        .any { part ->
+            runCatching {
+                json.parseToJsonElement(part.text).jsonObject.containsKey("error")
+            }.getOrDefault(false)
+        }
+}
+
+internal fun hasNewActionableProviderOutput(
+    before: List<UIMessagePart>,
+    after: List<UIMessagePart>,
+): Boolean = actionableProviderOutputSignature(before) != actionableProviderOutputSignature(after)
+
+internal fun shouldAddSearchFailureFallback(
+    recoveringFromSearchFailure: Boolean,
+    before: List<UIMessagePart>,
+    after: List<UIMessagePart>,
+): Boolean = recoveringFromSearchFailure && !hasNewActionableProviderOutput(before, after)
+
+@Suppress("DEPRECATION")
+private fun actionableProviderOutputSignature(parts: List<UIMessagePart>): List<String> =
+    parts.mapNotNull { part ->
+        when (part) {
+            is UIMessagePart.Text -> part.text.takeIf(String::isNotBlank)?.let { "text:$it" }
+            is UIMessagePart.Image -> part.url.takeIf(String::isNotBlank)?.let { "image:$it" }
+            is UIMessagePart.Video -> part.url.takeIf(String::isNotBlank)?.let { "video:$it" }
+            is UIMessagePart.Audio -> part.url.takeIf(String::isNotBlank)?.let { "audio:$it" }
+            is UIMessagePart.Document -> "document:${part.url}\u0000${part.fileName}\u0000${part.mime}"
+            is UIMessagePart.Tool -> "tool:${part.toolCallId}\u0000${part.toolName}\u0000${part.input}"
+            is UIMessagePart.ToolCall ->
+                "tool_call:${part.toolCallId}\u0000${part.toolName}\u0000${part.arguments}"
+
+            is UIMessagePart.ToolResult ->
+                "tool_result:${part.toolCallId}\u0000${part.toolName}\u0000${part.content}\u0000${part.arguments}"
+
+            UIMessagePart.Search -> "search"
+            is UIMessagePart.Reasoning -> null
+        }
+    }
+
 internal class MemoryDocumentPromptSnapshot(initialDocuments: List<MemoryDocument>) {
     private var currentDocuments = initialDocuments
     private var invalidated = false
@@ -222,6 +294,7 @@ class GenerationHandler(
         val memoryPromptSnapshot = MemoryDocumentPromptSnapshot(memoryDocuments.orEmpty())
         val reportedToolCalls = mutableSetOf<String>()
         var toolOrdinal = 0
+        var searchFailureNeedsRecovery = false
 
         suspend fun reportTaskSteps(
             toolParts: List<UIMessagePart.Tool>,
@@ -359,6 +432,9 @@ class GenerationHandler(
                         }
                     }
                 }
+                val recoverFromSearchFailure = searchFailureNeedsRecovery
+                searchFailureNeedsRecovery = false
+                val outputBeforeGeneration = messages.lastOrNull()?.parts.orEmpty()
                 generateInternal(
                     assistant = assistant,
                     messages = messages,
@@ -403,6 +479,21 @@ class GenerationHandler(
                     assistant = assistant,
                     settings = settings
                 )
+                if (
+                    shouldAddSearchFailureFallback(
+                        recoveringFromSearchFailure = recoverFromSearchFailure,
+                        before = outputBeforeGeneration,
+                        after = messages.last().parts,
+                    )
+                ) {
+                    val lastMessage = messages.last()
+                    messages = messages.dropLast(1) + lastMessage.copy(
+                        parts = lastMessage.parts + UIMessagePart.Text(
+                            context.getString(R.string.chat_search_failure_fallback)
+                        )
+                    )
+                    Log.i(TAG, "generateText: added local fallback after empty search-failure recovery")
+                }
                 messages = messages.slice(0 until messages.lastIndex) + messages.last().copy(
                     finishedAt = Clock.System.now()
                         .toLocalDateTime(TimeZone.currentSystemDefault())
@@ -505,7 +596,7 @@ class GenerationHandler(
                                                 put(
                                                     "error",
                                                     JsonPrimitive(
-                                                        "[$errorCode] 工具执行失败，请检查连接、权限或输入后重试"
+                                                        toolExecutionFailureMessage(tool.toolName, errorCode)
                                                     )
                                                 )
                                             }
@@ -534,6 +625,8 @@ class GenerationHandler(
                 // No results to add (all tools were pending)
                 break
             }
+
+            searchFailureNeedsRecovery = executedTools.any { isFailedSearchTool(it, json) }
 
             // Update last message with executed tools (NOT create TOOL message)
             val lastMessage = messages.last()

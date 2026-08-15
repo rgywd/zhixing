@@ -42,6 +42,9 @@ private const val MAX_ITEM_TEXT_CHARS = 1_200
 private const val MAX_SEARCH_OUTPUT_CHARS = 16_000
 private const val MAX_SCRAPE_CONTENT_CHARS = 12_000
 private const val SCRAPE_TRUNCATION_SUFFIX = "\n\n[content truncated by Zhixing]"
+private const val SEARCH_FAILURE_GUIDANCE =
+    "If this tool returns an error, do not call provider-native or undeclared search tools. " +
+        "Continue without search and clearly explain the limitation."
 
 private val RESEARCH_PURPOSE_SCHEMA = buildJsonObject {
     put("type", "string")
@@ -85,6 +88,9 @@ fun createSearchTools(settings: Settings): Set<Tool> {
                     - Multiple citations are allowed.
                     - If no results are cited, omit citations.
 
+                    Failure handling:
+                    $SEARCH_FAILURE_GUIDANCE
+
                     Example:
                     The capital of France is Paris. [citation,example.com](abc123)
                     """.trimIndent(),
@@ -116,6 +122,7 @@ fun createSearchTools(settings: Settings): Set<Tool> {
                         Search for images using a text query when images materially help answer the user's request.
                         Only use image URLs from the returned images[] array; never fabricate or modify URLs.
                         Response items include imageUrl, optional sourceUrl/title/site/size metadata, and providers[].
+                        Failure handling: $SEARCH_FAILURE_GUIDANCE
                     """.trimIndent(),
                     parameters = {
                         if (imageSearchers.size == 1) {
@@ -145,6 +152,7 @@ fun createSearchTools(settings: Settings): Set<Tool> {
                         Scrape a URL for detailed page content using ${scraper.options.displayName}.
                         When multiple search providers are enabled, this uses the first enabled provider in settings order that supports scraping.
                         Use this when the user requests content from a specific page or when search snippets are insufficient.
+                        Failure handling: $SEARCH_FAILURE_GUIDANCE
                     """.trimIndent(),
                     parameters = {
                         scraper.service.scrapingParameters(scraper.options).withResearchPurposeParameter()
