@@ -68,10 +68,13 @@ import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Sun01
 import me.rerere.rikkahub.data.today.TodayOverviewProvider
 import me.rerere.rikkahub.data.today.TodayItem
+import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbe
+import me.rerere.rikkahub.data.repository.HealthMetricRepository
 import me.rerere.rikkahub.data.work.PhoneWorkSession
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.ui.context.LocalDrawerGestureExclusion
 import me.rerere.rikkahub.ui.context.LocalNavController
+import me.rerere.rikkahub.ui.pages.stats.buildHealthStatsUiState
 import me.rerere.rikkahub.ui.pages.work.WorkStatusChip
 import org.koin.compose.koinInject
 import java.time.ZonedDateTime
@@ -319,6 +322,18 @@ private fun LifeOverviewDrawerContent(
     val navigator = LocalNavController.current
     LaunchedEffect(todayProvider) { todayProvider.onVisible() }
 
+    // 健康速览：Room 结构化记录 + 联想手表快照，复用统计页的合并逻辑
+    val healthMetricRepository: HealthMetricRepository = koinInject()
+    val watchProbe: LenovoWatchProbe = koinInject()
+    val healthRecords by healthMetricRepository.observeRecords()
+        .collectAsStateWithLifecycle(null)
+    val watchState by watchProbe.state.collectAsStateWithLifecycle()
+    val healthStats = remember(healthRecords, watchState) {
+        healthRecords?.let { records ->
+            buildHealthStatsUiState(records = records, watchState = watchState)
+        }
+    }
+
     Column(modifier = modifier.fillMaxHeight()) {
         LifeOverviewHeader(onClose = onClose)
         LazyColumn(
@@ -340,6 +355,10 @@ private fun LifeOverviewDrawerContent(
                 )
             }
             item(key = "my-status") { MyStatusCard() }
+
+            healthStats?.takeIf { it.hasAnyData }?.let { stats ->
+                item(key = "health-glance") { HealthGlanceCard(stats = stats) }
+            }
 
             todaySnapshot.items.filterIsInstance<TodayItem.AssistantTask>().forEach { taskItem ->
                 item(key = taskItem.stableId) {

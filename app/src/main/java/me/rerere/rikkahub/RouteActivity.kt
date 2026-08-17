@@ -595,8 +595,8 @@ class RouteActivity : ComponentActivity() {
                                 SearchPage()
                             }
 
-                            entry<Screen.Stats> {
-                                StatsPage()
+                            entry<Screen.Stats> { key ->
+                                StatsPage(initialTab = key.initialTab)
                             }
                         }
                     )
@@ -815,5 +815,5 @@ sealed interface Screen : NavKey {
     data object MessageSearch : Screen
 
     @Serializable
-    data object Stats : Screen
+    data class Stats(val initialTab: Int = 0) : Screen
 }
