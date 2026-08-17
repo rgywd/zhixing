@@ -61,9 +61,10 @@ import kotlinx.coroutines.launch
 fun StatsPage(vm: StatsVM = koinViewModel()) {
     val stats by vm.stats.collectAsStateWithLifecycle()
     val ledgerStats by vm.monthlyLedgerStats.collectAsStateWithLifecycle()
+    val healthStats by vm.healthStats.collectAsStateWithLifecycle()
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val pagerState = rememberPagerState { 2 }
+    val pagerState = rememberPagerState { 3 }
     val scope = rememberCoroutineScope()
 
     Scaffold(
@@ -97,6 +98,11 @@ fun StatsPage(vm: StatsVM = koinViewModel()) {
                     onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
                     text = { Text(stringResource(R.string.stats_page_tab_ledger)) },
                 )
+                Tab(
+                    selected = pagerState.currentPage == 2,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(2) } },
+                    text = { Text(stringResource(R.string.stats_page_tab_health)) },
+                )
             }
 
             HorizontalPager(
@@ -112,6 +118,7 @@ fun StatsPage(vm: StatsVM = koinViewModel()) {
                         onPreviousMonth = vm::selectPreviousLedgerMonth,
                         onNextMonth = vm::selectNextLedgerMonth,
                     )
+                    2 -> HealthStatsTab(state = healthStats)
                 }
             }
         }

@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
@@ -20,6 +21,8 @@ import me.rerere.rikkahub.data.db.dao.MessageNodeDAO
 import me.rerere.rikkahub.data.db.dao.getMessageCountPerDay
 import me.rerere.rikkahub.data.db.dao.getTokenStats
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbe
+import me.rerere.rikkahub.data.repository.HealthMetricRepository
 import me.rerere.rikkahub.data.repository.MonthlyLedgerRepository
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -37,11 +40,13 @@ data class AppStats(
     val launchCount: Int = 0,
 )
 
-class StatsVM(
+class StatsVM internal constructor(
     private val conversationDAO: ConversationDAO,
     private val messageNodeDAO: MessageNodeDAO,
     private val settingsStore: SettingsStore,
     private val monthlyLedgerRepository: MonthlyLedgerRepository,
+    healthMetricRepository: HealthMetricRepository,
+    watchProbe: LenovoWatchProbe,
 ) : ViewModel() {
 
     private val _stats = MutableStateFlow(AppStats())
@@ -78,6 +83,20 @@ class StatsVM(
                 month = _selectedLedgerMonth.value,
                 isLoading = true,
             ),
+        )
+
+    internal val healthStats = combine(
+        healthMetricRepository.observeRecords(),
+        watchProbe.state,
+    ) { records, watchState ->
+        buildHealthStatsUiState(records = records, watchState = watchState)
+    }
+        .onStart { emit(HealthStatsUiState(isLoading = true)) }
+        .catch { emit(HealthStatsUiState(loadFailed = true)) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = HealthStatsUiState(isLoading = true),
         )
 
     init {

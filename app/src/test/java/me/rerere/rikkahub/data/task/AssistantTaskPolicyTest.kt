@@ -52,6 +52,19 @@ class AssistantTaskPolicyTest {
         )
         assertTrue(
             step(
+                toolName = "health_metrics",
+                input = """{"action":"save"}""",
+            ).requiresDurableTask(json)
+        )
+        assertFalse(
+            step(
+                toolName = "health_metrics",
+                input = """{"action":"query"}""",
+            ).requiresDurableTask(json)
+        )
+        assertEquals("正在整理健康数据", step("health_metrics").progressText())
+        assertTrue(
+            step(
                 toolName = "memory_write",
                 input = """{"action":"append"}""",
             ).requiresDurableTask(json)
@@ -62,6 +75,32 @@ class AssistantTaskPolicyTest {
                 input = """{"action":"no_change"}""",
             ).requiresDurableTask(json)
         )
+    }
+
+    @Test
+    fun `health save records become stable task result links`() {
+        val messages = listOf(
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Tool(
+                        toolCallId = "health-save",
+                        toolName = "health_metrics",
+                        input = "{}",
+                        output = listOf(
+                            UIMessagePart.Text(
+                                """{"success":true,"records":[{"id":"health-1"},{"id":"health-2"}]}""",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val links = extractAssistantTaskResultLinks(messages, json)
+
+        assertEquals(listOf("health-1", "health-2"), links.map(AssistantTaskResultLink::objectId))
+        assertTrue(links.all { it.objectType == "HEALTH_METRIC" })
     }
 
     @Test

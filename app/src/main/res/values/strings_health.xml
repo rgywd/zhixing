@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+  <!-- v1 ships English fallback plus Simplified Chinese; other locale translations follow separately. -->
+  <string name="stats_page_health_activity_subtitle">Daily movement and exercise totals</string>
+  <string name="stats_page_health_activity_title">Activity</string>
+  <string name="stats_page_health_ai_policy">AI saves only numbers explicitly stated in your messages. It never estimates measurements from photos or appearance.</string>
+  <string name="stats_page_health_body_subtitle">Latest explicit measurements and deterministic calculations</string>
+  <string name="stats_page_health_body_title">Body profile</string>
+  <string name="stats_page_health_composition_more">More body composition</string>
+  <string name="stats_page_health_empty_message">Tell AI an explicit value in chat, such as “My weight today is 72.4 kg and body fat is 19.1%,” or connect a supported wearable.</string>
+  <string name="stats_page_health_empty_title">No health data yet</string>
+  <string name="stats_page_health_load_failed">Could not load saved health data. Return to this tab to try again.</string>
+  <string name="stats_page_health_manage_devices">Manage devices</string>
+  <string name="stats_page_health_metric_awake_count">Awakenings</string>
+  <string name="stats_page_health_metric_bmi">BMI</string>
+  <string name="stats_page_health_metric_bmr">Basal metabolism</string>
+  <string name="stats_page_health_metric_body_fat">Body fat</string>
+  <string name="stats_page_health_metric_body_water">Body water</string>
+  <string name="stats_page_health_metric_bone_mass">Bone mass</string>
+  <string name="stats_page_health_metric_blood_oxygen">Blood oxygen</string>
+  <string name="stats_page_health_metric_calories">Active calories</string>
+  <string name="stats_page_health_metric_deep_sleep">Deep sleep</string>
+  <string name="stats_page_health_metric_diastolic">Diastolic pressure</string>
+  <string name="stats_page_health_metric_exercise_count">Exercise sessions</string>
+  <string name="stats_page_health_metric_exercise_minutes">Exercise duration</string>
+  <string name="stats_page_health_metric_heart_rate">Heart rate</string>
+  <string name="stats_page_health_metric_height">Height</string>
+  <string name="stats_page_health_metric_immunity">Immunity</string>
+  <string name="stats_page_health_metric_muscle_mass">Muscle mass</string>
+  <string name="stats_page_health_metric_shallow_sleep">Light sleep</string>
+  <string name="stats_page_health_metric_skeletal_muscle">Skeletal muscle</string>
+  <string name="stats_page_health_metric_sleep">Total sleep</string>
+  <string name="stats_page_health_metric_steps">Steps</string>
+  <string name="stats_page_health_metric_systolic">Systolic pressure</string>
+  <string name="stats_page_health_metric_temperature">Body temperature</string>
+  <string name="stats_page_health_metric_visceral_fat">Visceral fat</string>
+  <string name="stats_page_health_metric_waist">Waist circumference</string>
+  <string name="stats_page_health_metric_weight">Weight</string>
+  <string name="stats_page_health_no_data">No data</string>
+  <string name="stats_page_health_overview_title">Health overview</string>
+  <string name="stats_page_health_recent_subtitle">Recently saved structured measurements</string>
+  <string name="stats_page_health_recent_title">Recent records</string>
+  <string name="stats_page_health_sleep_subtitle">Latest overnight sleep summary</string>
+  <string name="stats_page_health_sleep_title">Sleep</string>
+  <string name="stats_page_health_source_calculated">Calculated from height and weight</string>
+  <string name="stats_page_health_source_chat">Stated in chat · %1$s</string>
+  <string name="stats_page_health_source_other">Saved health source</string>
+  <string name="stats_page_health_source_watch">Lenovo Watch Pro · %1$s</string>
+  <string name="stats_page_health_vitals_subtitle">Latest available readings, not a medical diagnosis</string>
+  <string name="stats_page_health_vitals_title">Vitals</string>
+  <string name="stats_page_health_watch_synced">Lenovo Watch Pro · last synced %1$s</string>
+  <string name="stats_page_health_watch_syncing">Lenovo Watch Pro · syncing %1$d records</string>
+  <string name="stats_page_health_watch_unavailable">No wearable data source connected</string>
+  <string name="stats_page_health_watch_waiting">Lenovo Watch Pro is remembered and waiting to sync</string>
+  <string name="stats_page_tab_health">Health</string>
+</resources>
