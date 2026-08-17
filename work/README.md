@@ -27,24 +27,6 @@ SQLite 与附件目录来自同一份快照，使用相同协议版本启动后�
 检查或解压，Core 不主动展开。未绑定到会话的上传会在后续上传时清理
 超过 24 小时的记录和外置文件；绑定后与会话一同保留，归档不会删除附件。
 
-### 套餐余量代理
-
-右侧生活概览通过 Work Core 的 `GET /v1/life/quotas` 读取套餐余量。Core 使用
-`CPA_QUOTA_BASE_URL` 和 `CPA_QUOTA_TOKEN` 访问 CPA 额度监控，Android 安装包不会包含监控 token，
-也不会直接访问明文监控地址。该接口沿用 Work 用户 Bearer 鉴权和 `X-Zhixing-Work-Protocol: 1`。
-
-Core 会在 SQLite 同目录持久化最后一次通过 `quota-monitor/v1` 校验的响应。上游超时、返回错误或
-数据不符合契约时，已有快照会以 `proxy_stale=true` 返回；没有可用快照时返回 5xx。未知数字仍为
-`null`，不会被改写为 0。普通页面只查询 `/v1/quotas`，不会触发 CPA 的立即刷新接口。
-
-`CPA_QUOTA_BASE_URL` 必须指向 HTTPS 入口或仅在服务器内部可达的加密隧道端点，不要让 Core 使用
-携带 Bearer Token 的公网明文 HTTP。当前单机部署可用受限 SSH 本地转发连接监控服务的 loopback
-端口，再把该隧道地址填入 Core 环境变量。
-
-Quota Monitor 的受控源码位于 [`quota-monitor/`](quota-monitor/)。采集历史与当前 CPA 凭据集合分开保存：
-历史快照继续保留，但 `/v1/quotas` 只返回最近一次成功 inventory 中仍存在的账户，因此渠道新增、删除、禁用或
-恢复会在下一轮轮询后自动反映，不需要清理 Android 缓存。
-
 ### 信息监控薄代理
 
 普通聊天通过 Work Core 的以下只读端点查询邮件与飞书的监控结果：

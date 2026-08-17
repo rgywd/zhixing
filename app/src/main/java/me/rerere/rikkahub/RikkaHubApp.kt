@@ -84,6 +84,9 @@ class RikkaHubApp : Application() {
         // cleanup stale tool output files
         cleanupToolOutputs()
 
+        // remove data left by the retired quota overview
+        cleanupRetiredQuotaCache()
+
         // cleanup workspace temp dirs (proot + rootfs /tmp)
         cleanupWorkspaceTempDirs()
 
@@ -156,6 +159,21 @@ class RikkaHubApp : Application() {
                 if (dir.exists()) {
                     dir.deleteRecursively()
                 }
+            }
+        }
+    }
+
+    private fun cleanupRetiredQuotaCache() {
+        get<AppScope>().launch(Dispatchers.IO) {
+            runCatching {
+                val cacheDirectory = File(filesDir, "life-overview")
+                val cacheFile = File(cacheDirectory, "quota-cache.json")
+                check(!cacheFile.exists() || cacheFile.delete()) { "Unable to delete retired quota cache" }
+                if (cacheDirectory.exists() && cacheDirectory.list().isNullOrEmpty()) {
+                    check(cacheDirectory.delete()) { "Unable to delete empty life overview cache directory" }
+                }
+            }.onFailure {
+                Log.w(TAG, "cleanupRetiredQuotaCache failed", it)
             }
         }
     }

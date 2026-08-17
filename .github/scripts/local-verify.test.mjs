@@ -44,7 +44,6 @@ test("Work-only verification excludes Android commands", () => {
     "Install Work dependencies",
     "Work tests",
     "Staging driver tests",
-    "Quota monitor tests",
   ])
   assert.equal(commands.some((command) => command.command === "gradlew.bat"), false)
 })

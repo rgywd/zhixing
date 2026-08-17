@@ -13,7 +13,7 @@ const RUNNER_TOKEN = "runner-test-token";
 const RUNNER_INSTANCE = "runner-instance-1";
 const PROTOCOL = { "x-zhixing-work-protocol": "1" };
 
-async function fixture(t, askTimeoutMs = 150, quotaProxy = null, informationMonitorProxy = null) {
+async function fixture(t, askTimeoutMs = 150, informationMonitorProxy = null) {
   const directory = mkdtempSync(join(tmpdir(), "zhixing-core-test-"));
   const attachmentRoot = join(directory, "attachments");
   const store = new WorkStore({
@@ -22,7 +22,7 @@ async function fixture(t, askTimeoutMs = 150, quotaProxy = null, informationMoni
     sessionSecret: "test-session-secret-at-least-32-bytes",
     attachmentRoot,
   });
-  const server = createWorkServer({ store, askTimeoutMs, quotaProxy, informationMonitorProxy });
+  const server = createWorkServer({ store, askTimeoutMs, informationMonitorProxy });
   let port;
   do {
     server.listen(0, "127.0.0.1");
@@ -137,25 +137,6 @@ function runnerCommandsPath(instanceId = RUNNER_INSTANCE) {
   return `/v1/runner/commands?runnerId=runner-1&instanceId=${encodeURIComponent(instanceId)}`;
 }
 
-test("life quota endpoint uses Work user authentication", async (t) => {
-  const expected = {
-    schema_version: "quota-monitor/v1",
-    generated_at: "2026-07-22T06:40:00Z",
-    stale_after_seconds: 1200,
-    items: [],
-    proxy_stale: false,
-    proxy_error: null,
-  };
-  const { baseUrl } = await fixture(t, 150, { getQuotas: async () => expected });
-
-  const unauthorized = await request(baseUrl, "/v1/life/quotas", { token: "wrong-token" });
-  assert.equal(unauthorized.response.status, 401);
-
-  const result = await request(baseUrl, "/v1/life/quotas");
-  assert.equal(result.response.status, 200);
-  assert.deepEqual(result.payload, expected);
-});
-
 test("life inbox endpoints use Work user authentication and expose stale state only in safe headers", async (t) => {
   const calls = [];
   const expected = {
@@ -178,7 +159,7 @@ test("life inbox endpoints use Work user authentication and expose stale state o
       return { body: expected, isStale: true, errorCode: "upstream_timeout" };
     },
   };
-  const { baseUrl } = await fixture(t, 150, null, informationMonitorProxy);
+  const { baseUrl } = await fixture(t, 150, informationMonitorProxy);
 
   const missingProtocol = await fetch(`${baseUrl}/v1/life/inbox/items`, {
     headers: { authorization: `Bearer ${USER_TOKEN}` },
