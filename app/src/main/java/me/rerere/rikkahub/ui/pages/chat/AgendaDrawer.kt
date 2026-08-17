@@ -487,6 +487,7 @@ internal fun lifeOverviewGreeting(hour: Int): String = when (hour) {
 private const val AGENDA_DRAWER_POSITIONAL_THRESHOLD = 0.5f
 private const val AGENDA_DRAWER_ANIMATION_DURATION_MS = 256
 private val AGENDA_DRAWER_VELOCITY_THRESHOLD = 400.dp
+private val AGENDA_DRAWER_EDGE_ZONE = 32.dp
 
 internal fun shouldOpenAgendaDrawer(
     openFraction: Float,
@@ -511,6 +512,7 @@ internal fun agendaDrawerDragDecision(
     totalY: Float,
     touchSlop: Float,
     openingGestureEnabled: Boolean = true,
+    startedInEdgeZone: Boolean = true,
 ): AgendaDrawerDragDecision {
     val horizontalGesture = abs(totalX) > touchSlop && abs(totalX) > abs(totalY)
     val verticalGesture = abs(totalY) > touchSlop && abs(totalY) >= abs(totalX)
@@ -518,7 +520,8 @@ internal fun agendaDrawerDragDecision(
         !drawerVisible && (!openingGestureEnabled || gestureBlocked) -> AgendaDrawerDragDecision.IGNORE
         verticalGesture -> AgendaDrawerDragDecision.IGNORE
         !horizontalGesture -> AgendaDrawerDragDecision.WAIT
-        drawerVisible || totalX < 0f -> AgendaDrawerDragDecision.START
+        drawerVisible -> AgendaDrawerDragDecision.START
+        totalX < 0f && startedInEdgeZone -> AgendaDrawerDragDecision.START
         else -> AgendaDrawerDragDecision.IGNORE
     }
 }
@@ -540,6 +543,8 @@ private fun Modifier.agendaDrawerDragGesture(
             requireUnconsumed = false,
             pass = PointerEventPass.Initial,
         )
+        // 关闭态只允许从屏幕右缘热区起手左滑打开；抽屉可见时全屏拖拽用于关闭
+        val startedInEdgeZone = down.position.x >= size.width - AGENDA_DRAWER_EDGE_ZONE.toPx()
         val velocityTracker = VelocityTracker().apply {
             addPosition(down.uptimeMillis, down.position)
         }
@@ -580,6 +585,7 @@ private fun Modifier.agendaDrawerDragGesture(
                     totalY = totalY,
                     touchSlop = viewConfiguration.touchSlop,
                     openingGestureEnabled = openingGestureEnabled,
+                    startedInEdgeZone = startedInEdgeZone,
                 )
             ) {
                 AgendaDrawerDragDecision.WAIT -> continue

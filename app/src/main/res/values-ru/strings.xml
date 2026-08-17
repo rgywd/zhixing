@@ -693,7 +693,7 @@
   <string name="setting_display_page_paste_long_text_threshold_title">Порог длины текста</string>
   <string name="setting_display_page_send_on_enter_desc">Нажмите Enter, чтобы отправить сообщение, а не добавить новую строку</string>
   <string name="setting_display_page_send_on_enter_title">Отправлять по Enter</string>
-  <string name="setting_display_page_agenda_drawer_gesture_desc">Проведите влево на экране чата, чтобы открыть обзор жизни. Если отключено, верхняя кнопка остаётся доступной.</string>
+  <string name="setting_display_page_agenda_drawer_gesture_desc">Проведите влево от правого края экрана чата, чтобы открыть обзор жизни. Если отключено, верхняя кнопка остаётся доступной.</string>
   <string name="setting_display_page_agenda_drawer_gesture_title">Жест правой панели</string>
   <string name="setting_display_page_show_assistant_bubble_desc">Показывать фоновый пузырь для сообщений ассистента</string>
   <string name="setting_display_page_show_assistant_bubble_title">Показывать всплывающее сообщение ассистента</string>
