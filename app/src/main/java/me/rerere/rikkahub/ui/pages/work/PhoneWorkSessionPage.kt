@@ -363,25 +363,10 @@ fun PhoneWorkSessionPage(sessionId: String) {
                         } else {
                             "思考深度调整将在下一轮生效"
                         },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    if (
-                        session?.status == "RUNNING" &&
-                        runnerCapabilities.appServerTurns &&
-                        runnerCapabilities.steer &&
-                        !session?.activeTurnId.isNullOrBlank()
-                    ) {
-                        TextButton(
-                            onClick = { sendCurrentInput(longPress = true) },
-                            enabled = canSubmitInput && !sending,
-                            modifier = Modifier.align(Alignment.CenterHorizontally),
-                        ) {
-                            Text("引导当前任务")
-                        }
-                    }
                     sendError?.let { message ->
                         WorkSendErrorBar(
                             message = message,
@@ -559,7 +544,20 @@ private fun RepoTitleSelector(
             modifier = Modifier.clickable(enabled = enabled) { expanded = true },
             verticalArrangement = Arrangement.spacedBy(1.dp),
         ) {
-            Text(selected?.name ?: "选择仓库", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(selected?.name ?: "选择仓库", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (enabled) {
+                    Icon(
+                        HugeIcons.ArrowDown01,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             Text(
                 if (selected == null) {
                     "等待开发机目录"
@@ -756,13 +754,6 @@ private fun WorkChoiceButton(
     }
 }
 
-private enum class WorkModelSettingsPane {
-    ROOT,
-    MODEL,
-    REASONING,
-    SPEED,
-}
-
 @Composable
 private fun WorkModelSettingsButton(
     model: String,
@@ -778,11 +769,6 @@ private fun WorkModelSettingsButton(
     onSelectFastMode: (Boolean) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    var pane by remember { mutableStateOf(WorkModelSettingsPane.ROOT) }
-    fun dismiss() {
-        expanded = false
-        pane = WorkModelSettingsPane.ROOT
-    }
     val speedLabel = if (fastMode) "快速" else "标准"
     Box {
         Surface(
@@ -812,66 +798,106 @@ private fun WorkModelSettingsButton(
                 )
             }
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = ::dismiss) {
-            when (pane) {
-                WorkModelSettingsPane.ROOT -> {
-                    WorkSettingsRootItem(
+    }
+    if (expanded) {
+        WorkModelSettingsSheet(
+            model = model,
+            models = models,
+            modelEnabled = modelEnabled,
+            reasoningEffort = reasoningEffort,
+            reasoningEfforts = reasoningEfforts,
+            codex = codex,
+            fastMode = fastMode,
+            fastAvailable = fastAvailable,
+            onSelectModel = onSelectModel,
+            onSelectReasoningEffort = onSelectReasoningEffort,
+            onSelectFastMode = onSelectFastMode,
+            onDismiss = { expanded = false },
+        )
+    }
+}
+
+@Composable
+private fun WorkModelSettingsSheet(
+    model: String,
+    models: List<String>,
+    modelEnabled: Boolean,
+    reasoningEffort: String,
+    reasoningEfforts: List<String>,
+    codex: Boolean,
+    fastMode: Boolean,
+    fastAvailable: Boolean,
+    onSelectModel: (String) -> Unit,
+    onSelectReasoningEffort: (String) -> Unit,
+    onSelectFastMode: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("模型与思考", style = MaterialTheme.typography.titleLarge)
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                item(key = "header:model") {
+                    WorkModelSettingsHeader(
                         title = "模型名称",
-                        value = model,
+                        subtitle = if (modelEnabled) null else "会话创建后固定",
+                    )
+                }
+                items(models.distinct(), key = { "model:$it" }) { option ->
+                    WorkModelSettingsOption(
+                        label = option,
+                        selected = option == model,
                         enabled = modelEnabled,
-                        onClick = { pane = WorkModelSettingsPane.MODEL },
+                        onClick = {
+                            onSelectModel(option)
+                            onDismiss()
+                        },
                     )
-                    WorkSettingsRootItem(
-                        title = "思考深度",
-                        value = reasoningEffort,
-                        onClick = { pane = WorkModelSettingsPane.REASONING },
+                }
+                item(key = "header:reasoning") {
+                    WorkModelSettingsHeader(title = "思考深度")
+                }
+                items(reasoningEfforts.distinct(), key = { "effort:$it" }) { option ->
+                    WorkModelSettingsOption(
+                        label = option,
+                        selected = option == reasoningEffort,
+                        onClick = {
+                            onSelectReasoningEffort(option)
+                            onDismiss()
+                        },
                     )
-                    if (codex) {
-                        WorkSettingsRootItem(
-                            title = "速度",
-                            value = speedLabel,
-                            onClick = { pane = WorkModelSettingsPane.SPEED },
+                }
+                if (codex) {
+                    item(key = "header:speed") {
+                        WorkModelSettingsHeader(title = "速度")
+                    }
+                    item(key = "speed:standard") {
+                        WorkModelSettingsOption(
+                            label = "标准",
+                            selected = !fastMode,
+                            onClick = {
+                                onSelectFastMode(false)
+                                onDismiss()
+                            },
                         )
                     }
-                }
-                WorkModelSettingsPane.MODEL -> WorkSettingsOptions(
-                    title = "模型名称",
-                    options = models.distinct(),
-                    selected = model,
-                    onBack = { pane = WorkModelSettingsPane.ROOT },
-                    onSelect = { onSelectModel(it); dismiss() },
-                )
-                WorkModelSettingsPane.REASONING -> WorkSettingsOptions(
-                    title = "思考深度",
-                    options = reasoningEfforts.distinct(),
-                    selected = reasoningEffort,
-                    onBack = { pane = WorkModelSettingsPane.ROOT },
-                    onSelect = { onSelectReasoningEffort(it); dismiss() },
-                )
-                WorkModelSettingsPane.SPEED -> {
-                    WorkSettingsBackItem("速度") { pane = WorkModelSettingsPane.ROOT }
-                    DropdownMenuItem(
-                        text = { Text("标准") },
-                        trailingIcon = { if (!fastMode) Text("✓", color = MaterialTheme.colorScheme.primary) },
-                        onClick = { onSelectFastMode(false); dismiss() },
-                    )
-                    DropdownMenuItem(
-                        text = {
-                            Column {
-                                Text("快速")
-                                if (!fastAvailable) {
-                                    Text(
-                                        "当前模型不支持",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        },
-                        enabled = fastAvailable,
-                        trailingIcon = { if (fastMode) Text("✓", color = MaterialTheme.colorScheme.primary) },
-                        onClick = { onSelectFastMode(true); dismiss() },
-                    )
+                    item(key = "speed:fast") {
+                        WorkModelSettingsOption(
+                            label = "快速",
+                            description = if (fastAvailable) null else "当前模型不支持",
+                            selected = fastMode,
+                            enabled = fastAvailable,
+                            onClick = {
+                                onSelectFastMode(true)
+                                onDismiss()
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -879,51 +905,67 @@ private fun WorkModelSettingsButton(
 }
 
 @Composable
-private fun WorkSettingsRootItem(
-    title: String,
-    value: String,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    DropdownMenuItem(
-        text = {
-            Column {
-                Text(title)
-                Text(value, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
-        enabled = enabled,
-        trailingIcon = { Icon(HugeIcons.ArrowRight01, contentDescription = null, modifier = Modifier.size(18.dp)) },
-        onClick = onClick,
-    )
-}
-
-@Composable
-private fun WorkSettingsOptions(
-    title: String,
-    options: List<String>,
-    selected: String,
-    onBack: () -> Unit,
-    onSelect: (String) -> Unit,
-) {
-    WorkSettingsBackItem(title, onBack)
-    options.forEach { option ->
-        DropdownMenuItem(
-            text = { Text(option) },
-            trailingIcon = { if (option == selected) Text("✓", color = MaterialTheme.colorScheme.primary) },
-            onClick = { onSelect(option) },
-        )
+private fun WorkModelSettingsHeader(title: String, subtitle: String? = null) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp)) {
+        Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        subtitle?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
 @Composable
-private fun WorkSettingsBackItem(title: String, onBack: () -> Unit) {
-    DropdownMenuItem(
-        text = { Text(title, style = MaterialTheme.typography.labelLarge) },
-        leadingIcon = { Text("‹", style = MaterialTheme.typography.titleLarge) },
-        onClick = onBack,
-    )
-    HorizontalDivider()
+private fun WorkModelSettingsOption(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean = true,
+    description: String? = null,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = enabled, onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (enabled) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+                description?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (selected) {
+                Text(
+                    "已选择",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
 }
 
 private fun workRuntimeDisplayName(runtime: String): String = when (runtime) {
@@ -1103,15 +1145,17 @@ private fun WorkSessionStatusBar(presentation: WorkSessionStatusPresentation) {
 
 @Composable
 private fun WorkRunStateTimelineMarker(label: String, status: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
-        Text(label, color = workStatusColor(status), style = MaterialTheme.typography.labelSmall)
-        HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
-    }
+    Text(
+        label,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        textAlign = TextAlign.Center,
+        style = MaterialTheme.typography.labelSmall,
+        color = if (status == "FAILED") {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+    )
 }
 
 internal sealed interface WorkTimelineItem {
@@ -1341,43 +1385,52 @@ private fun WorkHtmlReportCard(
 @Composable
 private fun WorkUserMessageBubble(message: PhoneWorkUserMessagePayload, onLongClick: () -> Unit) {
     val haptic = LocalHapticFeedback.current
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        horizontalAlignment = Alignment.End,
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .combinedClickable(
+                onClick = {},
+                onLongClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongClick()
+                },
+            ),
     ) {
-        Surface(
-            color = MaterialTheme.colorScheme.primaryContainer,
-            shape = MaterialTheme.shapes.large,
-            modifier = Modifier
-                .fillMaxWidth(0.84f)
-                .combinedClickable(
-                    onClick = {},
-                    onLongClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onLongClick()
-                    },
-                ),
-        ) {
-            SelectionContainer {
-                Column(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    message.attachments.forEach { attachment ->
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(HugeIcons.Book03, null, modifier = Modifier.size(18.dp))
-                            Text(
-                                attachment.fileName,
-                                style = MaterialTheme.typography.labelMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(3.dp)
+                    .background(MaterialTheme.colorScheme.primary),
+            )
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    "你",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                SelectionContainer {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        message.attachments.forEach { attachment ->
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(HugeIcons.Files02, null, modifier = Modifier.size(18.dp))
+                                Text(
+                                    attachment.fileName,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
+                        if (message.text.isNotBlank()) Text(message.text)
                     }
-                    if (message.text.isNotBlank()) Text(message.text)
                 }
             }
         }
