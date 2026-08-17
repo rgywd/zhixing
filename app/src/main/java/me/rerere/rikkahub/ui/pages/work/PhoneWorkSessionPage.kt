@@ -1145,15 +1145,17 @@ private fun WorkSessionStatusBar(presentation: WorkSessionStatusPresentation) {
 
 @Composable
 private fun WorkRunStateTimelineMarker(label: String, status: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
-        Text(label, color = workStatusColor(status), style = MaterialTheme.typography.labelSmall)
-        HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
-    }
+    Text(
+        label,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        textAlign = TextAlign.Center,
+        style = MaterialTheme.typography.labelSmall,
+        color = if (status == "FAILED") {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+    )
 }
 
 internal sealed interface WorkTimelineItem {
@@ -1383,43 +1385,52 @@ private fun WorkHtmlReportCard(
 @Composable
 private fun WorkUserMessageBubble(message: PhoneWorkUserMessagePayload, onLongClick: () -> Unit) {
     val haptic = LocalHapticFeedback.current
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        horizontalAlignment = Alignment.End,
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .combinedClickable(
+                onClick = {},
+                onLongClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongClick()
+                },
+            ),
     ) {
-        Surface(
-            color = MaterialTheme.colorScheme.primaryContainer,
-            shape = MaterialTheme.shapes.large,
-            modifier = Modifier
-                .fillMaxWidth(0.84f)
-                .combinedClickable(
-                    onClick = {},
-                    onLongClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onLongClick()
-                    },
-                ),
-        ) {
-            SelectionContainer {
-                Column(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    message.attachments.forEach { attachment ->
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(HugeIcons.Files02, null, modifier = Modifier.size(18.dp))
-                            Text(
-                                attachment.fileName,
-                                style = MaterialTheme.typography.labelMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(3.dp)
+                    .background(MaterialTheme.colorScheme.primary),
+            )
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    "你",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                SelectionContainer {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        message.attachments.forEach { attachment ->
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(HugeIcons.Files02, null, modifier = Modifier.size(18.dp))
+                                Text(
+                                    attachment.fileName,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
+                        if (message.text.isNotBlank()) Text(message.text)
                     }
-                    if (message.text.isNotBlank()) Text(message.text)
                 }
             }
         }

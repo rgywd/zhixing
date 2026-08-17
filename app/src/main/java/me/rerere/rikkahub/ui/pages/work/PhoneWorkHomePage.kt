@@ -6,12 +6,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -219,15 +223,10 @@ fun PhoneWorkHomePage(vm: PhoneWorkHomeVM = koinViewModel()) {
 @Composable
 private fun WorkHomeSummaryCard(summary: WorkHomeSummary) {
     val needsAttention = summary.waiting > 0
-    val containerColor = if (needsAttention) {
-        MaterialTheme.colorScheme.tertiaryContainer
+    val accentColor = if (needsAttention) {
+        MaterialTheme.colorScheme.tertiary
     } else {
-        MaterialTheme.colorScheme.surfaceContainerLow
-    }
-    val contentColor = if (needsAttention) {
-        MaterialTheme.colorScheme.onTertiaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSurface
+        MaterialTheme.colorScheme.primary
     }
     val icon: ImageVector = when {
         summary.waiting > 0 -> HugeIcons.MessageNotification01
@@ -247,7 +246,7 @@ private fun WorkHomeSummaryCard(summary: WorkHomeSummary) {
     }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = containerColor, contentColor = contentColor),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -257,17 +256,17 @@ private fun WorkHomeSummaryCard(summary: WorkHomeSummary) {
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .background(contentColor.copy(alpha = 0.12f), CircleShape),
+                    .background(accentColor.copy(alpha = 0.12f), CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(icon, null, modifier = Modifier.size(22.dp))
+                Icon(icon, null, modifier = Modifier.size(22.dp), tint = accentColor)
             }
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(headline, style = MaterialTheme.typography.titleMedium)
                 Text(
                     detail,
                     style = MaterialTheme.typography.bodySmall,
-                    color = contentColor.copy(alpha = 0.75f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -287,15 +286,16 @@ private fun WorkSessionCard(
     val waiting = session.status == "WAITING_FOR_USER"
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        colors = if (waiting) {
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            )
-        } else {
-            CardDefaults.cardColors()
-        },
     ) {
+        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+            if (waiting) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(3.dp)
+                        .background(MaterialTheme.colorScheme.tertiary),
+                )
+            }
         Column(
             modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 6.dp, bottom = 14.dp, end = 6.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -339,16 +339,19 @@ private fun WorkSessionCard(
                 }
             }
             Text(
+                "${session.runtime.workRuntimeName()} · ${session.repoName}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
                 buildString {
-                    append("${session.runtime.workRuntimeName()} · ${session.repoName} · ${session.model} · ${session.reasoningEffort}")
+                    append("${session.model} · ${session.reasoningEffort}")
                     if (session.runtime == "codex") append(if (session.fastMode) " · 快速" else " · 标准")
                 },
-                style = MaterialTheme.typography.bodySmall,
-                color = if (waiting) {
-                    MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.72f)
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -379,14 +382,11 @@ private fun WorkSessionCard(
                     Text(
                         updated,
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (waiting) {
-                            MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.6f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
+        }
         }
     }
 }
