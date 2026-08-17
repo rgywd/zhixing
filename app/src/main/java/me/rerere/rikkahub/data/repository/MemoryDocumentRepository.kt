@@ -6,6 +6,7 @@ import me.rerere.rikkahub.data.db.dao.MemoryDocumentDAO
 import me.rerere.rikkahub.data.db.entity.MemoryDocumentEntity
 import me.rerere.rikkahub.data.memory.normalizeMemoryPath
 import me.rerere.rikkahub.data.memory.MEMORY_DOCUMENT_SOURCE_LIMIT
+import me.rerere.rikkahub.data.memory.requireCanonicalMemoryContent
 import me.rerere.rikkahub.data.memory.requireMemorySources
 import me.rerere.rikkahub.data.memory.requireValidMemoryDocument
 import me.rerere.rikkahub.data.memory.requireWritableMemoryPath
@@ -14,6 +15,8 @@ import me.rerere.rikkahub.data.model.MemoryDocumentSource
 import me.rerere.rikkahub.data.model.MemoryDocumentSourceType
 import me.rerere.rikkahub.data.model.MemoryDocumentState
 import me.rerere.rikkahub.utils.JsonInstant
+import java.text.Normalizer
+import java.util.Locale
 
 class MemoryDocumentConflictException(
     val current: MemoryDocument?,
@@ -69,6 +72,7 @@ class MemoryDocumentRepository(
         content = content,
         sources = sources,
         allowDirectUserEdit = false,
+        formatContentToValidate = content,
     )
 
     suspend fun writeFromUserEditor(
@@ -98,6 +102,7 @@ class MemoryDocumentRepository(
                 observedAt = System.currentTimeMillis(),
             ),
             allowDirectUserEdit = true,
+            formatContentToValidate = null,
         )
     }
 
@@ -111,7 +116,7 @@ class MemoryDocumentRepository(
         val current = read(contextScopeId, rawPath)
         if (current.version != expectedVersion) throw MemoryDocumentConflictException(current)
         val next = listOf(current.content.trimEnd(), content.trim()).filter(String::isNotBlank).joinToString("\n")
-        return writeFromChat(
+        return write(
             contextScopeId = contextScopeId,
             rawPath = current.path,
             expectedVersion = expectedVersion,
@@ -120,6 +125,8 @@ class MemoryDocumentRepository(
             aliases = current.aliases,
             content = next,
             sources = current.sources + sources,
+            allowDirectUserEdit = false,
+            formatContentToValidate = content,
         )
     }
 
@@ -139,7 +146,7 @@ class MemoryDocumentRepository(
         require(current.content.indexOf(oldText, first + oldText.length) < 0) {
             "oldText must match exactly one location"
         }
-        return writeFromChat(
+        return write(
             contextScopeId = contextScopeId,
             rawPath = current.path,
             expectedVersion = expectedVersion,
@@ -148,6 +155,8 @@ class MemoryDocumentRepository(
             aliases = current.aliases,
             content = current.content.replaceRange(first, first + oldText.length, newText),
             sources = current.sources + sources,
+            allowDirectUserEdit = false,
+            formatContentToValidate = newText,
         )
     }
 
@@ -206,14 +215,20 @@ class MemoryDocumentRepository(
         content: String,
         sources: List<MemoryDocumentSource>,
         allowDirectUserEdit: Boolean,
+        formatContentToValidate: String?,
     ): MemoryDocument {
         val path = requireWritableMemoryPath(rawPath)
         require(expectedVersion >= 0) { "if_version must be zero for create or the current positive version" }
-        val cleanAliases = aliases.map(String::trim).distinct()
-        val cleanContent = content.trim()
-        requireValidMemoryDocument(path, name, description, cleanAliases, cleanContent)
+        val cleanName = normalizeMemoryMetadata(name)
+        val cleanDescription = normalizeMemoryMetadata(description)
+        val cleanAliases = aliases
+            .map(::normalizeMemoryMetadata)
+            .distinctBy { it.lowercase(Locale.ROOT) }
+        val cleanContent = normalizeMemoryContent(content)
+        requireValidMemoryDocument(path, cleanName, cleanDescription, cleanAliases, cleanContent)
+        formatContentToValidate?.let { requireCanonicalMemoryContent(normalizeMemoryContent(it)) }
         val cleanSources = sources
-            .distinctBy { Triple(it.type, it.conversationId, it.messageId) }
+            .distinctBy { listOf(it.type.name, it.conversationId, it.messageId, it.quote) }
             .takeLast(MEMORY_DOCUMENT_SOURCE_LIMIT)
         requireMemorySources(cleanSources, allowDirectUserEdit)
         ensurePinnedDocuments()
@@ -225,8 +240,8 @@ class MemoryDocumentRepository(
             val inserted = MemoryDocumentEntity(
                 scopeId = targetScope,
                 path = path,
-                name = name.trim(),
-                description = description.trim(),
+                name = cleanName,
+                description = cleanDescription,
                 aliasesJson = JsonInstant.encodeToString(cleanAliases),
                 content = cleanContent,
                 sourcesJson = JsonInstant.encodeToString(cleanSources),
@@ -245,8 +260,8 @@ class MemoryDocumentRepository(
             val changed = dao.reactivateDeleted(
                 scopeId = targetScope,
                 path = path,
-                name = name.trim(),
-                description = description.trim(),
+                name = cleanName,
+                description = cleanDescription,
                 aliasesJson = JsonInstant.encodeToString(cleanAliases),
                 content = cleanContent,
                 sourcesJson = JsonInstant.encodeToString(cleanSources),
@@ -261,8 +276,8 @@ class MemoryDocumentRepository(
             scopeId = targetScope,
             path = path,
             expectedVersion = expectedVersion,
-            name = name.trim(),
-            description = description.trim(),
+            name = cleanName,
+            description = cleanDescription,
             aliasesJson = JsonInstant.encodeToString(cleanAliases),
             content = cleanContent,
             sourcesJson = JsonInstant.encodeToString(cleanSources),
@@ -311,6 +326,16 @@ class MemoryDocumentRepository(
         .map(MemoryDocumentEntity::toMemoryDocument)
         .sortedBy(MemoryDocument::path)
 }
+
+private fun normalizeMemoryMetadata(value: String): String =
+    Normalizer.normalize(value.trim(), Normalizer.Form.NFC)
+
+private fun normalizeMemoryContent(value: String): String = value
+    .replace("\r\n", "\n")
+    .replace('\r', '\n')
+    .lineSequence()
+    .joinToString("\n", transform = String::trimEnd)
+    .trim()
 
 internal fun MemoryDocumentEntity.toMemoryDocument(): MemoryDocument = MemoryDocument(
     scopeId = scopeId,

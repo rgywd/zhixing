@@ -3,6 +3,9 @@ package me.rerere.rikkahub.data.ai.tools
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.coroutines.runBlocking
 import me.rerere.ai.core.InputSchema
@@ -44,6 +47,8 @@ class MemoryDocumentToolsTest {
         assertTrue(writeDescription.contains("one document per call"))
         assertTrue(writeDescription.contains("multiple calls"))
         assertTrue(writeDescription.contains("version returned by the preceding result"))
+        assertTrue(writeDescription.contains("Use canonical memory fact formats"))
+        assertTrue(writeDescription.contains("HH:mm"))
         assertFalse(tools.last().description.contains("no_change"))
         assertFalse(tools.last().description.contains("finalize"))
     }
@@ -122,6 +127,17 @@ class MemoryDocumentToolsTest {
         assertTrue(success.text.contains("\"success\":true"))
         assertTrue(success.text.contains("\"changed\":true"))
         assertFalse(success.text.contains("finalized"))
+    }
+
+    @Test
+    fun nonCanonicalAppendReturnsSpecificRetryableFormatError() = runBlocking {
+        val result = memoryTools().last().execute(
+            appendInput(content = "- [stated] 用户的生日是 10 月 17 日。")
+        ).single() as UIMessagePart.Text
+
+        assertTrue(result.text.contains("MEMORY_FORMAT_INVALID"))
+        assertTrue(result.text.contains("\"retryable\":true"))
+        assertTrue(result.text.contains("YYYY-MM-DD"))
     }
 
     @Test
@@ -247,6 +263,7 @@ class MemoryDocumentToolsTest {
             conversationId = "conversation",
             messageId = "message",
             quote = "我偏好中文",
+            observedAt = 1_700_000_000_000L,
         )
         val tool = buildMemoryDocumentTools(
             json = Json,
@@ -259,9 +276,44 @@ class MemoryDocumentToolsTest {
 
         val result = tool.execute(buildJsonObject { put("path", "/profile.md") })
             .single() as UIMessagePart.Text
-        assertTrue(result.text.contains("name: \\\"Profile\\\""))
-        assertTrue(result.text.contains("sources:"))
-        assertTrue(result.text.contains("[stated]"))
+        val payload = Json.parseToJsonElement(result.text).jsonObject
+        val renderedSource = payload.getValue("sources").jsonArray.single().jsonObject
+        assertEquals("chat", renderedSource.getValue("type").jsonPrimitive.content)
+        assertEquals("conversation", renderedSource.getValue("conversation_id").jsonPrimitive.content)
+        assertEquals("message", renderedSource.getValue("message_id").jsonPrimitive.content)
+        assertEquals("2023-11-14T22:13:20Z", renderedSource.getValue("observed_at").jsonPrimitive.content)
+        assertFalse("conversationId" in renderedSource)
+        assertFalse("messageId" in renderedSource)
+
+        val markdown = payload.getValue("markdown").jsonPrimitive.content
+        assertTrue(markdown.contains("name: \"Profile\""))
+        assertTrue(markdown.contains("sources:\n  - type: chat"))
+        assertTrue(markdown.contains("observed_at: \"2023-11-14T22:13:20Z\""))
+        assertTrue(markdown.contains("[stated]"))
+    }
+
+    @Test
+    fun readOmitsUnavailableSourceFieldsInsteadOfReturningNulls() = runBlocking {
+        val source = MemoryDocumentSource(
+            type = MemoryDocumentSourceType.USER_EDIT,
+            observedAt = 1_700_000_000_000L,
+        )
+        val tool = buildMemoryDocumentTools(
+            json = Json,
+            onRead = { document().copy(sources = listOf(source)) },
+            onWrite = { _, _, _, _, _, _, _ -> document() },
+            onReplace = { _, _, _, _, _ -> document() },
+            onAppend = { _, _, _, _ -> document() },
+            onDelete = { _, _ -> },
+        ).first()
+
+        val result = tool.execute(buildJsonObject { put("path", "/profile.md") })
+            .single() as UIMessagePart.Text
+        val renderedSource = Json.parseToJsonElement(result.text)
+            .jsonObject.getValue("sources").jsonArray.single().jsonObject
+
+        assertEquals(setOf("type", "observed_at"), renderedSource.keys)
+        assertEquals("user_edit", renderedSource.getValue("type").jsonPrimitive.content)
     }
 
     @Test

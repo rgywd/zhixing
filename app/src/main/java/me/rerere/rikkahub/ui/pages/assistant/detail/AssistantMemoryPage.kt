@@ -40,6 +40,7 @@ import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.PencilEdit01
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.memory.findMemoryContentFormatIssues
 import me.rerere.rikkahub.data.memory.requireValidMemoryDocument
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.MemoryDocument
@@ -341,6 +342,7 @@ private fun MemoryDocumentEditor(
             )
         }.exceptionOrNull()?.message
     }
+    val formatIssues = remember(draft.content) { findMemoryContentFormatIssues(draft.content) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (initial.version == 0L) "新增记忆文件" else "编辑记忆文件") },
@@ -385,13 +387,22 @@ private fun MemoryDocumentEditor(
                     value = draft.content,
                     onValueChange = { draft = draft.copy(content = it) },
                     label = { Text("正文") },
-                    supportingText = { Text("每条事实必须以 - [stated] 开头；推断和敏感信息不会保存") },
+                    supportingText = {
+                        Text("每条事实单独使用 - [stated]；日期 YYYY-MM-DD，时间 HH:mm，物理量使用 kg、cm 等标准单位")
+                    },
                     minLines = 6,
                     maxLines = 14,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 validationError?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                if (validationError == null && formatIssues.isNotEmpty()) {
+                    Text(
+                        "格式建议：" + formatIssues.joinToString("；") { it.uiMessage },
+                        color = MaterialTheme.colorScheme.tertiary,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
         },

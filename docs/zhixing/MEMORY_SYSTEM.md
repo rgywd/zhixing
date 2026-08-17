@@ -1,6 +1,6 @@
 # 记忆文档与历史对话检索 V3
 
-状态：V3 现行契约（Issue #208；前台按需写入于 2026-08-14 更新）。
+状态：V3 现行契约（Issue #208；前台按需写入与内容格式 V1 于 2026-08-17 更新）。
 
 ## 1. 两套机制，不能混用
 
@@ -42,6 +42,10 @@ V3 是存储在 Room 中的虚拟 Markdown 文件系统，不把用户数据散�
 存储层把元数据拆成列以支持 Room 查询和 CAS，但 `memory_read` 与 pinned 注入返回的是完整虚拟 Markdown 文件：
 YAML frontmatter 固定包含 `name / description / sources / aliases`，后接正文。正文允许使用 `[[name]]` 引用其他
 文件；目标通过 listing 的路径和 aliases 定位，不会因此把被引用文件正文自动塞进上下文。
+
+模型可见的外部表示使用稳定类型：listing 中 `aliases` 是 JSON array，不是逗号拼接字符串；source 字段使用
+snake_case，`type` 使用小写枚举，`observed_at` 使用 RFC 3339。虚拟 Markdown 中空 aliases/sources 显式写成
+`[]`，避免空列表被解释为字符串或 null。Room 内部时间仍保存 epoch milliseconds，不改变数据库 schema。
 
 ## 3. 上下文加载
 
@@ -87,7 +91,7 @@ mutation 返回 `success=true / changed=true`。用户明确要求的记忆变�
 模型写入还必须同时满足：
 
 - 内容是当前用户明确说出的持久事实；删除仍必须由用户明确要求；
-- 每条正文事实以 `- [stated] ` 开头；
+- 每条正文事实以 `- [stated] ` 开头，一行只表达一个可独立纠正的持久事实；
 - 涉及日期的事实使用固定格式：完整日期 `YYYY-MM-DD`（如 `2026-08-17`），无年份的年度日期（如生日）用 `MM-DD`（如 `10-17`），单独年份用 `YYYY`；
 - 至少一条 source；模型只提交当前 USER 消息 Text part 的精确 quote，应用从当前运行快照绑定可信的会话 ID
   和消息 ID，模型不能提供或覆盖这两个内部 ID；
@@ -96,6 +100,32 @@ mutation 返回 `success=true / changed=true`。用户明确要求的记忆变�
 
 用户在记忆页直接编辑等同于新的用户陈述，记录 `USER_EDIT` source。模型推断、旧自动画像摘要、助手回复、
 工具结果和历史搜索 snippet 不能落入 active 文档。
+
+### 内容格式 V1
+
+内容格式只规范整理后的事实正文，绝不改写 source quote。模型写入遇到可确定的格式错误时返回
+`MEMORY_FORMAT_INVALID`、`retryable=true` 和具体 correction；用户编辑器显示相同 lint 建议但不阻止保存。
+现有 active 文档和 legacy archive 不做后台扫描或静默迁移；后续 append/str_replace 只校验本次新增片段，避免
+旧正文阻塞无关更新。
+
+| 值类型 | 规范格式 | 示例 | 当前机器门禁 |
+| --- | --- | --- | --- |
+| 完整日期 | `YYYY-MM-DD`，且必须是真实日历日期 | `2026-08-17` | 模型写入拒绝中文、斜杠、未补零和无效日期 |
+| 年月 | `YYYY-MM` | `2026-08` | 模型写入拒绝未补零和无效月份 |
+| 年度重复日期 | `MM-DD` | `10-17` | 模型写入拒绝未补零和无效月日 |
+| 年份 | `YYYY` | `2002` | 模型写入拒绝“2002 年”等本地化后缀 |
+| 时间 | 24 小时制 `HH:mm`；秒有意义时用 `HH:mm:ss` | `09:30` | 模型写入拒绝中文钟点、全角冒号、未补零和无效时间 |
+| 绝对时刻 | 带 offset 的 RFC 3339 | `2026-08-17T09:35:30+08:00` | prompt 约束 |
+| 时区 | IANA zone ID | `Asia/Shanghai` | prompt 约束 |
+| 数字与物理量 | ASCII 数字、小数点、显式标准单位 | `70 kg`、`175 cm`、`22 °C` | 模型写入拒绝常见中文公制单位 |
+| 百分比 | 数字与 `%` 之间不留空格 | `18%` | 模型写入拒绝“百分之…”和 `18 %` |
+| 语言/区域 | BCP 47 | `zh-CN`、`en-US` | prompt 约束 |
+| 非敏感币种偏好 | ISO 4217 大写代码 | `CNY` | prompt；精确财务数字继续由安全策略拒绝 |
+
+不完整、近似或农历信息必须保留原有精度和历法，例如“约 `2026-08`”或“农历 `08-15`”；不得为了满足格式
+补造日期、时间、时区或公历换算。姓名、项目名、称呼、地址和 URL path/query 保留用户语义，不做破坏性
+大小写或 Unicode 转换。元数据会 trim 并使用 Unicode NFC；aliases 还会按大小写不敏感方式去重并保留首次顺序。
+正文统一为 LF 并移除行尾空格。相同消息中的不同精确 quote 作为不同 source 保留。
 
 ## 5. V2 迁移和退役
 
@@ -141,7 +171,8 @@ curated fact 分层；不照搬模型自主改写、云向量库、图数据库�
 1. 非 pinned 正文不出现在开场 prompt，listing 能路由到正确路径。
 2. 模型侧 source schema 不暴露会话 ID 或消息 ID；quote 不是当前 USER 消息的精确子串时写入失败，匹配成功时
    由应用绑定最近一条可信来源消息。
-3. 非 `[stated]`、凭据类敏感信息和控制型 preference 写入失败。
+3. 非 `[stated]`、凭据类敏感信息、控制型 preference 和可确定的非规范 V1 值写入失败；用户编辑器对格式问题
+   只警告，不阻断保存。
 4. 两个 writer 使用同一旧 version 时只有一个成功，另一个得到冲突。
 5. 43→44 保留旧记录到 archive，不删除旧表或用户会话。
 6. 记忆页可查看和编辑元数据/正文/版本/来源数，删除非 pinned 文件需要确认。
@@ -150,3 +181,4 @@ curated fact 分层；不照搬模型自主改写、云向量库、图数据库�
    失败会修正后重试，机会式写入失败不阻塞普通回答；响应不包含 Run `finalized` 语义，且没有后台或隐藏的
    二次模型调用。
 9. 删除消息/会话会移除对应 source，删除助手会清理其 scope；旧 `MemoryEntity` 不再有当前 UI 写入口。
+10. listing aliases 保持 JSON array；source 的 JSON/YAML 字段名、枚举、空数组和 RFC 3339 时间表示一致。

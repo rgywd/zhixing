@@ -12,7 +12,12 @@ class MemoryDocumentPromptsTest {
             listOf(
                 document("/profile.md", "Profile", "- [stated] 用户使用中文。"),
                 document("/preferences.md", "Preferences", "- [stated] 用户偏好先给结论。"),
-                document("/areas/zhixing.md", "Zhixing project", "- [stated] 这是不应常驻的项目正文。"),
+                document(
+                    "/areas/zhixing.md",
+                    "Zhixing project",
+                    "- [stated] 这是不应常驻的项目正文。",
+                    aliases = listOf("知行", "Zhixing"),
+                ),
             )
         )
 
@@ -34,8 +39,12 @@ class MemoryDocumentPromptsTest {
         assertFalse(prompt.contains("run-finalization"))
         assertTrue(prompt.contains("app binds its current conversation and message IDs"))
         assertTrue(prompt.contains("no background or follow-up memory pass"))
-        assertTrue(prompt.contains("Write dates in a fixed format"))
+        assertTrue(prompt.contains("Use canonical memory fact formats"))
         assertTrue(prompt.contains("YYYY-MM-DD"))
+        assertTrue(prompt.contains("HH:mm"))
+        assertTrue(prompt.contains("Asia/Shanghai"))
+        assertTrue(prompt.contains("\"aliases\": ["))
+        assertFalse(prompt.contains("\"aliases\": \"知行, Zhixing\""))
         assertTrue(prompt.contains("Zhixing project"))
         assertFalse(prompt.contains("这是不应常驻的项目正文"))
         assertTrue(prompt.contains("用户使用中文"))
@@ -54,11 +63,27 @@ class MemoryDocumentPromptsTest {
         assertTrue(prompt.contains(content))
     }
 
-    private fun document(path: String, description: String, content: String) = MemoryDocument(
+    @Test
+    fun virtualMarkdownUsesTypedEmptySources() {
+        val markdown = renderMemoryDocumentMarkdown(
+            document("/profile.md", "Profile", "- [stated] 用户偏好中文。")
+        )
+
+        assertTrue(markdown.contains("aliases: []"))
+        assertTrue(markdown.contains("sources: []"))
+    }
+
+    private fun document(
+        path: String,
+        description: String,
+        content: String,
+        aliases: List<String> = emptyList(),
+    ) = MemoryDocument(
         scopeId = "__global__",
         path = path,
         name = path,
         description = description,
+        aliases = aliases,
         content = content,
     )
 }

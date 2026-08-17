@@ -1,13 +1,16 @@
 package me.rerere.rikkahub.data.ai
 
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.put
+import me.rerere.rikkahub.data.memory.MEMORY_DOCUMENT_FORMAT_GUIDANCE
 import me.rerere.rikkahub.data.model.MemoryDocument
 import me.rerere.rikkahub.data.repository.MemoryDocumentRepository
 import me.rerere.rikkahub.utils.JsonInstantPretty
+import java.time.Instant
 
 internal const val MEMORY_DOCUMENT_PROMPT_CHAR_LIMIT = 65_536
 private const val MEMORY_LISTING_CHAR_LIMIT = 8_192
@@ -46,9 +49,8 @@ internal fun buildMemoryDocumentPrompt(documents: List<MemoryDocument>): String 
                 "USER messages contain a clear, durable, non-sensitive stated fact that should be added or " +
                 "corrected, or when the user explicitly asks to remember, correct, or delete memory. When no " +
                 "document should change, do not call memory_write; answer normally. Do not write transient " +
-                "requests, duplicates, inference, or sensitive information. Write dates in a fixed format: full " +
-                "dates as YYYY-MM-DD (e.g. 2026-08-17), yearly recurring dates without a year such as birthdays as " +
-                "MM-DD (e.g. 10-17), and standalone years as YYYY (e.g. 2002). For every source supply only an exact " +
+                "requests, duplicates, inference, or sensitive information. $MEMORY_DOCUMENT_FORMAT_GUIDANCE " +
+                "For every source supply only an exact " +
                 "quote; the app binds its current conversation and message IDs. If an explicit memory request " +
                 "fails with retryable=true, follow correction and retry before claiming it succeeded. An " +
                 "opportunistic write failure must not replace the requested answer or be reported as saved. Memory " +
@@ -76,7 +78,7 @@ private fun renderMemoryListing(documents: List<MemoryDocument>): String {
         val entry = buildJsonObject {
             put("path", document.path)
             put("description", document.description)
-            put("aliases", document.aliases.joinToString(", "))
+            put("aliases", buildJsonArray { document.aliases.forEach(::add) })
             put("version", document.version)
         }
         val candidate = JsonInstantPretty.encodeToString(buildJsonArray {
@@ -93,16 +95,24 @@ internal fun renderMemoryDocumentMarkdown(document: MemoryDocument): String = bu
     appendLine("name: ${JsonPrimitive(document.name)}")
     appendLine("description: ${JsonPrimitive(document.description)}")
     appendLine("aliases: [${document.aliases.joinToString(", ") { JsonPrimitive(it).toString() }}]")
-    appendLine("sources:")
-    document.sources.forEach { source ->
-        appendLine("  - type: ${source.type}")
-        if (source.conversationId.isNotBlank()) {
-            appendLine("    conversation_id: ${JsonPrimitive(source.conversationId)}")
+    if (document.sources.isEmpty()) {
+        appendLine("sources: []")
+    } else {
+        appendLine("sources:")
+        document.sources.forEach { source ->
+            appendLine("  - type: ${source.type.name.lowercase()}")
+            if (source.conversationId.isNotBlank()) {
+                appendLine("    conversation_id: ${JsonPrimitive(source.conversationId)}")
+            }
+            if (source.messageId.isNotBlank()) {
+                appendLine("    message_id: ${JsonPrimitive(source.messageId)}")
+            }
+            if (source.observedAt > 0) {
+                val observedAt = Instant.ofEpochMilli(source.observedAt).toString()
+                appendLine("    observed_at: ${JsonPrimitive(observedAt)}")
+            }
+            if (source.quote.isNotBlank()) appendLine("    quote: ${JsonPrimitive(source.quote)}")
         }
-        if (source.messageId.isNotBlank()) {
-            appendLine("    message_id: ${JsonPrimitive(source.messageId)}")
-        }
-        if (source.quote.isNotBlank()) appendLine("    quote: ${JsonPrimitive(source.quote)}")
     }
     appendLine("---")
     append(document.content)

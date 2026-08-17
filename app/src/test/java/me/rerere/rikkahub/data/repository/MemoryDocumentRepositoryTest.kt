@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import me.rerere.rikkahub.data.db.dao.MemoryDocumentDAO
 import me.rerere.rikkahub.data.db.entity.MemoryDocumentEntity
+import me.rerere.rikkahub.data.memory.MemoryDocumentFormatException
 import me.rerere.rikkahub.data.model.MemoryDocumentSource
 import me.rerere.rikkahub.data.model.MemoryDocumentSourceType
 import org.junit.Assert.assertEquals
@@ -150,6 +151,71 @@ class MemoryDocumentRepositoryTest {
         assertEquals(created.content, updated.content)
         assertEquals(created.version + 1, updated.version)
         assertEquals(listOf(retained), updated.sources)
+    }
+
+    @Test
+    fun chatWritesRequireCanonicalFormatsWhileDirectUserEditsRemainAdvisory() = runBlocking {
+        val repository = MemoryDocumentRepository(FakeMemoryDocumentDAO())
+        val source = MemoryDocumentSource(
+            type = MemoryDocumentSourceType.CHAT,
+            conversationId = "conversation",
+            messageId = "message",
+            quote = "我的生日是 10 月 17 日",
+        )
+        val content = "- [stated] 用户的生日是 10 月 17 日。"
+
+        val rejected = runCatching {
+            repository.writeFromChat(
+                contextScopeId = MemoryDocumentRepository.GLOBAL_SCOPE_ID,
+                rawPath = MemoryDocumentRepository.PROFILE_PATH,
+                expectedVersion = 1,
+                name = "Profile",
+                description = "Stable profile",
+                aliases = emptyList(),
+                content = content,
+                sources = listOf(source),
+            )
+        }.exceptionOrNull()
+        assertTrue(rejected is MemoryDocumentFormatException)
+
+        val edited = repository.writeFromUserEditor(
+            contextScopeId = MemoryDocumentRepository.GLOBAL_SCOPE_ID,
+            rawPath = MemoryDocumentRepository.PROFILE_PATH,
+            expectedVersion = 1,
+            name = "Profile",
+            description = "Stable profile",
+            aliases = emptyList(),
+            content = content,
+        )
+        assertEquals(content, edited.content)
+    }
+
+    @Test
+    fun writesNormalizeMetadataNewlinesAndKeepDistinctQuotesFromOneMessage() = runBlocking {
+        val repository = MemoryDocumentRepository(FakeMemoryDocumentDAO())
+        val source = MemoryDocumentSource(
+            type = MemoryDocumentSourceType.CHAT,
+            conversationId = "conversation",
+            messageId = "message",
+            quote = "第一条事实",
+        )
+
+        val created = repository.writeFromChat(
+            contextScopeId = "assistant",
+            rawPath = "/topics/format.md",
+            expectedVersion = 0,
+            name = "  Cafe\u0301  ",
+            description = "  Stable formatting facts.  ",
+            aliases = listOf("Cafe\u0301", "Café", "ZHIXING", "zhixing"),
+            content = "- [stated] 第一条事实。  \r\n- [stated] 第二条事实。  \r\n",
+            sources = listOf(source, source.copy(quote = "第二条事实")),
+        )
+
+        assertEquals("Café", created.name)
+        assertEquals("Stable formatting facts.", created.description)
+        assertEquals(listOf("Café", "ZHIXING"), created.aliases)
+        assertEquals("- [stated] 第一条事实。\n- [stated] 第二条事实。", created.content)
+        assertEquals(listOf("第一条事实", "第二条事实"), created.sources.map { it.quote })
     }
 }
 

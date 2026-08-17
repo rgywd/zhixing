@@ -24,11 +24,16 @@ import me.rerere.rikkahub.data.memory.MEMORY_DOCUMENT_CONTENT_LIMIT
 import me.rerere.rikkahub.data.memory.MEMORY_DOCUMENT_DESCRIPTION_LIMIT
 import me.rerere.rikkahub.data.memory.MEMORY_DOCUMENT_SOURCE_LIMIT
 import me.rerere.rikkahub.data.memory.MEMORY_DOCUMENT_SOURCE_QUOTE_LIMIT
+import me.rerere.rikkahub.data.memory.MEMORY_DOCUMENT_FORMAT_GUIDANCE
+import me.rerere.rikkahub.data.memory.MemoryDocumentFormatException
+import me.rerere.rikkahub.data.memory.requireCanonicalMemoryContent
 import me.rerere.rikkahub.data.model.MemoryDocument
 import me.rerere.rikkahub.data.model.MemoryDocumentSource
 import me.rerere.rikkahub.data.model.MemoryDocumentSourceType
 import me.rerere.rikkahub.data.repository.MemoryDocumentConflictException
 import me.rerere.rikkahub.data.ai.renderMemoryDocumentMarkdown
+import java.time.Instant
+import java.util.Locale
 
 @Serializable
 private data class MemoryDocumentToolResult(
@@ -37,7 +42,7 @@ private data class MemoryDocumentToolResult(
     val description: String,
     val aliases: List<String>,
     val content: String,
-    val sources: List<MemoryDocumentSource>,
+    val sources: List<JsonObject>,
     val markdown: String,
     val version: Long,
 )
@@ -48,10 +53,18 @@ private fun MemoryDocument.toToolResult() = MemoryDocumentToolResult(
     description = description,
     aliases = aliases,
     content = content,
-    sources = sources,
+    sources = sources.map(MemoryDocumentSource::toToolResult),
     markdown = renderMemoryDocumentMarkdown(this),
     version = version,
 )
+
+private fun MemoryDocumentSource.toToolResult() = buildJsonObject {
+    put("type", type.name.lowercase(Locale.ROOT))
+    if (conversationId.isNotBlank()) put("conversation_id", conversationId)
+    if (messageId.isNotBlank()) put("message_id", messageId)
+    if (observedAt > 0) put("observed_at", Instant.ofEpochMilli(observedAt).toString())
+    if (quote.isNotBlank()) put("quote", quote)
+}
 
 private data class MemoryDocumentMutation(
     val path: String,
@@ -168,9 +181,8 @@ fun buildMemoryDocumentTools(
             - delete: path and if_version; only after an explicit user request.
 
             Use if_version=0 only when creating a document. Every added fact must be a Markdown bullet beginning
-            `- [stated] `. Write dates in a fixed format: full dates as YYYY-MM-DD (e.g. 2026-08-17), yearly
-            recurring dates without a year such as birthdays as MM-DD (e.g. 10-17), and standalone years as YYYY
-            (e.g. 2002). Each source contains only an exact quote from a current USER message; the app binds its
+            `- [stated] `. $MEMORY_DOCUMENT_FORMAT_GUIDANCE Each source contains only an exact quote from a current USER
+            message; the app binds its
             current conversation and message IDs. Never persist transient requests, duplicates, inference, sensitive
             information, or assistant/tool text. A special "remember" phrase is not required. This tool never changes
             raw conversation history.
@@ -277,6 +289,7 @@ fun buildMemoryDocumentTools(
                             val name = params.requiredNonBlankString("name", code)
                             val description = params.requiredNonBlankString("description", code)
                             val content = params.requiredNonBlankString("content", code)
+                            requireCanonicalMemoryContent(content)
                             val sources = params.requireSources()
                             MemoryDocumentMutation(
                                 path = path,
@@ -298,6 +311,7 @@ fun buildMemoryDocumentTools(
                             val ifVersion = params.requiredNonNegativeLong("if_version", code)
                             val oldText = params.requiredNonBlankString("old_text", code)
                             val newText = params.requiredString("new_text", code)
+                            if (newText.isNotBlank()) requireCanonicalMemoryContent(newText)
                             val sources = params.requireSources()
                             MemoryDocumentMutation(
                                 path = path,
@@ -310,6 +324,7 @@ fun buildMemoryDocumentTools(
                             val path = params.requiredNonBlankString("path", code)
                             val ifVersion = params.requiredNonNegativeLong("if_version", code)
                             val content = params.requiredNonBlankString("content", code)
+                            requireCanonicalMemoryContent(content)
                             val sources = params.requireSources()
                             MemoryDocumentMutation(
                                 path = path,
@@ -339,6 +354,12 @@ fun buildMemoryDocumentTools(
                     changed = true,
                     path = mutation.path,
                     document = mutation.document,
+                )
+            } catch (error: MemoryDocumentFormatException) {
+                memoryWriteFailure(
+                    json = json,
+                    code = "MEMORY_FORMAT_INVALID",
+                    correction = error.message,
                 )
             } catch (error: ToolExecutionException) {
                 memoryWriteFailure(json = json, code = error.code)
@@ -377,6 +398,7 @@ private fun memoryWriteFailure(
     json: Json,
     code: String,
     current: MemoryDocument? = null,
+    correction: String? = null,
 ): List<UIMessagePart> {
     val guidance = memoryWriteFailureGuidance(code)
     return listOf(
@@ -386,7 +408,7 @@ private fun memoryWriteFailure(
                 put("changed", false)
                 put("retryable", guidance.retryable)
                 put("error", code)
-                put("correction", guidance.correction)
+                put("correction", correction ?: guidance.correction)
                 current?.let { document ->
                     put(
                         "current",
@@ -456,6 +478,10 @@ private fun memoryWriteFailureGuidance(code: String): MemoryWriteFailureGuidance
         retryable = true,
         correction = "Correct the mutation and retry: use a writable path, current version, `[stated]` bullets, " +
             "valid non-sensitive content, and exact current USER sources.",
+    )
+    "MEMORY_FORMAT_INVALID" -> MemoryWriteFailureGuidance(
+        retryable = true,
+        correction = "Rewrite the added facts using the canonical memory formats, then retry.",
     )
     "MEMORY_CONTEXT_UNAVAILABLE" -> MemoryWriteFailureGuidance(
         retryable = false,
