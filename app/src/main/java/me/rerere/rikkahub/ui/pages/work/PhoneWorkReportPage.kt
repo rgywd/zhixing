@@ -5,16 +5,20 @@ import android.content.Intent
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import com.dokar.sonner.ToastType
@@ -36,7 +40,7 @@ fun PhoneWorkReportPage(contentId: String, title: String) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(title, maxLines = 1) },
+                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { BackButton() },
                 actions = {
                     IconButton(
@@ -65,9 +69,21 @@ fun PhoneWorkReportPage(contentId: String, title: String) {
             )
         },
     ) { padding ->
-        AndroidView(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            factory = { viewContext ->
+        if (html.isBlank()) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "报告内容不可用或已被清理",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            AndroidView(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                factory = { viewContext ->
                 WebView(viewContext).apply {
                     settings.javaScriptEnabled = false
                     settings.domStorageEnabled = false
@@ -91,7 +107,8 @@ fun PhoneWorkReportPage(contentId: String, title: String) {
                     loadDataWithBaseURL("https://work-report.invalid/", html, "text/html", "utf-8", null)
                 }
             },
-            onRelease = { it.destroy() },
-        )
+                onRelease = { it.destroy() },
+            )
+        }
     }
 }
