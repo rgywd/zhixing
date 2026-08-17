@@ -13,6 +13,7 @@ import me.rerere.rikkahub.data.db.dao.ConversationDAO
 import me.rerere.rikkahub.data.db.dao.FavoriteDAO
 import me.rerere.rikkahub.data.db.dao.FolderDAO
 import me.rerere.rikkahub.data.db.dao.GenMediaDAO
+import me.rerere.rikkahub.data.db.dao.HealthMetricDAO
 import me.rerere.rikkahub.data.db.dao.ManagedFileDAO
 import me.rerere.rikkahub.data.db.dao.MemoryDAO
 import me.rerere.rikkahub.data.db.dao.MemoryDocumentDAO
@@ -31,6 +32,7 @@ import me.rerere.rikkahub.data.db.entity.ConversationEntity
 import me.rerere.rikkahub.data.db.entity.FavoriteEntity
 import me.rerere.rikkahub.data.db.entity.FolderEntity
 import me.rerere.rikkahub.data.db.entity.GenMediaEntity
+import me.rerere.rikkahub.data.db.entity.HealthMetricRecordEntity
 import me.rerere.rikkahub.data.db.entity.ManagedFileEntity
 import me.rerere.rikkahub.data.db.entity.MemoryEntity
 import me.rerere.rikkahub.data.db.entity.MemoryDocumentEntity
@@ -47,7 +49,7 @@ import me.rerere.rikkahub.data.db.migrations.Migration_8_9
 import me.rerere.rikkahub.utils.JsonInstant
 
 internal const val APP_DATABASE_NAME = "zhixing"
-internal const val APP_DATABASE_VERSION = 48
+internal const val APP_DATABASE_VERSION = 49
 
 @Database(
     entities = [
@@ -71,6 +73,7 @@ internal const val APP_DATABASE_VERSION = 48
         AssistantTaskEventEntity::class,
         AssistantTaskLinkEntity::class,
         AssistantRuntimeContextEntity::class,
+        HealthMetricRecordEntity::class,
     ],
     version = APP_DATABASE_VERSION,
     autoMigrations = [
@@ -133,6 +136,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun monthlyLedgerDao(): MonthlyLedgerDAO
 
     abstract fun assistantTaskDao(): AssistantTaskDAO
+
+    abstract fun healthMetricDao(): HealthMetricDAO
 }
 
 object TokenUsageConverter {

@@ -17,8 +17,9 @@
 
 当前代码证据：
 
-- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 48。
+- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 49。
 - Room 存在连续迁移注册，未启用 destructive fallback。
+- v48→v49 只新增结构化健康记录表及索引；不回填或复制 Lenovo Watch 最近快照，并保留全部既有用户数据。
 - v47→v48 只为 Work 会话增加可空 `active_turn_id`；v46→v47 只增加默认关闭的 `fast_mode`。两次迁移
   都保留既有聊天、记忆、Work 会话、Agenda、长期计划、知识库和用户文件；0.4.13→0.4.14 schema 保持 48。
 - v45→v46 按明确的产品清理边界删除旧 `assistant_tasks`、`assistant_task_events` 和
@@ -59,7 +60,7 @@ P0 缺口：
 
 | 数据 | 事实来源 | 升级 | 远端备份 |
 | --- | --- | --- | --- |
-| 会话、消息、记忆、待办、月度收支汇总、工作区元数据 | Room `zhixing` | 必须保留 | 必须 |
+| 会话、消息、记忆、待办、月度收支汇总、结构化健康记录、工作区元数据 | Room `zhixing` | 必须保留 | 必须 |
 | Provider、助手、外观、同步配置 | DataStore | 必须保留 | 必须 |
 | 普通上传附件、Skills、Workspace 用户文件与 `vault/` 原文 | 应用 `files/` | 必须保留 | 必须 |
 | 普通聊天任务追踪、事件与软链接 | Room `zhixing` 的可重建投影 | 可按明确迁移与生命周期契约清理 | 非恢复真值 |

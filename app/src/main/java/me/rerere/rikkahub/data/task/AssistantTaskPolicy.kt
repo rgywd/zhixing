@@ -64,6 +64,7 @@ internal fun AssistantTaskStep.requiresDurableTask(json: Json): Boolean {
         // `no_change` remains readable for persisted pre-P0 tool calls but is not in the active memory_write schema.
         "memory_tool", "memory_write" -> action != null && action != "no_change"
         "monthly_spending_summary" -> action in setOf("save", "delete")
+        "health_metrics" -> action in setOf("save", "delete")
         else -> false
     }
 }
@@ -80,6 +81,7 @@ internal fun AssistantTaskStep.progressText(): String = when {
     toolName == "gh" -> "正在处理 GitHub 事项"
     toolName.startsWith("mcp__") -> "正在连接外部能力"
     toolName == "monthly_spending_summary" -> "正在整理账单"
+    toolName == "health_metrics" -> "正在整理健康数据"
     toolName == "memory_tool" || toolName == "memory_write" -> "正在整理你的记忆"
     toolName == "memory_read" -> "正在读取相关记忆"
     toolName.startsWith("workspace_") -> "正在处理工作区内容"
@@ -190,6 +192,11 @@ internal fun extractAssistantTaskResultLinks(
 
             tool.toolName == "monthly_spending_summary" -> value?.string("month")
                 ?.let { listOf(AssistantTaskResultLink("MONTHLY_LEDGER", it)) }
+                .orEmpty()
+
+            tool.toolName == "health_metrics" -> (value?.get("records") as? JsonArray)
+                ?.mapNotNull { record -> (record as? JsonObject)?.string("id") }
+                ?.map { id -> AssistantTaskResultLink("HEALTH_METRIC", id) }
                 .orEmpty()
 
             tool.toolName == "memory_tool" -> value.findNestedId("memory")

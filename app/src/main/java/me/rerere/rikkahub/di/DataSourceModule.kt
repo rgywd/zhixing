@@ -100,6 +100,7 @@ val dataSourceModule = module {
     single { get<AppDatabase>().agendaPlanDao() }
     single { get<AppDatabase>().monthlyLedgerDao() }
     single { get<AppDatabase>().assistantTaskDao() }
+    single { get<AppDatabase>().healthMetricDao() }
     single { PhoneWorkCredentialStore(get()) }
     single { PhoneWorkCatalogStore(get()) }
     single { PhoneWorkDraftStore(get()) }
@@ -119,7 +120,8 @@ val dataSourceModule = module {
             context = get(),
             providerManager = get(),
             json = get(),
-            memoryDocumentRepository = get()
+            memoryDocumentRepository = get(),
+            healthMetricRepository = get(),
         )
     }
 

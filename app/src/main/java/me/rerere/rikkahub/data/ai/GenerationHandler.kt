@@ -47,6 +47,7 @@ import me.rerere.rikkahub.data.ai.transformers.onGenerationFinish
 import me.rerere.rikkahub.data.ai.transformers.transforms
 import me.rerere.rikkahub.data.ai.transformers.visualTransforms
 import me.rerere.rikkahub.data.ai.tools.buildMemoryDocumentTools
+import me.rerere.rikkahub.data.ai.tools.local.buildHealthMetricsTool
 import me.rerere.rikkahub.data.ai.tools.bindMemoryDocumentChatSources
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findModelById
@@ -55,6 +56,7 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.ConversationUserPromptSnapshot
 import me.rerere.rikkahub.data.model.MemoryDocument
 import me.rerere.rikkahub.data.repository.MemoryDocumentRepository
+import me.rerere.rikkahub.data.repository.HealthMetricRepository
 import me.rerere.rikkahub.data.task.AssistantTaskStep
 import me.rerere.rikkahub.utils.applyPlaceholders
 import java.util.Locale
@@ -260,6 +262,7 @@ class GenerationHandler(
     private val providerManager: ProviderManager,
     private val json: Json,
     private val memoryDocumentRepository: MemoryDocumentRepository,
+    private val healthMetricRepository: HealthMetricRepository,
 ) {
     fun generateText(
         settings: Settings,
@@ -331,6 +334,32 @@ class GenerationHandler(
 
             val toolsInternal = buildList {
                 Log.i(TAG, "generateInternal: build tools")
+                add(
+                    buildHealthMetricsTool(
+                        listRecent = healthMetricRepository::getRecent,
+                        save = { drafts, sourceQuote ->
+                            val conversationId = memoryConversationId
+                                ?: throw ToolExecutionException("HEALTH_CONTEXT_UNAVAILABLE")
+                            val source = bindHealthMetricChatSource(
+                                sourceQuote = sourceQuote,
+                                conversationId = conversationId,
+                                messages = messages,
+                            )
+                            healthMetricRepository.saveFromChat(drafts, source)
+                        },
+                        delete = { recordIds, sourceQuote ->
+                            val conversationId = memoryConversationId
+                                ?: throw ToolExecutionException("HEALTH_CONTEXT_UNAVAILABLE")
+                            bindHealthMetricChatSource(
+                                sourceQuote = sourceQuote,
+                                conversationId = conversationId,
+                                messages = messages,
+                            )
+                            healthMetricRepository.deleteRecords(recordIds)
+                        },
+                        canRead = { settings.allowAiHealthData },
+                    ),
+                )
                 if (memoryScopeId != null) {
                     buildMemoryDocumentTools(
                         json = json,
