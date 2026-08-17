@@ -29,7 +29,9 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,6 +43,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -77,7 +80,7 @@ internal fun groupWorkSessions(sessions: List<PhoneWorkSession>): List<WorkSessi
     return buildList {
         if (waiting.isNotEmpty()) add(WorkSessionGroup("waiting", "等你回答", waiting))
         if (active.isNotEmpty()) add(WorkSessionGroup("active", "进行中", active))
-        if (rest.isNotEmpty()) add(WorkSessionGroup("rest", "其他会话", rest))
+        if (rest.isNotEmpty()) add(WorkSessionGroup("rest", "其余会话", rest))
     }
 }
 
@@ -163,14 +166,37 @@ fun PhoneWorkHomePage(vm: PhoneWorkHomeVM = koinViewModel()) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(padding),
                     contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (!showArchived) {
                         item(key = "summary") {
                             WorkHomeSummaryCard(summary = summarizeWorkSessions(sessions))
                         }
                     }
-                    if (error != null) item(key = "error") { Text(error.orEmpty(), color = MaterialTheme.colorScheme.error) }
+                    if (error != null) {
+                        item(key = "error") {
+                            Surface(
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                shape = MaterialTheme.shapes.medium,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(start = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        error.orEmpty(),
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    TextButton(onClick = vm::refresh, enabled = connection.configured && !refreshing) {
+                                        Text("重试")
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if (showArchived || groups.size <= 1) {
                         items(sessions, key = { it.id }) { session ->
                             WorkSessionCard(
@@ -191,8 +217,8 @@ fun PhoneWorkHomePage(vm: PhoneWorkHomeVM = koinViewModel()) {
                         groups.forEach { group ->
                             item(key = "group:${group.key}") {
                                 Text(
-                                    group.title,
-                                    modifier = Modifier.padding(top = 6.dp, start = 4.dp),
+                                    "${group.title} · ${group.sessions.size}",
+                                    modifier = Modifier.padding(top = 8.dp, start = 4.dp, bottom = 2.dp),
                                     style = MaterialTheme.typography.labelLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -399,9 +425,26 @@ private fun EmptyWorkState(title: String, detail: String, actionLabel: String, m
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Icon(HugeIcons.Sparkles, null, tint = MaterialTheme.colorScheme.primary)
-            Text(title, style = MaterialTheme.typography.titleLarge)
-            Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    HugeIcons.Sparkles,
+                    contentDescription = null,
+                    modifier = Modifier.size(30.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
             FilledTonalButton(onClick = onClick, modifier = Modifier.padding(top = 4.dp)) {
                 Text(actionLabel)
             }
