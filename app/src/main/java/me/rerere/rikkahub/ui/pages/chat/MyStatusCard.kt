@@ -188,16 +188,11 @@ private fun StatusContextLine(
             ?.let { ZonedDateTime.ofInstant(Instant.ofEpochMilli(it), zone) }
             ?: ZonedDateTime.now(zone)
     }
-    val weekday = WEEKDAYS.getOrElse(now.dayOfWeek.value - 1) { "" }
+    // 问候与日期已由抽屉头部展示，这里只保留时刻与位置，避免同屏重复
     val location = snapshot?.locationArea
         ?: if (locationPermissionRequired) "位置未授权" else "位置暂不可用"
     Text(
-        text = buildString {
-            append(lifeOverviewGreeting(now.hour))
-            append(" · ${now.monthValue}月${now.dayOfMonth}日 $weekday ")
-            append(STATUS_TIME_FORMATTER.format(now))
-            append(" · $location")
-        },
+        text = "此刻 ${STATUS_TIME_FORMATTER.format(now)} · $location",
         style = MaterialTheme.typography.bodyMedium,
         fontWeight = FontWeight.Medium,
     )
@@ -257,5 +252,4 @@ private fun generatedAtLabel(snapshot: MyStatusSnapshot): String {
     return "$source · 更新于 ${STATUS_TIME_FORMATTER.format(time)}"
 }
 
-private val WEEKDAYS = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 private val STATUS_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")

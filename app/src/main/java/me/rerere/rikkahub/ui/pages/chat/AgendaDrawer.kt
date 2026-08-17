@@ -24,13 +24,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerDefaults
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.Surface
@@ -51,7 +49,6 @@ import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -68,28 +65,19 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Cancel01
-import me.rerere.hugeicons.stroke.ChartColumn
-import me.rerere.hugeicons.stroke.Clock02
-import me.rerere.hugeicons.stroke.Favourite
-import me.rerere.hugeicons.stroke.Rocket01
 import me.rerere.hugeicons.stroke.Sun01
-import me.rerere.hugeicons.stroke.Time02
-import me.rerere.hugeicons.stroke.Zap
-import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbe
-import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbeState
 import me.rerere.rikkahub.data.today.TodayOverviewProvider
 import me.rerere.rikkahub.data.today.TodayItem
+import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbe
+import me.rerere.rikkahub.data.repository.HealthMetricRepository
 import me.rerere.rikkahub.data.work.PhoneWorkSession
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.ui.context.LocalDrawerGestureExclusion
 import me.rerere.rikkahub.ui.context.LocalNavController
+import me.rerere.rikkahub.ui.pages.stats.buildHealthStatsUiState
 import me.rerere.rikkahub.ui.pages.work.WorkStatusChip
 import org.koin.compose.koinInject
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Calendar
-import java.util.Locale
+import java.time.ZonedDateTime
 import kotlin.uuid.Uuid
 import me.rerere.rikkahub.utils.navigateToChatPage
 import kotlin.math.abs
@@ -334,6 +322,18 @@ private fun LifeOverviewDrawerContent(
     val navigator = LocalNavController.current
     LaunchedEffect(todayProvider) { todayProvider.onVisible() }
 
+    // 健康速览：Room 结构化记录 + 联想手表快照，复用统计页的合并逻辑
+    val healthMetricRepository: HealthMetricRepository = koinInject()
+    val watchProbe: LenovoWatchProbe = koinInject()
+    val healthRecords by healthMetricRepository.observeRecords()
+        .collectAsStateWithLifecycle(null)
+    val watchState by watchProbe.state.collectAsStateWithLifecycle()
+    val healthStats = remember(healthRecords, watchState) {
+        healthRecords?.let { records ->
+            buildHealthStatsUiState(records = records, watchState = watchState)
+        }
+    }
+
     Column(modifier = modifier.fillMaxHeight()) {
         LifeOverviewHeader(onClose = onClose)
         LazyColumn(
@@ -341,6 +341,13 @@ private fun LifeOverviewDrawerContent(
             contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            // 有 Work 会话等待回答时提到最上方，优先暴露需要人介入的事
+            if (todaySnapshot.waitingSessions.isNotEmpty()) {
+                item(key = "work-waiting") {
+                    WorkWaitingSection(waitingSessions = todaySnapshot.waitingSessions)
+                }
+            }
+
             item(key = "status-title") {
                 OverviewSectionTitle(
                     title = "我的状态",
@@ -348,6 +355,10 @@ private fun LifeOverviewDrawerContent(
                 )
             }
             item(key = "my-status") { MyStatusCard() }
+
+            healthStats?.takeIf { it.hasAnyData }?.let { stats ->
+                item(key = "health-glance") { HealthGlanceCard(stats = stats) }
+            }
 
             todaySnapshot.items.filterIsInstance<TodayItem.AssistantTask>().forEach { taskItem ->
                 item(key = taskItem.stableId) {
@@ -371,12 +382,6 @@ private fun LifeOverviewDrawerContent(
                 }
             }
 
-            if (todaySnapshot.waitingSessions.isNotEmpty()) {
-                item(key = "work-waiting") {
-                    WorkWaitingSection(waitingSessions = todaySnapshot.waitingSessions)
-                }
-            }
-
             item(key = "agenda") { AgendaOverviewSection() }
         }
     }
@@ -384,6 +389,8 @@ private fun LifeOverviewDrawerContent(
 
 @Composable
 private fun LifeOverviewHeader(onClose: () -> Unit) {
+    val now = remember { ZonedDateTime.now() }
+    val weekday = HEADER_WEEKDAYS.getOrElse(now.dayOfWeek.value - 1) { "" }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -407,9 +414,11 @@ private fun LifeOverviewHeader(onClose: () -> Unit) {
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "现在",
-                style = MaterialTheme.typography.titleLarge,
+                text = "${lifeOverviewGreeting(now.hour)} · ${now.monthValue}月${now.dayOfMonth}日 $weekday",
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = "你的生活概览",
@@ -422,6 +431,8 @@ private fun LifeOverviewHeader(onClose: () -> Unit) {
         }
     }
 }
+
+private val HEADER_WEEKDAYS = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
 @Composable
 private fun OverviewSectionTitle(
@@ -492,38 +503,6 @@ private fun WorkWaitingSection(waitingSessions: List<PhoneWorkSession>) {
     }
 }
 
-@Composable
-private fun StatusGreeting() {
-    val now = remember { Calendar.getInstance() }
-    val hour = now.get(Calendar.HOUR_OF_DAY)
-    val weekday = listOf("周日", "周一", "周二", "周三", "周四", "周五", "周六")
-        .getOrElse(now.get(Calendar.DAY_OF_WEEK) - 1) { "" }
-    val monthDay = "${now.get(Calendar.MONTH) + 1}月${now.get(Calendar.DAY_OF_MONTH)}日"
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Surface(
-            modifier = Modifier.size(36.dp),
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(HugeIcons.Sun01, contentDescription = null, modifier = Modifier.size(18.dp))
-            }
-        }
-        Column {
-            Text(
-                text = "${lifeOverviewGreeting(hour)} · $monthDay $weekday",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-            )
-        }
-    }
-}
-
 internal fun lifeOverviewGreeting(hour: Int): String = when (hour) {
     in 0..5 -> "夜深了"
     in 6..10 -> "早上好"
@@ -532,210 +511,10 @@ internal fun lifeOverviewGreeting(hour: Int): String = when (hour) {
     else -> "晚上好"
 }
 
-@Composable
-private fun StepsCard(state: LenovoWatchProbeState) {
-    val steps = state.health.steps
-    val progress = ((steps ?: 0) / DAILY_STEP_GOAL.toFloat()).coerceIn(0f, 1f)
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            Box(
-                modifier = Modifier.size(82.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxSize(),
-                    strokeWidth = 8.dp,
-                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                )
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = steps?.let { "${(progress * 100).roundToInt()}%" } ?: "--",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(if (steps == null) "未同步" else "今日", style = MaterialTheme.typography.labelSmall)
-                }
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(HugeIcons.ChartColumn, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("步数", style = MaterialTheme.typography.labelMedium)
-                }
-                Text(
-                    text = steps?.let(::formatCount) ?: "--",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = if (steps == null) "暂无健康数据" else "/ ${formatCount(DAILY_STEP_GOAL)} 步",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun StatusMetricGrid(state: LenovoWatchProbeState) {
-    val health = state.health
-    val sleepMinutes = health.totalSleepMinutes
-        ?: listOfNotNull(health.shallowSleepMinutes, health.deepSleepMinutes)
-            .takeIf { it.isNotEmpty() }
-            ?.sum()
-    val items = listOf(
-        StatusPreviewItem(
-            label = "睡眠",
-            value = sleepMinutes?.let(::formatMinutes) ?: "--",
-            detail = health.deepSleepMinutes?.let { "深睡 ${formatMinutes(it)}" } ?: "暂无睡眠数据",
-            icon = HugeIcons.Clock02,
-        ),
-        StatusPreviewItem(
-            label = "心率",
-            value = health.heartRate?.let { "$it bpm" } ?: "--",
-            detail = health.systolic?.let { systolic ->
-                health.diastolic?.let { diastolic -> "血压 $systolic/$diastolic" }
-            } ?: "最近一次有效测量",
-            icon = HugeIcons.Favourite,
-        ),
-        StatusPreviewItem(
-            label = "卡路里",
-            value = health.calories?.let { "$it 千卡" } ?: "--",
-            detail = "今日累计",
-            icon = HugeIcons.Zap,
-        ),
-        StatusPreviewItem(
-            label = "运动锻炼",
-            value = health.exerciseCount?.let { "$it 次" } ?: "--",
-            detail = health.exerciseSeconds?.let { "共 ${formatMinutes(it / 60)}" } ?: "暂无运动数据",
-            icon = HugeIcons.Rocket01,
-        ),
-        StatusPreviewItem(
-            label = "血氧",
-            value = health.bloodOxygen?.let { "$it%" } ?: "--",
-            detail = "最近一次有效测量",
-            icon = HugeIcons.Favourite,
-        ),
-        StatusPreviewItem(
-            label = "体温",
-            value = health.temperatureCelsius?.let { String.format(Locale.CHINA, "%.1f℃", it) } ?: "--",
-            detail = health.immunity?.let { "免疫力 $it" } ?: "最近一次有效测量",
-            icon = HugeIcons.Time02,
-        ),
-    )
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        items.chunked(2).forEach { rowItems ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                rowItems.forEach { item ->
-                    StatusMetricCard(item = item, modifier = Modifier.weight(1f))
-                }
-                if (rowItems.size == 1) {
-                    Box(modifier = Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun StatusMetricCard(
-    item: StatusPreviewItem,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier,
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Surface(
-                    modifier = Modifier.size(28.dp),
-                    shape = MaterialTheme.shapes.small,
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(item.icon, contentDescription = null, modifier = Modifier.size(15.dp))
-                    }
-                }
-                Text(item.label, style = MaterialTheme.typography.labelMedium)
-            }
-            Text(
-                text = item.value,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = item.detail,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            item.progress?.let { progress ->
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth(),
-                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                )
-            }
-        }
-    }
-}
-
-private fun healthDataSubtitle(value: Instant?): String = value?.let {
-    "健康数据更新于 ${STATUS_TIME_FORMATTER.format(it.atZone(ZoneId.systemDefault()))}"
-} ?: "健康数据尚未更新"
-
-private data class StatusPreviewItem(
-    val label: String,
-    val value: String,
-    val detail: String,
-    val icon: ImageVector,
-    val progress: Float? = null,
-)
-
-private fun formatCount(value: Int): String = String.format(Locale.CHINA, "%,d", value)
-
-private fun formatMinutes(value: Int): String = when {
-    value <= 0 -> "0 分钟"
-    value < 60 -> "$value 分钟"
-    value % 60 == 0 -> "${value / 60} 小时"
-    else -> "${value / 60}小时${value % 60}分"
-}
-
-private val STATUS_TIME_FORMATTER = DateTimeFormatter.ofPattern("M月d日 HH:mm")
-private const val DAILY_STEP_GOAL = 10_000
 private const val AGENDA_DRAWER_POSITIONAL_THRESHOLD = 0.5f
 private const val AGENDA_DRAWER_ANIMATION_DURATION_MS = 256
 private val AGENDA_DRAWER_VELOCITY_THRESHOLD = 400.dp
+private val AGENDA_DRAWER_EDGE_ZONE = 32.dp
 
 internal fun shouldOpenAgendaDrawer(
     openFraction: Float,
@@ -760,6 +539,7 @@ internal fun agendaDrawerDragDecision(
     totalY: Float,
     touchSlop: Float,
     openingGestureEnabled: Boolean = true,
+    startedInEdgeZone: Boolean = true,
 ): AgendaDrawerDragDecision {
     val horizontalGesture = abs(totalX) > touchSlop && abs(totalX) > abs(totalY)
     val verticalGesture = abs(totalY) > touchSlop && abs(totalY) >= abs(totalX)
@@ -767,7 +547,8 @@ internal fun agendaDrawerDragDecision(
         !drawerVisible && (!openingGestureEnabled || gestureBlocked) -> AgendaDrawerDragDecision.IGNORE
         verticalGesture -> AgendaDrawerDragDecision.IGNORE
         !horizontalGesture -> AgendaDrawerDragDecision.WAIT
-        drawerVisible || totalX < 0f -> AgendaDrawerDragDecision.START
+        drawerVisible -> AgendaDrawerDragDecision.START
+        totalX < 0f && startedInEdgeZone -> AgendaDrawerDragDecision.START
         else -> AgendaDrawerDragDecision.IGNORE
     }
 }
@@ -789,6 +570,8 @@ private fun Modifier.agendaDrawerDragGesture(
             requireUnconsumed = false,
             pass = PointerEventPass.Initial,
         )
+        // 关闭态只允许从屏幕右缘热区起手左滑打开；抽屉可见时全屏拖拽用于关闭
+        val startedInEdgeZone = down.position.x >= size.width - AGENDA_DRAWER_EDGE_ZONE.toPx()
         val velocityTracker = VelocityTracker().apply {
             addPosition(down.uptimeMillis, down.position)
         }
@@ -829,6 +612,7 @@ private fun Modifier.agendaDrawerDragGesture(
                     totalY = totalY,
                     touchSlop = viewConfiguration.touchSlop,
                     openingGestureEnabled = openingGestureEnabled,
+                    startedInEdgeZone = startedInEdgeZone,
                 )
             ) {
                 AgendaDrawerDragDecision.WAIT -> continue

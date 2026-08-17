@@ -58,13 +58,13 @@ import java.time.temporal.TemporalAdjusters
 import kotlinx.coroutines.launch
 
 @Composable
-fun StatsPage(vm: StatsVM = koinViewModel()) {
+fun StatsPage(initialTab: Int = 0, vm: StatsVM = koinViewModel()) {
     val stats by vm.stats.collectAsStateWithLifecycle()
     val ledgerStats by vm.monthlyLedgerStats.collectAsStateWithLifecycle()
     val healthStats by vm.healthStats.collectAsStateWithLifecycle()
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val pagerState = rememberPagerState { 3 }
+    val pagerState = rememberPagerState(initialPage = initialTab.coerceIn(0, STATS_TAB_COUNT - 1)) { STATS_TAB_COUNT }
     val scope = rememberCoroutineScope()
 
     Scaffold(
@@ -428,3 +428,5 @@ private fun formatTokens(count: Long): String = when {
     count >= 1_000 -> "%.1fK".format(count / 1_000.0)
     else -> count.toString()
 }
+
+private const val STATS_TAB_COUNT = 3

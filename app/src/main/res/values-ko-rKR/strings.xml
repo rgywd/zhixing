@@ -693,7 +693,7 @@
   <string name="setting_display_page_paste_long_text_threshold_title">텍스트 길이 임계값</string>
   <string name="setting_display_page_send_on_enter_desc">Enter 키를 누르면 줄 바꿈 대신 메시지를 전송합니다</string>
   <string name="setting_display_page_send_on_enter_title">Enter 키로 전송</string>
-  <string name="setting_display_page_agenda_drawer_gesture_desc">채팅 화면에서 왼쪽으로 스와이프하여 생활 개요를 엽니다. 비활성화해도 상단 버튼으로 열 수 있습니다.</string>
+  <string name="setting_display_page_agenda_drawer_gesture_desc">채팅 화면 오른쪽 가장자리에서 왼쪽으로 스와이프하여 생활 개요를 엽니다. 비활성화해도 상단 버튼으로 열 수 있습니다.</string>
   <string name="setting_display_page_agenda_drawer_gesture_title">오른쪽 서랍 제스처</string>
   <string name="setting_display_page_show_assistant_bubble_desc">어시스턴트 메시지에 말풍선 배경 표시 여부</string>
   <string name="setting_display_page_show_assistant_bubble_title">어시스턴트 메시지 버블 표시</string>

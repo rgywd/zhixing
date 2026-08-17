@@ -253,12 +253,7 @@ internal fun AgendaOverviewSection() {
         }
 
         if (projection.actions.isEmpty() && projection.inboxTasks.isEmpty() && previewPlan == null) {
-            Text(
-                "当前没有需要处理的事项",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 2.dp, vertical = 4.dp),
-            )
+            AgendaDrawerEmptyCard()
         }
 
         TextButton(
@@ -319,6 +314,31 @@ internal fun AgendaOverviewSection() {
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun AgendaDrawerEmptyCard() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                "当前没有需要处理的事项",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                "点右上角添加，或直接在聊天里告诉 AI",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

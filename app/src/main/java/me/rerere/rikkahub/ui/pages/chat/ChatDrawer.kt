@@ -388,7 +388,7 @@ fun ChatDrawerContent(
                         Text("统计数据")
                     },
                     onClick = {
-                        navController.navigate(Screen.Stats)
+                        navController.navigate(Screen.Stats())
                     },
                 )
 

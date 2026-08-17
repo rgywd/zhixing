@@ -24,6 +24,7 @@ class AgendaDrawerInteractionTest {
         assertTrue(source.contains("AGENDA_DRAWER_POSITIONAL_THRESHOLD = 0.5f"))
         assertTrue(source.contains("AGENDA_DRAWER_ANIMATION_DURATION_MS = 256"))
         assertTrue(source.contains("AGENDA_DRAWER_VELOCITY_THRESHOLD = 400.dp"))
+        assertTrue(source.contains("AGENDA_DRAWER_EDGE_ZONE = 32.dp"))
         assertFalse(source.contains("agendaSwipeGesture("))
         assertFalse(source.contains("AnimatedVisibility("))
         assertFalse(source.contains("threshold = 64.dp"))
@@ -51,6 +52,7 @@ class AgendaDrawerInteractionTest {
                 totalX = -20f,
                 totalY = 2f,
                 touchSlop = 8f,
+                startedInEdgeZone = true,
             ),
         )
         assertEquals(
@@ -61,6 +63,7 @@ class AgendaDrawerInteractionTest {
                 totalX = 20f,
                 totalY = 2f,
                 touchSlop = 8f,
+                startedInEdgeZone = true,
             ),
         )
         assertEquals(
@@ -71,6 +74,7 @@ class AgendaDrawerInteractionTest {
                 totalX = -10f,
                 totalY = 20f,
                 touchSlop = 8f,
+                startedInEdgeZone = true,
             ),
         )
         assertEquals(
@@ -81,6 +85,48 @@ class AgendaDrawerInteractionTest {
                 totalX = -6f,
                 totalY = 1f,
                 touchSlop = 8f,
+                startedInEdgeZone = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `closed right drawer ignores leftward drags starting outside the edge zone`() {
+        assertEquals(
+            AgendaDrawerDragDecision.IGNORE,
+            agendaDrawerDragDecision(
+                drawerVisible = false,
+                gestureBlocked = false,
+                totalX = -20f,
+                totalY = 2f,
+                touchSlop = 8f,
+                startedInEdgeZone = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `visible right drawer follows drags from anywhere including outside the edge zone`() {
+        assertEquals(
+            AgendaDrawerDragDecision.START,
+            agendaDrawerDragDecision(
+                drawerVisible = true,
+                gestureBlocked = false,
+                totalX = 20f,
+                totalY = 2f,
+                touchSlop = 8f,
+                startedInEdgeZone = false,
+            ),
+        )
+        assertEquals(
+            AgendaDrawerDragDecision.START,
+            agendaDrawerDragDecision(
+                drawerVisible = true,
+                gestureBlocked = false,
+                totalX = -20f,
+                totalY = 2f,
+                touchSlop = 8f,
+                startedInEdgeZone = false,
             ),
         )
     }
