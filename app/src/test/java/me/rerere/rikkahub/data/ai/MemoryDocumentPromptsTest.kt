@@ -7,7 +7,7 @@ import org.junit.Test
 
 class MemoryDocumentPromptsTest {
     @Test
-    fun promptLoadsOnlyPinnedDocumentsAndRoutesEverythingElseByListing() {
+    fun promptLoadsOnlyPinnedDocumentsAndRoutesEverythingElseProgressively() {
         val prompt = buildMemoryDocumentPrompt(
             listOf(
                 document("/profile.md", "Profile", "- [stated] 用户使用中文。"),
@@ -21,13 +21,18 @@ class MemoryDocumentPromptsTest {
             )
         )
 
-        assertTrue(prompt.contains("/areas/zhixing.md"))
+        assertFalse(prompt.contains("/areas/zhixing.md"))
         assertTrue(prompt.contains("Memory writes are optional"))
         assertTrue(prompt.contains("do not call a memory tool"))
         assertTrue(prompt.contains("materially improve the answer"))
-        assertTrue(prompt.contains("one document per call"))
+        assertTrue(prompt.contains("memory_find for a focused lookup"))
+        assertTrue(prompt.contains("memory_list for explicit browsing or ambiguity"))
+        assertTrue(prompt.contains("routing descriptors only"))
+        assertTrue(prompt.contains("are not evidence"))
+        assertTrue(prompt.contains("never return content or sources"))
+        assertTrue(prompt.contains("one exact document per call"))
         assertTrue(prompt.contains("multiple sequential memory_read calls"))
-        assertTrue(prompt.contains("directly relevant relationship"))
+        assertTrue(prompt.contains("directly relevant path"))
         assertTrue(prompt.contains("stop once you have enough"))
         assertTrue(prompt.contains("do not call memory_write"))
         assertTrue(prompt.contains("multiple memory_write calls"))
@@ -43,9 +48,8 @@ class MemoryDocumentPromptsTest {
         assertTrue(prompt.contains("YYYY-MM-DD"))
         assertTrue(prompt.contains("HH:mm"))
         assertTrue(prompt.contains("Asia/Shanghai"))
-        assertTrue(prompt.contains("\"aliases\": ["))
-        assertFalse(prompt.contains("\"aliases\": \"知行, Zhixing\""))
-        assertTrue(prompt.contains("Zhixing project"))
+        assertFalse(prompt.contains("知行"))
+        assertFalse(prompt.contains("Zhixing project"))
         assertFalse(prompt.contains("这是不应常驻的项目正文"))
         assertTrue(prompt.contains("用户使用中文"))
         assertTrue(prompt.contains("用户偏好先给结论"))

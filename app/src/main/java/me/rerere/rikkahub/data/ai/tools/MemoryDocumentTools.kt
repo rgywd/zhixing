@@ -11,6 +11,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
@@ -31,6 +32,10 @@ import me.rerere.rikkahub.data.model.MemoryDocument
 import me.rerere.rikkahub.data.model.MemoryDocumentSource
 import me.rerere.rikkahub.data.model.MemoryDocumentSourceType
 import me.rerere.rikkahub.data.repository.MemoryDocumentConflictException
+import me.rerere.rikkahub.data.repository.MemoryDocumentDescriptor
+import me.rerere.rikkahub.data.repository.MemoryDocumentFindResult
+import me.rerere.rikkahub.data.repository.MemoryDocumentListPage
+import me.rerere.rikkahub.data.repository.MemoryDocumentRepository
 import me.rerere.rikkahub.data.ai.renderMemoryDocumentMarkdown
 import java.time.Instant
 import java.util.Locale
@@ -64,6 +69,26 @@ private fun MemoryDocumentSource.toToolResult() = buildJsonObject {
     if (messageId.isNotBlank()) put("message_id", messageId)
     if (observedAt > 0) put("observed_at", Instant.ofEpochMilli(observedAt).toString())
     if (quote.isNotBlank()) put("quote", quote)
+}
+
+private fun MemoryDocumentDescriptor.toToolResult() = buildJsonObject {
+    put("path", path)
+    put("name", name)
+    put("description", description)
+    put("aliases", buildJsonArray { aliases.forEach(::add) })
+    put("version", version)
+}
+
+private fun MemoryDocumentFindResult.toToolResult() = buildJsonObject {
+    put("items", buildJsonArray { items.forEach { add(it.toToolResult()) } })
+    put("truncated", truncated)
+}
+
+private fun MemoryDocumentListPage.toToolResult() = buildJsonObject {
+    put("items", buildJsonArray { items.forEach { add(it.toToolResult()) } })
+    put("total", total)
+    put("has_more", hasMore)
+    nextCursor?.let { put("next_cursor", it) }
 }
 
 private data class MemoryDocumentMutation(
@@ -105,6 +130,8 @@ internal fun bindMemoryDocumentChatSources(
 
 fun buildMemoryDocumentTools(
     json: Json,
+    onFind: suspend (query: String, prefix: String?, limit: Int) -> MemoryDocumentFindResult,
+    onList: suspend (prefix: String?, cursor: String?, limit: Int) -> MemoryDocumentListPage,
     onRead: suspend (String) -> MemoryDocument,
     onWrite: suspend (
         path: String,
@@ -131,14 +158,93 @@ fun buildMemoryDocumentTools(
     onDelete: suspend (path: String, ifVersion: Long) -> Unit,
 ): List<Tool> = listOf(
     Tool(
+        name = "memory_find",
+        description = """
+            Find relevant curated memory documents by local full-text search. Use this first when the target is
+            focused but its exact path is unknown. Results are routing descriptors only: path, name, description,
+            aliases, and version. They never contain document content, sources, raw-chat snippets, or a score. Read
+            the chosen exact path with memory_read before relying on its facts or updating it. If the query is too
+            broad or results are truncated, rewrite it more specifically instead of paging. This never searches raw
+            chat history.
+        """.trimIndent(),
+        parameters = {
+            InputSchema.Obj(
+                properties = buildJsonObject {
+                    put("query", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Focused local memory search query.")
+                        put("minLength", 1)
+                        put("maxLength", 200)
+                    })
+                    put("prefix", memoryRecallPrefixSchema("Optional namespace filter; defaults to /."))
+                    put("limit", buildJsonObject {
+                        put("type", "integer")
+                        put("description", "Optional result limit; defaults to 5.")
+                        put("minimum", 1)
+                        put("maximum", 10)
+                    })
+                },
+                required = listOf("query"),
+                additionalProperties = false,
+            )
+        },
+        execute = { input ->
+            val params = input as? JsonObject ?: throw ToolExecutionException("MEMORY_FIND_INPUT_INVALID")
+            val query = params.requiredNonBlankString("query", "MEMORY_FIND_INPUT_INVALID").trim()
+            if (query.length > 200) throw ToolExecutionException("MEMORY_FIND_INPUT_INVALID")
+            val prefix = params.optionalString("prefix", "MEMORY_FIND_INPUT_INVALID")
+            val limit = params.optionalInt("limit", "MEMORY_FIND_INPUT_INVALID") ?: 5
+            if (limit !in 1..10) throw ToolExecutionException("MEMORY_FIND_INPUT_INVALID")
+            listOf(UIMessagePart.Text(onFind(query, prefix, limit).toToolResult().toString()))
+        },
+    ),
+    Tool(
+        name = "memory_list",
+        description = """
+            Browse curated memory document descriptors in one fixed namespace. Use this when the user explicitly asks
+            to browse memory, memory_find returns no useful hit, or several candidates remain ambiguous. Results are
+            ordered by path and contain routing metadata only, never document content or sources. Continue with
+            next_cursor only when has_more is true, then call memory_read for the selected exact path. This never
+            searches raw chat history.
+        """.trimIndent(),
+        parameters = {
+            InputSchema.Obj(
+                properties = buildJsonObject {
+                    put("prefix", memoryRecallPrefixSchema("Optional namespace to browse; defaults to /."))
+                    put("cursor", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Exclusive next_cursor returned by the preceding page.")
+                        put("minLength", 1)
+                    })
+                    put("limit", buildJsonObject {
+                        put("type", "integer")
+                        put("description", "Optional page size; defaults to 10.")
+                        put("minimum", 1)
+                        put("maximum", 20)
+                    })
+                },
+                required = emptyList(),
+                additionalProperties = false,
+            )
+        },
+        execute = { input ->
+            val params = input as? JsonObject ?: throw ToolExecutionException("MEMORY_LIST_INPUT_INVALID")
+            val prefix = params.optionalString("prefix", "MEMORY_LIST_INPUT_INVALID")
+            val cursor = params.optionalString("cursor", "MEMORY_LIST_INPUT_INVALID")
+            val limit = params.optionalInt("limit", "MEMORY_LIST_INPUT_INVALID") ?: 10
+            if (limit !in 1..20) throw ToolExecutionException("MEMORY_LIST_INPUT_INVALID")
+            listOf(UIMessagePart.Text(onList(prefix, cursor, limit).toToolResult().toString()))
+        },
+    ),
+    Tool(
         name = "memory_read",
         description = """
             Read one curated memory document by exact path, one document per call. The system prompt contains only
-            a listing plus
-            /profile.md and /preferences.md; read /areas, /topics, or /people before using their contents.
+            /profile.md and /preferences.md; use memory_find or memory_list to route to non-pinned documents, then
+            read /areas, /topics, /people, or /archive before using their contents.
             Call only when the document can materially help answer the current request; do not read memory for an
             unrelated question that can be answered from supplied content or general knowledge. Multiple sequential
-            calls are allowed when a relevant document exposes a directly relevant relationship to another listed
+            calls are allowed when a relevant document exposes a directly relevant relationship to another discovered
             document needed for the answer; follow only that path and stop once you have enough evidence. Do not fan
             out across unrelated documents. This never searches raw chat history; use conversation_search for that
             separate capability.
@@ -148,7 +254,7 @@ fun buildMemoryDocumentTools(
                 properties = buildJsonObject {
                     put("path", buildJsonObject {
                         put("type", "string")
-                        put("description", "Exact path from the memory listing")
+                        put("description", "Exact path from memory_find, memory_list, or a directly linked document")
                     })
                 },
                 required = listOf("path"),
@@ -372,6 +478,12 @@ fun buildMemoryDocumentTools(
     ),
 )
 
+private fun memoryRecallPrefixSchema(description: String) = buildJsonObject {
+    put("type", "string")
+    put("description", description)
+    put("enum", buildJsonArray { MemoryDocumentRepository.RECALL_PREFIXES.sorted().forEach(::add) })
+}
+
 private fun memoryWriteSuccess(
     json: Json,
     changed: Boolean,
@@ -529,6 +641,16 @@ private fun JsonObject.requiredNonNegativeLong(name: String, errorCode: String):
     (this[name] as? JsonPrimitive)?.longOrNull
         ?.takeIf { it >= 0 }
         ?: throw ToolExecutionException(errorCode)
+
+private fun JsonObject.optionalString(name: String, errorCode: String): String? {
+    val value = this[name] ?: return null
+    return (value as? JsonPrimitive)?.contentOrNull ?: throw ToolExecutionException(errorCode)
+}
+
+private fun JsonObject.optionalInt(name: String, errorCode: String): Int? {
+    val value = this[name] ?: return null
+    return (value as? JsonPrimitive)?.intOrNull ?: throw ToolExecutionException(errorCode)
+}
 
 private fun JsonObject.stringListOrEmpty(name: String, errorCode: String): List<String> {
     val values = this[name] ?: return emptyList()

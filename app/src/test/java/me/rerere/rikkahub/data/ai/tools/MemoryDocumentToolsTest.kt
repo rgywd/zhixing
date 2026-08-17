@@ -16,6 +16,9 @@ import me.rerere.rikkahub.data.model.MemoryDocument
 import me.rerere.rikkahub.data.model.MemoryDocumentSource
 import me.rerere.rikkahub.data.model.MemoryDocumentSourceType
 import me.rerere.rikkahub.data.repository.MemoryDocumentConflictException
+import me.rerere.rikkahub.data.repository.MemoryDocumentDescriptor
+import me.rerere.rikkahub.data.repository.MemoryDocumentFindResult
+import me.rerere.rikkahub.data.repository.MemoryDocumentListPage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -25,13 +28,17 @@ class MemoryDocumentToolsTest {
     @Test
     fun memoryAndRawHistoryRemainDifferentTools() {
         val tools = memoryTools()
-        val readDescription = tools.first().description.replace(Regex("\\s+"), " ")
+        val readDescription = tools[2].description.replace(Regex("\\s+"), " ")
         val writeDescription = tools.last().description.replace(Regex("\\s+"), " ")
-        assertEquals(listOf("memory_read", "memory_write"), tools.map { it.name })
-        assertTrue(tools.first().description.contains("never searches"))
-        assertTrue(tools.first().description.contains("raw chat history"))
-        assertTrue(tools.first().description.contains("materially help answer"))
-        assertTrue(tools.first().description.contains("general knowledge"))
+        assertEquals(listOf("memory_find", "memory_list", "memory_read", "memory_write"), tools.map { it.name })
+        assertTrue(tools[0].description.contains("never searches raw"))
+        assertTrue(tools[0].description.contains("routing descriptors"))
+        assertTrue(tools[1].description.contains("explicitly asks"))
+        assertTrue(tools[1].description.contains("next_cursor"))
+        assertTrue(tools[2].description.contains("never searches"))
+        assertTrue(tools[2].description.contains("raw chat history"))
+        assertTrue(tools[2].description.contains("materially help answer"))
+        assertTrue(tools[2].description.contains("general knowledge"))
         assertTrue(readDescription.contains("one document per call"))
         assertTrue(readDescription.contains("Multiple sequential calls"))
         assertTrue(readDescription.contains("directly relevant relationship"))
@@ -51,6 +58,59 @@ class MemoryDocumentToolsTest {
         assertTrue(writeDescription.contains("HH:mm"))
         assertFalse(tools.last().description.contains("no_change"))
         assertFalse(tools.last().description.contains("finalize"))
+    }
+
+    @Test
+    fun findAndListReturnRoutingMetadataWithoutContentOrSources() = runBlocking {
+        val descriptor = MemoryDocumentDescriptor(
+            path = "/areas/zhixing.md",
+            name = "Zhixing",
+            description = "Local Android assistant project.",
+            aliases = listOf("知行"),
+            version = 4,
+        )
+        val tools = buildMemoryDocumentTools(
+            json = Json,
+            onFind = { query, prefix, limit ->
+                assertEquals("offline recall", query)
+                assertEquals("/areas", prefix)
+                assertEquals(3, limit)
+                MemoryDocumentFindResult(listOf(descriptor), truncated = true)
+            },
+            onList = { prefix, cursor, limit ->
+                assertEquals("/areas", prefix)
+                assertEquals("/areas/alpha.md", cursor)
+                assertEquals(2, limit)
+                MemoryDocumentListPage(listOf(descriptor), total = 3, hasMore = false, nextCursor = null)
+            },
+            onRead = { document() },
+            onWrite = { _, _, _, _, _, _, _ -> document() },
+            onReplace = { _, _, _, _, _ -> document() },
+            onAppend = { _, _, _, _ -> document() },
+            onDelete = { _, _ -> },
+        )
+
+        val findPayload = (tools[0].execute(buildJsonObject {
+            put("query", "offline recall")
+            put("prefix", "/areas")
+            put("limit", 3)
+        }).single() as UIMessagePart.Text).text.let(Json::parseToJsonElement).jsonObject
+        val findItem = findPayload.getValue("items").jsonArray.single().jsonObject
+        assertEquals(setOf("path", "name", "description", "aliases", "version"), findItem.keys)
+        assertTrue(findPayload.getValue("truncated").jsonPrimitive.content.toBoolean())
+        assertFalse("content" in findItem)
+        assertFalse("sources" in findItem)
+        assertFalse("score" in findItem)
+
+        val listPayload = (tools[1].execute(buildJsonObject {
+            put("prefix", "/areas")
+            put("cursor", "/areas/alpha.md")
+            put("limit", 2)
+        }).single() as UIMessagePart.Text).text.let(Json::parseToJsonElement).jsonObject
+        assertEquals("3", listPayload.getValue("total").jsonPrimitive.content)
+        assertEquals("false", listPayload.getValue("has_more").jsonPrimitive.content)
+        assertFalse("next_cursor" in listPayload)
+        assertFalse("content" in listPayload.getValue("items").jsonArray.single().jsonObject)
     }
 
     @Test
@@ -96,6 +156,8 @@ class MemoryDocumentToolsTest {
     fun malformedAppendReturnsActionableErrorAndCanBeCorrected() = runBlocking {
         val tool = buildMemoryDocumentTools(
             json = Json,
+            onFind = ::emptyFind,
+            onList = ::emptyListPage,
             onRead = { document() },
             onWrite = { _, _, _, _, _, _, _ -> document() },
             onReplace = { _, _, _, _, _ -> document() },
@@ -155,6 +217,8 @@ class MemoryDocumentToolsTest {
         var attempts = 0
         val tool = buildMemoryDocumentTools(
             json = Json,
+            onFind = ::emptyFind,
+            onList = ::emptyListPage,
             onRead = { document() },
             onWrite = { _, _, _, _, _, _, _ -> document() },
             onReplace = { _, _, _, _, _ -> document() },
@@ -218,6 +282,8 @@ class MemoryDocumentToolsTest {
         var conflict = true
         val tool = buildMemoryDocumentTools(
             json = Json,
+            onFind = ::emptyFind,
+            onList = ::emptyListPage,
             onRead = { current },
             onWrite = { _, _, _, _, _, _, _ ->
                 if (conflict) throw MemoryDocumentConflictException(current)
@@ -267,12 +333,14 @@ class MemoryDocumentToolsTest {
         )
         val tool = buildMemoryDocumentTools(
             json = Json,
+            onFind = ::emptyFind,
+            onList = ::emptyListPage,
             onRead = { document().copy(content = "- [stated] 我偏好中文。", sources = listOf(source)) },
             onWrite = { _, _, _, _, _, _, _ -> document() },
             onReplace = { _, _, _, _, _ -> document() },
             onAppend = { _, _, _, _ -> document() },
             onDelete = { _, _ -> },
-        ).first()
+        ).first { it.name == "memory_read" }
 
         val result = tool.execute(buildJsonObject { put("path", "/profile.md") })
             .single() as UIMessagePart.Text
@@ -300,12 +368,14 @@ class MemoryDocumentToolsTest {
         )
         val tool = buildMemoryDocumentTools(
             json = Json,
+            onFind = ::emptyFind,
+            onList = ::emptyListPage,
             onRead = { document().copy(sources = listOf(source)) },
             onWrite = { _, _, _, _, _, _, _ -> document() },
             onReplace = { _, _, _, _, _ -> document() },
             onAppend = { _, _, _, _ -> document() },
             onDelete = { _, _ -> },
-        ).first()
+        ).first { it.name == "memory_read" }
 
         val result = tool.execute(buildJsonObject { put("path", "/profile.md") })
             .single() as UIMessagePart.Text
@@ -321,6 +391,8 @@ class MemoryDocumentToolsTest {
         val readPaths = mutableListOf<String>()
         val tool = buildMemoryDocumentTools(
             json = Json,
+            onFind = ::emptyFind,
+            onList = ::emptyListPage,
             onRead = { path ->
                 readPaths += path
                 when (path) {
@@ -347,7 +419,7 @@ class MemoryDocumentToolsTest {
             onReplace = { _, _, _, _, _ -> document() },
             onAppend = { _, _, _, _ -> document() },
             onDelete = { _, _ -> },
-        ).first()
+        ).first { it.name == "memory_read" }
 
         val person = tool.execute(buildJsonObject { put("path", "/people/alice.md") })
             .single() as UIMessagePart.Text
@@ -364,6 +436,8 @@ class MemoryDocumentToolsTest {
         val mutations = mutableListOf<Pair<String, Long>>()
         val tool = buildMemoryDocumentTools(
             json = Json,
+            onFind = ::emptyFind,
+            onList = ::emptyListPage,
             onRead = { document() },
             onWrite = { _, _, _, _, _, _, _ -> document() },
             onReplace = { _, _, _, _, _ -> document() },
@@ -409,6 +483,8 @@ class MemoryDocumentToolsTest {
 
     private fun memoryTools() = buildMemoryDocumentTools(
         json = Json,
+        onFind = ::emptyFind,
+        onList = ::emptyListPage,
         onRead = { document() },
         onWrite = { _, _, _, _, _, _, _ -> document() },
         onReplace = { _, _, _, _, _ -> document() },
@@ -447,4 +523,16 @@ class MemoryDocumentToolsTest {
     }
 
     private fun action(value: String) = buildJsonObject { put("action", value) }
+
+    private suspend fun emptyFind(
+        query: String,
+        prefix: String?,
+        limit: Int,
+    ) = MemoryDocumentFindResult(emptyList(), truncated = false)
+
+    private suspend fun emptyListPage(
+        prefix: String?,
+        cursor: String?,
+        limit: Int,
+    ) = MemoryDocumentListPage(emptyList(), total = 0, hasMore = false, nextCursor = null)
 }

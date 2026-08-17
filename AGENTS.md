@@ -127,13 +127,12 @@ node .github/scripts/local-verify.mjs
   processing after generation completes.
   (app/src/main/java/me/rerere/rikkahub/data/ai/transformers/Transformer.kt)
 
-- **Memory Documents**: Long-term memory is a Room-backed Markdown document layer with a compact listing,
-  always-visible `/profile.md` and `/preferences.md`, and on-demand reads for `/areas`, `/topics`, and `/people`.
-  Reads and mutations are optional during the active foreground chat run: unrelated questions do not read memory, and
-  no mutation means no `memory_write` call or Run finalization. Every persisted fact is `[stated]`, carries a user
-  source, and uses file-level optimistic locking. Raw conversation FTS is a separate capability. The V3 contract and
-  V2 migration boundary are documented in
-  `docs/zhixing/MEMORY_SYSTEM.md`.
+- **Memory Documents**: Long-term memory is a Room-backed Markdown document layer with always-visible `/profile.md`
+  and `/preferences.md`, plus local `memory_find` / paged `memory_list` routing before exact `memory_read` for
+  `/areas`, `/topics`, `/people`, and `/archive`. The derived memory FTS is rebuilt locally and never searches raw
+  chats. Reads and mutations are optional during the active foreground chat run; no mutation means no `memory_write`
+  call or Run finalization. Every persisted fact is `[stated]`, carries a user source, and uses file-level optimistic
+  locking. The V3 contract and V2 migration boundary are documented in `docs/zhixing/MEMORY_SYSTEM.md`.
 
 - **Work / Agent Phone-line**: A separate, mobile-created session domain for communicating with Codex or Claude Code
   processes on a registered development machine. It uses a durable Work Core, an outbound-only local Runner, and exactly

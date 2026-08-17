@@ -334,6 +334,12 @@ class GenerationHandler(
                 if (memoryScopeId != null) {
                     buildMemoryDocumentTools(
                         json = json,
+                        onFind = { query, prefix, limit ->
+                            memoryDocumentRepository.findDocuments(memoryScopeId, query, prefix, limit)
+                        },
+                        onList = { prefix, cursor, limit ->
+                            memoryDocumentRepository.listDocumentDescriptors(memoryScopeId, prefix, cursor, limit)
+                        },
                         onRead = { path -> memoryDocumentRepository.read(memoryScopeId, path) },
                         onWrite = { path, ifVersion, name, description, aliases, content, sources ->
                             val conversationId = memoryConversationId

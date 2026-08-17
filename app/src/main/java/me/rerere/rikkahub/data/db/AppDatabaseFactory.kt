@@ -8,6 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import io.requery.android.database.sqlite.RequerySQLiteOpenHelperFactory
 import io.requery.android.database.sqlite.SQLiteCustomExtension
 import me.rerere.rikkahub.data.db.fts.SimpleDictManager
+import me.rerere.rikkahub.data.db.fts.MemoryDocumentFtsManager
 import me.rerere.rikkahub.data.db.migrations.Migration_6_7
 import me.rerere.rikkahub.data.db.migrations.Migration_11_12
 import me.rerere.rikkahub.data.db.migrations.Migration_13_14
@@ -83,6 +84,7 @@ internal fun createAppDatabase(
                 )
                 """.trimIndent()
             )
+            MemoryDocumentFtsManager.ensureSchemaAndRebuild(db)
         }
     })
     .openHelperFactory(
