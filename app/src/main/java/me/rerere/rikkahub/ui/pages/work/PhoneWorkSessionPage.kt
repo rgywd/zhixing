@@ -27,6 +27,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
@@ -38,6 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -1074,7 +1077,7 @@ private fun WorkEventList(
                 listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index != listState.layoutInfo.totalItemsCount - 1
             )
         if (showJumpToLatest) {
-            FilledTonalButton(
+            SmallFloatingActionButton(
                 onClick = {
                     scope.launch { listState.animateScrollToItem((itemCount - 1).coerceAtLeast(0)) }
                     unseenCount = 0
@@ -1082,9 +1085,18 @@ private fun WorkEventList(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 16.dp, bottom = contentPadding.calculateBottomPadding() + 12.dp),
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor = MaterialTheme.colorScheme.onSurface,
             ) {
-                Icon(HugeIcons.ArrowDown01, null, modifier = Modifier.size(18.dp))
-                Text(if (unseenCount > 0) "$unseenCount 条新消息" else "跳到最新")
+                BadgedBox(
+                    badge = {
+                        if (unseenCount > 0) {
+                            Badge { Text("$unseenCount") }
+                        }
+                    },
+                ) {
+                    Icon(HugeIcons.ArrowDown01, "跳到最新")
+                }
             }
         }
     }
@@ -1278,7 +1290,7 @@ private fun WorkAssistantMessage(text: String, onLongClick: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
-                    onClick = {},
+                    onClick = onLongClick,
                     onLongClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onLongClick()
@@ -1299,7 +1311,7 @@ private fun WorkReportBubble(text: String, onLongClick: () -> Unit) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .combinedClickable(
-                onClick = {},
+                onClick = onLongClick,
                 onLongClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onLongClick()
@@ -1390,7 +1402,7 @@ private fun WorkUserMessageBubble(message: PhoneWorkUserMessagePayload, onLongCl
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .combinedClickable(
-                onClick = {},
+                onClick = onLongClick,
                 onLongClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onLongClick()
