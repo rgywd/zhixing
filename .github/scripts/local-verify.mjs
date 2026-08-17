@@ -17,16 +17,12 @@ function commandNames(platform) {
     return {
       npm: "npm.cmd",
       pnpm: "pnpm.cmd",
-      python: "py",
-      pythonPrefix: ["-3"],
       gradle: "gradlew.bat",
     }
   }
   return {
     npm: "npm",
     pnpm: "pnpm",
-    python: "python3",
-    pythonPrefix: [],
     gradle: "./gradlew",
   }
 }
@@ -85,22 +81,6 @@ export function buildVerificationCommands({
         label: "Staging driver tests",
         command: names.npm,
         args: ["--prefix", "staging-driver", "test"],
-      },
-      {
-        label: "Quota monitor tests",
-        command: names.python,
-        args: [
-          ...names.pythonPrefix,
-          "-m",
-          "unittest",
-          "discover",
-          "-s",
-          "tests",
-          "-p",
-          "test_*.py",
-          "-v",
-        ],
-        cwd: "work/quota-monitor",
       },
     )
   }

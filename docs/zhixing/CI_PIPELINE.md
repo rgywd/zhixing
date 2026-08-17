@@ -20,7 +20,7 @@ node .github/scripts/local-verify.mjs
 
 | 改动域 | 本地执行内容 |
 | --- | --- |
-| `work/`、`staging-driver/` | Work、staging driver 与 quota monitor 测试 |
+| `work/`、`staging-driver/` | Work 与 staging driver 测试 |
 | Android 模块、`web-ui/`、Gradle 配置与 wrapper | 递归初始化 submodule、web 依赖、完整 Android JVM 测试、lint、debug/staging/androidTest 构建 |
 | 同时涉及 Work 与 Android | 两组全部执行 |
 | `docs/`、Markdown、agent/Claude skill mirror | 仓库策略测试与 skill mirror 校验 |

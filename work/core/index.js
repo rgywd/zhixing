@@ -3,7 +3,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WorkStore } from "./store.js";
 import { createWorkServer } from "./server.js";
-import { createQuotaProxy } from "./quota-proxy.js";
 import { createInformationMonitorProxy } from "./information-monitor-proxy.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -20,16 +19,11 @@ if (!userToken || !runnerTokens || !Object.keys(runnerTokens).length || !session
 }
 
 const store = new WorkStore({ filename: dataFile, attachmentRoot, userToken, runnerTokens, sessionSecret });
-const quotaProxy = createQuotaProxy({
-  baseUrl: process.env.CPA_QUOTA_BASE_URL,
-  token: process.env.CPA_QUOTA_TOKEN,
-  cacheFile: process.env.CPA_QUOTA_CACHE ?? resolve(dirname(dataFile), "quota-cache.json"),
-});
 const informationMonitorProxy = createInformationMonitorProxy({
   baseUrl: process.env.LIFE_GATEWAY_BASE_URL,
   token: process.env.LIFE_GATEWAY_TOKEN,
 });
-const server = createWorkServer({ store, quotaProxy, informationMonitorProxy });
+const server = createWorkServer({ store, informationMonitorProxy });
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? "127.0.0.1";
 

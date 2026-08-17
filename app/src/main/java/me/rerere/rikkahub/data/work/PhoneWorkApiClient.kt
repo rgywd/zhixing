@@ -19,7 +19,6 @@ import me.rerere.rikkahub.data.life.InformationMonitorQuery
 import me.rerere.rikkahub.data.life.InformationMonitorSnapshot
 import me.rerere.rikkahub.data.life.InformationMonitorStatusEnvelope
 import me.rerere.rikkahub.data.life.requireValid
-import me.rerere.rikkahub.data.quota.QuotaEnvelope
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -49,8 +48,6 @@ class PhoneWorkApiClient(
 
     suspend fun sessions(archived: Boolean = false): List<PhoneWorkSession> =
         get<SessionsResponse>("/v1/work/sessions${if (archived) "?archived=true" else ""}").sessions
-
-    suspend fun quotas(): QuotaEnvelope = get("/v1/life/quotas")
 
     suspend fun informationMonitorStatus(
         query: InformationMonitorQuery = InformationMonitorQuery(),

@@ -1,7 +1,6 @@
 package me.rerere.rikkahub.ui.pages.chat
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -72,21 +71,10 @@ import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.ChartColumn
 import me.rerere.hugeicons.stroke.Clock02
 import me.rerere.hugeicons.stroke.Favourite
-import me.rerere.hugeicons.stroke.MoneyBag02
 import me.rerere.hugeicons.stroke.Rocket01
 import me.rerere.hugeicons.stroke.Sun01
 import me.rerere.hugeicons.stroke.Time02
 import me.rerere.hugeicons.stroke.Zap
-import me.rerere.rikkahub.data.quota.ProviderQuotaOverview
-import me.rerere.rikkahub.data.quota.ProviderQuotaStatus
-import me.rerere.rikkahub.data.quota.QuotaAccountOverview
-import me.rerere.rikkahub.data.quota.LOW_QUOTA_PERCENT
-import me.rerere.rikkahub.data.quota.QuotaRepository
-import me.rerere.rikkahub.data.quota.QuotaRepositoryState
-import me.rerere.rikkahub.data.quota.QuotaState
-import me.rerere.rikkahub.data.quota.QuotaWindowOverview
-import me.rerere.rikkahub.data.quota.buildQuotaOverviews
-import me.rerere.rikkahub.data.quota.orderQuotaChannels
 import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbe
 import me.rerere.rikkahub.data.device.lenovo.LenovoWatchProbeState
 import me.rerere.rikkahub.data.today.TodayOverviewProvider
@@ -341,11 +329,6 @@ private fun LifeOverviewDrawerContent(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val quotaRepository: QuotaRepository = koinInject()
-    val quotaState by quotaRepository.state.collectAsStateWithLifecycle()
-    val quotaItems = remember(quotaState.envelope) { buildQuotaOverviews(quotaState.envelope) }
-    LaunchedEffect(quotaRepository) { quotaRepository.refresh() }
-
     val todayProvider: TodayOverviewProvider = koinInject()
     val todaySnapshot by todayProvider.state.collectAsStateWithLifecycle()
     val navigator = LocalNavController.current
@@ -395,16 +378,6 @@ private fun LifeOverviewDrawerContent(
             }
 
             item(key = "agenda") { AgendaOverviewSection() }
-
-            item(key = "quota-title") {
-                OverviewSectionTitle(
-                    title = "套餐余量",
-                    subtitle = quotaSectionSubtitle(quotaState),
-                )
-            }
-            item(key = "quota-deck") {
-                QuotaChannelDeck(quotaItems)
-            }
         }
     }
 }
@@ -737,303 +710,6 @@ private fun StatusMetricCard(
     }
 }
 
-@Composable
-private fun QuotaChannelDeck(items: List<ProviderQuotaOverview>) {
-    var selectedProvider by rememberSaveable { mutableStateOf<String?>(null) }
-    LaunchedEffect(items.map { it.provider }) {
-        if (items.none { it.provider == selectedProvider }) {
-            selectedProvider = items.firstOrNull()?.provider
-        }
-    }
-    val orderedItems = remember(items, selectedProvider) {
-        orderQuotaChannels(items, selectedProvider)
-    }
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy((-4).dp),
-    ) {
-        orderedItems.forEach { item ->
-            QuotaChannelCard(
-                item = item,
-                expanded = item.provider == selectedProvider,
-                onClick = { selectedProvider = item.provider },
-            )
-        }
-    }
-}
-
-@Composable
-private fun QuotaChannelCard(
-    item: ProviderQuotaOverview,
-    expanded: Boolean,
-    onClick: () -> Unit,
-) {
-    val statusColor = when (item.status) {
-        ProviderQuotaStatus.LOW, ProviderQuotaStatus.ERROR -> MaterialTheme.colorScheme.error
-        ProviderQuotaStatus.PARTIAL, ProviderQuotaStatus.STALE, ProviderQuotaStatus.UNAVAILABLE ->
-            MaterialTheme.colorScheme.tertiary
-        ProviderQuotaStatus.OK -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize(animationSpec = tween(220))
-            .clickable(
-                role = Role.Button,
-                onClickLabel = if (expanded) null else "展开 ${item.displayName} 套餐余量",
-                onClick = onClick,
-            ),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = if (expanded) 2.dp else 1.dp,
-        shadowElevation = if (expanded) 2.dp else 1.dp,
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            QuotaChannelHeader(item, statusColor)
-            if (expanded) {
-                QuotaChannelDetails(item)
-            }
-        }
-    }
-}
-
-@Composable
-private fun QuotaChannelHeader(
-    item: ProviderQuotaOverview,
-    statusColor: androidx.compose.ui.graphics.Color,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Surface(
-            modifier = Modifier.size(32.dp),
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(HugeIcons.MoneyBag02, contentDescription = null, modifier = Modifier.size(17.dp))
-            }
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = item.displayName,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = quotaChannelSummary(item),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Surface(
-            shape = CircleShape,
-            color = statusColor.copy(alpha = 0.12f),
-        ) {
-            Text(
-                text = quotaBadge(item),
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = statusColor,
-                maxLines = 1,
-            )
-        }
-    }
-}
-
-@Composable
-private fun QuotaChannelDetails(item: ProviderQuotaOverview) {
-    val showAccountLabels = item.accountCount > 1
-    if (item.accounts.isEmpty()) {
-        Text(
-            text = "暂无已接入凭据",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        return
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item.accounts.forEach { account ->
-            if (showAccountLabels) {
-                QuotaAccountHeader(account)
-            }
-            when {
-                account.state != QuotaState.OK -> {
-                    Text(
-                        text = quotaAccountStateText(account.state),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = quotaAccountStateColor(account.state),
-                        modifier = Modifier.padding(start = if (showAccountLabels) 8.dp else 0.dp),
-                    )
-                }
-                account.windows.isEmpty() -> {
-                    Text(
-                        text = "暂无可计算额度",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = if (showAccountLabels) 8.dp else 0.dp),
-                    )
-                }
-                else -> {
-                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        account.windows.forEach { window ->
-                            QuotaWindowRow(window)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun QuotaAccountHeader(account: QuotaAccountOverview) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            text = account.label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        account.plan?.takeIf { it.isNotBlank() }?.let { plan ->
-            Text(
-                text = plan,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
-        }
-    }
-}
-
-@Composable
-private fun QuotaWindowRow(window: QuotaWindowOverview) {
-    val remaining = window.remainingPercent
-    val color = if (remaining != null && remaining <= LOW_QUOTA_PERCENT) {
-        MaterialTheme.colorScheme.error
-    } else {
-        MaterialTheme.colorScheme.primary
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = listOfNotNull(window.groupLabel, window.label).joinToString(" · "),
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = remaining?.let(::formatPercent) ?: "余量未知",
-                style = MaterialTheme.typography.labelMedium,
-                color = if (remaining == null) MaterialTheme.colorScheme.onSurfaceVariant else color,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-            )
-        }
-        remaining?.let {
-            LinearProgressIndicator(
-                progress = { (it / 100.0).toFloat() },
-                modifier = Modifier.fillMaxWidth(),
-                color = color,
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            )
-        }
-        window.resetAt?.let { resetAt ->
-            Text(
-                text = "${formatQuotaTime(resetAt)} 重置",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.align(Alignment.End),
-                maxLines = 1,
-            )
-        }
-    }
-}
-
-@Composable
-private fun quotaAccountStateColor(state: QuotaState) = when (state) {
-    QuotaState.ERROR -> MaterialTheme.colorScheme.error
-    QuotaState.UNAVAILABLE -> MaterialTheme.colorScheme.tertiary
-    else -> MaterialTheme.colorScheme.onSurfaceVariant
-}
-
-private fun quotaAccountStateText(state: QuotaState): String = when (state) {
-    QuotaState.OK -> "可用"
-    QuotaState.DISABLED -> "已禁用"
-    QuotaState.UNAVAILABLE -> "暂不可用，余量未知"
-    QuotaState.UNSUPPORTED -> "暂不支持额度查询"
-    QuotaState.ERROR -> "采集失败，余量未知"
-}
-
-private fun quotaChannelSummary(item: ProviderQuotaOverview): String = when {
-    item.accountCount == 0 -> "暂无已接入凭据"
-    item.windowCount > 0 -> "${item.usableAccountCount}/${item.accountCount} 个账户可用"
-    item.status == ProviderQuotaStatus.DISABLED -> "${item.accountCount} 个账户 · 已禁用"
-    item.status == ProviderQuotaStatus.UNAVAILABLE -> "${item.accountCount} 个账户 · 暂不可用"
-    item.status == ProviderQuotaStatus.UNSUPPORTED -> "${item.accountCount} 个账户 · 不支持查询"
-    item.status == ProviderQuotaStatus.ERROR -> "${item.accountCount} 个账户 · 采集失败"
-    else -> "${item.accountCount} 个账户 · 余量未知"
-}
-
-private fun quotaBadge(item: ProviderQuotaOverview): String = when {
-    item.windowCount > 1 && item.lowWindowCount > 0 -> "${item.windowCount} 项 · ${item.lowWindowCount} 项偏低"
-    item.windowCount > 1 -> "${item.windowCount} 项额度"
-    item.windowCount == 1 && item.accountCount == 1 -> item.remainingPercent?.let(::formatPercent) ?: "余量未知"
-    item.windowCount == 1 -> "1 项额度"
-    else -> when (item.status) {
-        ProviderQuotaStatus.MISSING -> "未接入"
-        ProviderQuotaStatus.DISABLED -> "已禁用"
-        ProviderQuotaStatus.UNAVAILABLE -> "暂不可用"
-        ProviderQuotaStatus.UNSUPPORTED -> "不支持"
-        ProviderQuotaStatus.ERROR -> "采集失败"
-        ProviderQuotaStatus.PARTIAL -> "部分异常"
-        ProviderQuotaStatus.STALE -> "旧数据"
-        ProviderQuotaStatus.LOW -> "余量偏低"
-        ProviderQuotaStatus.OK -> "未知"
-    }
-}
-
-private fun quotaSectionSubtitle(state: QuotaRepositoryState): String = when {
-    state.envelope == null && state.refreshing -> "正在同步套餐余量"
-    state.envelope == null && state.errorMessage != null -> "同步失败 · ${state.errorMessage}"
-    state.errorMessage != null -> "显示上次结果 · 本次同步失败"
-    state.envelope?.proxyStale == true || state.fromDeviceCache -> "显示上次成功结果 · 数据可能已过期"
-    state.refreshing -> "正在后台更新 · 当前显示上次结果"
-    state.envelope != null -> "更新于 ${formatQuotaTime(state.envelope.generatedAt)}"
-    else -> "统一查看模型服务的可用额度"
-}
-
-private fun formatPercent(value: Double): String = if (value % 1.0 == 0.0) {
-    "${value.roundToInt()}%"
-} else {
-    String.format(Locale.CHINA, "%.1f%%", value)
-}
-
-private fun formatQuotaTime(value: String): String = runCatching {
-    QUOTA_TIME_FORMATTER.format(Instant.parse(value).atZone(ZoneId.systemDefault()))
-}.getOrDefault("未知时间")
-
 private fun healthDataSubtitle(value: Instant?): String = value?.let {
     "健康数据更新于 ${STATUS_TIME_FORMATTER.format(it.atZone(ZoneId.systemDefault()))}"
 } ?: "健康数据尚未更新"
@@ -1055,7 +731,6 @@ private fun formatMinutes(value: Int): String = when {
     else -> "${value / 60}小时${value % 60}分"
 }
 
-private val QUOTA_TIME_FORMATTER = DateTimeFormatter.ofPattern("M月d日 HH:mm")
 private val STATUS_TIME_FORMATTER = DateTimeFormatter.ofPattern("M月d日 HH:mm")
 private const val DAILY_STEP_GOAL = 10_000
 private const val AGENDA_DRAWER_POSITIONAL_THRESHOLD = 0.5f

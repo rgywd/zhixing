@@ -125,7 +125,6 @@ function sanitizeReport(html, title) {
 export function createWorkServer({
   store,
   askTimeoutMs = 180_000,
-  quotaProxy = null,
   informationMonitorProxy = null,
 }) {
   const server = createServer(async (request, response) => {
@@ -134,13 +133,6 @@ export function createWorkServer({
       if (url.pathname === "/healthz") return sendJson(response, 200, { ok: true, protocol: 2, supportedProtocols: [1, 2] });
       requireProtocol(request);
 
-      if (request.method === "GET" && url.pathname === "/v1/life/quotas") {
-        requireUser(store, request);
-        if (!quotaProxy) {
-          throw Object.assign(new Error("套餐余量服务尚未配置"), { statusCode: 503 });
-        }
-        return sendJson(response, 200, await quotaProxy.getQuotas());
-      }
       const informationMonitorMatch = url.pathname.match(/^\/v1\/life\/inbox\/(status|items|digest)$/);
       if (request.method === "GET" && informationMonitorMatch) {
         requireUser(store, request);
