@@ -74,6 +74,7 @@ import me.rerere.rikkahub.ui.context.LocalDrawerGestureExclusion
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.pages.work.WorkStatusChip
 import org.koin.compose.koinInject
+import java.time.ZonedDateTime
 import kotlin.uuid.Uuid
 import me.rerere.rikkahub.utils.navigateToChatPage
 import kotlin.math.abs
@@ -325,6 +326,13 @@ private fun LifeOverviewDrawerContent(
             contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            // 有 Work 会话等待回答时提到最上方，优先暴露需要人介入的事
+            if (todaySnapshot.waitingSessions.isNotEmpty()) {
+                item(key = "work-waiting") {
+                    WorkWaitingSection(waitingSessions = todaySnapshot.waitingSessions)
+                }
+            }
+
             item(key = "status-title") {
                 OverviewSectionTitle(
                     title = "我的状态",
@@ -355,12 +363,6 @@ private fun LifeOverviewDrawerContent(
                 }
             }
 
-            if (todaySnapshot.waitingSessions.isNotEmpty()) {
-                item(key = "work-waiting") {
-                    WorkWaitingSection(waitingSessions = todaySnapshot.waitingSessions)
-                }
-            }
-
             item(key = "agenda") { AgendaOverviewSection() }
         }
     }
@@ -368,6 +370,8 @@ private fun LifeOverviewDrawerContent(
 
 @Composable
 private fun LifeOverviewHeader(onClose: () -> Unit) {
+    val now = remember { ZonedDateTime.now() }
+    val weekday = HEADER_WEEKDAYS.getOrElse(now.dayOfWeek.value - 1) { "" }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -391,9 +395,11 @@ private fun LifeOverviewHeader(onClose: () -> Unit) {
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "现在",
-                style = MaterialTheme.typography.titleLarge,
+                text = "${lifeOverviewGreeting(now.hour)} · ${now.monthValue}月${now.dayOfMonth}日 $weekday",
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = "你的生活概览",
@@ -406,6 +412,8 @@ private fun LifeOverviewHeader(onClose: () -> Unit) {
         }
     }
 }
+
+private val HEADER_WEEKDAYS = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
 @Composable
 private fun OverviewSectionTitle(
