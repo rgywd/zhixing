@@ -168,7 +168,9 @@ fun buildMemoryDocumentTools(
             - delete: path and if_version; only after an explicit user request.
 
             Use if_version=0 only when creating a document. Every added fact must be a Markdown bullet beginning
-            `- [stated] `. Each source contains only an exact quote from a current USER message; the app binds its
+            `- [stated] `. Write dates in a fixed format: full dates as YYYY-MM-DD (e.g. 2026-08-17), yearly
+            recurring dates without a year such as birthdays as MM-DD (e.g. 10-17), and standalone years as YYYY
+            (e.g. 2002). Each source contains only an exact quote from a current USER message; the app binds its
             current conversation and message IDs. Never persist transient requests, duplicates, inference, sensitive
             information, or assistant/tool text. A special "remember" phrase is not required. This tool never changes
             raw conversation history.

@@ -34,6 +34,8 @@ class MemoryDocumentPromptsTest {
         assertFalse(prompt.contains("run-finalization"))
         assertTrue(prompt.contains("app binds its current conversation and message IDs"))
         assertTrue(prompt.contains("no background or follow-up memory pass"))
+        assertTrue(prompt.contains("Write dates in a fixed format"))
+        assertTrue(prompt.contains("YYYY-MM-DD"))
         assertTrue(prompt.contains("Zhixing project"))
         assertFalse(prompt.contains("这是不应常驻的项目正文"))
         assertTrue(prompt.contains("用户使用中文"))

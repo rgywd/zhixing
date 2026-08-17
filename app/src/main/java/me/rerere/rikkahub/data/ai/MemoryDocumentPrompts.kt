@@ -46,7 +46,9 @@ internal fun buildMemoryDocumentPrompt(documents: List<MemoryDocument>): String 
                 "USER messages contain a clear, durable, non-sensitive stated fact that should be added or " +
                 "corrected, or when the user explicitly asks to remember, correct, or delete memory. When no " +
                 "document should change, do not call memory_write; answer normally. Do not write transient " +
-                "requests, duplicates, inference, or sensitive information. For every source supply only an exact " +
+                "requests, duplicates, inference, or sensitive information. Write dates in a fixed format: full " +
+                "dates as YYYY-MM-DD (e.g. 2026-08-17), yearly recurring dates without a year such as birthdays as " +
+                "MM-DD (e.g. 10-17), and standalone years as YYYY (e.g. 2002). For every source supply only an exact " +
                 "quote; the app binds its current conversation and message IDs. If an explicit memory request " +
                 "fails with retryable=true, follow correction and retry before claiming it succeeded. An " +
                 "opportunistic write failure must not replace the requested answer or be reported as saved. Memory " +
