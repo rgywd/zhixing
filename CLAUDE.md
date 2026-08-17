@@ -67,8 +67,10 @@ It is built with Jetpack Compose and Kotlin and follows Material Design 3 princi
   (app/src/main/java/me/rerere/rikkahub/data/ai/transformers/Transformer.kt)
 
 - **Memory Documents**: Long-term memory is a Room-backed Markdown document layer with pinned profile and preference
-  files plus on-demand topic files. Normal chat exposes visible `memory_read` / `memory_write` tools, binds trusted
-  source IDs inside the host, and treats both reads and mutations as optional during the active foreground chat Run.
+  files plus local `memory_find` / paged `memory_list` routing before exact `memory_read` of on-demand files. Normal
+  chat also exposes `memory_write`, binds trusted source IDs inside the host, and treats reads and mutations as
+  optional during the active foreground chat Run. The derived memory FTS is local, rebuildable, and separate from raw
+  conversation search.
   Unrelated questions do not read memory; no mutation means no `memory_write`, `no_change`, or Run finalization.
   Explicit user-requested mutations retry correctable validation failures, while opportunistic failures do not block
   the answer. The old background automatic-profile pipeline is retired. See `docs/zhixing/MEMORY_SYSTEM.md` for the

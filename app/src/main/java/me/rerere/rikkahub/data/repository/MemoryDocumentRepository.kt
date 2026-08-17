@@ -4,8 +4,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import me.rerere.rikkahub.data.db.dao.MemoryDocumentDAO
 import me.rerere.rikkahub.data.db.entity.MemoryDocumentEntity
+import me.rerere.rikkahub.data.db.fts.MemoryDocumentSearchHit
+import me.rerere.rikkahub.data.db.fts.MemoryDocumentSearchIndex
+import me.rerere.rikkahub.data.db.fts.MemoryDocumentSearchVisibility
 import me.rerere.rikkahub.data.memory.normalizeMemoryPath
 import me.rerere.rikkahub.data.memory.MEMORY_DOCUMENT_SOURCE_LIMIT
+import me.rerere.rikkahub.data.memory.requireCanonicalMemoryContent
 import me.rerere.rikkahub.data.memory.requireMemorySources
 import me.rerere.rikkahub.data.memory.requireValidMemoryDocument
 import me.rerere.rikkahub.data.memory.requireWritableMemoryPath
@@ -14,6 +18,8 @@ import me.rerere.rikkahub.data.model.MemoryDocumentSource
 import me.rerere.rikkahub.data.model.MemoryDocumentSourceType
 import me.rerere.rikkahub.data.model.MemoryDocumentState
 import me.rerere.rikkahub.utils.JsonInstant
+import java.text.Normalizer
+import java.util.Locale
 
 class MemoryDocumentConflictException(
     val current: MemoryDocument?,
@@ -22,14 +28,36 @@ class MemoryDocumentConflictException(
         ?: "Memory document version conflict; document no longer exists"
 )
 
+data class MemoryDocumentDescriptor(
+    val path: String,
+    val name: String,
+    val description: String,
+    val aliases: List<String>,
+    val version: Long,
+)
+
+data class MemoryDocumentFindResult(
+    val items: List<MemoryDocumentDescriptor>,
+    val truncated: Boolean,
+)
+
+data class MemoryDocumentListPage(
+    val items: List<MemoryDocumentDescriptor>,
+    val total: Int,
+    val hasMore: Boolean,
+    val nextCursor: String?,
+)
+
 class MemoryDocumentRepository(
     private val dao: MemoryDocumentDAO,
+    private val searchIndex: MemoryDocumentSearchIndex,
 ) {
     companion object {
         const val GLOBAL_SCOPE_ID = "__global__"
         const val PROFILE_PATH = "/profile.md"
         const val PREFERENCES_PATH = "/preferences.md"
         val PINNED_PATHS = setOf(PROFILE_PATH, PREFERENCES_PATH)
+        val RECALL_PREFIXES = setOf("/", "/areas", "/topics", "/people", "/archive")
     }
 
     fun observeDocuments(contextScopeId: String): Flow<List<MemoryDocument>> =
@@ -40,7 +68,71 @@ class MemoryDocumentRepository(
         return preferScopedDocuments(dao.listActive(scopeIds(contextScopeId)), contextScopeId)
     }
 
-    suspend fun getPromptDocuments(contextScopeId: String): List<MemoryDocument> = listDocuments(contextScopeId)
+    suspend fun getPromptDocuments(contextScopeId: String): List<MemoryDocument> {
+        ensurePinnedDocuments()
+        return PINNED_PATHS.sorted()
+            .mapNotNull { path -> findVisible(contextScopeId, path)?.toMemoryDocument() }
+    }
+
+    suspend fun findDocuments(
+        contextScopeId: String,
+        rawQuery: String,
+        rawPrefix: String? = null,
+        limit: Int = 5,
+    ): MemoryDocumentFindResult {
+        ensurePinnedDocuments()
+        val query = rawQuery.trim()
+        require(query.length in 1..200) { "Memory query must contain 1-200 characters" }
+        require(limit in 1..10) { "Memory find limit must be between 1 and 10" }
+        val prefix = normalizeRecallPrefix(rawPrefix)
+        val visibility = MemoryDocumentSearchVisibility(
+            contextScopeId = contextScopeId,
+            globalScopeId = GLOBAL_SCOPE_ID,
+            globalPinnedPaths = PINNED_PATHS.sorted(),
+        )
+        val hits = searchIndex.search(
+            query = query,
+            prefix = prefix,
+            limit = limit + 1,
+            visibility = visibility,
+        ).filter { hit ->
+            isVisibleSearchHit(hit, contextScopeId) &&
+                (prefix == "/" || hit.path.startsWith("$prefix/"))
+        }
+        return MemoryDocumentFindResult(
+            items = hits.take(limit).map(MemoryDocumentSearchHit::toDescriptor),
+            truncated = hits.size > limit,
+        )
+    }
+
+    suspend fun listDocumentDescriptors(
+        contextScopeId: String,
+        rawPrefix: String? = null,
+        rawCursor: String? = null,
+        limit: Int = 10,
+    ): MemoryDocumentListPage {
+        require(limit in 1..20) { "Memory list limit must be between 1 and 20" }
+        val prefix = normalizeRecallPrefix(rawPrefix)
+        val cursor = rawCursor?.let(::normalizeMemoryPath)?.also { normalized ->
+            require(prefix == "/" || normalized.startsWith("$prefix/")) {
+                "Memory list cursor must belong to the requested prefix"
+            }
+        }
+        val matching = listDocuments(contextScopeId)
+            .asSequence()
+            .filter { prefix == "/" || it.path.startsWith("$prefix/") }
+            .sortedBy(MemoryDocument::path)
+            .toList()
+        val remaining = matching.filter { cursor == null || it.path > cursor }
+        val pageItems = remaining.take(limit)
+        val hasMore = remaining.size > pageItems.size
+        return MemoryDocumentListPage(
+            items = pageItems.map(MemoryDocument::toDescriptor),
+            total = matching.size,
+            hasMore = hasMore,
+            nextCursor = pageItems.lastOrNull()?.path?.takeIf { hasMore },
+        )
+    }
 
     suspend fun read(contextScopeId: String, rawPath: String): MemoryDocument {
         ensurePinnedDocuments()
@@ -69,6 +161,7 @@ class MemoryDocumentRepository(
         content = content,
         sources = sources,
         allowDirectUserEdit = false,
+        formatContentToValidate = content,
     )
 
     suspend fun writeFromUserEditor(
@@ -98,6 +191,7 @@ class MemoryDocumentRepository(
                 observedAt = System.currentTimeMillis(),
             ),
             allowDirectUserEdit = true,
+            formatContentToValidate = null,
         )
     }
 
@@ -111,7 +205,7 @@ class MemoryDocumentRepository(
         val current = read(contextScopeId, rawPath)
         if (current.version != expectedVersion) throw MemoryDocumentConflictException(current)
         val next = listOf(current.content.trimEnd(), content.trim()).filter(String::isNotBlank).joinToString("\n")
-        return writeFromChat(
+        return write(
             contextScopeId = contextScopeId,
             rawPath = current.path,
             expectedVersion = expectedVersion,
@@ -120,6 +214,8 @@ class MemoryDocumentRepository(
             aliases = current.aliases,
             content = next,
             sources = current.sources + sources,
+            allowDirectUserEdit = false,
+            formatContentToValidate = content,
         )
     }
 
@@ -139,7 +235,7 @@ class MemoryDocumentRepository(
         require(current.content.indexOf(oldText, first + oldText.length) < 0) {
             "oldText must match exactly one location"
         }
-        return writeFromChat(
+        return write(
             contextScopeId = contextScopeId,
             rawPath = current.path,
             expectedVersion = expectedVersion,
@@ -148,6 +244,8 @@ class MemoryDocumentRepository(
             aliases = current.aliases,
             content = current.content.replaceRange(first, first + oldText.length, newText),
             sources = current.sources + sources,
+            allowDirectUserEdit = false,
+            formatContentToValidate = newText,
         )
     }
 
@@ -206,14 +304,20 @@ class MemoryDocumentRepository(
         content: String,
         sources: List<MemoryDocumentSource>,
         allowDirectUserEdit: Boolean,
+        formatContentToValidate: String?,
     ): MemoryDocument {
         val path = requireWritableMemoryPath(rawPath)
         require(expectedVersion >= 0) { "if_version must be zero for create or the current positive version" }
-        val cleanAliases = aliases.map(String::trim).distinct()
-        val cleanContent = content.trim()
-        requireValidMemoryDocument(path, name, description, cleanAliases, cleanContent)
+        val cleanName = normalizeMemoryMetadata(name)
+        val cleanDescription = normalizeMemoryMetadata(description)
+        val cleanAliases = aliases
+            .map(::normalizeMemoryMetadata)
+            .distinctBy { it.lowercase(Locale.ROOT) }
+        val cleanContent = normalizeMemoryContent(content)
+        requireValidMemoryDocument(path, cleanName, cleanDescription, cleanAliases, cleanContent)
+        formatContentToValidate?.let { requireCanonicalMemoryContent(normalizeMemoryContent(it)) }
         val cleanSources = sources
-            .distinctBy { Triple(it.type, it.conversationId, it.messageId) }
+            .distinctBy { listOf(it.type.name, it.conversationId, it.messageId, it.quote) }
             .takeLast(MEMORY_DOCUMENT_SOURCE_LIMIT)
         requireMemorySources(cleanSources, allowDirectUserEdit)
         ensurePinnedDocuments()
@@ -225,8 +329,8 @@ class MemoryDocumentRepository(
             val inserted = MemoryDocumentEntity(
                 scopeId = targetScope,
                 path = path,
-                name = name.trim(),
-                description = description.trim(),
+                name = cleanName,
+                description = cleanDescription,
                 aliasesJson = JsonInstant.encodeToString(cleanAliases),
                 content = cleanContent,
                 sourcesJson = JsonInstant.encodeToString(cleanSources),
@@ -245,8 +349,8 @@ class MemoryDocumentRepository(
             val changed = dao.reactivateDeleted(
                 scopeId = targetScope,
                 path = path,
-                name = name.trim(),
-                description = description.trim(),
+                name = cleanName,
+                description = cleanDescription,
                 aliasesJson = JsonInstant.encodeToString(cleanAliases),
                 content = cleanContent,
                 sourcesJson = JsonInstant.encodeToString(cleanSources),
@@ -261,8 +365,8 @@ class MemoryDocumentRepository(
             scopeId = targetScope,
             path = path,
             expectedVersion = expectedVersion,
-            name = name.trim(),
-            description = description.trim(),
+            name = cleanName,
+            description = cleanDescription,
             aliasesJson = JsonInstant.encodeToString(cleanAliases),
             content = cleanContent,
             sourcesJson = JsonInstant.encodeToString(cleanSources),
@@ -310,7 +414,33 @@ class MemoryDocumentRepository(
         }
         .map(MemoryDocumentEntity::toMemoryDocument)
         .sortedBy(MemoryDocument::path)
+
+    private fun normalizeRecallPrefix(rawPrefix: String?): String {
+        val prefix = rawPrefix?.let(::normalizeMemoryPath) ?: "/"
+        require(prefix in RECALL_PREFIXES) {
+            "Memory prefix must be one of ${RECALL_PREFIXES.sorted().joinToString()}"
+        }
+        return prefix
+    }
+
+    private fun isVisibleSearchHit(hit: MemoryDocumentSearchHit, contextScopeId: String): Boolean =
+        if (contextScopeId == GLOBAL_SCOPE_ID) {
+            hit.scopeId == GLOBAL_SCOPE_ID
+        } else {
+            hit.scopeId == contextScopeId ||
+                (hit.scopeId == GLOBAL_SCOPE_ID && hit.path in PINNED_PATHS)
+        }
 }
+
+private fun normalizeMemoryMetadata(value: String): String =
+    Normalizer.normalize(value.trim(), Normalizer.Form.NFC)
+
+private fun normalizeMemoryContent(value: String): String = value
+    .replace("\r\n", "\n")
+    .replace('\r', '\n')
+    .lineSequence()
+    .joinToString("\n", transform = String::trimEnd)
+    .trim()
 
 internal fun MemoryDocumentEntity.toMemoryDocument(): MemoryDocument = MemoryDocument(
     scopeId = scopeId,
@@ -324,6 +454,22 @@ internal fun MemoryDocumentEntity.toMemoryDocument(): MemoryDocument = MemoryDoc
     state = runCatching { MemoryDocumentState.valueOf(state) }.getOrDefault(MemoryDocumentState.ACTIVE),
     createdAt = createdAt,
     updatedAt = updatedAt,
+)
+
+private fun MemoryDocument.toDescriptor() = MemoryDocumentDescriptor(
+    path = path,
+    name = name,
+    description = description,
+    aliases = aliases,
+    version = version,
+)
+
+private fun MemoryDocumentSearchHit.toDescriptor() = MemoryDocumentDescriptor(
+    path = path,
+    name = name,
+    description = description,
+    aliases = runCatching { JsonInstant.decodeFromString<List<String>>(aliasesJson) }.getOrDefault(emptyList()),
+    version = version,
 )
 
 private fun MemoryDocumentEntity.decodeSources(): List<MemoryDocumentSource> = runCatching {

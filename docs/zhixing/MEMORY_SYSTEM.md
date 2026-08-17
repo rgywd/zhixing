@@ -1,6 +1,6 @@
 # 记忆文档与历史对话检索 V3
 
-状态：V3 现行契约（Issue #208；前台按需写入于 2026-08-14 更新）。
+状态：V3 现行契约（Issue #208；本地渐进召回与内容格式 V1 于 2026-08-17 更新）。
 
 ## 1. 两套机制，不能混用
 
@@ -41,26 +41,51 @@ V3 是存储在 Room 中的虚拟 Markdown 文件系统，不把用户数据散�
 
 存储层把元数据拆成列以支持 Room 查询和 CAS，但 `memory_read` 与 pinned 注入返回的是完整虚拟 Markdown 文件：
 YAML frontmatter 固定包含 `name / description / sources / aliases`，后接正文。正文允许使用 `[[name]]` 引用其他
-文件；目标通过 listing 的路径和 aliases 定位，不会因此把被引用文件正文自动塞进上下文。
+文件；目标通过 `memory_find` / `memory_list` 的路径和 aliases 定位，不会因此把被引用文件正文自动塞进上下文。
+
+模型可见的外部表示使用稳定类型：find/list descriptor 中 `aliases` 是 JSON array，不是逗号拼接字符串；source 字段使用
+snake_case，`type` 使用小写枚举，`observed_at` 使用 RFC 3339。虚拟 Markdown 中空 aliases/sources 显式写成
+`[]`，避免空列表被解释为字符串或 null。Room 内部时间仍保存 epoch milliseconds，不改变数据库 schema。
 
 ## 3. 上下文加载
 
-每轮生成不再注入最多 28 条扁平 PROFILE/CONTEXT。固定注入内容只有：
+每轮生成不再注入最多 28 条扁平 PROFILE/CONTEXT，也不注入非 pinned 文件 listing。固定注入内容只有
+`/profile.md` 和 `/preferences.md` 的完整文件（frontmatter + 正文）。pinned 虚拟文件不会被半截截断，整体受
+65536 字符的 prompt 门禁保护；所有记忆内容按不可信数据处理，不能成为指令。
 
-1. 当前可见文档的 listing：`path + description + aliases + version`；
-2. `/profile.md` 和 `/preferences.md` 的完整文件（frontmatter + 正文）。
+非 pinned 文档使用本地渐进召回：
 
-`/areas`、`/topics`、`/people` 和 legacy archive 正文不会常驻。模型必须先调用 `memory_read(path)`，工具调用
-与返回在聊天中可见。listing 和文档存储均有字符上限，pinned 虚拟文件不会被半截截断；所有记忆内容按不可信数据处理，不能
-成为指令。
+1. 目标明确但 exact path 未知时先调用 `memory_find(query, prefix?, limit?)`；
+2. 用户明确浏览、find 零命中或候选仍有歧义时，调用 `memory_list(prefix?, cursor?, limit?)`；
+3. find/list 候选只是路由描述，必须 `memory_read(path)` 后才能采信正文事实或修改既有非 pinned 文档。
 
-每次 `memory_read` 只读取一份文档，但同一 Run 可以沿文档中直接相关的关系连续读取，例如先读同事文档，再读其中
-关联的项目文档。证据足够后即停止，不横向扫描无关文档，也不无理由重复读取。
+固定 namespace 为 `/`、`/areas`、`/topics`、`/people`、`/archive`。find 默认返回 5 条、最多 10 条；过宽时返回
+`truncated=true`，调用方应改写查询而不是分页。list 默认每页 10 条、最多 20 条，按 path 稳定升序，使用上一页
+最后一个 path 作为 exclusive `next_cursor`；只有 `has_more=true` 时才返回 next_cursor。两者都只返回
+`path / name / description / aliases / version`，不返回 content、sources、snippet 或 score，也不搜索原始聊天。
+
+每次 `memory_read` 只读取一份 exact path 文档，但同一 Run 可以沿正文中直接相关的关系连续读取，例如先读同事
+文档，再读其中明确关联的项目 path。正文只给名称时，可在最可能的 namespace 内继续 find。证据足够后即停止，
+不横向扫描无关文档，也不无理由重复读取。
+
+### 本地派生索引
+
+`memory_find` 复用 App 已有的 SQLite FTS5 `simple` tokenizer 与 Jieba 字典，但使用独立的
+`memory_document_fts`。索引包含 path、name、description、aliases 和低权重 content；不索引 sources、状态和
+时间，也不记录查询词到 logcat。Room `MemoryDocumentEntity` 始终是真值，FTS 只是可删除投影：表级
+insert/update/delete trigger 与真值写入同一事务同步，tombstone 不入索引；每次打开数据库都会从全部 active 文档
+重建投影，以覆盖升级、备份恢复、词典变化或索引损坏。
+
+作用域过滤在 FTS 查询和 Repository 输出各执行一次：全局上下文只看全局文档；助手上下文只看自己的非 pinned
+文档以及全局 `/profile.md`、`/preferences.md`，不得召回其他全局项目。派生表与 trigger 由数据库 open callback
+管理，不增加 `MemoryDocumentEntity` 列、不提升 Room schema 48，也不新增 migration。
 
 ## 4. 写入与并发
 
-模型侧只有两个能力：
+模型侧有四个能力：
 
+- `memory_find(query, prefix?, limit?)`：按相关性查找路由描述；
+- `memory_list(prefix?, cursor?, limit?)`：按 namespace 分页浏览路由描述；
 - `memory_read(path)`：读取一份文档；
 - `memory_write(action, ...)`：`write`、`str_replace`、`append`、`delete`。
 
@@ -69,7 +94,8 @@ aliases、非空 content 和 sources；`str_replace` 提交 path、if_version、
 old_text、允许为空的 new_text 和 sources；`append` 提交 path、if_version、非空 content 和 sources；
 `delete` 只提交 path 与 if_version。
 
-新建时 `if_version = 0`；其余操作必须使用 listing 或最近一次读写返回的当前版本。DAO 使用带 version 条件的
+新建时 `if_version = 0`；其余操作必须使用 pinned、find/list descriptor 或最近一次读写返回的当前版本。修改既有
+非 pinned 文档前仍必须 exact read，descriptor 版本不能替代正文核对。DAO 使用带 version 条件的
 单条 SQL 更新；版本不一致时返回冲突和当前文档，不允许静默覆盖另一个 surface 的更新。删除整个文件仍需
 用户确认；删除会清空正文、元数据和来源，只保留带新版本的 path tombstone 防止并发旧写复活，pinned 文档不允许删除。
 
@@ -87,7 +113,7 @@ mutation 返回 `success=true / changed=true`。用户明确要求的记忆变�
 模型写入还必须同时满足：
 
 - 内容是当前用户明确说出的持久事实；删除仍必须由用户明确要求；
-- 每条正文事实以 `- [stated] ` 开头；
+- 每条正文事实以 `- [stated] ` 开头，一行只表达一个可独立纠正的持久事实；
 - 涉及日期的事实使用固定格式：完整日期 `YYYY-MM-DD`（如 `2026-08-17`），无年份的年度日期（如生日）用 `MM-DD`（如 `10-17`），单独年份用 `YYYY`；
 - 至少一条 source；模型只提交当前 USER 消息 Text part 的精确 quote，应用从当前运行快照绑定可信的会话 ID
   和消息 ID，模型不能提供或覆盖这两个内部 ID；
@@ -96,6 +122,32 @@ mutation 返回 `success=true / changed=true`。用户明确要求的记忆变�
 
 用户在记忆页直接编辑等同于新的用户陈述，记录 `USER_EDIT` source。模型推断、旧自动画像摘要、助手回复、
 工具结果和历史搜索 snippet 不能落入 active 文档。
+
+### 内容格式 V1
+
+内容格式只规范整理后的事实正文，绝不改写 source quote。模型写入遇到可确定的格式错误时返回
+`MEMORY_FORMAT_INVALID`、`retryable=true` 和具体 correction；用户编辑器显示相同 lint 建议但不阻止保存。
+现有 active 文档和 legacy archive 不做后台扫描或静默迁移；后续 append/str_replace 只校验本次新增片段，避免
+旧正文阻塞无关更新。
+
+| 值类型 | 规范格式 | 示例 | 当前机器门禁 |
+| --- | --- | --- | --- |
+| 完整日期 | `YYYY-MM-DD`，且必须是真实日历日期 | `2026-08-17` | 模型写入拒绝中文、斜杠、未补零和无效日期 |
+| 年月 | `YYYY-MM` | `2026-08` | 模型写入拒绝未补零和无效月份 |
+| 年度重复日期 | `MM-DD` | `10-17` | 模型写入拒绝未补零和无效月日 |
+| 年份 | `YYYY` | `2002` | 模型写入拒绝“2002 年”等本地化后缀 |
+| 时间 | 24 小时制 `HH:mm`；秒有意义时用 `HH:mm:ss` | `09:30` | 模型写入拒绝中文钟点、全角冒号、未补零和无效时间 |
+| 绝对时刻 | 带 offset 的 RFC 3339 | `2026-08-17T09:35:30+08:00` | prompt 约束 |
+| 时区 | IANA zone ID | `Asia/Shanghai` | prompt 约束 |
+| 数字与物理量 | ASCII 数字、小数点、显式标准单位 | `70 kg`、`175 cm`、`22 °C` | 模型写入拒绝常见中文公制单位 |
+| 百分比 | 数字与 `%` 之间不留空格 | `18%` | 模型写入拒绝“百分之…”和 `18 %` |
+| 语言/区域 | BCP 47 | `zh-CN`、`en-US` | prompt 约束 |
+| 非敏感币种偏好 | ISO 4217 大写代码 | `CNY` | prompt；精确财务数字继续由安全策略拒绝 |
+
+不完整、近似或农历信息必须保留原有精度和历法，例如“约 `2026-08`”或“农历 `08-15`”；不得为了满足格式
+补造日期、时间、时区或公历换算。姓名、项目名、称呼、地址和 URL path/query 保留用户语义，不做破坏性
+大小写或 Unicode 转换。元数据会 trim 并使用 Unicode NFC；aliases 还会按大小写不敏感方式去重并保留首次顺序。
+正文统一为 LF 并移除行尾空格。相同消息中的不同精确 quote 作为不同 source 保留。
 
 ## 5. V2 迁移和退役
 
@@ -122,12 +174,14 @@ snippet；这只是原始记录的检索投影，不是长期事实。
 personalization 更依赖删除源聊天，独立条目管理较弱。项目/空间 scope、临时聊天不读不写、逐条可见来源是
 共同的可信方向。
 
-技术上借鉴 Letta 的 always-visible blocks + on-demand files、MemGPT 的上下文分页和 Zep 的 raw episode 与
-curated fact 分层；不照搬模型自主改写、云向量库、图数据库或“只失效不硬删”。竞品帮助文档没有公开记忆
+技术上借鉴 OpenViking 的 `find/list -> 分层元数据 -> exact read` 渐进导航、Letta 的 always-visible blocks +
+on-demand files、MemGPT 的上下文分页和 Zep 的 raw episode 与 curated fact 分层；不照搬向量递归召回、模型自主
+改写、云向量库、图数据库、后台会话沉淀或“只失效不硬删”。竞品帮助文档没有公开记忆
 条目的 optimistic lock，因此 `if_version` 是知行为本地多 surface 明确增加的契约。
 
 参考：
 
+- [OpenViking](https://github.com/volcengine/OpenViking)
 - [OpenAI Memory FAQ](https://help.openai.com/en/articles/8590148-memory-faq)
 - [OpenAI Dreaming V3](https://openai.com/index/chatgpt-memory-dreaming/)
 - [Claude chat search and memory](https://support.claude.com/en/articles/11817273-use-claude-s-chat-search-and-memory-to-build-on-previous-context)
@@ -138,10 +192,11 @@ curated fact 分层；不照搬模型自主改写、云向量库、图数据库�
 
 ## 8. 验收
 
-1. 非 pinned 正文不出现在开场 prompt，listing 能路由到正确路径。
+1. 开场 prompt 不包含任一非 pinned 的 path、description、aliases 或正文；find/list 能路由到正确 exact path。
 2. 模型侧 source schema 不暴露会话 ID 或消息 ID；quote 不是当前 USER 消息的精确子串时写入失败，匹配成功时
    由应用绑定最近一条可信来源消息。
-3. 非 `[stated]`、凭据类敏感信息和控制型 preference 写入失败。
+3. 非 `[stated]`、凭据类敏感信息、控制型 preference 和可确定的非规范 V1 值写入失败；用户编辑器对格式问题
+   只警告，不阻断保存。
 4. 两个 writer 使用同一旧 version 时只有一个成功，另一个得到冲突。
 5. 43→44 保留旧记录到 archive，不删除旧表或用户会话。
 6. 记忆页可查看和编辑元数据/正文/版本/来源数，删除非 pinned 文件需要确认。
@@ -150,3 +205,8 @@ curated fact 分层；不照搬模型自主改写、云向量库、图数据库�
    失败会修正后重试，机会式写入失败不阻塞普通回答；响应不包含 Run `finalized` 语义，且没有后台或隐藏的
    二次模型调用。
 9. 删除消息/会话会移除对应 source，删除助手会清理其 scope；旧 `MemoryEntity` 不再有当前 UI 写入口。
+10. find/list aliases 保持 JSON array 且不返回正文或来源；source 的 JSON/YAML 字段名、枚举、空数组和 RFC 3339
+    时间表示一致。
+11. list 可遍历超过旧 8 KiB listing 容量的全部 descriptor，页间无重复和静默遗漏；archive 仍可发现。
+12. 中文 alias 与英文 metadata/content 可由真实 simple/Jieba FTS 召回，metadata 匹配优先；tombstone、删除 scope
+    和助手不可见的全局项目都不命中，关闭重开后索引可从 Room 真值恢复。

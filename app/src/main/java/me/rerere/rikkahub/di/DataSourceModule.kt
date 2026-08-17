@@ -19,6 +19,8 @@ import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.db.createAppDatabase
 import me.rerere.rikkahub.data.db.fts.MessageFtsManager
+import me.rerere.rikkahub.data.db.fts.MemoryDocumentFtsManager
+import me.rerere.rikkahub.data.db.fts.MemoryDocumentSearchIndex
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.sync.webdav.WebDavSync
 import me.rerere.search.SearchService
@@ -111,6 +113,10 @@ val dataSourceModule = module {
 
     single {
         MessageFtsManager(get())
+    }
+
+    single<MemoryDocumentSearchIndex> {
+        MemoryDocumentFtsManager(get())
     }
 
     single { McpManager(settingsStore = get(), appScope = get(), filesManager = get(), appEventBus = get()) }

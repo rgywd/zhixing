@@ -19,7 +19,7 @@
 | --- | --- | --- |
 | Work（Codex / Claude Code） | [架构](./CODEX_PHONE_LINE_ARCHITECTURE.md) · [协议](./CODEX_PHONE_LINE_CONTRACT.md) | v2 已实现；App Server 按 turn 启停并在 IDLE 前释放，初始化超时可清理后重试；队列、三条电话线、附件、后台跟踪与归档均以这两份契约为准 |
 | Staging 测试客户端 | [分发、受限 API 与验收](./STAGING_TEST_CLIENT.md) | 与正式版并存；用于本机机器验证，不进入正式 Release |
-| 记忆 | [记忆文档与历史对话检索 V3](./MEMORY_SYSTEM.md) | V3 现行契约；前台 Chat 按需读写，无变化不调用；文件 listing、用户原话来源、乐观锁与原始历史检索分离 |
+| 记忆 | [记忆文档与历史对话检索 V3](./MEMORY_SYSTEM.md) | V3 现行契约；仅 pinned 常驻，非 pinned 经本地 `find/list/read` 渐进召回；用户原话来源、乐观锁与原始历史检索分离 |
 | 知识空间 | [OrbitOS CN Vault v0.3](./KNOWLEDGE_SPACE.md) | 已实现；以 `/workspace/vault`、知识库浏览、Git 绑定、收件箱导入、来源引用和 vault-local skills 为现行契约 |
 | 火山语音 | [Agent Plan TTS](./VOLCENGINE_TTS.md) · [Agent Plan ASR](./VOLCENGINE_ASR.md) | 已实现；记录协议、接口和默认配置 |
 | 事项与弱日历 | [简单待办、长期计划、系统日历投影与 AI 工具](./AGENDA_AND_CALENDAR.md) | v2 已实现；待办与长期计划均以 Room 为事实来源，日历为可选时间背景 |
