@@ -33,17 +33,51 @@ class MemoryDocumentPolicyTest {
     }
 
     @Test
-    fun sensitiveCategoriesAndPreferenceControlInstructionsAreRejected() {
-        val sensitive = runCatching {
-            requireValidMemoryDocument(
-                path = "/profile.md",
-                name = "Profile",
-                description = "Stable profile",
-                aliases = emptyList(),
-                content = "- [stated] 用户的出生日期是 2000-01-01。",
+    fun personalFactsIncludingBirthdayAndHealthAreAccepted() {
+        listOf(
+            "- [stated] 用户的公历生日是 10 月 17 日，出生于 2002 年。",
+            "- [stated] 用户的出生日期是 2000-01-01。",
+            "- [stated] 用户的生日是 10 月 17 日。",
+            "- [stated] 用户出生于 2002 年。",
+            "- [stated] 用户在减重，目标是体脂降到 18%。",
+        ).forEach { content ->
+            assertTrue(
+                "expected accepted: $content",
+                runCatching {
+                    requireValidMemoryDocument(
+                        path = "/profile.md",
+                        name = "Profile",
+                        description = "Stable profile",
+                        aliases = emptyList(),
+                        content = content,
+                    )
+                }.isSuccess,
             )
         }
-        assertTrue(sensitive.isFailure)
+    }
+
+    @Test
+    fun sensitiveCategoriesAndPreferenceControlInstructionsAreRejected() {
+        listOf(
+            "- [stated] 用户的身份证号是 110101200001010011。",
+            "- [stated] 用户的银行卡号是 6222 0000 0000 0000。",
+            "- [stated] 用户的信用卡号 4000 0000 0000 0000。",
+            "- [stated] 用户的密码是 mypass123。",
+            "- [stated] 用户的 API key 是 sk-abc123。",
+        ).forEach { content ->
+            assertTrue(
+                "expected rejected: $content",
+                runCatching {
+                    requireValidMemoryDocument(
+                        path = "/profile.md",
+                        name = "Profile",
+                        description = "Stable profile",
+                        aliases = emptyList(),
+                        content = content,
+                    )
+                }.isFailure,
+            )
+        }
 
         val controllingPreference = runCatching {
             requireValidMemoryDocument(

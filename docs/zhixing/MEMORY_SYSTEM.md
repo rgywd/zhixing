@@ -90,7 +90,7 @@ mutation 返回 `success=true / changed=true`。用户明确要求的记忆变�
 - 每条正文事实以 `- [stated] ` 开头；
 - 至少一条 source；模型只提交当前 USER 消息 Text part 的精确 quote，应用从当前运行快照绑定可信的会话 ID
   和消息 ID，模型不能提供或覆盖这两个内部 ID；
-- 不包含被禁止的敏感类别、credential 或精确财务数字；
+- 不包含极敏感的凭据信息（银行卡/信用卡号、身份证/护照/证件号、密码、API 密钥等）或精确财务数字；
 - `/preferences.md` 不接受“永远别反驳/质疑”“扮演某角色”等控制身份或取消判断的指令。
 
 用户在记忆页直接编辑等同于新的用户陈述，记录 `USER_EDIT` source。模型推断、旧自动画像摘要、助手回复、
@@ -140,7 +140,7 @@ curated fact 分层；不照搬模型自主改写、云向量库、图数据库�
 1. 非 pinned 正文不出现在开场 prompt，listing 能路由到正确路径。
 2. 模型侧 source schema 不暴露会话 ID 或消息 ID；quote 不是当前 USER 消息的精确子串时写入失败，匹配成功时
    由应用绑定最近一条可信来源消息。
-3. 非 `[stated]`、敏感类别和控制型 preference 写入失败。
+3. 非 `[stated]`、凭据类敏感信息和控制型 preference 写入失败。
 4. 两个 writer 使用同一旧 version 时只有一个成功，另一个得到冲突。
 5. 43→44 保留旧记录到 archive，不删除旧表或用户会话。
 6. 记忆页可查看和编辑元数据/正文/版本/来源数，删除非 pinned 文件需要确认。

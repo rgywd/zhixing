@@ -16,17 +16,15 @@ private val writablePath = Regex(
 private val sensitiveCategoryPattern = Regex(
     pattern = """
         (?ix)
-        (health|diagnos(?:is|ed)?|prescription|medication|medical\s+condition|健康|用药|处方|诊断|病史|疾病|症状|病情|
-        race|ethnicity|racial|种族|族裔|
+        (race|ethnicity|racial|种族|族裔|
         religion|religious|faith|宗教|信仰|
         sexual\s+orientation|gender\s+identity|性取向|性倾向|性别认同|
         political\s+(?:view|belief|affiliation|party)|政治立场|政治观点|党派|
         immigration\s+status|visa\s+status|移民身份|
-        home\s+address|residential\s+address|家庭住址|居住地址|
         passport\s+(?:number|no)|national\s+id|social\s+security|身份证|护照号|证件号|
-        date\s+of\s+birth|birth\s*date|出生日期|生日是|
-        real[- ]?time\s+location|current\s+location|实时位置|当前位置|
-        api[_ -]?key|access[_ -]?token|refresh[_ -]?token|bearer\s+[a-z0-9._-]+|password|passwd|密码)
+        real[-\s]?time\s+location|current\s+location|实时位置|当前位置|
+        bank\s*card|debit\s*card|credit\s*card|card\s*number|银行卡|信用卡|卡号|
+        api[\s_-]?key|access[\s_-]?token|refresh[\s_-]?token|bearer\s+[a-z0-9._-]+|password|passwd|密码)
     """.trimIndent(),
 )
 private val exactFinancialPattern = Regex(
