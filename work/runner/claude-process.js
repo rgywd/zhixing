@@ -48,6 +48,7 @@ export function buildClaudeArgs({
   developerInstructions,
   mcpConfigPath,
   additionalDirectories = [],
+  slashCommandsEnabled = false,
 }) {
   if (!mcpConfigPath) throw new Error("Claude Code requires an explicit phone-line MCP config");
   if (kind === "RESUME" && !runtimeSessionId) {
@@ -64,7 +65,7 @@ export function buildClaudeArgs({
     "--setting-sources", "user,project",
     "--strict-mcp-config",
     "--mcp-config", mcpConfigPath,
-    "--disable-slash-commands",
+    ...(!slashCommandsEnabled ? ["--disable-slash-commands"] : []),
     "--no-chrome",
     ...(developerInstructions ? ["--append-system-prompt", developerInstructions] : []),
     ...additionalDirectories.flatMap((directory) => ["--add-dir", directory]),

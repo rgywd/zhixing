@@ -201,6 +201,15 @@ class PhoneWorkApiClient(
         )
     }
 
+    suspend fun control(sessionId: String, action: String): PhoneWorkControlReceipt {
+        val body = ControlRequest(action = action)
+        return post(
+            path = "/v1/work/sessions/${sessionId.urlEncode()}/controls",
+            body = body,
+            idempotencyKey = UUID.randomUUID().toString(),
+        )
+    }
+
     suspend fun uploadAttachment(attachment: PhoneWorkPendingAttachment): PhoneWorkAttachment = withContext(Dispatchers.IO) {
         val uri = attachment.uri.toUri()
         val fileName = attachment.fileName
@@ -444,6 +453,7 @@ data class CreateSessionRequest(
     val expectedTurnId: String,
     val clientMessageId: String,
 )
+@Serializable internal data class ControlRequest(val action: String)
 @Serializable private data class AnswerRequest(val answers: List<PhoneWorkAnswer>)
 @Serializable private data object EmptyRequest
 @Serializable private class UnitResponse

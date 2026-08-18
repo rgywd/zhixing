@@ -120,6 +120,7 @@ import me.rerere.rikkahub.data.work.supportsFileAttachments
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.ui.components.ai.ChatInput
+import me.rerere.rikkahub.ui.components.ai.completion.WorkCommandCompletionProvider
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import me.rerere.rikkahub.ui.components.webview.WebViewContentCache
@@ -211,6 +212,10 @@ fun PhoneWorkSessionPage(sessionId: String) {
     val selectedRunnerId = session?.runnerId ?: selectedRepo?.runnerId
     val fileAttachmentsSupported = catalog.supportsFileAttachments(selectedRunnerId)
     val runnerCapabilities = workRunnerCapabilities(catalog, session)
+    val contextUsage = remember(events) { latestWorkContextUsage(events) }
+    val commandCompletionProviders = remember(session?.runtime) {
+        session?.runtime?.let { listOf(WorkCommandCompletionProvider(it)) }.orEmpty()
+    }
     val canCompose = session?.status != "COMPLETED" && session?.archivedAt == null
     val canSubmitInput = (
         !inputState.isEmpty() || inputState.messageContent.any {
@@ -222,6 +227,7 @@ fun PhoneWorkSessionPage(sessionId: String) {
     var showAttachmentPicker by remember { mutableStateOf(false) }
     var messageActionTarget by remember { mutableStateOf<WorkMessageActionTarget?>(null) }
     var editingQueueItem by remember { mutableStateOf<PhoneWorkQueueItem?>(null) }
+    var showContextDetails by remember { mutableStateOf(false) }
     var statusClockMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val statusPresentation = remember(session, catalog, events, statusClockMillis) {
         buildWorkSessionStatusPresentation(
@@ -259,6 +265,29 @@ fun PhoneWorkSessionPage(sessionId: String) {
                 )
                 else -> null
             }
+        }
+        val controlAction = session?.runtime
+            ?.let { runtime -> parseWorkControlAction(text, runtime) }
+            ?.takeIf { attachments.isEmpty() }
+        if (controlAction != null) {
+            val current = session ?: return
+            when {
+                current.status != "IDLE" -> Toast.makeText(
+                    context,
+                    "控制指令仅在任务空闲时可用",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                !runnerCapabilities.supports(controlAction, current.runtime) -> Toast.makeText(
+                    context,
+                    "当前开发机尚不支持 ${controlAction.slashCommand}",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                else -> vm.control(controlAction.wireName) {
+                    inputState.clearInput()
+                    Toast.makeText(context, "已提交 ${controlAction.slashCommand}", Toast.LENGTH_SHORT).show()
+                }
+            }
+            return
         }
         if (text.isNotEmpty() || attachments.isNotEmpty()) {
             val onAccepted: (String?) -> Unit = { createdId ->
@@ -384,6 +413,7 @@ fun PhoneWorkSessionPage(sessionId: String) {
                         hazeState = hazeState,
                         enableSearch = false,
                         onToggleSearch = {},
+                        completionProviders = commandCompletionProviders,
                         onUpdateChatModel = {},
                         onUpdateAssistant = {},
                         onUpdateSearchService = { _, _ -> },
@@ -405,6 +435,12 @@ fun PhoneWorkSessionPage(sessionId: String) {
                                 },
                                 onSelect = vm::selectRuntime,
                             )
+                            if (session?.runtime == "codex" && runnerCapabilities.codexContextUsage) {
+                                WorkContextRing(
+                                    usage = contextUsage,
+                                    onClick = { showContextDetails = true },
+                                )
+                            }
                             WorkModelSettingsButton(
                                 model = selectedModel,
                                 models = selectedRuntimeConfig?.models.orEmpty().ifEmpty {
@@ -449,6 +485,21 @@ fun PhoneWorkSessionPage(sessionId: String) {
                         }
                 }
             },
+        )
+    }
+
+    if (showContextDetails) {
+        WorkContextDetailsSheet(
+            usage = contextUsage,
+            canCompact = session?.status == "IDLE" && runnerCapabilities.codexCompact,
+            compacting = sending,
+            onCompact = {
+                vm.control(WorkControlAction.COMPACT.wireName) {
+                    showContextDetails = false
+                    Toast.makeText(context, "已提交 /compact", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onDismiss = { showContextDetails = false },
         )
     }
 

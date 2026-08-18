@@ -95,6 +95,86 @@ export async function startCodexAppServerTurn({
   throw new Error("Codex App Server initialize attempts were exhausted");
 }
 
+export async function runCodexAppServerControl({
+  command,
+  args,
+  cwd,
+  env = process.env,
+  runtimeSessionId,
+  action,
+  model,
+  reasoningEffort,
+  fastMode = false,
+  clientVersion = "1",
+  spawnImpl = spawn,
+  terminateProcess = terminateProcessTree,
+  startupTimeoutMs = DEFAULT_STARTUP_TIMEOUT_MS,
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  initializeTimeoutMs = DEFAULT_INITIALIZE_TIMEOUT_MS,
+  onEvent = () => {},
+}) {
+  if (!runtimeSessionId) throw new Error("Codex control requires an existing thread ID");
+  if (action !== "COMPACT") throw new Error(`Unsupported Codex control: ${action}`);
+  const executable = resolveCodexCommand(command);
+  const child = spawnImpl(executable, args, {
+    cwd,
+    env,
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let resolveOutcome;
+  let rejectOutcome;
+  const outcome = new Promise((resolve, reject) => {
+    resolveOutcome = resolve;
+    rejectOutcome = reject;
+  });
+  const rpc = new CodexAppServerRpc(child, (event) => {
+    onEvent(event);
+    if (event?.type === "turn.completed") resolveOutcome(event);
+    if (event?.type === "turn.failed") rejectOutcome(new Error(event.error ?? "Codex compact failed"));
+  });
+  let timer;
+  try {
+    await rpc.request("initialize", {
+      clientInfo: {
+        name: "zhixing-work-runner",
+        title: "Zhixing Work Runner",
+        version: String(clientVersion),
+      },
+      capabilities: {},
+    }, initializeTimeoutMs);
+    rpc.notify("initialized", {});
+    await rpc.request("thread/resume", {
+      threadId: runtimeSessionId,
+      model,
+      cwd,
+      approvalPolicy: "never",
+      sandbox: "danger-full-access",
+      serviceTier: fastMode ? "fast" : "default",
+    }, startupTimeoutMs);
+    await rpc.request("thread/compact/start", { threadId: runtimeSessionId }, requestTimeoutMs);
+    const timedOutcome = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Codex compact timed out")), startupTimeoutMs);
+    });
+    await Promise.race([
+      outcome,
+      timedOutcome,
+      rpc.completed.then(({ code, stderr }) => {
+        throw new Error(stderr || `Codex App Server exited before compact completed (${code})`);
+      }),
+    ]);
+    rpc.close();
+    const result = await rpc.completed;
+    if (result.code !== 0) throw new Error(result.stderr || `Codex App Server exited with code ${result.code}`);
+    return { runtimeSessionId };
+  } catch (error) {
+    await terminateFailedAppServer(rpc, child, terminateProcess);
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function startCodexAppServerAttempt({
   command,
   args,
@@ -221,6 +301,16 @@ export function mapAppServerNotification(message) {
   if (message?.method === "thread/started") {
     const threadId = params.thread?.id ?? params.threadId;
     return threadId ? { type: "thread.started", thread_id: threadId } : null;
+  }
+  if (message?.method === "thread/tokenUsage/updated") {
+    return {
+      type: "thread.token_usage",
+      thread_id: params.threadId,
+      usage: params.tokenUsage ?? {},
+    };
+  }
+  if (message?.method === "item/completed" && params.item?.type === "contextCompaction") {
+    return { type: "context.compacted", item: params.item };
   }
   if (message?.method === "item/completed" && params.item?.type === "agentMessage") {
     return {

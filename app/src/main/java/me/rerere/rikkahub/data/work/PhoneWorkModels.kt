@@ -22,6 +22,10 @@ data class PhoneWorkRunnerCapabilities(
     val appServerTurns: Boolean = false,
     val steer: Boolean = false,
     val editableQueue: Boolean = false,
+    val codexCompact: Boolean = false,
+    val codexContextUsage: Boolean = false,
+    val claudeCompact: Boolean = false,
+    val claudeContext: Boolean = false,
 )
 
 @Serializable
@@ -122,6 +126,20 @@ data class PhoneWorkSteerReceipt(
     val commandId: String,
     val expectedTurnId: String,
     val state: String,
+)
+
+@Serializable
+data class PhoneWorkControlReceipt(
+    val accepted: Boolean,
+    val commandId: String,
+    val action: String,
+    val state: String,
+)
+
+@Serializable
+data class PhoneWorkContextUsagePayload(
+    val usedTokens: Long,
+    val contextWindow: Long,
 )
 
 @Serializable

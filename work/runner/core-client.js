@@ -37,6 +37,8 @@ export class CoreClient {
   register(config) {
     const appServerTurns = config.repos.some((repo) => repo.runtimes.some((runtime) =>
       runtime.id === "codex" && runtime.transport === "app-server"));
+    const claudeCode = config.repos.some((repo) => repo.runtimes.some((runtime) =>
+      runtime.id === "claude-code"));
     return this.request("/v1/runner/register", {
       method: "POST",
       body: {
@@ -46,12 +48,16 @@ export class CoreClient {
         version: config.version,
         capabilities: {
           codex: config.repos.some((repo) => repo.runtimes.some((runtime) => runtime.id === "codex")),
-          claudeCode: config.repos.some((repo) => repo.runtimes.some((runtime) => runtime.id === "claude-code")),
+          claudeCode,
           phoneLineProtocol: 2,
           fileAttachments: 1,
           appServerTurns,
           steer: appServerTurns,
           editableQueue: true,
+          codexCompact: appServerTurns,
+          codexContextUsage: appServerTurns,
+          claudeCompact: claudeCode,
+          claudeContext: claudeCode,
         },
         repos: config.repos.map((repo) => ({
           id: repo.id,
