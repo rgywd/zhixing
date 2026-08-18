@@ -25,6 +25,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.rikkahub.R
@@ -92,11 +93,13 @@ class PhoneWorkTrackingService : Service() {
             val active = runCatching { repository.activeSessionsSnapshot() }.getOrDefault(after)
             if (active.isEmpty() && trackedSessionIds().isEmpty()) {
                 clearMilestone()
+                clearWorkShortcuts(this)
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return
             }
             updateOngoing(active)
+            syncWorkShortcuts(this, active)
             delay(POLL_INTERVAL_MS)
         }
     }
@@ -151,16 +154,17 @@ class PhoneWorkTrackingService : Service() {
                 val deadlineAt = payload["deadlineAt"]?.jsonPrimitive?.content
                 scheduleAskReminder(session, event, askId, deadlineAt)
                 val minutes = deadlineAt?.let { deadlineMinutesAway(it) }
-                alertBuilder(
-                    WORK_ASK_NOTIFICATION_CHANNEL_ID,
+                askAlertBuilder(
+                    session,
+                    askId,
+                    payload,
                     "${session.repoName} 需要你的回答",
                     if (minutes != null) {
                         "$runtimeName 遇到需要你决定的问题，${minutes} 分钟未回答将采用推荐方案"
                     } else {
                         "$runtimeName 遇到需要你决定的问题"
                     },
-                    session.id,
-                ).setCategory(NotificationCompat.CATEGORY_CALL).setPriority(NotificationCompat.PRIORITY_HIGH).build()
+                ).build()
                     .also { notifyWithId(askNotificationId(askId), it) }
                 return null
             }
@@ -226,12 +230,13 @@ class PhoneWorkTrackingService : Service() {
             if (!answered) {
                 notifyWithId(
                     askNotificationId(askId),
-                    alertBuilder(
-                        WORK_ASK_NOTIFICATION_CHANNEL_ID,
+                    askAlertBuilder(
+                        session,
+                        askId,
+                        event.payload.jsonObject,
                         "${session.repoName} 仍在等你的回答",
                         "1 分钟后将采用推荐方案，点按立即决定",
-                        session.id,
-                    ).setCategory(NotificationCompat.CATEGORY_CALL).setPriority(NotificationCompat.PRIORITY_HIGH).build(),
+                    ).build(),
                 )
             }
         }
@@ -295,6 +300,26 @@ class PhoneWorkTrackingService : Service() {
             .setContentIntent(openWorkPendingIntent(sessionId))
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+
+    private fun askAlertBuilder(
+        session: PhoneWorkSession,
+        askId: String,
+        payload: JsonObject,
+        title: String,
+        text: String,
+    ): NotificationCompat.Builder {
+        val builder = alertBuilder(WORK_ASK_NOTIFICATION_CHANNEL_ID, title, text, session.id)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+        recommendedAnswersFromAskPayload(payload)?.let { answers ->
+            builder.addAction(
+                R.drawable.small_icon,
+                "采用推荐方案",
+                WorkAskActionReceiver.acceptRecommendedPendingIntent(this, session.id, askId, answers),
+            )
+        }
+        return builder
+    }
 
     private fun startForegroundCompat(): Boolean = try {
         val notification = ongoingNotification(emptyList())
@@ -366,7 +391,7 @@ class PhoneWorkTrackingService : Service() {
         private const val KEY_MILESTONE_OBSERVED_AT = "milestone_observed_at"
         private val ACTIVE_STATES = setOf("QUEUED", "RUNNING", "WAITING_FOR_USER")
 
-        private fun askNotificationId(askId: String) = "zhixing-work-ask:$askId".hashCode()
+        internal fun askNotificationId(askId: String) = "zhixing-work-ask:$askId".hashCode()
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, PhoneWorkTrackingService::class.java))
@@ -375,6 +400,7 @@ class PhoneWorkTrackingService : Service() {
         fun stop(context: Context) {
             context.stopService(Intent(context, PhoneWorkTrackingService::class.java))
             NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
+            clearWorkShortcuts(context)
             context.getSharedPreferences(TRACKING_PREFERENCES, Context.MODE_PRIVATE).edit {
                 clear()
             }
