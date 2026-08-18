@@ -189,6 +189,10 @@
         <action android:name="android.intent.action.TIMEZONE_CHANGED" />
       </intent-filter>
     </receiver>
+    <receiver
+      android:name=".service.WorkAskActionReceiver"
+      android:enabled="true"
+      android:exported="false" />
 
     <provider
       android:name="androidx.core.content.FileProvider"

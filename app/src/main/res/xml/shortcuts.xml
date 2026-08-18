@@ -12,4 +12,19 @@
             android:data="zhixing://shortcut" />
         <categories android:name="android.shortcut.conversation" />
     </shortcut>
+    <shortcut
+        android:shortcutId="work"
+        android:enabled="true"
+        android:icon="@drawable/ic_lucide_briefcase"
+        android:shortcutShortLabel="@string/shortcut_open_work"
+        android:shortcutLongLabel="@string/shortcut_open_work">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="me.rerere.rikkahub.RouteActivity">
+            <extra
+                android:name="workSessionId"
+                android:value="" />
+        </intent>
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
 </shortcuts>
