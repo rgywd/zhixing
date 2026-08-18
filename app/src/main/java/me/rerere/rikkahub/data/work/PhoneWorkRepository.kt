@@ -188,6 +188,12 @@ class PhoneWorkRepository(
         PhoneWorkTrackingService.start(context)
     }
 
+    suspend fun control(sessionId: String, action: String): PhoneWorkControlReceipt =
+        api.control(sessionId, action).also {
+            refreshSessions()
+            PhoneWorkTrackingService.start(context)
+        }
+
     private suspend fun uploadAttachments(attachments: List<PhoneWorkPendingAttachment>): List<String> {
         require(attachments.size <= 4) { "每条 Work 消息最多发送 4 个附件" }
         return attachments.map { api.uploadAttachment(it).id }

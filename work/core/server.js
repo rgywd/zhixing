@@ -318,6 +318,15 @@ export function createWorkServer({
           request.headers["idempotency-key"],
         ));
       }
+      match = url.pathname.match(/^\/v1\/work\/sessions\/([^/]+)\/controls$/);
+      if (request.method === "POST" && match) {
+        requireUser(store, request);
+        return sendJson(response, 202, store.controlSession(
+          match[1],
+          await readJson(request),
+          request.headers["idempotency-key"],
+        ));
+      }
       match = url.pathname.match(/^\/v1\/work\/sessions\/([^/]+)\/asks\/([^/]+)\/answer$/);
       if (request.method === "POST" && match) {
         requireUser(store, request);

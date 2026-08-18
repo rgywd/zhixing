@@ -1099,6 +1099,44 @@ export class WorkStore {
     });
   }
 
+  controlSession(sessionId, input, idempotencyKey) {
+    return this.withIdempotency(`control:${sessionId}`, idempotencyKey, () => {
+      const session = this.getSession(sessionId);
+      if (!session) throw Object.assign(new Error("Session not found"), { statusCode: 404 });
+      if (session.archivedAt) throw Object.assign(new Error("Restore the archived session before using controls"), { statusCode: 409 });
+      if (session.status !== "IDLE") throw Object.assign(new Error("Controls are only available while the session is idle"), { statusCode: 409 });
+      if (!session.runtimeSessionId) throw Object.assign(new Error("Session has no runtime context yet"), { statusCode: 409 });
+      const action = String(input.action ?? "").trim().toUpperCase();
+      const capability = session.runtime === "codex"
+        ? (action === "COMPACT" ? "codexCompact" : null)
+        : session.runtime === "claude-code"
+          ? ({ COMPACT: "claudeCompact", CONTEXT: "claudeContext" }[action] ?? null)
+          : null;
+      if (!capability) throw Object.assign(new Error("Unsupported control action"), { statusCode: 400 });
+      if (!this.runnerHasCapability(session.runnerId, capability)) {
+        throw Object.assign(new Error(`Runner does not support ${action.toLowerCase()}`), { statusCode: 409 });
+      }
+      const pending = this.db.prepare(`
+        SELECT 1 FROM commands
+        WHERE session_id=? AND kind='CONTROL' AND state IN ('PENDING', 'CLAIMED')
+        LIMIT 1
+      `).get(sessionId);
+      if (pending) throw Object.assign(new Error("Another control action is already running"), { statusCode: 409 });
+      const commandId = this.createCommand(session.runnerId, sessionId, "CONTROL", {
+        action,
+        repoId: session.repoId,
+        runtime: session.runtime,
+        runtimeSessionId: session.runtimeSessionId,
+        model: session.model,
+        reasoningEffort: session.reasoningEffort,
+        fastMode: session.fastMode,
+        sessionToken: this.createSessionToken(sessionId),
+        inboxCursor: session.lastSeq,
+      });
+      return { accepted: true, commandId, action, state: "PENDING" };
+    });
+  }
+
   promoteNextQueuedInput(sessionId) {
     const session = this.getSession(sessionId);
     if (!session || SESSION_TERMINAL.has(session.status)) return null;
@@ -1347,8 +1385,20 @@ export class WorkStore {
     if (this.sessionRunnerId(sessionId) !== runnerId) {
       throw Object.assign(new Error("Session not found"), { statusCode: 404 });
     }
-    if (input.type !== "ASSISTANT_MESSAGE") {
+    if (!new Set(["ASSISTANT_MESSAGE", "CONTEXT_USAGE"]).has(input.type)) {
       throw Object.assign(new Error("Unsupported runner event type"), { statusCode: 400 });
+    }
+    if (input.type === "CONTEXT_USAGE") {
+      const usedTokens = Number(input.payload?.usedTokens);
+      const contextWindow = Number(input.payload?.contextWindow);
+      if (!Number.isFinite(usedTokens) || usedTokens < 0 || !Number.isFinite(contextWindow) || contextWindow <= 0) {
+        throw Object.assign(new Error("Invalid context usage payload"), { statusCode: 400 });
+      }
+      return this.withIdempotency(`runner-event:${sessionId}`, input.clientEventId, () =>
+        this.appendEvent(sessionId, "CONTEXT_USAGE", {
+          usedTokens: Math.round(usedTokens),
+          contextWindow: Math.round(contextWindow),
+        }));
     }
     const text = String(input.payload?.text ?? "").trim();
     if (!text) throw Object.assign(new Error("Assistant message text is required"), { statusCode: 400 });

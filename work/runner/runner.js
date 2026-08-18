@@ -28,6 +28,7 @@ import {
 } from "./codex-process.js";
 import {
   buildCodexAppServerArgs,
+  runCodexAppServerControl,
   startCodexAppServerTurn,
 } from "./codex-app-server.js";
 import { ensurePhoneHookProfile } from "./phone-hook-profile.js";
@@ -142,6 +143,8 @@ export class WorkRunner {
         await this.startCommand(command);
       } else if (command.kind === "STEER") {
         await this.steerCommand(command);
+      } else if (command.kind === "CONTROL") {
+        await this.controlCommand(command);
       } else if (command.kind === "STOP" || command.kind === "COMPLETE") {
         await this.stopCommand(command);
       } else {
@@ -340,6 +343,15 @@ export class WorkRunner {
             });
             this.flushOutbox().catch((error) => this.logError("assistant-message", error));
           }
+          const contextUsage = runtime === "codex" ? codexContextUsage(event) : null;
+          if (contextUsage) {
+            this.state.enqueueEvent(command.sessionId, {
+              clientEventId: `${command.id}:context:${contextUsage.usedTokens}:${contextUsage.contextWindow}`,
+              type: "CONTEXT_USAGE",
+              payload: contextUsage,
+            });
+            this.flushOutbox().catch((error) => this.logError("context-usage", error));
+          }
           const outcome = parseTurnOutcome(event);
           if (outcome) resolveSemanticOutcome(outcome);
         },
@@ -503,6 +515,146 @@ export class WorkRunner {
       if (downloaded.directory) rmSync(downloaded.directory, { recursive: true, force: true });
       this.logError("steer", error);
       await this.commitTransition(command.id, "FAILED", null);
+    }
+  }
+
+  async controlCommand(command) {
+    const previous = this.state.get(command.sessionId) ?? {};
+    const runtime = command.payload.runtime ?? previous.runtime;
+    const runtimeSessionId = command.payload.runtimeSessionId
+      ?? previous.runtimeSessionId
+      ?? (runtime === "codex" ? previous.codexSessionId : null);
+    const repo = this.repositories.find((candidate) => candidate.id === (command.payload.repoId ?? previous.repoId));
+    const runtimeConfig = repo?.runtimes.find((candidate) => candidate.id === runtime);
+    const action = String(command.payload.action ?? "").toUpperCase();
+    if (!repo || !existsSync(repo.path) || !runtimeConfig || !runtimeSessionId) {
+      await this.commitTransition(command.id, "FAILED", sessionState(
+        command.sessionId,
+        "IDLE",
+        "Control action requires an existing runtime session",
+        runtime,
+        runtimeSessionId,
+      ));
+      return;
+    }
+    await this.client.ack(command.id, "CLAIMED", sessionState(
+      command.sessionId,
+      "RUNNING",
+      null,
+      runtime,
+      runtimeSessionId,
+    ));
+    let runtimeConfigDirectory = null;
+    try {
+      if (runtime === "codex") {
+        const args = buildCodexAppServerArgs({
+          developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
+          mcp: {
+            nodePath: this.nodePath,
+            mcpServerPath: this.mcpServerPath,
+            coreUrl: this.config.coreUrl,
+            sessionId: command.sessionId,
+            sessionToken: command.payload.sessionToken,
+            cursorFile: resolve(dirname(this.config.stateFile), "cursors", `${command.sessionId}.json`),
+            initialInboxCursor: command.payload.inboxCursor ?? 0,
+          },
+        });
+        await runCodexAppServerControl({
+          command: runtimeConfig.command,
+          args,
+          cwd: repo.path,
+          env: isolatedCodexEnv(this.config.codexHome),
+          runtimeSessionId,
+          action,
+          model: command.payload.model ?? previous.model,
+          reasoningEffort: command.payload.reasoningEffort ?? previous.reasoningEffort,
+          fastMode: command.payload.fastMode ?? previous.fastMode ?? false,
+          clientVersion: this.config.version,
+          terminateProcess: this.terminateCodex,
+          onEvent: (event) => {
+            const contextUsage = codexContextUsage(event);
+            if (!contextUsage) return;
+            this.state.enqueueEvent(command.sessionId, {
+              clientEventId: `${command.id}:context:${contextUsage.usedTokens}:${contextUsage.contextWindow}`,
+              type: "CONTEXT_USAGE",
+              payload: contextUsage,
+            });
+          },
+        });
+      } else if (runtime === "claude-code" && ["COMPACT", "CONTEXT"].includes(action)) {
+        runtimeConfigDirectory = resolve(dirname(this.config.stateFile), "claude", command.sessionId, command.id);
+        const mcpConfigPath = writeClaudeMcpConfig(resolve(runtimeConfigDirectory, "mcp.json"), {
+          nodePath: this.nodePath,
+          mcpServerPath: this.mcpServerPath,
+          coreUrl: this.config.coreUrl,
+          sessionId: command.sessionId,
+          sessionToken: command.payload.sessionToken,
+          cursorFile: resolve(dirname(this.config.stateFile), "cursors", `${command.sessionId}.json`),
+          initialInboxCursor: command.payload.inboxCursor ?? 0,
+        });
+        const args = buildClaudeArgs({
+          kind: "RESUME",
+          model: command.payload.model ?? previous.model,
+          reasoningEffort: command.payload.reasoningEffort ?? previous.reasoningEffort,
+          runtimeSessionId,
+          developerInstructions: PHONE_DEVELOPER_INSTRUCTIONS,
+          mcpConfigPath,
+          slashCommandsEnabled: true,
+        });
+        let outcome = null;
+        let resultText = "";
+        const running = runClaude({
+          command: runtimeConfig.command,
+          args,
+          prompt: action === "COMPACT" ? "/compact" : "/context",
+          cwd: repo.path,
+          onEvent: (event) => {
+            const message = parseClaudeAssistantMessage(event);
+            if (message?.text) resultText = message.text;
+            if (event?.type === "result" && String(event.result ?? "").trim()) {
+              resultText = String(event.result).trim();
+            }
+            outcome = parseClaudeTurnOutcome(event) ?? outcome;
+          },
+        });
+        const processResult = await running.completed;
+        if (processResult.code !== 0 || outcome?.status !== "COMPLETED") {
+          throw new Error(outcome?.detail || processResult.stderr || "Claude Code control failed");
+        }
+        if (action === "CONTEXT" && resultText) {
+          this.state.enqueueEvent(command.sessionId, {
+            clientEventId: `${command.id}:context-result`,
+            type: "ASSISTANT_MESSAGE",
+            payload: { text: resultText },
+          });
+        }
+      } else {
+        throw new Error(`Unsupported ${runtime} control: ${action}`);
+      }
+      this.state.enqueueEvent(command.sessionId, {
+        clientEventId: `${command.id}:completed`,
+        type: "ASSISTANT_MESSAGE",
+        payload: { text: action === "COMPACT" ? "上下文已压缩。" : "上下文信息已更新。" },
+      });
+      await this.flushOutbox();
+      await this.commitTransition(command.id, "COMPLETED", sessionState(
+        command.sessionId,
+        "IDLE",
+        null,
+        runtime,
+        runtimeSessionId,
+      ));
+    } catch (error) {
+      this.logError("control", error);
+      await this.commitTransition(command.id, "FAILED", sessionState(
+        command.sessionId,
+        "IDLE",
+        safeError(error),
+        runtime,
+        runtimeSessionId,
+      ));
+    } finally {
+      if (runtimeConfigDirectory) rmSync(runtimeConfigDirectory, { recursive: true, force: true });
     }
   }
 
@@ -679,6 +831,16 @@ export function isolatedCodexEnv(codexHome, source = process.env, extra = {}) {
 
 function safeError(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function codexContextUsage(event) {
+  if (event?.type !== "thread.token_usage") return null;
+  const usedTokens = Number(event.usage?.last?.totalTokens);
+  const contextWindow = Number(event.usage?.modelContextWindow);
+  if (!Number.isFinite(usedTokens) || usedTokens < 0 || !Number.isFinite(contextWindow) || contextWindow <= 0) {
+    return null;
+  }
+  return { usedTokens: Math.round(usedTokens), contextWindow: Math.round(contextWindow) };
 }
 
 function normalizeMimeType(mimeType) {

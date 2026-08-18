@@ -318,6 +318,22 @@ class PhoneWorkSessionVM(
         }
     }
 
+    fun control(action: String, onAccepted: () -> Unit = {}) {
+        val current = session.value ?: return
+        if (sending.value || current.status != "IDLE") return
+        viewModelScope.launch {
+            sending.value = true
+            sendError.value = null
+            runCatching { repository.control(current.id, action) }
+                .onSuccess {
+                    error.value = null
+                    onAccepted()
+                }
+                .onFailure { sendError.value = it.message ?: "执行 Work 控制指令失败" }
+            sending.value = false
+        }
+    }
+
     fun updateQueueItem(item: PhoneWorkQueueItem, text: String, onAccepted: () -> Unit = {}) {
         val id = sessionId.value ?: return
         if ((text.isBlank() && item.attachments.isEmpty()) || sending.value || item.state != "QUEUED") return

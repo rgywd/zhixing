@@ -224,6 +224,9 @@ Runner 除注册工具 schema 外，还必须为每次手机会话注入专属 `
 - `POST /v1/work/sessions/{id}/queue/{itemId}/steer`：携带 `revision` 与 `expectedTurnId`，把仍为 `QUEUED`
   的正文和既有附件原子转换为当前 Codex turn 的引导；不应用该队列项的下一轮思考深度或速度。
 - `POST /v1/work/sessions/{id}/steer`：携带 `expectedTurnId` 引导当前 Codex turn；Runner 接受后才写 `USER_MESSAGE`。
+- `POST /v1/work/sessions/{id}/controls`：只在 `IDLE` 且已有 `runtimeSessionId` 时接受结构化 `COMPACT`，以及
+  Claude Code 的 `CONTEXT`。控制动作不写 `USER_MESSAGE`、不混入文本 FIFO，并由 Runner capability 显式门禁。
+- `CONTEXT_USAGE` 是 Codex Runner 上报的可选会话事件，payload 为 `usedTokens` 与 `contextWindow`；旧客户端可忽略。
 - `POST /v1/work/sessions/{id}/asks/{askId}/answer`：提交答案。
 - `POST /v1/work/sessions/{id}/stop`：停止当前进程，会话进入 IDLE。
 - `POST /v1/work/sessions/{id}/complete`：显式结束会话并进入不可继续的业务终态；它不是释放 CLI/App Server
