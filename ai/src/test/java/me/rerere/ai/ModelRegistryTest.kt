@@ -10,6 +10,18 @@ import org.junit.Test
 
 class ModelRegistryTest {
     @Test
+    fun `qwen 3_8 max has vision tool and reasoning capabilities`() {
+        assertEquals(
+            listOf(Modality.TEXT, Modality.IMAGE),
+            ModelRegistry.MODEL_INPUT_MODALITIES.getData("qwen3.8-max")
+        )
+        assertEquals(
+            listOf(ModelAbility.TOOL, ModelAbility.REASONING),
+            ModelRegistry.MODEL_ABILITIES.getData("qwen3.8-max")
+        )
+    }
+
+    @Test
     fun testGPT5() {
         assertTrue(ModelRegistry.GPT_5.match("gpt-5"))
         assertFalse(ModelRegistry.GPT_5.match("gpt-5-chat"))

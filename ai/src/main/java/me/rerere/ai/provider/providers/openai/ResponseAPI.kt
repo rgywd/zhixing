@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonArrayBuilder
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -26,6 +27,7 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.provider.BuiltInTools
+import me.rerere.ai.provider.BuiltInToolSupport
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderSetting
@@ -36,6 +38,7 @@ import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.MessageChunk
 import me.rerere.ai.ui.OpenAIReasoningMetadata
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
@@ -52,6 +55,7 @@ import me.rerere.common.http.await
 import me.rerere.common.http.jsonObjectOrNull
 import me.rerere.common.http.jsonPrimitiveOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -218,24 +222,31 @@ class ResponseAPI(
             // reasoning
             if (params.model.abilities.contains(ModelAbility.REASONING)) {
                 val level = params.reasoningLevel
-                put("reasoning", buildJsonObject {
-                    if (capabilities.supportsReasoningSummary) {
-                        put("summary", "auto")
-                    }
+                if (capabilities.usesDashScopeThinkingParameters) {
+                    put("enable_thinking", level.isEnabled)
                     if (level != ReasoningLevel.AUTO) {
-                        put("effort", level.effort)
+                        put("thinking_budget", level.budgetTokens)
                     }
-                })
-                if (capabilities.supportEncryptedContent) {
-                    put("include", buildJsonArray {
-                        add("reasoning.encrypted_content")
+                } else {
+                    put("reasoning", buildJsonObject {
+                        if (capabilities.supportsReasoningSummary) {
+                            put("summary", "auto")
+                        }
+                        if (level != ReasoningLevel.AUTO) {
+                            put("effort", level.effort)
+                        }
                     })
+                    if (capabilities.supportEncryptedContent) {
+                        put("include", buildJsonArray {
+                            add("reasoning.encrypted_content")
+                        })
+                    }
                 }
             }
 
             // tools
-            if (params.model.abilities.contains(ModelAbility.TOOL) && params.tools.isNotEmpty()) {
-                putJsonArray("tools") {
+            val requestTools = buildJsonArray {
+                if (params.model.abilities.contains(ModelAbility.TOOL)) {
                     params.tools.forEach { tool ->
                         add(buildJsonObject {
                             put("type", "function")
@@ -250,29 +261,27 @@ class ResponseAPI(
                         })
                     }
                 }
-            }
-            // built-in tools
-            if (params.model.tools.isNotEmpty()) {
-                putJsonArray("tools") {
-                    params.model.tools.forEach { builtInTool ->
-                        when (builtInTool) {
-                            BuiltInTools.Search -> {
-                                add(buildJsonObject {
-                                    put("type", "web_search")
-                                })
-                            }
+                params.model.tools.forEach { builtInTool ->
+                    when (builtInTool) {
+                        BuiltInTools.Search -> {
+                            add(buildJsonObject {
+                                put("type", "web_search")
+                            })
+                        }
 
-                            BuiltInTools.UrlContext -> {} // not supported
+                        BuiltInTools.UrlContext -> {} // not supported
 
-                            BuiltInTools.ImageGeneration -> {
-                                add(buildJsonObject {
-                                    put("type", "image_generation")
-                                    put("model", "gpt-image-2")
-                                })
-                            }
+                        BuiltInTools.ImageGeneration -> {
+                            add(buildJsonObject {
+                                put("type", "image_generation")
+                                put("model", "gpt-image-2")
+                            })
                         }
                     }
                 }
+            }
+            if (requestTools.isNotEmpty()) {
+                put("tools", requestTools)
             }
         }.mergeCustomBody(params.customBody)
     }
@@ -448,7 +457,7 @@ class ResponseAPI(
         })
     }
 
-    private fun parseResponseDelta(jsonObject: JsonObject): MessageChunk? {
+    internal fun parseResponseDelta(jsonObject: JsonObject): MessageChunk? {
         val chunkType = jsonObject["type"]?.jsonPrimitive?.content ?: error("chunk type not found")
 
         when (chunkType) {
@@ -651,11 +660,28 @@ class ResponseAPI(
             }
 
             "response.completed" -> {
+                val response = jsonObject["response"] as? JsonObject
+                val annotations = parseWebSearchCitations(response?.get("output") as? JsonArray)
                 return MessageChunk(
-                    id = jsonObject["item_id"]?.jsonPrimitive?.contentOrNull ?: "",
-                    model = "",
-                    choices = emptyList(),
-                    usage = parseTokenUsage(jsonObject["response"]?.jsonObject?.get("usage")?.jsonObject)
+                    id = response?.get("id")?.jsonPrimitive?.contentOrNull ?: "",
+                    model = response?.get("model")?.jsonPrimitive?.contentOrNull ?: "",
+                    choices = if (annotations.isEmpty()) {
+                        emptyList()
+                    } else {
+                        listOf(
+                            UIMessageChoice(
+                                index = 0,
+                                delta = UIMessage(
+                                    role = MessageRole.ASSISTANT,
+                                    parts = emptyList(),
+                                    annotations = annotations,
+                                ),
+                                message = null,
+                                finishReason = null,
+                            )
+                        )
+                    },
+                    usage = parseTokenUsage(response?.get("usage")?.jsonObject)
                 )
             }
         }
@@ -663,10 +689,11 @@ class ResponseAPI(
         return null
     }
 
-    private fun parseResponseOutput(jsonObject: JsonObject): MessageChunk {
+    internal fun parseResponseOutput(jsonObject: JsonObject): MessageChunk {
         println(jsonObject)
         val outputs = jsonObject["output"]?.jsonArray ?: error("output not found")
         val parts = arrayListOf<UIMessagePart>()
+        val annotations = parseWebSearchCitations(outputs)
 
         outputs.forEach { outputItem ->
             val output = outputItem.jsonObject
@@ -736,6 +763,7 @@ class ResponseAPI(
                     message = UIMessage(
                         role = MessageRole.ASSISTANT,
                         parts = parts,
+                        annotations = annotations,
                     ),
                     finishReason = null,
                     delta = null
@@ -755,6 +783,31 @@ class ResponseAPI(
                 ?: 0
         )
     }
+
+    internal fun parseWebSearchCitations(outputs: JsonArray?): List<UIMessageAnnotation.UrlCitation> {
+        if (outputs == null) return emptyList()
+
+        val citationsByUrl = linkedMapOf<String, UIMessageAnnotation.UrlCitation>()
+        for (outputItem in outputs) {
+            val output = outputItem as? JsonObject ?: continue
+            if (output["type"]?.jsonPrimitiveOrNull?.contentOrNull != "web_search_call") continue
+            val action = output["action"] as? JsonObject ?: continue
+            val sources = action["sources"] as? JsonArray ?: continue
+            for (sourceItem in sources) {
+                val source = sourceItem as? JsonObject ?: continue
+                val url = source["url"]?.jsonPrimitiveOrNull?.contentOrNull ?: continue
+                val parsedUrl = url.toHttpUrlOrNull() ?: continue
+                val title = source["title"]?.jsonPrimitiveOrNull?.contentOrNull
+                    ?.takeIf { it.isNotBlank() }
+                    ?: parsedUrl.host
+                citationsByUrl.putIfAbsent(
+                    url,
+                    UIMessageAnnotation.UrlCitation(title = title, url = url)
+                )
+            }
+        }
+        return citationsByUrl.values.toList()
+    }
 }
 
 private fun isModelAllowTemperature(model: Model): Boolean {
@@ -769,10 +822,18 @@ private fun List<UIMessagePart>.isOnlyTextPart(): Boolean {
 
 internal data class ResponseProviderCapabilities(
     val supportsReasoningSummary: Boolean = true,
-    val supportEncryptedContent: Boolean = true
+    val supportEncryptedContent: Boolean = true,
+    val usesDashScopeThinkingParameters: Boolean = false,
 )
 
 internal fun resolveResponseProviderCapabilities(host: String): ResponseProviderCapabilities {
+    if (BuiltInToolSupport.isBailianInternationalHost(host)) {
+        return ResponseProviderCapabilities(
+            supportsReasoningSummary = false,
+            supportEncryptedContent = false,
+            usesDashScopeThinkingParameters = true,
+        )
+    }
     return when (host) {
         "ark.cn-beijing.volces.com" -> ResponseProviderCapabilities(
             supportsReasoningSummary = false,

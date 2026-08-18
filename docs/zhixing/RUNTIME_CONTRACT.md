@@ -119,6 +119,9 @@ SettingsStore -> DataStore
 ## 扩展边界
 
 - Provider 统一暴露能力与生成方法，供应商特例不得泄漏到聊天 UI。
+- 模型内置工具入口由 Provider 与模型能力表共同决定。国际版百炼普通按量 API 的 `web_search` 通过
+  OpenAI-compatible Responses 接入；首批适配模型为 `qwen3.8-max`、`qwen3.7-plus` 和
+  `deepseek-v4-flash-0731`，后续模型只扩展 Provider 能力表，不在 UI 增加厂商判断。
 - MCP、搜索、语音和设备连接均为可选能力；失败只降级对应入口。
 - 知识库托管的助手用户提示词只影响修改后开始的新对话；当前对话和 fork 使用 Room 中已冻结的快照。
 - Knowledge Space 复用 Workspace，原文与派生索引边界见

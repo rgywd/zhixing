@@ -2,11 +2,15 @@ package me.rerere.ai.provider.providers.openai
 
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
+import me.rerere.ai.core.Tool
+import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderSetting
@@ -354,7 +358,134 @@ class ResponseAPIMessageTest {
         assertEquals("low", reasoning!!["effort"]?.jsonPrimitive?.content)
     }
 
+    @Test
+    fun `Bailian request should keep function tools together with web search`() {
+        val providerSetting = ProviderSetting.OpenAI(
+            baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        )
+        val model = Model(
+            modelId = "qwen3.8-max",
+            displayName = "qwen3.8-max",
+            abilities = listOf(ModelAbility.TOOL),
+            tools = setOf(BuiltInTools.Search),
+        )
+        val params = TextGenerationParams(
+            model = model,
+            tools = listOf(
+                Tool(
+                    name = "local_tool",
+                    description = "A local function tool",
+                    execute = { emptyList() },
+                )
+            )
+        )
+
+        val requestTools = invokeBuildRequestBody(providerSetting, params)["tools"]!!.jsonArray
+
+        assertEquals(2, requestTools.size)
+        assertEquals("function", requestTools[0].jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("local_tool", requestTools[0].jsonObject["name"]?.jsonPrimitive?.content)
+        assertEquals("web_search", requestTools[1].jsonObject["type"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `Bailian response api should use DashScope thinking parameters`() {
+        val providerSetting = ProviderSetting.OpenAI(
+            baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        )
+        val requestBody = invokeBuildRequestBody(
+            providerSetting = providerSetting,
+            params = TextGenerationParams(
+                model = Model(
+                    modelId = "qwen3.8-max",
+                    displayName = "qwen3.8-max",
+                    abilities = listOf(ModelAbility.REASONING),
+                ),
+                reasoningLevel = ReasoningLevel.OFF,
+            )
+        )
+
+        assertEquals("false", requestBody["enable_thinking"]?.jsonPrimitive?.content)
+        assertEquals("0", requestBody["thinking_budget"]?.jsonPrimitive?.content)
+        assertFalse(requestBody.containsKey("reasoning"))
+        assertFalse(requestBody.containsKey("include"))
+    }
+
+    @Test
+    fun `web search sources should become deduplicated url citations`() {
+        val outputs = webSearchOutputs()
+
+        val citations = api.parseWebSearchCitations(outputs)
+
+        assertEquals(2, citations.size)
+        assertEquals("First source", citations[0].title)
+        assertEquals("https://example.com/a", citations[0].url)
+        assertEquals("example.org", citations[1].title)
+    }
+
+    @Test
+    fun `non-streaming response should expose web search sources on assistant message`() {
+        val response = responseWithWebSearchSources()
+
+        val message = api.parseResponseOutput(response).choices.single().message!!
+
+        assertEquals("Answer", (message.parts.single() as UIMessagePart.Text).text)
+        assertEquals(2, message.annotations.size)
+    }
+
+    @Test
+    fun `stream completion should expose web search sources as annotation delta`() {
+        val event = buildJsonObject {
+            put("type", "response.completed")
+            put("response", responseWithWebSearchSources())
+        }
+
+        val delta = api.parseResponseDelta(event)!!.choices.single().delta!!
+
+        assertTrue(delta.parts.isEmpty())
+        assertEquals(2, delta.annotations.size)
+    }
+
     // ==================== Helper Functions ====================
+
+    private fun responseWithWebSearchSources() = buildJsonObject {
+        put("id", "resp_1")
+        put("model", "qwen3.8-max")
+        put("output", JsonArray(webSearchOutputs() + buildJsonObject {
+            put("type", "message")
+            put("content", JsonArray(listOf(buildJsonObject {
+                put("type", "output_text")
+                put("text", "Answer")
+            })))
+        }))
+    }
+
+    private fun webSearchOutputs() = JsonArray(
+        listOf(
+            buildJsonObject {
+                put("type", "web_search_call")
+                put("action", buildJsonObject {
+                    put("sources", JsonArray(listOf(
+                        buildJsonObject {
+                            put("title", "First source")
+                            put("url", "https://example.com/a")
+                        },
+                        buildJsonObject {
+                            put("title", "Duplicate")
+                            put("url", "https://example.com/a")
+                        },
+                        buildJsonObject {
+                            put("url", "https://example.org/b")
+                        },
+                        buildJsonObject {
+                            put("title", "Unsafe")
+                            put("url", "javascript:alert(1)")
+                        },
+                    )))
+                })
+            }
+        )
+    )
 
     private fun createExecutedTool(
         callId: String,
