@@ -136,24 +136,14 @@ internal fun applyInjections(
 
         if (beforeContent.isNotEmpty() || afterContent.isNotEmpty()) {
             val systemMessage = result[systemIndex]
-            val originalText = systemMessage.parts
-                .filterIsInstance<UIMessagePart.Text>()
-                .joinToString("") { it.text }
-
-            val newText = buildString {
-                if (beforeContent.isNotEmpty()) {
-                    append(beforeContent)
-                    appendLine()
-                }
-                append(originalText)
-                if (afterContent.isNotEmpty()) {
-                    appendLine()
-                    append(afterContent)
-                }
+            val newParts = buildList {
+                if (beforeContent.isNotEmpty()) add(UIMessagePart.Text("$beforeContent\n"))
+                addAll(systemMessage.parts)
+                if (afterContent.isNotEmpty()) add(UIMessagePart.Text("\n$afterContent"))
             }
 
             result[systemIndex] = systemMessage.copy(
-                parts = listOf(UIMessagePart.Text(newText))
+                parts = newParts
             )
         }
     } else {

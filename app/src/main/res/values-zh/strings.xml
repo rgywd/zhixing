@@ -972,6 +972,8 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="setting_provider_page_model_display_name">模型显示名称</string>
   <string name="setting_provider_page_model_display_name_placeholder">例如：GPT-3.5, 用于UI显示</string>
   <string name="setting_provider_page_model_id">模型ID</string>
+  <string name="setting_provider_page_context_window">上下文窗口 Token</string>
+  <string name="setting_provider_page_context_window_desc">默认 500,000；模型窗口更小时请在这里下调。</string>
   <string name="setting_provider_page_model_id_placeholder">例如：gpt-3.5-turbo</string>
   <string name="setting_provider_page_model_name">模型名称</string>
   <string name="setting_provider_page_model_type">模型类型</string>

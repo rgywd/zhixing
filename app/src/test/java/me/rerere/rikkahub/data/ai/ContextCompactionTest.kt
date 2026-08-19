@@ -10,10 +10,19 @@ import org.junit.Test
 
 class ContextCompactionTest {
     @Test
-    fun `automatic threshold starts at 262k tokens`() {
-        assertTrue(!shouldAutoCompactPrompt(261_999))
-        assertTrue(shouldAutoCompactPrompt(262_000))
-        assertTrue(shouldAutoCompactPrompt(300_000))
+    fun `500k context policy prepares activates and protects at stable thresholds`() {
+        val policy = contextCompactionPolicy(500_000)
+
+        assertEquals(300_000, policy.prepareAtTokens)
+        assertEquals(390_000, policy.activateAtTokens)
+        assertEquals(436_000, policy.maximumPromptTokens)
+        assertEquals(225_000, policy.targetPromptTokens)
+        assertTrue(!policy.shouldPrepare(299_999))
+        assertTrue(policy.shouldPrepare(300_000))
+        assertTrue(!policy.shouldActivate(389_999))
+        assertTrue(policy.shouldActivate(390_000))
+        assertTrue(!policy.requiresSynchronousFallback(435_999))
+        assertTrue(policy.requiresSynchronousFallback(436_000))
     }
 
     @Test
@@ -42,6 +51,7 @@ class ContextCompactionTest {
             sourceTokenEstimate = 12_345,
             trigger = ContextCompactionTrigger.MANUAL,
             createdAtEpochMillis = 42L,
+            active = true,
         )
 
         assertEquals(messages.map(UIMessage::id), updated.map(UIMessage::id))
@@ -55,6 +65,51 @@ class ContextCompactionTest {
         val projection = updated.projectContextForPrompt()
         assertEquals("checkpoint summary", projection.checkpointSummary)
         assertEquals(messages.takeLast(2).map(UIMessage::id), projection.messages.map(UIMessage::id))
+    }
+
+    @Test
+    fun `prepared automatic checkpoint stays out of prompt until activation`() {
+        val messages = listOf(
+            UIMessage.user("old question"),
+            UIMessage.assistant("old answer"),
+            UIMessage.user("current question"),
+            UIMessage.assistant("current answer"),
+        )
+        val plan = buildContextCompactionPlan(
+            messages = messages,
+            recentTokenBudget = 100,
+            forceCompaction = true,
+        )!!
+        val prepared = applyContextCheckpoint(
+            messages = messages,
+            plan = plan,
+            summary = "prepared summary",
+            sourceTokenEstimate = 300_000,
+            trigger = ContextCompactionTrigger.AUTO,
+            createdAtEpochMillis = 42L,
+            active = false,
+        )
+
+        assertTrue(prepared.hasPreparedContextCheckpoint())
+        assertNull(prepared.projectContextForPrompt().checkpointSummary)
+        assertEquals(messages.map(UIMessage::id), prepared.projectContextForPrompt().messages.map(UIMessage::id))
+
+        val activated = prepared.activateLatestPreparedContextCheckpoint()
+
+        assertTrue(!activated.hasPreparedContextCheckpoint())
+        assertEquals("prepared summary", activated.projectContextForPrompt().checkpointSummary)
+        assertEquals(messages.takeLast(2).map(UIMessage::id), activated.projectContextForPrompt().messages.map(UIMessage::id))
+    }
+
+    @Test
+    fun `automatic history budget targets total prompt instead of fixed message count`() {
+        val budget = automaticRecentTokenBudget(
+            contextWindowTokens = 500_000,
+            sourcePromptTokens = 300_000,
+            projectedHistoryTokens = 180_000,
+        )
+
+        assertEquals(97_000, budget)
     }
 
     @Test

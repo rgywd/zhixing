@@ -7,6 +7,10 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.provider.Model
@@ -474,6 +478,21 @@ sealed class UIMessagePart {
     }
 }
 
+private const val PROMPT_CACHE_BOUNDARY_METADATA_KEY = "prompt_cache_boundary"
+
+/**
+ * Marks the end of a stable system-prompt prefix. Providers with explicit prompt caching should
+ * place their cache breakpoint on this text block, leaving later memory and checkpoint blocks
+ * outside that cache entry.
+ */
+fun promptCacheBoundaryText(text: String): UIMessagePart.Text = UIMessagePart.Text(
+    text = text,
+    metadata = buildJsonObject { put(PROMPT_CACHE_BOUNDARY_METADATA_KEY, true) },
+)
+
+fun UIMessagePart.Text.isPromptCacheBoundary(): Boolean =
+    metadata?.get(PROMPT_CACHE_BOUNDARY_METADATA_KEY)?.jsonPrimitive?.booleanOrNull == true
+
 /**
  * Sort message parts by type priority:
  * - Reasoning (-1): shown first
@@ -789,6 +808,8 @@ sealed class UIMessageAnnotation {
         val sourceTokenEstimate: Int = 0,
         val createdAtEpochMillis: Long = 0,
         val trigger: String = "manual",
+        /** Automatic checkpoints are prepared in the background, then activated atomically. */
+        val active: Boolean = true,
     ) : UIMessageAnnotation()
 
     /**
