@@ -938,6 +938,8 @@
   <string name="setting_provider_page_model_display_name">模型顯示名稱</string>
   <string name="setting_provider_page_model_display_name_placeholder">例如：GPT-3.5, 用於UI顯示</string>
   <string name="setting_provider_page_model_id">模型ID</string>
+  <string name="setting_provider_page_context_window">上下文視窗 Token</string>
+  <string name="setting_provider_page_context_window_desc">預設 500,000；模型視窗較小時請在這裡下調。</string>
   <string name="setting_provider_page_model_id_placeholder">例如：gpt-3.5-turbo</string>
   <string name="setting_provider_page_model_name">模型名稱</string>
   <string name="setting_provider_page_model_type">模型類型</string>

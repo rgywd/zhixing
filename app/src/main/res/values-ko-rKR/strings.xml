@@ -940,6 +940,8 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="setting_provider_page_model_display_name">모델 표시 이름</string>
   <string name="setting_provider_page_model_display_name_placeholder">예: GPT-3.5, UI 표시용</string>
   <string name="setting_provider_page_model_id">모델 ID</string>
+  <string name="setting_provider_page_context_window">컨텍스트 창 토큰</string>
+  <string name="setting_provider_page_context_window_desc">기본값은 500,000입니다. 컨텍스트 창이 더 작은 모델은 값을 낮추세요.</string>
   <string name="setting_provider_page_model_id_placeholder">예: gpt-3.5-turbo</string>
   <string name="setting_provider_page_model_name">모델 이름</string>
   <string name="setting_provider_page_model_type">모델 유형</string>
