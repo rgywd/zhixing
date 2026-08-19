@@ -562,6 +562,13 @@
   <string name="quick_messages_page_empty_hint">Tap the + button at the bottom right to add a quick message</string>
   <string name="quick_messages_page_empty_title">No Quick Messages</string>
   <string name="quick_messages_page_untitled">Untitled</string>
+  <string name="quote_share_image">Share image</string>
+  <string name="quote_share_image_failed">Couldn\'t create the share image</string>
+  <string name="quote_share_text">Share text</string>
+  <string name="quote_share_theme_night">Night reading</string>
+  <string name="quote_share_theme_warm">Warm paper</string>
+  <string name="quote_share_title">Share quote</string>
+  <string name="quote_share_too_long">Select no more than %1$d characters to share as an image. You can still share the text.</string>
   <string name="reasoning_auto">Auto</string>
   <string name="reasoning_auto_desc">Let the model automatically determine reasoning level.</string>
   <string name="reasoning_custom">Custom reasoning budget</string>
