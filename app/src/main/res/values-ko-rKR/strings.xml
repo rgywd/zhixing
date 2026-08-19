@@ -803,6 +803,13 @@
   <string name="setting_page_built_in_tools_search_desc">Google 검색 통합 활성화</string>
   <string name="setting_page_built_in_tools_url_context">URL 컨텍스트</string>
   <string name="setting_page_built_in_tools_url_context_desc">URL 콘텐츠 처리 활성화</string>
+  <string name="setting_page_built_in_tools_web_extractor">웹 페이지 본문 추출</string>
+  <string name="setting_page_built_in_tools_web_extractor_desc">웹 페이지의 전체 본문을 읽습니다. 웹 검색은 자동으로 활성화됩니다.</string>
+  <string name="setting_page_built_in_tools_web_search_image">텍스트로 이미지 검색</string>
+  <string name="setting_page_built_in_tools_web_search_image_desc">텍스트 설명으로 웹에서 관련 이미지를 찾습니다.</string>
+  <string name="setting_page_built_in_tools_image_search">유사 이미지 검색</string>
+  <string name="setting_page_built_in_tools_image_search_desc">대화에 입력 이미지가 있을 때 유사 이미지를 찾습니다.</string>
+  <string name="image_search_results_count">이미지 결과 (%1$d)</string>
   <string name="setting_page_chat_storage">채팅 저장 공간</string>
   <string name="setting_page_chat_storage_desc">%1$d개 파일, %2$.2f MB</string>
   <string name="setting_page_code_display_settings">코드 표시</string>
