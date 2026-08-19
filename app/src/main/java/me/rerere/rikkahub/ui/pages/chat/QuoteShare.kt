@@ -43,8 +43,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
@@ -61,6 +61,8 @@ import me.rerere.rikkahub.ui.components.ui.BitmapComposer
 import java.io.FileOutputStream
 
 internal const val MAX_QUOTE_CARD_CHARACTERS = 220
+private const val QUOTE_SHARE_MOTTO = "知行合一"
+private val QuoteShareFontFamily = FontFamily(Font(R.font.zhi_mang_xing))
 
 internal enum class QuoteShareTheme(
     @DrawableRes val backgroundRes: Int,
@@ -88,7 +90,6 @@ internal fun QuoteShareSheet(
     val activity = LocalActivity.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
-    val appName = stringResource(R.string.app_name)
     var theme by remember(quote) { mutableStateOf(QuoteShareTheme.WARM) }
     var sharingImage by remember(quote) { mutableStateOf(false) }
     val canShareImage = canShareQuoteAsImage(quote.text)
@@ -110,7 +111,6 @@ internal fun QuoteShareSheet(
             QuoteShareCard(
                 quote = quote,
                 theme = theme,
-                appName = appName,
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 420.dp)
@@ -166,7 +166,6 @@ internal fun QuoteShareSheet(
                             density = density,
                             quote = quote,
                             theme = theme,
-                            appName = appName,
                         )
                         sharingImage = false
                         if (result.isSuccess) {
@@ -211,14 +210,9 @@ internal fun QuoteShareSheet(
 internal fun QuoteShareCard(
     quote: SelectedQuote,
     theme: QuoteShareTheme,
-    appName: String,
     modifier: Modifier = Modifier,
 ) {
     val quoteFontSize = quoteFontSizeFor(quote.text)
-    val footer = quote.modelName
-        ?.takeIf { it.isNotBlank() }
-        ?.let { "$appName · $it" }
-        ?: appName
 
     Box(modifier = modifier) {
         Image(
@@ -232,14 +226,25 @@ internal fun QuoteShareCard(
                 .fillMaxSize()
                 .padding(horizontal = 30.dp, vertical = 28.dp),
         ) {
-            Text(
-                text = "%02d / %02d".format(quote.createdAt.month.ordinal + 1, quote.createdAt.day),
-                color = theme.accentColor,
-                fontSize = 14.sp,
-                fontFamily = FontFamily.Serif,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.5.sp,
-            )
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = quoteDateLabel(quote),
+                    color = theme.accentColor,
+                    fontSize = quoteFontSize,
+                    lineHeight = quoteFontSize,
+                    fontFamily = QuoteShareFontFamily,
+                    letterSpacing = 1.sp,
+                )
+                Text(
+                    text = quoteTimestampLabel(quote),
+                    color = theme.accentColor.copy(alpha = 0.82f),
+                    fontSize = quoteFontSize * (1f / 3f),
+                    lineHeight = quoteFontSize * (1f / 3f),
+                    fontFamily = QuoteShareFontFamily,
+                    letterSpacing = 0.4.sp,
+                    modifier = Modifier.padding(start = 7.dp, bottom = 2.dp),
+                )
+            }
 
             Spacer(Modifier.weight(1f))
 
@@ -247,9 +252,8 @@ internal fun QuoteShareCard(
                 text = quote.text,
                 color = theme.contentColor,
                 fontSize = quoteFontSize,
-                lineHeight = quoteFontSize * 1.5f,
-                fontFamily = FontFamily.Serif,
-                fontWeight = FontWeight.Medium,
+                lineHeight = quoteFontSize * 1.6f,
+                fontFamily = QuoteShareFontFamily,
                 maxLines = 12,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
@@ -257,27 +261,46 @@ internal fun QuoteShareCard(
 
             Spacer(Modifier.weight(1f))
 
-            HorizontalDivider(color = theme.accentColor.copy(alpha = 0.4f))
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = footer,
-                color = theme.accentColor,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            HorizontalDivider(color = theme.accentColor.copy(alpha = 0.24f))
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = "知行",
+                    color = theme.accentColor,
+                    fontSize = 22.sp,
+                    lineHeight = 22.sp,
+                    fontFamily = QuoteShareFontFamily,
+                )
+                Text(
+                    text = "· $QUOTE_SHARE_MOTTO",
+                    color = theme.accentColor.copy(alpha = 0.86f),
+                    fontSize = 11.sp,
+                    lineHeight = 11.sp,
+                    fontFamily = QuoteShareFontFamily,
+                    letterSpacing = 1.sp,
+                    modifier = Modifier.padding(start = 8.dp, bottom = 2.dp),
+                )
+            }
         }
     }
 }
 
 internal fun quoteFontSizeFor(text: String): TextUnit = when {
-    text.length <= 42 -> 30.sp
-    text.length <= 80 -> 25.sp
-    text.length <= 130 -> 20.sp
-    text.length <= 180 -> 16.sp
-    else -> 14.sp
+    text.length <= 42 -> 24.sp
+    text.length <= 80 -> 21.sp
+    text.length <= 130 -> 18.sp
+    text.length <= 180 -> 15.sp
+    else -> 13.sp
 }
+
+internal fun quoteDateLabel(quote: SelectedQuote): String =
+    "%02d / %02d".format(quote.createdAt.month.ordinal + 1, quote.createdAt.day)
+
+internal fun quoteTimestampLabel(quote: SelectedQuote): String = "%02d:%02d:%02d".format(
+    quote.createdAt.hour,
+    quote.createdAt.minute,
+    quote.createdAt.second,
+)
 
 internal fun canShareQuoteAsImage(text: String): Boolean =
     text.length <= MAX_QUOTE_CARD_CHARACTERS
@@ -289,7 +312,6 @@ private suspend fun shareQuoteImage(
     density: Density,
     quote: SelectedQuote,
     theme: QuoteShareTheme,
-    appName: String,
 ): Result<Unit> {
     var bitmap: Bitmap? = null
     return try {
@@ -302,7 +324,6 @@ private suspend fun shareQuoteImage(
             QuoteShareCard(
                 quote = quote,
                 theme = theme,
-                appName = appName,
                 modifier = Modifier.fillMaxSize(),
             )
         }
