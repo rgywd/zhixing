@@ -30,6 +30,13 @@ data class Tool(
      */
     val needsApproval: (JsonElement) -> Boolean = { false },
     val executionMode: ToolExecutionMode = ToolExecutionMode.SERIAL,
+    /**
+     * Allows the ordinary chat run to skip an identical call after the first successful execution.
+     * This is only honored for [ToolExecutionMode.PARALLEL_READ_ONLY] tools.
+     */
+    val deduplicateWithinRun: Boolean = false,
+    /** Top-level input fields that are display metadata rather than part of the execution identity. */
+    val deduplicationIgnoredInputFields: Set<String> = emptySet(),
     val execute: suspend (JsonElement) -> List<UIMessagePart>
 )
 

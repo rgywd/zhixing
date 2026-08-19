@@ -75,7 +75,8 @@ fun createSearchTools(settings: Settings): Set<Tool> {
                 description = """
                     Search the web for up-to-date or specific information.
                     Use this when the user asks for the latest news, current facts, or needs verification.
-                    Generate focused keywords and run multiple searches if needed.
+                    Generate focused keywords. Run multiple searches only with materially different queries;
+                    do not repeat an identical query within the same response.
                     Today is ${LocalDate.now().toLocalString(true)}.
 
                     Response format:
@@ -103,6 +104,8 @@ fun createSearchTools(settings: Settings): Set<Tool> {
                     }.withResearchPurposeParameter()
                 },
                 executionMode = ToolExecutionMode.PARALLEL_READ_ONLY,
+                deduplicateWithinRun = true,
+                deduplicationIgnoredInputFields = setOf(RESEARCH_PURPOSE_PARAMETER),
                 execute = { arguments ->
                     val result = executeMultiSearch(
                         params = arguments.jsonObject.withoutResearchPurpose(),
@@ -132,6 +135,8 @@ fun createSearchTools(settings: Settings): Set<Tool> {
                         }.withResearchPurposeParameter()
                     },
                     executionMode = ToolExecutionMode.PARALLEL_READ_ONLY,
+                    deduplicateWithinRun = true,
+                    deduplicationIgnoredInputFields = setOf(RESEARCH_PURPOSE_PARAMETER),
                     execute = { arguments ->
                         val result = executeMultiImageSearch(
                             params = arguments.jsonObject.withoutResearchPurpose(),
@@ -158,6 +163,8 @@ fun createSearchTools(settings: Settings): Set<Tool> {
                         scraper.service.scrapingParameters(scraper.options).withResearchPurposeParameter()
                     },
                     executionMode = ToolExecutionMode.PARALLEL_READ_ONLY,
+                    deduplicateWithinRun = true,
+                    deduplicationIgnoredInputFields = setOf(RESEARCH_PURPOSE_PARAMETER),
                     execute = { arguments ->
                         val startedAt = System.nanoTime()
                         val result = withTimeoutOrNull(settings.searchCommonOptions.scrapeTimeoutMillis()) {

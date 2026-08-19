@@ -177,6 +177,9 @@ internal fun toolExecutionErrorCode(throwable: Throwable): String =
 internal fun isSearchLikeToolName(toolName: String): Boolean =
     toolName.lowercase(Locale.ROOT) in SEARCH_LIKE_TOOL_NAMES
 
+internal fun Tool.isRunScopedDeduplicationEnabled(): Boolean =
+    deduplicateWithinRun && executionMode == ToolExecutionMode.PARALLEL_READ_ONLY
+
 internal fun toolExecutionFailureMessage(toolName: String, errorCode: String): String =
     if (isSearchLikeToolName(toolName)) {
         "[$errorCode] Search failed. Do not call provider-native or undeclared search tools. " +
@@ -309,6 +312,7 @@ class GenerationHandler(
         }
         val memoryPromptSnapshot = MemoryDocumentPromptSnapshot(memoryDocuments.orEmpty())
         val reportedToolCalls = mutableSetOf<String>()
+        val toolCallDeduplicator = ToolCallDeduplicator()
         var toolOrdinal = 0
         var searchFailureNeedsRecovery = false
 
@@ -626,8 +630,16 @@ class GenerationHandler(
                             }.getOrElse {
                                 throw ToolExecutionException("TOOL_INPUT_INVALID")
                             }
-                            Log.i(TAG, toolExecutionLogMessage(toolDef.name))
-                            val result = toolDef.execute(args)
+                            val result = toolCallDeduplicator.execute(
+                                toolCallId = tool.toolCallId,
+                                toolName = toolDef.name,
+                                arguments = args,
+                                enabled = toolDef.isRunScopedDeduplicationEnabled(),
+                                ignoredArgumentFields = toolDef.deduplicationIgnoredInputFields,
+                            ) {
+                                Log.i(TAG, toolExecutionLogMessage(toolDef.name))
+                                toolDef.execute(args)
+                            }
                             val hasShellAccess = toolsInternal.any { it.name == "workspace_shell" }
                             tool.copy(
                                 output = maybeTruncateToolOutput(tool.toolCallId, result, hasShellAccess)

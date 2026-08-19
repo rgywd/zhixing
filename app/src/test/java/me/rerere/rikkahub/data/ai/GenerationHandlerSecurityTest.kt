@@ -7,6 +7,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.Tool
+import me.rerere.ai.core.ToolExecutionMode
 import me.rerere.ai.core.ToolExecutionException
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessage
@@ -96,6 +97,24 @@ class GenerationHandlerSecurityTest {
         assertEquals("generateText: executing tool memory_tool", message)
         assertFalse(message.contains("content"))
         assertFalse(message.contains("args"))
+    }
+
+    @Test
+    fun runScopedDeduplicationRequiresExplicitReadOnlyOptIn() {
+        fun tool(
+            executionMode: ToolExecutionMode,
+            deduplicateWithinRun: Boolean,
+        ) = Tool(
+            name = "test",
+            description = "",
+            executionMode = executionMode,
+            deduplicateWithinRun = deduplicateWithinRun,
+            execute = { emptyList() },
+        )
+
+        assertTrue(tool(ToolExecutionMode.PARALLEL_READ_ONLY, true).isRunScopedDeduplicationEnabled())
+        assertFalse(tool(ToolExecutionMode.PARALLEL_READ_ONLY, false).isRunScopedDeduplicationEnabled())
+        assertFalse(tool(ToolExecutionMode.SERIAL, true).isRunScopedDeduplicationEnabled())
     }
 
     @Test
