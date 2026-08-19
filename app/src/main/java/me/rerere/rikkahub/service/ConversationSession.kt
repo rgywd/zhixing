@@ -43,8 +43,10 @@ class ConversationSession(
     // 生成任务（内聚在 session 中）
     private val _generationJob = MutableStateFlow<Job?>(null)
     val generationJob: StateFlow<Job?> = _generationJob.asStateFlow()
+    private val _compactionJob = MutableStateFlow<Job?>(null)
     val isGenerating: Boolean get() = _generationJob.value?.isActive == true
-    val isInUse: Boolean get() = refCount.get() > 0 || isGenerating
+    val isCompacting: Boolean get() = _compactionJob.value?.isActive == true
+    val isInUse: Boolean get() = refCount.get() > 0 || isGenerating || isCompacting
 
     // 空闲检查任务
     private var idleCheckJob: Job? = null
@@ -91,6 +93,20 @@ class ConversationSession(
 
     fun getJob(): Job? = _generationJob.value
 
+    fun trySetCompactionJob(job: Job): Boolean {
+        val current = _compactionJob.value
+        if (current?.isActive == true) return false
+        if (!_compactionJob.compareAndSet(current, job)) return false
+        job.invokeOnCompletion {
+            if (_compactionJob.compareAndSet(job, null) && refCount.get() <= 0 && !isGenerating) {
+                scheduleIdleCheck()
+            }
+        }
+        return true
+    }
+
+    fun getCompactionJob(): Job? = _compactionJob.value
+
     internal fun recordAttachmentRedaction(redaction: MonthlySpendingAttachmentRedaction) {
         completedAttachmentRedactions.updateAndGet { current ->
             if (redaction in current) current else current + redaction
@@ -104,7 +120,7 @@ class ConversationSession(
         idleCheckJob?.cancel()
         idleCheckJob = scope.launch {
             delay(IDLE_TIMEOUT_MS)
-            if (refCount.get() <= 0 && !isGenerating) {
+            if (refCount.get() <= 0 && !isGenerating && !isCompacting) {
                 onIdle(id)
             }
         }
@@ -118,6 +134,8 @@ class ConversationSession(
     fun cleanup() {
         _generationJob.value?.cancel()
         _generationJob.value = null
+        _compactionJob.value?.cancel()
+        _compactionJob.value = null
         idleCheckJob?.cancel()
         idleCheckJob = null
     }

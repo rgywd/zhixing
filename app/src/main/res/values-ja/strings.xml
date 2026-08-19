@@ -940,6 +940,8 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="setting_provider_page_model_display_name">モデル表示名</string>
   <string name="setting_provider_page_model_display_name_placeholder">例：GPT-3.5、UI表示用</string>
   <string name="setting_provider_page_model_id">モデルID</string>
+  <string name="setting_provider_page_context_window">コンテキストウィンドウのトークン数</string>
+  <string name="setting_provider_page_context_window_desc">既定値は500,000です。コンテキストウィンドウが小さいモデルでは値を下げてください。</string>
   <string name="setting_provider_page_model_id_placeholder">例：gpt-3.5-turbo</string>
   <string name="setting_provider_page_model_name">モデル名</string>
   <string name="setting_provider_page_model_type">モデルタイプ</string>

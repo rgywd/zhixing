@@ -1,5 +1,8 @@
 package me.rerere.rikkahub.data.ai
 
+import me.rerere.ai.core.MessageRole
+import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.isPromptCacheBoundary
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.MemoryKind
 import me.rerere.rikkahub.data.model.MemoryState
@@ -10,6 +13,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GenerationPromptsTest {
+    @Test
+    fun `stable system prompt is a cache boundary before dynamic context`() {
+        val system = buildLayeredSystemMessage(
+            stablePrompt = "frozen assistant prompt",
+            dynamicPrompt = "memory and conversation checkpoint",
+        )!!
+        val parts = system.parts.filterIsInstance<UIMessagePart.Text>()
+
+        assertEquals(MessageRole.SYSTEM, system.role)
+        assertEquals(listOf("frozen assistant prompt", "memory and conversation checkpoint"), parts.map { it.text })
+        assertTrue(parts[0].isPromptCacheBoundary())
+        assertFalse(parts[1].isPromptCacheBoundary())
+    }
+
     @Test
     fun memoryPromptSeparatesProfileAndContextAndExcludesArchivedRecords() {
         val prompt = buildMemoryPrompt(

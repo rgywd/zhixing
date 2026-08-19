@@ -940,6 +940,8 @@
   <string name="setting_provider_page_model_display_name">Отображаемое имя модели</string>
   <string name="setting_provider_page_model_display_name_placeholder">например: GPT-3.5, для отображения в интерфейсе</string>
   <string name="setting_provider_page_model_id">ID модели</string>
+  <string name="setting_provider_page_context_window">Токены контекстного окна</string>
+  <string name="setting_provider_page_context_window_desc">По умолчанию 500 000. Уменьшите значение для моделей с меньшим контекстным окном.</string>
   <string name="setting_provider_page_model_id_placeholder">например: gpt-3.5-turbo</string>
   <string name="setting_provider_page_model_name">Название модели</string>
   <string name="setting_provider_page_model_type">Тип модели</string>

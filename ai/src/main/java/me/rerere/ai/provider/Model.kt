@@ -17,7 +17,11 @@ data class Model(
     val abilities: List<ModelAbility> = emptyList(),
     val tools: Set<BuiltInTools> = emptySet(),
     val providerOverwrite: ProviderSetting? = null,
+    /** Maximum combined prompt and completion size supported by this model. */
+    val contextWindowTokens: Int = DEFAULT_CONTEXT_WINDOW_TOKENS,
 )
+
+const val DEFAULT_CONTEXT_WINDOW_TOKENS = 500_000
 
 @Serializable
 enum class ModelType {

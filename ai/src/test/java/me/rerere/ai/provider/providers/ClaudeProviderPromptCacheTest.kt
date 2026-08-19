@@ -12,6 +12,8 @@ import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.promptCacheBoundaryText
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -115,6 +117,27 @@ class ClaudeProviderPromptCacheTest {
         val toolsCacheControl = tools.last().jsonObject["cache_control"]!!.jsonObject
         assertEquals("ephemeral", toolsCacheControl["type"]!!.jsonPrimitive.content)
         assertNull(toolsCacheControl["ttl"])
+    }
+
+    @Test
+    fun `prompt caching stops at stable system block before dynamic context`() {
+        val providerSetting = ProviderSetting.Claude(promptCaching = true)
+        val messages = listOf(
+            UIMessage(
+                role = me.rerere.ai.core.MessageRole.SYSTEM,
+                parts = listOf(
+                    promptCacheBoundaryText("frozen assistant prompt"),
+                    UIMessagePart.Text("dynamic memory and checkpoint"),
+                ),
+            ),
+            UIMessage.user("hello"),
+        )
+        val params = TextGenerationParams(model = Model(modelId = "claude-test"))
+
+        val system = buildRequest(providerSetting, messages, params)["system"]!!.jsonArray
+
+        assertNotNull(system[0].jsonObject["cache_control"])
+        assertNull(system[1].jsonObject["cache_control"])
     }
 
     @Test
