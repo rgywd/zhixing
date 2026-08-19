@@ -339,7 +339,11 @@ private fun BuiltInSearchSetting(model: Model) {
                                 providers = settings.providers.map { providerSetting ->
                                     providerSetting.editModel(
                                         model.copy(
-                                            tools = if (checked) model.tools + BuiltInTools.Search else model.tools - BuiltInTools.Search
+                                            tools = BuiltInToolSupport.updateSelection(
+                                                model.tools,
+                                                BuiltInTools.Search,
+                                                checked,
+                                            )
                                         )
                                     )
                                 }

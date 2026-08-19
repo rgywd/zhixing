@@ -30,12 +30,14 @@ import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.BuiltInToolSupport
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
+import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.providers.PartGroup
 import me.rerere.ai.provider.providers.groupPartsByToolBoundary
 import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.MessageChunk
+import me.rerere.ai.ui.ImageSearchType
 import me.rerere.ai.ui.OpenAIReasoningMetadata
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageAnnotation
@@ -261,7 +263,7 @@ class ResponseAPI(
                         })
                     }
                 }
-                params.model.tools.forEach { builtInTool ->
+                BuiltInToolSupport.normalizeForRequest(params.model.tools).forEach { builtInTool ->
                     when (builtInTool) {
                         BuiltInTools.Search -> {
                             add(buildJsonObject {
@@ -276,6 +278,26 @@ class ResponseAPI(
                                 put("type", "image_generation")
                                 put("model", "gpt-image-2")
                             })
+                        }
+
+                        BuiltInTools.WebExtractor -> {
+                            add(buildJsonObject {
+                                put("type", "web_extractor")
+                            })
+                        }
+
+                        BuiltInTools.WebSearchImage -> {
+                            add(buildJsonObject {
+                                put("type", "web_search_image")
+                            })
+                        }
+
+                        BuiltInTools.ImageSearch -> {
+                            if (Modality.IMAGE in params.model.inputModalities && messages.hasInputImage()) {
+                                add(buildJsonObject {
+                                    put("type", "image_search")
+                                })
+                            }
                         }
                     }
                 }
@@ -661,7 +683,7 @@ class ResponseAPI(
 
             "response.completed" -> {
                 val response = jsonObject["response"] as? JsonObject
-                val annotations = parseWebSearchCitations(response?.get("output") as? JsonArray)
+                val annotations = parseResponseAnnotations(response?.get("output") as? JsonArray)
                 return MessageChunk(
                     id = response?.get("id")?.jsonPrimitive?.contentOrNull ?: "",
                     model = response?.get("model")?.jsonPrimitive?.contentOrNull ?: "",
@@ -693,7 +715,7 @@ class ResponseAPI(
         println(jsonObject)
         val outputs = jsonObject["output"]?.jsonArray ?: error("output not found")
         val parts = arrayListOf<UIMessagePart>()
-        val annotations = parseWebSearchCitations(outputs)
+        val annotations = parseResponseAnnotations(outputs)
 
         outputs.forEach { outputItem ->
             val output = outputItem.jsonObject
@@ -788,27 +810,94 @@ class ResponseAPI(
         if (outputs == null) return emptyList()
 
         val citationsByUrl = linkedMapOf<String, UIMessageAnnotation.UrlCitation>()
+        fun addCitation(url: String, rawTitle: String? = null) {
+            val parsedUrl = url.toHttpUrlOrNull() ?: return
+            val title = rawTitle
+                ?.takeIf { it.isNotBlank() }
+                ?: parsedUrl.host
+            citationsByUrl.putIfAbsent(
+                url,
+                UIMessageAnnotation.UrlCitation(title = title, url = url)
+            )
+        }
+
         for (outputItem in outputs) {
             val output = outputItem as? JsonObject ?: continue
-            if (output["type"]?.jsonPrimitiveOrNull?.contentOrNull != "web_search_call") continue
-            val action = output["action"] as? JsonObject ?: continue
-            val sources = action["sources"] as? JsonArray ?: continue
-            for (sourceItem in sources) {
-                val source = sourceItem as? JsonObject ?: continue
-                val url = source["url"]?.jsonPrimitiveOrNull?.contentOrNull ?: continue
-                val parsedUrl = url.toHttpUrlOrNull() ?: continue
-                val title = source["title"]?.jsonPrimitiveOrNull?.contentOrNull
-                    ?.takeIf { it.isNotBlank() }
-                    ?: parsedUrl.host
-                citationsByUrl.putIfAbsent(
-                    url,
-                    UIMessageAnnotation.UrlCitation(title = title, url = url)
-                )
+            when (output["type"]?.jsonPrimitiveOrNull?.contentOrNull) {
+                "web_search_call" -> {
+                    val action = output["action"] as? JsonObject ?: continue
+                    val sources = action["sources"] as? JsonArray ?: continue
+                    for (sourceItem in sources) {
+                        val source = sourceItem as? JsonObject ?: continue
+                        val url = source["url"]?.jsonPrimitiveOrNull?.contentOrNull ?: continue
+                        addCitation(
+                            url = url,
+                            rawTitle = source["title"]?.jsonPrimitiveOrNull?.contentOrNull,
+                        )
+                    }
+                }
+
+                "web_extractor_call" -> {
+                    val urls = output["urls"] as? JsonArray ?: continue
+                    for (urlItem in urls) {
+                        val url = urlItem.jsonPrimitiveOrNull?.contentOrNull ?: continue
+                        addCitation(url)
+                    }
+                }
             }
         }
         return citationsByUrl.values.toList()
     }
+
+    internal fun parseImageSearchCitations(outputs: JsonArray?): List<UIMessageAnnotation.ImageCitation> {
+        if (outputs == null) return emptyList()
+
+        val citationsByUrl = linkedMapOf<String, UIMessageAnnotation.ImageCitation>()
+        for (outputItem in outputs) {
+            val output = outputItem as? JsonObject ?: continue
+            val searchType = when (output["type"]?.jsonPrimitiveOrNull?.contentOrNull) {
+                "web_search_image_call" -> ImageSearchType.TEXT
+                "image_search_call" -> ImageSearchType.IMAGE
+                else -> continue
+            }
+            val results = when (val rawOutput = output["output"]) {
+                is JsonArray -> rawOutput
+                is JsonPrimitive -> runCatching {
+                    json.parseToJsonElement(rawOutput.content).jsonArray
+                }.getOrNull()
+                else -> null
+            } ?: continue
+
+            for (resultItem in results) {
+                val result = resultItem as? JsonObject ?: continue
+                val url = result["url"]?.jsonPrimitiveOrNull?.contentOrNull ?: continue
+                val parsedUrl = url.toHttpUrlOrNull() ?: continue
+                val title = result["title"]?.jsonPrimitiveOrNull?.contentOrNull
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                    ?.take(MAX_IMAGE_SEARCH_TITLE_LENGTH)
+                    ?: parsedUrl.host
+                citationsByUrl.putIfAbsent(
+                    url,
+                    UIMessageAnnotation.ImageCitation(
+                        title = title,
+                        url = url,
+                        searchType = searchType,
+                    )
+                )
+                if (citationsByUrl.size >= MAX_IMAGE_SEARCH_RESULTS) break
+            }
+            if (citationsByUrl.size >= MAX_IMAGE_SEARCH_RESULTS) break
+        }
+        return citationsByUrl.values.toList()
+    }
+
+    private fun parseResponseAnnotations(outputs: JsonArray?): List<UIMessageAnnotation> =
+        parseWebSearchCitations(outputs) + parseImageSearchCitations(outputs)
 }
+
+private const val MAX_IMAGE_SEARCH_RESULTS = 12
+private const val MAX_IMAGE_SEARCH_TITLE_LENGTH = 200
 
 private fun isModelAllowTemperature(model: Model): Boolean {
     return !ModelRegistry.OPENAI_O_MODELS.match(model.modelId) && !ModelRegistry.GPT_5.match(model.modelId)
@@ -818,6 +907,10 @@ private fun List<UIMessagePart>.isOnlyTextPart(): Boolean {
     val gonnaSend = filter { it is UIMessagePart.Text || it is UIMessagePart.Image }.size
     val texts = filter { it is UIMessagePart.Text }.size
     return gonnaSend == texts && texts == 1
+}
+
+private fun List<UIMessage>.hasInputImage(): Boolean = any { message ->
+    message.parts.any { part -> part is UIMessagePart.Image && part.url.isNotBlank() }
 }
 
 internal data class ResponseProviderCapabilities(

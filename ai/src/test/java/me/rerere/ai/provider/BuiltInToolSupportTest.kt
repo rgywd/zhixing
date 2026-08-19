@@ -26,6 +26,43 @@ class BuiltInToolSupportTest {
     }
 
     @Test
+    fun `international Bailian exposes selected Harness tools for configured model list`() {
+        val provider = ProviderSetting.OpenAI(
+            baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        )
+        val harnessTools = listOf(
+            BuiltInTools.WebExtractor,
+            BuiltInTools.WebSearchImage,
+        )
+
+        supportedModelIds.forEach { modelId ->
+            harnessTools.forEach { tool ->
+                assertTrue(
+                    "$modelId $tool",
+                    BuiltInToolSupport.supports(provider, model(modelId), tool)
+                )
+            }
+        }
+
+        assertTrue(
+            BuiltInToolSupport.supports(
+                provider,
+                model("qwen3.7-plus").copy(
+                    inputModalities = listOf(Modality.TEXT, Modality.IMAGE)
+                ),
+                BuiltInTools.ImageSearch,
+            )
+        )
+        assertFalse(
+            BuiltInToolSupport.supports(
+                provider,
+                model("deepseek-v4-flash-0731"),
+                BuiltInTools.ImageSearch,
+            )
+        )
+    }
+
+    @Test
     fun `international workspace endpoint is recognized without matching China endpoint`() {
         val international = ProviderSetting.OpenAI(
             baseUrl = "https://workspace.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
@@ -65,6 +102,46 @@ class BuiltInToolSupportTest {
                 model("qwen3.8-max").copy(tools = setOf(BuiltInTools.Search))
             )
         )
+    }
+
+    @Test
+    fun `Bailian Harness tools select Responses API without web search toggle`() {
+        val provider = ProviderSetting.OpenAI(
+            baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        )
+
+        assertTrue(
+            BuiltInToolSupport.requiresResponsesApi(
+                provider,
+                model("qwen3.7-plus").copy(tools = setOf(BuiltInTools.WebSearchImage))
+            )
+        )
+        assertFalse(
+            BuiltInToolSupport.requiresResponsesApi(
+                provider,
+                model("deepseek-v4-flash-0731").copy(tools = setOf(BuiltInTools.ImageSearch))
+            )
+        )
+    }
+
+    @Test
+    fun `web extractor selection keeps web search dependency consistent`() {
+        val extractorEnabled = BuiltInToolSupport.updateSelection(
+            emptySet(),
+            BuiltInTools.WebExtractor,
+            enabled = true,
+        )
+
+        assertTrue(BuiltInTools.WebExtractor in extractorEnabled)
+        assertTrue(BuiltInTools.Search in extractorEnabled)
+
+        val searchDisabled = BuiltInToolSupport.updateSelection(
+            extractorEnabled,
+            BuiltInTools.Search,
+            enabled = false,
+        )
+        assertFalse(BuiltInTools.Search in searchDisabled)
+        assertFalse(BuiltInTools.WebExtractor in searchDisabled)
     }
 
     private fun model(modelId: String) = Model(modelId = modelId, displayName = modelId)

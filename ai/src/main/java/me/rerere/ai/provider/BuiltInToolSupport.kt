@@ -7,10 +7,10 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
  * Provider-owned capability table for model-native tools.
  *
  * Keep vendor and model allowlists here so UI callers only need to ask whether a tool is
- * supported. Add newly enabled Bailian models to [bailianWebSearchModels].
+ * supported. Add newly enabled Bailian models to [bailianHarnessModels].
  */
 object BuiltInToolSupport {
-    private val bailianWebSearchModels = setOf(
+    private val bailianHarnessModels = setOf(
         "qwen3.8-max",
         "qwen3.7-plus",
         "deepseek-v4-flash-0731",
@@ -24,14 +24,37 @@ object BuiltInToolSupport {
         BuiltInTools.Search -> supportsSearch(providerSetting, model)
         BuiltInTools.UrlContext,
         BuiltInTools.ImageGeneration -> false
+        BuiltInTools.WebExtractor,
+        BuiltInTools.WebSearchImage,
+        BuiltInTools.ImageSearch -> supportsBailianHarnessTool(providerSetting, model, tool)
     }
 
     internal fun requiresResponsesApi(
         providerSetting: ProviderSetting.OpenAI,
         model: Model,
-    ): Boolean = model.tools.contains(BuiltInTools.Search) &&
-        isBailianInternational(providerSetting) &&
-        model.modelId.lowercase() in bailianWebSearchModels
+    ): Boolean = isBailianInternational(providerSetting) &&
+        model.modelId.lowercase() in bailianHarnessModels &&
+        model.tools.any { tool ->
+            tool in bailianResponsesTools && supports(providerSetting, model, tool)
+        }
+
+    /**
+     * Applies tool dependencies at both UI and request boundaries.
+     * Web extraction is invalid without web search on Bailian Responses.
+     */
+    fun updateSelection(
+        tools: Set<BuiltInTools>,
+        tool: BuiltInTools,
+        enabled: Boolean,
+    ): Set<BuiltInTools> = when {
+        enabled && tool == BuiltInTools.WebExtractor -> tools + BuiltInTools.Search + tool
+        !enabled && tool == BuiltInTools.Search -> tools - BuiltInTools.Search - BuiltInTools.WebExtractor
+        enabled -> tools + tool
+        else -> tools - tool
+    }
+
+    internal fun normalizeForRequest(tools: Set<BuiltInTools>): Set<BuiltInTools> =
+        if (BuiltInTools.WebExtractor in tools) tools + BuiltInTools.Search else tools
 
     internal fun isBailianInternational(providerSetting: ProviderSetting.OpenAI): Boolean {
         val host = providerSetting.baseUrl.toHttpUrlOrNull()?.host ?: return false
@@ -50,11 +73,27 @@ object BuiltInToolSupport {
         is ProviderSetting.OpenAI -> {
             model.modelId.contains("gpt-", ignoreCase = true) ||
                 (isBailianInternational(providerSetting) &&
-                    model.modelId.lowercase() in bailianWebSearchModels)
+                    model.modelId.lowercase() in bailianHarnessModels)
         }
 
         else -> false
     }
+
+    private fun supportsBailianHarnessTool(
+        providerSetting: ProviderSetting?,
+        model: Model,
+        tool: BuiltInTools,
+    ): Boolean = providerSetting is ProviderSetting.OpenAI &&
+        isBailianInternational(providerSetting) &&
+        model.modelId.lowercase() in bailianHarnessModels &&
+        (tool != BuiltInTools.ImageSearch || Modality.IMAGE in model.inputModalities)
+
+    private val bailianResponsesTools = setOf(
+        BuiltInTools.Search,
+        BuiltInTools.WebExtractor,
+        BuiltInTools.WebSearchImage,
+        BuiltInTools.ImageSearch,
+    )
 
     private val bailianInternationalSharedHosts = setOf(
         "dashscope-intl.aliyuncs.com",

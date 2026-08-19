@@ -8,6 +8,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -583,6 +585,58 @@ internal fun MessagePartsBlock(
 
                     else -> {
                         // Skip unknown part types (e.g., deprecated ToolCall, ToolResult, Search)
+                    }
+                }
+            }
+        }
+    }
+
+    val imageCitations = annotations.filterIsInstance<UIMessageAnnotation.ImageCitation>()
+    if (imageCitations.isNotEmpty()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .animateContentSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.image_search_results_count, imageCitations.size),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                imageCitations.fastForEach { citation ->
+                    Surface(
+                        modifier = Modifier.widthIn(min = 120.dp, max = 160.dp),
+                        shape = MaterialTheme.shapes.medium,
+                        tonalElevation = 1.dp,
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            ZoomableAsyncImage(
+                                model = citation.url,
+                                contentDescription = citation.title,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(96.dp)
+                                    .clip(MaterialTheme.shapes.medium),
+                            )
+                            Text(
+                                text = buildAnnotatedString {
+                                    withLink(LinkAnnotation.Url(citation.url)) {
+                                        append(citation.title.urlDecode())
+                                    }
+                                },
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }

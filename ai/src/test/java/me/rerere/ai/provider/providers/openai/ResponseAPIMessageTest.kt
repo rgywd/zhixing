@@ -13,9 +13,12 @@ import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
+import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
+import me.rerere.ai.ui.ImageSearchType
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
@@ -389,6 +392,67 @@ class ResponseAPIMessageTest {
     }
 
     @Test
+    fun `Bailian request should serialize selected Harness tools and extractor dependency`() {
+        val providerSetting = ProviderSetting.OpenAI(
+            baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        )
+        val params = TextGenerationParams(
+            model = Model(
+                modelId = "qwen3.7-plus",
+                displayName = "qwen3.7-plus",
+                tools = setOf(
+                    BuiltInTools.WebExtractor,
+                    BuiltInTools.WebSearchImage,
+                    BuiltInTools.ImageSearch,
+                ),
+            )
+        )
+
+        val requestTools = api.buildRequestBody(
+            providerSetting,
+            listOf(UIMessage.user("find an image")),
+            params,
+            false,
+        )["tools"]!!.jsonArray.map { it.jsonObject["type"]!!.jsonPrimitive.content }
+
+        assertTrue("web_search" in requestTools)
+        assertTrue("web_extractor" in requestTools)
+        assertTrue("web_search_image" in requestTools)
+        assertFalse("image_search" in requestTools)
+    }
+
+    @Test
+    fun `Bailian image search should only be sent when conversation contains an image`() {
+        val providerSetting = ProviderSetting.OpenAI(
+            baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        )
+        val params = TextGenerationParams(
+            model = Model(
+                modelId = "qwen3.7-plus",
+                displayName = "qwen3.7-plus",
+                inputModalities = listOf(Modality.TEXT, Modality.IMAGE),
+                tools = setOf(BuiltInTools.ImageSearch),
+            )
+        )
+        val messageWithImage = UIMessage(
+            role = MessageRole.USER,
+            parts = listOf(
+                UIMessagePart.Text("find similar images"),
+                UIMessagePart.Image("https://example.com/input.png"),
+            )
+        )
+
+        val requestTools = api.buildRequestBody(
+            providerSetting,
+            listOf(messageWithImage),
+            params,
+            false,
+        )["tools"]!!.jsonArray
+
+        assertEquals("image_search", requestTools.single().jsonObject["type"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `Bailian response api should use DashScope thinking parameters`() {
         val providerSetting = ProviderSetting.OpenAI(
             baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
@@ -424,6 +488,23 @@ class ResponseAPIMessageTest {
     }
 
     @Test
+    fun `web extractor urls should become safe url citations`() {
+        val outputs = JsonArray(listOf(buildJsonObject {
+            put("type", "web_extractor_call")
+            put("urls", JsonArray(listOf(
+                kotlinx.serialization.json.JsonPrimitive("https://docs.example.com/page"),
+                kotlinx.serialization.json.JsonPrimitive("javascript:alert(1)"),
+            )))
+        }))
+
+        val citations = api.parseWebSearchCitations(outputs)
+
+        assertEquals(1, citations.size)
+        assertEquals("docs.example.com", citations.single().title)
+        assertEquals("https://docs.example.com/page", citations.single().url)
+    }
+
+    @Test
     fun `non-streaming response should expose web search sources on assistant message`() {
         val response = responseWithWebSearchSources()
 
@@ -444,6 +525,35 @@ class ResponseAPIMessageTest {
 
         assertTrue(delta.parts.isEmpty())
         assertEquals(2, delta.annotations.size)
+    }
+
+    @Test
+    fun `image search outputs should become validated deduplicated image citations`() {
+        val citations = api.parseImageSearchCitations(imageSearchOutputs())
+
+        assertEquals(2, citations.size)
+        assertEquals("Text result", citations[0].title)
+        assertEquals("https://images.example.com/text.png", citations[0].url)
+        assertEquals(ImageSearchType.TEXT, citations[0].searchType)
+        assertEquals(ImageSearchType.IMAGE, citations[1].searchType)
+    }
+
+    @Test
+    fun `stream completion should expose image search results as annotation deltas`() {
+        val event = buildJsonObject {
+            put("type", "response.completed")
+            put("response", buildJsonObject {
+                put("id", "resp_images")
+                put("model", "qwen3.7-plus")
+                put("output", imageSearchOutputs())
+            })
+        }
+
+        val delta = api.parseResponseDelta(event)!!.choices.single().delta!!
+        val citations = delta.annotations.filterIsInstance<UIMessageAnnotation.ImageCitation>()
+
+        assertTrue(delta.parts.isEmpty())
+        assertEquals(2, citations.size)
     }
 
     // ==================== Helper Functions ====================
@@ -484,6 +594,25 @@ class ResponseAPIMessageTest {
                     )))
                 })
             }
+        )
+    )
+
+    private fun imageSearchOutputs() = JsonArray(
+        listOf(
+            buildJsonObject {
+                put("type", "web_search_image_call")
+                put(
+                    "output",
+                    """[{"title":"Text result","url":"https://images.example.com/text.png","index":0},{"title":"Unsafe","url":"javascript:alert(1)","index":1}]"""
+                )
+            },
+            buildJsonObject {
+                put("type", "image_search_call")
+                put(
+                    "output",
+                    """[{"title":"Duplicate","url":"https://images.example.com/text.png","index":0},{"title":"Similar result","url":"https://images.example.com/similar.png","index":1}]"""
+                )
+            },
         )
     )
 
