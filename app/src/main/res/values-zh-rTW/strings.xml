@@ -555,6 +555,13 @@
   <string name="quick_messages_page_empty_hint">點擊右下角的 + 按鈕來新增快速訊息</string>
   <string name="quick_messages_page_empty_title">無快速訊息</string>
   <string name="quick_messages_page_untitled">未命名</string>
+  <string name="quote_share_image">分享圖片</string>
+  <string name="quote_share_image_failed">無法產生分享圖片</string>
+  <string name="quote_share_text">分享文字</string>
+  <string name="quote_share_theme_night">夜讀</string>
+  <string name="quote_share_theme_warm">暖紙</string>
+  <string name="quote_share_title">分享金句</string>
+  <string name="quote_share_too_long">圖片分享最多支援 %1$d 個字元，請縮短選取範圍；仍可直接分享文字。</string>
   <string name="reasoning_auto">自動</string>
   <string name="reasoning_auto_desc">讓模型自動決定推理級別。</string>
   <string name="reasoning_custom">自定義推理預算</string>

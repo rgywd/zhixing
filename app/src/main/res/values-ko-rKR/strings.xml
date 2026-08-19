@@ -555,6 +555,13 @@
   <string name="quick_messages_page_empty_hint">오른쪽 하단의 + 버튼을 눌러 빠른 메시지를 추가하세요</string>
   <string name="quick_messages_page_empty_title">빠른 메시지 없음</string>
   <string name="quick_messages_page_untitled">제목 없음</string>
+  <string name="quote_share_image">이미지 공유</string>
+  <string name="quote_share_image_failed">공유 이미지를 만들 수 없습니다</string>
+  <string name="quote_share_text">텍스트 공유</string>
+  <string name="quote_share_theme_night">야간 독서</string>
+  <string name="quote_share_theme_warm">따뜻한 종이</string>
+  <string name="quote_share_title">인용문 공유</string>
+  <string name="quote_share_too_long">이미지로 공유하려면 %1$d자 이하로 선택하세요. 텍스트는 계속 공유할 수 있습니다.</string>
   <string name="reasoning_auto">자동</string>
   <string name="reasoning_auto_desc">모델이 자동으로 사고 수준을 결정하도록 합니다</string>
   <string name="reasoning_custom">사용자 정의 사고 예산</string>

@@ -177,6 +177,8 @@ $$USER_TOKEN=value
 ## 隐私与兼容
 
 - 默认不启用第三方分析、远程配置或崩溃上传。
+- 回答生成完成后，原生文本选区菜单可以追加“分享”；复制、全选、翻译和系统 `PROCESS_TEXT` 动作保持原样。
+  金句卡片只在本机临时缓存中生成，默认不写入相册，最终目标由 Android 系统分享面板选择。
 - 普通聊天工具不进行逐次审批。`ToolApprovalState`、历史审批消息、Web approval route 和 Workspace
   `tool_approvals` 仅为兼容旧数据保留，新运行时忽略普通工具的 legacy approval 值。`ask_user` 的业务
   问答、Android 系统权限、位置隐私同意、OAuth/Keystore/连接配置和工具启用开关仍各自生效。

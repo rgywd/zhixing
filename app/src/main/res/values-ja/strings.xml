@@ -555,6 +555,13 @@
   <string name="quick_messages_page_empty_hint">右下の+ボタンをタップしてクイックメッセージを追加</string>
   <string name="quick_messages_page_empty_title">クイックメッセージがありません</string>
   <string name="quick_messages_page_untitled">無題</string>
+  <string name="quote_share_image">画像を共有</string>
+  <string name="quote_share_image_failed">共有画像を作成できませんでした</string>
+  <string name="quote_share_text">テキストを共有</string>
+  <string name="quote_share_theme_night">夜の読書</string>
+  <string name="quote_share_theme_warm">温かみのある紙</string>
+  <string name="quote_share_title">引用を共有</string>
+  <string name="quote_share_too_long">画像として共有するには、%1$d文字以内を選択してください。テキストは引き続き共有できます。</string>
   <string name="reasoning_auto">自動</string>
   <string name="reasoning_auto_desc">モデルが推論レベルを自動的に決定します。</string>
   <string name="reasoning_custom">カスタム推論予算</string>

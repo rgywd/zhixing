@@ -96,6 +96,7 @@ import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.ui.components.message.ChatMessage
+import me.rerere.rikkahub.ui.components.message.SelectedQuote
 import me.rerere.rikkahub.ui.components.ui.ErrorCardsDisplay
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
 import me.rerere.rikkahub.ui.components.ui.RabbitLoadingIndicator
@@ -258,6 +259,7 @@ private fun ChatListNormal(
     val selectedItems = remember { mutableStateListOf<Uuid>() }
     var selecting by remember { mutableStateOf(false) }
     var showExportSheet by remember { mutableStateOf(false) }
+    var selectedQuote by remember { mutableStateOf<SelectedQuote?>(null) }
 
     // 自动跟随键盘滚动
     ImeLazyListAutoScroller(lazyListState = state)
@@ -363,6 +365,9 @@ private fun ChatListNormal(
                                 selectedItems.clear()
                                 selectedItems.addAll(conversation.messageNodes.map { it.id }
                                     .subList(0, conversation.messageNodes.indexOf(node) + 1))
+                            },
+                            onShareQuote = { quote ->
+                                selectedQuote = quote
                             },
                             onUpdate = {
                                 onUpdateMessage(it)
@@ -517,6 +522,13 @@ private fun ChatListNormal(
                 selectedMessages = conversation.messageNodes.filter { it.id in selectedItems }
                     .map { it.currentMessage }
             )
+
+            selectedQuote?.let { quote ->
+                QuoteShareSheet(
+                    quote = quote,
+                    onDismissRequest = { selectedQuote = null },
+                )
+            }
 
             val captureProgress = LocalScrollCaptureInProgress.current
 
