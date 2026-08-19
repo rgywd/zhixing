@@ -30,27 +30,25 @@ class BuiltInToolSupportTest {
         val provider = ProviderSetting.OpenAI(
             baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
         )
-        val harnessTools = listOf(
-            BuiltInTools.WebExtractor,
-            BuiltInTools.WebSearchImage,
-        )
-
         supportedModelIds.forEach { modelId ->
-            harnessTools.forEach { tool ->
-                assertTrue(
-                    "$modelId $tool",
-                    BuiltInToolSupport.supports(provider, model(modelId), tool)
-                )
-            }
+            assertTrue(
+                modelId,
+                BuiltInToolSupport.supports(provider, model(modelId), BuiltInTools.WebExtractor)
+            )
         }
 
-        assertTrue(
+        listOf("qwen3.8-max", "qwen3.7-plus").forEach { modelId ->
+            val imageModel = model(modelId).copy(
+                inputModalities = listOf(Modality.TEXT, Modality.IMAGE)
+            )
+            assertTrue(BuiltInToolSupport.supports(provider, imageModel, BuiltInTools.WebSearchImage))
+            assertTrue(BuiltInToolSupport.supports(provider, imageModel, BuiltInTools.ImageSearch))
+        }
+        assertFalse(
             BuiltInToolSupport.supports(
                 provider,
-                model("qwen3.7-plus").copy(
-                    inputModalities = listOf(Modality.TEXT, Modality.IMAGE)
-                ),
-                BuiltInTools.ImageSearch,
+                model("deepseek-v4-flash-0731"),
+                BuiltInTools.WebSearchImage,
             )
         )
         assertFalse(
@@ -120,6 +118,12 @@ class BuiltInToolSupportTest {
             BuiltInToolSupport.requiresResponsesApi(
                 provider,
                 model("deepseek-v4-flash-0731").copy(tools = setOf(BuiltInTools.ImageSearch))
+            )
+        )
+        assertFalse(
+            BuiltInToolSupport.requiresResponsesApi(
+                provider,
+                model("deepseek-v4-flash-0731").copy(tools = setOf(BuiltInTools.WebSearchImage))
             )
         )
     }

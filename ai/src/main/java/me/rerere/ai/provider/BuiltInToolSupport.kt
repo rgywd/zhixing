@@ -16,6 +16,11 @@ object BuiltInToolSupport {
         "deepseek-v4-flash-0731",
     )
 
+    private val bailianImageSearchModels = setOf(
+        "qwen3.8-max",
+        "qwen3.7-plus",
+    )
+
     fun supports(
         providerSetting: ProviderSetting?,
         model: Model,
@@ -86,7 +91,13 @@ object BuiltInToolSupport {
     ): Boolean = providerSetting is ProviderSetting.OpenAI &&
         isBailianInternational(providerSetting) &&
         model.modelId.lowercase() in bailianHarnessModels &&
-        (tool != BuiltInTools.ImageSearch || Modality.IMAGE in model.inputModalities)
+        when (tool) {
+            BuiltInTools.WebExtractor -> true
+            BuiltInTools.WebSearchImage -> model.modelId.lowercase() in bailianImageSearchModels
+            BuiltInTools.ImageSearch -> model.modelId.lowercase() in bailianImageSearchModels &&
+                Modality.IMAGE in model.inputModalities
+            else -> false
+        }
 
     private val bailianResponsesTools = setOf(
         BuiltInTools.Search,
