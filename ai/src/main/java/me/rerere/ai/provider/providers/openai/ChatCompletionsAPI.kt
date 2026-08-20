@@ -246,7 +246,7 @@ class ChatCompletionsAPI(
     }.buffer(Channel.UNLIMITED)
 
 
-    private fun buildChatCompletionRequest(
+    internal fun buildChatCompletionRequest(
         messages: List<UIMessage>,
         params: TextGenerationParams,
         providerSetting: ProviderSetting.OpenAI,
@@ -291,15 +291,13 @@ class ChatCompletionsAPI(
 
             if (params.model.abilities.contains(ModelAbility.REASONING)) {
                 val level = params.reasoningLevel
+                val reasoningProfile = OpenAIReasoningProfiles.resolve(host, params.model.modelId)
                 when (host) {
                     "openrouter.ai" -> {
                         // https://openrouter.ai/docs/use-cases/reasoning-tokens
                         put("reasoning", buildJsonObject {
-                            when (level) {
-                                ReasoningLevel.OFF -> put("effort", "none")
-                                ReasoningLevel.AUTO -> put("enabled", true)
-                                else -> put("effort", level.effort)
-                            }
+                            if (level == ReasoningLevel.AUTO) put("enabled", true)
+                            else put("effort", reasoningProfile.effortFor(level))
                         })
                     }
 
@@ -307,7 +305,13 @@ class ChatCompletionsAPI(
                         // 阿里云百炼
                         // https://bailian.console.aliyun.com/console?tab=doc#/doc/?type=model&url=https%3A%2F%2Fhelp.aliyun.com%2Fdocument_detail%2F2870973.html&renderType=iframe
                         put("enable_thinking", level.isEnabled)
-                        if (level != ReasoningLevel.AUTO) put("thinking_budget", level.budgetTokens)
+                        if (reasoningProfile.effortScale == OpenAIReasoningEffortScale.HIGH_MAX) {
+                            if (level.isEnabled && level != ReasoningLevel.AUTO) {
+                                put("reasoning_effort", reasoningProfile.effortFor(level))
+                            }
+                        } else if (level != ReasoningLevel.AUTO) {
+                            put("thinking_budget", level.budgetTokens)
+                        }
                     }
 
                     "ark.cn-beijing.volces.com" -> {
@@ -370,12 +374,22 @@ class ChatCompletionsAPI(
                         put("thinking", buildJsonObject {
                             put("type", if (!level.isEnabled) "disabled" else "enabled")
                         })
+                        if (level.isEnabled && level != ReasoningLevel.AUTO &&
+                            reasoningProfile.effortScale == OpenAIReasoningEffortScale.HIGH_MAX
+                        ) {
+                            put("reasoning_effort", reasoningProfile.effortFor(level))
+                        }
                     }
 
                     "api.moonshot.cn" -> {
                         put("thinking", buildJsonObject {
                             put("type", if (!level.isEnabled) "disabled" else "enabled")
                         })
+                        if (level.isEnabled && level != ReasoningLevel.AUTO &&
+                            reasoningProfile.effortScale == OpenAIReasoningEffortScale.HIGH_MAX
+                        ) {
+                            put("reasoning_effort", reasoningProfile.effortFor(level))
+                        }
                     }
 
                     "api.deepseek.com" -> {
@@ -383,38 +397,26 @@ class ChatCompletionsAPI(
                             put("type", if (!level.isEnabled) "disabled" else "enabled")
                         })
                         if (level.isEnabled && level != ReasoningLevel.AUTO) {
-                            put("reasoning_effort", level.effort)
+                            put("reasoning_effort", reasoningProfile.effortFor(level))
                         }
                     }
 
                     "integrate.api.nvidia.com" -> {
-                        if ("deepseek-v4" in params.model.modelId.lowercase()) {
-                            if (level != ReasoningLevel.AUTO) {
-                                val effort = when (level) {
-                                    ReasoningLevel.XHIGH -> "max"
-                                    ReasoningLevel.OFF -> "none"
-                                    else -> "high"
-                                }
-                                put("reasoning_effort", effort)
-                            }
-                        } else {
-                            if (level != ReasoningLevel.AUTO) {
-                                put("reasoning_effort", if (level.effort == "none") "low" else level.effort)
-                            }
+                        if (level != ReasoningLevel.AUTO) {
+                            put("reasoning_effort", reasoningProfile.effortFor(level))
                         }
                     }
 
                     "opencode.ai" -> {
                         if (level != ReasoningLevel.AUTO) {
-                            put("reasoning_effort", level.effort)
+                            put("reasoning_effort", reasoningProfile.effortFor(level))
                         }
                     }
 
                     else -> {
-                        // OpenAI 官方
-                        // 文档中，completions API 只支持 "low", "medium", "high"
+                        // OpenAI-compatible 默认按标准 effort 透传；模型族差异集中在 profile 表中。
                         if (level != ReasoningLevel.AUTO) {
-                            put("reasoning_effort", if (level.effort == "none") "low" else level.effort)
+                            put("reasoning_effort", reasoningProfile.effortFor(level))
                         }
                     }
                 }

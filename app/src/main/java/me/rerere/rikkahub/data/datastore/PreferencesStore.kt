@@ -38,6 +38,7 @@ import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV3Migration
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV4Migration
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV5Migration
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV6Migration
+import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV7Migration
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.InjectionPosition
@@ -69,6 +70,7 @@ private val Context.settingsStore by preferencesDataStore(
             PreferenceStoreV4Migration(),
             PreferenceStoreV5Migration(),
             PreferenceStoreV6Migration(),
+            PreferenceStoreV7Migration(),
         )
     }
 )
@@ -479,7 +481,7 @@ class SettingsStore(
             settings.copy(
                 assistants = settings.assistants.map { assistant ->
                     if (assistant.id == assistantId) {
-                        assistant.copy(reasoningLevel = reasoningLevel)
+                        assistant.copy(reasoningLevel = reasoningLevel.normalizedForChat)
                     } else {
                         assistant
                     }
