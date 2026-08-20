@@ -31,8 +31,8 @@ android {
         applicationId = "dev.sundby.zhixing"
         minSdk = 26
         targetSdk = 37
-        versionCode = 45
-        versionName = "0.4.16"
+        versionCode = 46
+        versionName = "0.4.17"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["appScheme"] = "zhixing"
         manifestPlaceholders["amapApiKey"] = amapProductionKey.get()

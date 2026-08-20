@@ -41,6 +41,7 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.ui.ClaudeReasoningMetadata
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.isPromptCacheBoundary
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
 import me.rerere.ai.util.KeyRoulette
@@ -289,13 +290,17 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             // system prompt
             val systemMessage = messages.firstOrNull { it.role == MessageRole.SYSTEM }
             val systemTextParts = systemMessage?.parts?.filterIsInstance<UIMessagePart.Text>().orEmpty()
+            val explicitSystemCacheBoundary = systemTextParts.indexOfLast { it.isPromptCacheBoundary() }
             if (systemTextParts.isNotEmpty()) {
                 put("system", buildJsonArray {
                     systemTextParts.forEachIndexed { index, part ->
                         add(buildJsonObject {
                             put("type", "text")
                             put("text", part.text)
-                            if (providerSetting.promptCaching && index == systemTextParts.lastIndex) {
+                            val cacheBoundaryIndex = explicitSystemCacheBoundary
+                                .takeIf { it >= 0 }
+                                ?: systemTextParts.lastIndex
+                            if (providerSetting.promptCaching && index == cacheBoundaryIndex) {
                                 put("cache_control", cacheControlEphemeral(providerSetting.promptCacheTtl))
                             }
                         })

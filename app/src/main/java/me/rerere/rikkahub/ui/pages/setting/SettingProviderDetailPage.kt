@@ -598,6 +598,35 @@ private fun ModelSettingsForm(
                             }
                         )
 
+                        if (model.type == ModelType.CHAT) {
+                            OutlinedTextField(
+                                value = model.contextWindowTokens.toString(),
+                                onValueChange = { value ->
+                                    value.filter(Char::isDigit)
+                                        .toIntOrNull()
+                                        ?.takeIf { it > 0 }
+                                        ?.let { contextWindowTokens ->
+                                            onModelChange(
+                                                model.copy(contextWindowTokens = contextWindowTokens)
+                                            )
+                                        }
+                                },
+                                label = {
+                                    Text(stringResource(R.string.setting_provider_page_context_window))
+                                },
+                                supportingText = {
+                                    Text(
+                                        stringResource(
+                                            R.string.setting_provider_page_context_window_desc
+                                        )
+                                    )
+                                },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+
                         ModelTypeSelector(
                             selectedType = model.type,
                             onTypeSelected = {

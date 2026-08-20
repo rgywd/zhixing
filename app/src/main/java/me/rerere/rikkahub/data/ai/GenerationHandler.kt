@@ -34,6 +34,7 @@ import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.promptCacheBoundaryText
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.handleMessageChunk
 import me.rerere.ai.ui.limitContext
@@ -176,6 +177,9 @@ internal fun toolExecutionErrorCode(throwable: Throwable): String =
 internal fun isSearchLikeToolName(toolName: String): Boolean =
     toolName.lowercase(Locale.ROOT) in SEARCH_LIKE_TOOL_NAMES
 
+internal fun Tool.isRunScopedDeduplicationEnabled(): Boolean =
+    deduplicateWithinRun && executionMode == ToolExecutionMode.PARALLEL_READ_ONLY
+
 internal fun toolExecutionFailureMessage(toolName: String, errorCode: String): String =
     if (isSearchLikeToolName(toolName)) {
         "[$errorCode] Search failed. Do not call provider-native or undeclared search tools. " +
@@ -257,6 +261,18 @@ data class PromptCompactionResult(
     val maximumPromptTokens: Int,
 )
 
+internal fun buildLayeredSystemMessage(
+    stablePrompt: String,
+    dynamicPrompt: String,
+): UIMessage? {
+    val parts = buildList {
+        if (stablePrompt.isNotBlank()) add(promptCacheBoundaryText(stablePrompt))
+        if (dynamicPrompt.isNotBlank()) add(UIMessagePart.Text(dynamicPrompt))
+    }
+    if (parts.isEmpty()) return null
+    return UIMessage(role = MessageRole.SYSTEM, parts = parts)
+}
+
 class GenerationHandler(
     private val context: Context,
     private val providerManager: ProviderManager,
@@ -296,6 +312,7 @@ class GenerationHandler(
         }
         val memoryPromptSnapshot = MemoryDocumentPromptSnapshot(memoryDocuments.orEmpty())
         val reportedToolCalls = mutableSetOf<String>()
+        val toolCallDeduplicator = ToolCallDeduplicator()
         var toolOrdinal = 0
         var searchFailureNeedsRecovery = false
 
@@ -613,8 +630,16 @@ class GenerationHandler(
                             }.getOrElse {
                                 throw ToolExecutionException("TOOL_INPUT_INVALID")
                             }
-                            Log.i(TAG, toolExecutionLogMessage(toolDef.name))
-                            val result = toolDef.execute(args)
+                            val result = toolCallDeduplicator.execute(
+                                toolCallId = tool.toolCallId,
+                                toolName = toolDef.name,
+                                arguments = args,
+                                enabled = toolDef.isRunScopedDeduplicationEnabled(),
+                                ignoredArgumentFields = toolDef.deduplicationIgnoredInputFields,
+                            ) {
+                                Log.i(TAG, toolExecutionLogMessage(toolDef.name))
+                                toolDef.execute(args)
+                            }
                             val hasShellAccess = toolsInternal.any { it.name == "workspace_shell" }
                             tool.copy(
                                 output = maybeTruncateToolOutput(tool.toolCallId, result, hasShellAccess)
@@ -703,7 +728,7 @@ class GenerationHandler(
     ): List<UIMessage> {
         val projection = messages.projectContextForPrompt()
         return buildList {
-            val system = buildString {
+            val stableSystem = buildString {
                 val userPrompt = effectiveUserPrompt(
                     assistant = assistant,
                     conversationSystemPrompt = conversationSystemPrompt,
@@ -712,29 +737,29 @@ class GenerationHandler(
                 if (userPrompt.isNotBlank()) {
                     append(userPrompt)
                 }
-
-                // 记忆
+            }
+            val dynamicSystem = buildString {
+                // 记忆会在对话过程中变化，不能污染冻结的助手前缀缓存。
                 if (assistant.enableMemory) {
-                    appendLine()
                     append(buildMemoryDocumentPrompt(documents = memoryDocuments))
                 }
-                // 工具prompt
+                // 工具系统补充可能依赖当前消息；schema 由 Provider 单独建立稳定缓存断点。
                 tools.forEach { tool ->
-                    appendLine()
+                    if (isNotBlank()) appendLine()
                     append(tool.systemPrompt(model, projection.messages))
                 }
                 projection.checkpointSummary?.let { summary ->
-                    appendLine()
+                    if (isNotBlank()) appendLine()
                     append(renderConversationCheckpoint(summary))
                 }
                 messages.latestRuntimeContext()
                     ?.let(::renderRuntimeContextForPrompt)
                     ?.let { runtimeContext ->
-                        appendLine()
+                        if (isNotBlank()) appendLine()
                         append(runtimeContext)
                     }
             }
-            if (system.isNotBlank()) add(UIMessage.system(prompt = system))
+            buildLayeredSystemMessage(stableSystem, dynamicSystem)?.let(::add)
             addAll(projection.messages.limitContext(assistant.contextMessageSize))
         }.transforms(
             transformers = transformers,

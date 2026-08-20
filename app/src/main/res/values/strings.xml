@@ -562,6 +562,13 @@
   <string name="quick_messages_page_empty_hint">Tap the + button at the bottom right to add a quick message</string>
   <string name="quick_messages_page_empty_title">No Quick Messages</string>
   <string name="quick_messages_page_untitled">Untitled</string>
+  <string name="quote_share_image">Share image</string>
+  <string name="quote_share_image_failed">Couldn\'t create the share image</string>
+  <string name="quote_share_text">Share text</string>
+  <string name="quote_share_theme_night">Night reading</string>
+  <string name="quote_share_theme_warm">Warm paper</string>
+  <string name="quote_share_title">Share quote</string>
+  <string name="quote_share_too_long">Select no more than %1$d characters to share as an image. You can still share the text.</string>
   <string name="reasoning_auto">Auto</string>
   <string name="reasoning_auto_desc">Let the model automatically determine reasoning level.</string>
   <string name="reasoning_custom">Custom reasoning budget</string>
@@ -576,6 +583,7 @@
   <string name="reasoning_picker_hint">Not all models support depth adjustment. Refer to the model and provider documentation.</string>
   <string name="reasoning_picker_title">Adjust Model Thinking Depth</string>
   <string name="reasoning_xhigh">XHigh</string>
+  <string name="reasoning_max">Maximum</string>
   <string name="regenerate">Regenerate</string>
   <string name="regenerate_confirm_message">Are you sure you want to regenerate this message?</string>
   <string name="render_with_webview">Render with WebView</string>
@@ -998,6 +1006,8 @@
   <string name="setting_provider_page_model_display_name">Model Display Name</string>
   <string name="setting_provider_page_model_display_name_placeholder">e.g.: GPT-3.5, for UI display</string>
   <string name="setting_provider_page_model_id">Model ID</string>
+  <string name="setting_provider_page_context_window">Context window tokens</string>
+  <string name="setting_provider_page_context_window_desc">Defaults to 500,000. Set a smaller value for models with a smaller context window.</string>
   <string name="setting_provider_page_model_id_placeholder">e.g.: gpt-3.5-turbo</string>
   <string name="setting_provider_page_model_name">Model Name</string>
   <string name="setting_provider_page_model_type">Model Type</string>

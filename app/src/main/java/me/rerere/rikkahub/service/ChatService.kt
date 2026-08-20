@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.Log
 import androidx.core.net.toUri
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -46,7 +47,6 @@ import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.AUTO_COMPACT_RECENT_TOKEN_BUDGET
 import me.rerere.rikkahub.data.ai.AUTO_COMPACT_SUMMARY_TOKENS
-import me.rerere.rikkahub.data.ai.AUTO_COMPACT_TOKEN_THRESHOLD
 import me.rerere.rikkahub.data.ai.ContextCompactionTrigger
 import me.rerere.rikkahub.data.ai.GenerationChunk
 import me.rerere.rikkahub.data.ai.GenerationHandler
@@ -55,17 +55,21 @@ import me.rerere.rikkahub.data.ai.MonthlySpendingAttachmentCleanupCandidate
 import me.rerere.rikkahub.data.ai.MonthlySpendingToolCallRef
 import me.rerere.rikkahub.data.ai.PromptCompactionResult
 import me.rerere.rikkahub.data.ai.applyContextCheckpoint
+import me.rerere.rikkahub.data.ai.activateLatestPreparedContextCheckpoint
+import me.rerere.rikkahub.data.ai.automaticRecentTokenBudget
 import me.rerere.rikkahub.data.ai.bindMonthlySpendingSaveSourceMessages
 import me.rerere.rikkahub.data.ai.buildContextCompactionPlan
 import me.rerere.rikkahub.data.ai.clearContextCheckpoints
+import me.rerere.rikkahub.data.ai.contextCompactionPolicy
 import me.rerere.rikkahub.data.ai.containsMonthlySpendingAttachmentUris
 import me.rerere.rikkahub.data.ai.estimatePromptTokens
 import me.rerere.rikkahub.data.ai.findReadyMonthlySpendingAttachmentCleanupCandidates
+import me.rerere.rikkahub.data.ai.hasPreparedContextCheckpoint
 import me.rerere.rikkahub.data.ai.isReadyForMonthlySpendingAttachmentCleanup
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.redactMonthlySpendingAttachments
 import me.rerere.rikkahub.data.ai.renderMessagesForCompaction
-import me.rerere.rikkahub.data.ai.shouldAutoCompactPrompt
+import me.rerere.rikkahub.data.ai.projectContextForPrompt
 import me.rerere.rikkahub.data.ai.splitCompactionContent
 import me.rerere.rikkahub.data.ai.successfulMonthlySpendingSaveToolCalls
 import me.rerere.rikkahub.data.ai.tools.createConversationTools
@@ -134,7 +138,7 @@ private const val TAG = "ChatService"
 
 internal fun backgroundTextGenerationParams(
     model: Model,
-    reasoningLevel: ReasoningLevel = ReasoningLevel.AUTO,
+    reasoningLevel: ReasoningLevel = ReasoningLevel.MEDIUM,
     maxTokens: Int? = null,
 ): TextGenerationParams = TextGenerationParams(
     model = model,
@@ -284,8 +288,9 @@ class ChatService(
 
     private fun launchWithConversationReference(
         conversationId: Uuid,
+        start: CoroutineStart = CoroutineStart.DEFAULT,
         block: suspend () -> Unit
-    ): Job = appScope.launch {
+    ): Job = appScope.launch(start = start) {
         addConversationReference(conversationId)
         try {
             block()
@@ -642,6 +647,8 @@ class ChatService(
         }
         var successfulSaveToolCallsBeforeGeneration = emptySet<MonthlySpendingToolCallRef>()
         var successfulAgendaToolCallIdsBeforeGeneration = emptySet<String>()
+        var promptTokenEstimateForCompaction: Int? = null
+        var promptCompactedThisTurn = false
         var assistantTaskId = runCatching {
             assistantTaskRepository.findActiveForConversation(conversationId.toString())?.id
         }.onFailure {
@@ -806,35 +813,59 @@ class ChatService(
                     }
                 },
                 onPromptPrepared = { estimatedTokens, generationMessages ->
+                    promptTokenEstimateForCompaction = estimatedTokens
+                    if (messageRange != null) return@generateText null
+
+                    val policy = contextCompactionPolicy(model.contextWindowTokens)
+                    var latestMessages = generationMessages
                     if (
-                        messageRange != null ||
-                        !shouldAutoCompactPrompt(estimatedTokens)
+                        policy.requiresSynchronousFallback(estimatedTokens) &&
+                        !latestMessages.hasPreparedContextCheckpoint()
                     ) {
-                        null
-                    } else {
-                        Log.i(
-                            TAG,
-                            "Auto context compaction triggered: estimatedTokens=$estimatedTokens"
-                        )
-                        session.processingStatus.value =
-                            context.getString(R.string.chat_page_compressing)
-                        try {
-                            PromptCompactionResult(
-                                messages = createContextCheckpoint(
-                                    conversationId = conversationId,
-                                    messages = generationMessages,
-                                    additionalPrompt = "",
-                                    targetTokens = AUTO_COMPACT_SUMMARY_TOKENS,
-                                    recentTokenBudget = AUTO_COMPACT_RECENT_TOKEN_BUDGET,
-                                    trigger = ContextCompactionTrigger.AUTO,
-                                    sourceTokenEstimate = estimatedTokens,
-                                    forceCompaction = false,
-                                ),
-                                maximumPromptTokens = AUTO_COMPACT_TOKEN_THRESHOLD,
-                            )
-                        } finally {
-                            session.processingStatus.value = null
+                        session.getCompactionJob()?.join()
+                        latestMessages = getConversationFlow(conversationId).value.currentMessages
+                    }
+
+                    val compactedMessages = when {
+                        policy.shouldActivate(estimatedTokens) &&
+                            latestMessages.hasPreparedContextCheckpoint() -> {
+                            activatePreparedContextCheckpoint(conversationId, latestMessages)
                         }
+
+                        policy.requiresSynchronousFallback(estimatedTokens) -> {
+                            Log.w(
+                                TAG,
+                                "No prepared checkpoint at safety ceiling; compacting synchronously " +
+                                    "without foreground UI: estimatedTokens=$estimatedTokens"
+                            )
+                            createContextCheckpoint(
+                                conversationId = conversationId,
+                                messages = latestMessages,
+                                additionalPrompt = "",
+                                targetTokens = AUTO_COMPACT_SUMMARY_TOKENS,
+                                recentTokenBudget = automaticRecentTokenBudget(
+                                    contextWindowTokens = model.contextWindowTokens,
+                                    sourcePromptTokens = estimatedTokens,
+                                    projectedHistoryTokens = estimatePromptTokens(
+                                        latestMessages.projectContextForPrompt().messages,
+                                        emptyList(),
+                                    ),
+                                ),
+                                trigger = ContextCompactionTrigger.AUTO,
+                                sourceTokenEstimate = estimatedTokens,
+                                forceCompaction = false,
+                                active = true,
+                            )
+                        }
+
+                        else -> null
+                    }
+                    compactedMessages?.let { messages ->
+                        promptCompactedThisTurn = true
+                        PromptCompactionResult(
+                            messages = messages,
+                            maximumPromptTokens = policy.maximumPromptTokens,
+                        )
                     }
                 },
                 onTaskStep = ::trackTaskStep,
@@ -933,6 +964,17 @@ class ChatService(
                         .bindMonthlySpendingSaveSourceMessages()
                     updateConversation(conversationId, finalConversation)
                     saveConversation(conversationId, finalConversation)
+                }
+
+                if (!promptCompactedThisTurn) {
+                    promptTokenEstimateForCompaction?.let { estimatedTokens ->
+                        scheduleAutomaticContextCompaction(
+                            conversationId = conversationId,
+                            messages = finalConversation.currentMessages,
+                            sourcePromptTokenEstimate = estimatedTokens,
+                            contextWindowTokens = model.contextWindowTokens,
+                        )
+                    }
                 }
 
                 launchWithConversationReference(conversationId) {
@@ -1395,6 +1437,83 @@ class ChatService(
 
     // ---- 压缩对话历史 ----
 
+    private fun scheduleAutomaticContextCompaction(
+        conversationId: Uuid,
+        messages: List<UIMessage>,
+        sourcePromptTokenEstimate: Int,
+        contextWindowTokens: Int,
+    ) {
+        val policy = contextCompactionPolicy(contextWindowTokens)
+        if (!policy.shouldPrepare(sourcePromptTokenEstimate)) return
+        if (messages.hasPreparedContextCheckpoint()) return
+
+        val session = getOrCreateSession(conversationId)
+        val projectedHistoryTokens = estimatePromptTokens(
+            messages.projectContextForPrompt().messages,
+            emptyList(),
+        )
+        val job = launchWithConversationReference(
+            conversationId = conversationId,
+            start = CoroutineStart.LAZY,
+        ) {
+            runCatching {
+                createContextCheckpoint(
+                    conversationId = conversationId,
+                    messages = messages,
+                    additionalPrompt = "",
+                    targetTokens = AUTO_COMPACT_SUMMARY_TOKENS,
+                    recentTokenBudget = automaticRecentTokenBudget(
+                        contextWindowTokens = contextWindowTokens,
+                        sourcePromptTokens = sourcePromptTokenEstimate,
+                        projectedHistoryTokens = projectedHistoryTokens,
+                    ),
+                    trigger = ContextCompactionTrigger.AUTO,
+                    sourceTokenEstimate = sourcePromptTokenEstimate,
+                    forceCompaction = false,
+                    active = false,
+                )
+            }.onFailure { error ->
+                if (error !is CancellationException) {
+                    Log.w(TAG, "Silent background context compaction did not complete", error)
+                }
+            }
+        }
+        if (session.trySetCompactionJob(job)) {
+            Log.i(
+                TAG,
+                "Scheduled silent context checkpoint: sourceTokens=$sourcePromptTokenEstimate, " +
+                    "activateAt=${policy.activateAtTokens}"
+            )
+            job.start()
+        } else {
+            job.cancel()
+        }
+    }
+
+    private suspend fun activatePreparedContextCheckpoint(
+        conversationId: Uuid,
+        messages: List<UIMessage>,
+    ): List<UIMessage> {
+        val activatedMessages = messages.activateLatestPreparedContextCheckpoint()
+        if (activatedMessages == messages) return messages
+
+        var persistedMessages: List<UIMessage>? = null
+        mutateAndSaveConversation(conversationId) { current ->
+            if (current.currentMessages != messages) {
+                throw IllegalStateException(
+                    context.getString(R.string.chat_page_compress_conversation_changed)
+                )
+            }
+            current.updateCurrentMessages(activatedMessages)
+                .also { persistedMessages = it.currentMessages }
+        }
+        Log.i(TAG, "Activated prepared context checkpoint for $conversationId")
+        return persistedMessages
+            ?: throw IllegalStateException(
+                context.getString(R.string.chat_page_compress_conversation_changed)
+            )
+    }
+
     suspend fun compressConversation(
         conversationId: Uuid,
         additionalPrompt: String,
@@ -1410,6 +1529,7 @@ class ChatService(
             trigger = ContextCompactionTrigger.MANUAL,
             sourceTokenEstimate = estimatePromptTokens(messages, emptyList()),
             forceCompaction = true,
+            active = true,
         )
     }
 
@@ -1422,6 +1542,7 @@ class ChatService(
         trigger: ContextCompactionTrigger,
         sourceTokenEstimate: Int,
         forceCompaction: Boolean,
+        active: Boolean,
     ): List<UIMessage> {
         val plan = buildContextCompactionPlan(
             messages = messages,
@@ -1495,6 +1616,7 @@ class ChatService(
             sourceTokenEstimate = sourceTokenEstimate,
             trigger = trigger,
             createdAtEpochMillis = System.currentTimeMillis(),
+            active = active,
         )
         Log.i(
             TAG,
@@ -1505,15 +1627,20 @@ class ChatService(
         )
 
         var persistedMessages: List<UIMessage>? = null
-        val expectedMessageIds = messages.map(UIMessage::id)
         mutateAndSaveConversation(conversationId) { current ->
-            if (current.currentMessages.map(UIMessage::id) != expectedMessageIds) {
+            if (current.currentMessages != messages) {
                 throw IllegalStateException(
                     context.getString(R.string.chat_page_compress_conversation_changed)
                 )
             }
             current.updateCurrentMessages(checkpointedMessages)
-                .copy(chatSuggestions = emptyList())
+                .let { updated ->
+                    if (trigger == ContextCompactionTrigger.MANUAL) {
+                        updated.copy(chatSuggestions = emptyList())
+                    } else {
+                        updated
+                    }
+                }
                 .also { persistedMessages = it.currentMessages }
         }
         return persistedMessages

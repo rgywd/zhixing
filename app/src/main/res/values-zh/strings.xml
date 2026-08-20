@@ -557,6 +557,13 @@
   <string name="quick_messages_page_empty_hint">点击右下角的 + 按钮添加快捷消息</string>
   <string name="quick_messages_page_empty_title">无快速消息</string>
   <string name="quick_messages_page_untitled">无标题</string>
+  <string name="quote_share_image">分享图片</string>
+  <string name="quote_share_image_failed">生成分享图片失败</string>
+  <string name="quote_share_text">分享文字</string>
+  <string name="quote_share_theme_night">夜读</string>
+  <string name="quote_share_theme_warm">暖纸</string>
+  <string name="quote_share_title">分享金句</string>
+  <string name="quote_share_too_long">图片分享最多支持 %1$d 个字符，请缩短选区；仍可直接分享文字。</string>
   <string name="reasoning_auto">自动</string>
   <string name="reasoning_auto_desc">让模型自动决定推理级别。</string>
   <string name="reasoning_custom">自定义推理预算</string>
@@ -571,6 +578,7 @@
   <string name="reasoning_picker_hint">并非所有模型都支持深度调整。请参考模型和提供商文档。</string>
   <string name="reasoning_picker_title">调整模型思考深度</string>
   <string name="reasoning_xhigh">超高</string>
+  <string name="reasoning_max">极致</string>
   <string name="regenerate">重新生成</string>
   <string name="regenerate_confirm_message">确定要重新生成此消息吗？</string>
   <string name="render_with_webview">网页视图渲染</string>
@@ -979,6 +987,8 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="setting_provider_page_model_display_name">模型显示名称</string>
   <string name="setting_provider_page_model_display_name_placeholder">例如：GPT-3.5, 用于UI显示</string>
   <string name="setting_provider_page_model_id">模型ID</string>
+  <string name="setting_provider_page_context_window">上下文窗口 Token</string>
+  <string name="setting_provider_page_context_window_desc">默认 500,000；模型窗口更小时请在这里下调。</string>
   <string name="setting_provider_page_model_id_placeholder">例如：gpt-3.5-turbo</string>
   <string name="setting_provider_page_model_name">模型名称</string>
   <string name="setting_provider_page_model_type">模型类型</string>

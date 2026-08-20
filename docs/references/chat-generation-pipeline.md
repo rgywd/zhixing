@@ -35,14 +35,16 @@ ChatService.sendMessage()
             │  (最多 maxSteps=256 轮循环)
             │
             ├─ [若无待处理 Tool] 构建 internalMessages
-            │       ├── 稳定层（系统提示 + 记忆 + tool.systemPrompt）
+            │       ├── 稳定前缀（对话冻结的助手提示词；Provider 缓存边界）
+            │       ├── 动态系统层（记忆 + tool.systemPrompt + checkpoint + runtime context）
             │       ├── 历史投影（最新 checkpoint + 最近完整轮次）
             │       ├── limitContext() 按 contextMessageSize 裁剪投影后的历史
             │       └── InputTransformers 管道
             │
             ├─ 首个 Step 请求前 token preflight
-            │       ├── < 262,000 → 继续
-            │       └── ≥ 262,000 → 自动生成 checkpoint、落库并重新构建请求
+            │       ├── 已达到 78% 且 checkpoint 已准备 → 原子激活后重建请求
+            │       ├── 未到安全上限且无已准备结果 → 不阻塞，继续当前请求
+            │       └── 到安全上限且仍无结果 → 静默同步兜底并重建请求
             │
             ├─ generateInternal()
             │       ├── 构建 TextGenerationParams
@@ -81,6 +83,7 @@ onCompletion（Flow 结束或取消）
 
     ▼
 onSuccess
+    ├── prompt ≥ 窗口 60% → 单飞后台准备 checkpoint（不显示处理状态）
     ├── generateTitle()    （异步，使用 titleModel）
     └── generateSuggestion()（异步，使用 suggestionModel）
 
@@ -91,19 +94,46 @@ Job finally
 
 ---
 
+## 推理档位与 OpenAI-compatible 映射
+
+普通 Chat 的 Android 与 Web 端共用六个可选档位：`off`、`low`、`medium`、`high`、`xhigh`、`max`。
+旧版本保存的 `auto` 仅作为反序列化兼容值保留，设置迁移和运行时归一化都会将其转为 `medium`，不会再显示在滑杆上。
+
+OpenAI-compatible 请求在发送前通过集中规则表选择 effort scale：
+
+- 标准 scale 保留六档语义，依次发送 `none`、`low`、`medium`、`high`、`xhigh`、`max`；
+- 已确认只接受 `high` / `max` 的端点与模型族使用 `HIGH_MAX` scale：`off` 映射为 `none` 或厂商关闭开关，
+  `low` / `medium` / `high` 折叠为 `high`，`xhigh` / `max` 折叠为 `max`；
+- 当前 `HIGH_MAX` 家族规则覆盖各自已知端点上的 Kimi、GLM、DeepSeek 和 Qwen / QwQ；
+- 规则必须同时匹配 host 和模型族，未知模型默认使用标准 scale，避免仅凭模型名污染第三方代理；
+- Chat Completions 与 Responses API 共用同一套 profile。Claude 与 Gemini 的原生请求格式不在该映射范围内。
+
+新增模型适配只修改 `OpenAIReasoningProfiles` 的声明式规则，不在各请求分支继续追加单模型判断；实际请求体由
+`ChatCompletionsReasoningTest`、`OpenAIReasoningProfileTest` 和 `ResponseAPIMessageTest` 覆盖。
+
+---
+
 ## 上下文检查点与 token preflight
 
-压缩只处理会话历史层。当前系统提示、助手配置、生效记忆、工具系统提示与 schema、Workspace、Mode
-Injection 和 Lorebook 等稳定请求内容由每次请求重新构建；它们参与 token preflight，但不会被写入摘要。
+压缩只处理会话历史层。对话在首条用户消息时冻结助手用户提示词；它作为系统消息的稳定首段和显式缓存边界。
+生效记忆、工具系统补充、Workspace、Mode Injection、Lorebook、checkpoint 和 runtime context 在其后动态构建；
+工具 schema 继续由 Provider 单独建立缓存边界。这些内容参与 token preflight，但不会被写入摘要。
 
 `ContextCheckpoint` 作为 annotation 写在被覆盖历史的最后一条消息上。Room 与 UI 继续保留完整消息节点和
-兄弟分支；模型请求只取最新 checkpoint 摘要及其后的完整轮次。摘要以系统侧不可信历史上下文注入，不创建新的
-`USER` 消息。编辑、删除或切换消息分支时，应用清除可能失效的 checkpoint，下次请求重新使用原始历史。
+兄弟分支。后台生成的 checkpoint 先以 `active=false` 持久化，不改变当前投影；到激活线后只翻转该标记，模型
+请求才改用摘要及其后的完整轮次。摘要以系统侧不可信历史上下文注入，不创建新的 `USER` 消息。编辑、删除或
+切换消息分支时，应用清除全部 checkpoint，下次请求重新使用原始历史。
 
-- 自动触发：输入 Transformer 完成后，对真正准备发送的消息及工具定义做保守估算，达到 262,000 token
-  后才触发；消息条数不参与触发条件。
+- 模型窗口：`Model.contextWindowTokens` 默认 500,000，可为窗口更小的模型覆盖。
+- 自动准备：输入 Transformer 完成后，对真正发送的消息及工具定义做保守估算；达到模型窗口 60% 时，本轮
+  回复照常完成，随后由会话级单飞 Job 在后台生成 checkpoint，不写 `processingStatus`、不清空聊天建议。
+- 自动激活：达到窗口 78% 时，若后台结果已准备，只做原子持久化并重建请求；checkpoint 在两次压缩周期之间
+  保持冻结，不做逐轮摘要改写。
+- 安全兜底：默认在 `contextWindowTokens - 64,000` 处阻止继续膨胀；小于 256k 的模型改为预留窗口 25%。只有
+  此时仍无准备结果才同步生成 checkpoint，且自动路径仍不显示“正在压缩”。
 - 手动触发：用户随时从附件菜单创建 checkpoint；至少需要两个用户轮次，以确保最新完整轮次保留原文。
-- 历史选择：以用户消息为轮次边界，默认保留约 96,000 token 的最近完整轮次，不拆开最新轮次。
+- 历史选择：以用户消息为轮次边界，不拆开最新轮次。自动路径按窗口 45% 的压缩后目标，扣除稳定/工具开销和
+  8,000 Token 摘要预算后动态计算保留量；手动路径继续使用约 96,000 Token 的最近历史预算。
 - 摘要生成：默认目标 8,000 token，模型请求的 `maxTokens` 与 UI 预算一致；输入按 96,000 token 顺序
   分块，并串行生成、逐层归并 checkpoint。
 - 估算与计费：本地估算以 UTF-8 字节、消息开销、工具 schema 和多媒体保留量计算，故意偏保守；

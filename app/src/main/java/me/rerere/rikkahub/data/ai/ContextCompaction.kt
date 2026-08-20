@@ -1,22 +1,59 @@
 package me.rerere.rikkahub.data.ai
 
 import me.rerere.ai.core.MessageRole
+import me.rerere.ai.provider.DEFAULT_CONTEXT_WINDOW_TOKENS
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 
-internal const val AUTO_COMPACT_TOKEN_THRESHOLD = 262_000
 internal const val AUTO_COMPACT_RECENT_TOKEN_BUDGET = 96_000
 internal const val AUTO_COMPACT_SUMMARY_TOKENS = 8_000
 internal const val COMPACTION_INPUT_CHUNK_TOKENS = 96_000
+private const val AUTO_COMPACT_MIN_RECENT_TOKENS = 32_000
+private const val AUTO_COMPACT_OUTPUT_RESERVE_TOKENS = 64_000
+
+internal data class ContextCompactionPolicy(
+    val prepareAtTokens: Int,
+    val activateAtTokens: Int,
+    val maximumPromptTokens: Int,
+    val targetPromptTokens: Int,
+) {
+    fun shouldPrepare(estimatedTokens: Int): Boolean = estimatedTokens >= prepareAtTokens
+    fun shouldActivate(estimatedTokens: Int): Boolean = estimatedTokens >= activateAtTokens
+    fun requiresSynchronousFallback(estimatedTokens: Int): Boolean =
+        estimatedTokens >= maximumPromptTokens
+}
+
+internal fun contextCompactionPolicy(contextWindowTokens: Int): ContextCompactionPolicy {
+    val safeContextWindowTokens = contextWindowTokens
+        .takeIf { it > 0 }
+        ?: DEFAULT_CONTEXT_WINDOW_TOKENS
+    return ContextCompactionPolicy(
+        prepareAtTokens = safeContextWindowTokens * 60 / 100,
+        activateAtTokens = safeContextWindowTokens * 78 / 100,
+        maximumPromptTokens = safeContextWindowTokens - minOf(
+            AUTO_COMPACT_OUTPUT_RESERVE_TOKENS,
+            safeContextWindowTokens / 4,
+        ),
+        targetPromptTokens = safeContextWindowTokens * 45 / 100,
+    )
+}
+
+internal fun automaticRecentTokenBudget(
+    contextWindowTokens: Int,
+    sourcePromptTokens: Int,
+    projectedHistoryTokens: Int,
+): Int {
+    val stableAndToolOverhead = (sourcePromptTokens - projectedHistoryTokens).coerceAtLeast(0)
+    return (contextCompactionPolicy(contextWindowTokens).targetPromptTokens -
+        stableAndToolOverhead - AUTO_COMPACT_SUMMARY_TOKENS)
+        .coerceAtLeast(AUTO_COMPACT_MIN_RECENT_TOKENS)
+}
 
 internal enum class ContextCompactionTrigger {
     MANUAL,
     AUTO,
 }
-
-internal fun shouldAutoCompactPrompt(estimatedTokens: Int): Boolean =
-    estimatedTokens >= AUTO_COMPACT_TOKEN_THRESHOLD
 
 internal data class PromptHistoryProjection(
     val checkpointSummary: String?,
@@ -36,7 +73,7 @@ private data class ActiveCheckpoint(
 )
 
 internal fun List<UIMessage>.projectContextForPrompt(): PromptHistoryProjection {
-    val checkpoint = latestContextCheckpoint()
+    val checkpoint = latestContextCheckpoint(activeOnly = true)
         ?: return PromptHistoryProjection(checkpointSummary = null, messages = this)
     return PromptHistoryProjection(
         checkpointSummary = checkpoint.annotation.summary,
@@ -50,7 +87,7 @@ internal fun buildContextCompactionPlan(
     forceCompaction: Boolean,
 ): ContextCompactionPlan? {
     require(recentTokenBudget > 0)
-    val checkpoint = messages.latestContextCheckpoint()
+    val checkpoint = messages.latestContextCheckpoint(activeOnly = true)
     val tailStart = (checkpoint?.boundaryIndex ?: -1) + 1
     val tail = messages.drop(tailStart)
     val userStarts = tail.indices.filter { tail[it].role == MessageRole.USER }
@@ -88,6 +125,7 @@ internal fun applyContextCheckpoint(
     sourceTokenEstimate: Int,
     trigger: ContextCompactionTrigger,
     createdAtEpochMillis: Long,
+    active: Boolean = true,
 ): List<UIMessage> {
     require(summary.isNotBlank())
     require(plan.boundaryIndex in messages.indices)
@@ -101,7 +139,29 @@ internal fun applyContextCheckpoint(
                 sourceTokenEstimate = sourceTokenEstimate,
                 createdAtEpochMillis = createdAtEpochMillis,
                 trigger = trigger.name.lowercase(),
+                active = active,
             )
+        )
+    }
+}
+
+internal fun List<UIMessage>.hasPreparedContextCheckpoint(): Boolean =
+    latestContextCheckpoint(activeOnly = false)?.annotation?.active == false
+
+internal fun List<UIMessage>.activateLatestPreparedContextCheckpoint(): List<UIMessage> {
+    val checkpoint = latestContextCheckpoint(activeOnly = false)
+        ?.takeIf { !it.annotation.active }
+        ?: return this
+    return mapIndexed { index, message ->
+        if (index != checkpoint.boundaryIndex) return@mapIndexed message
+        message.copy(
+            annotations = message.annotations.map { annotation ->
+                if (annotation === checkpoint.annotation) {
+                    checkpoint.annotation.copy(active = true)
+                } else {
+                    annotation
+                }
+            }
         )
     }
 }
@@ -176,11 +236,12 @@ internal fun splitCompactionContent(
     return chunks.filter { it.isNotBlank() }
 }
 
-private fun List<UIMessage>.latestContextCheckpoint(): ActiveCheckpoint? =
+private fun List<UIMessage>.latestContextCheckpoint(activeOnly: Boolean): ActiveCheckpoint? =
     indices.asSequence()
         .mapNotNull { index ->
             this[index].annotations
                 .filterIsInstance<UIMessageAnnotation.ContextCheckpoint>()
+                .filter { !activeOnly || it.active }
                 .lastOrNull()
                 ?.let { ActiveCheckpoint(index, it) }
         }

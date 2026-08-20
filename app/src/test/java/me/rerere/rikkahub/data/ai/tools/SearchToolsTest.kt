@@ -9,6 +9,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
+import me.rerere.ai.core.ToolExecutionMode
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.search.SearchCommonOptions
 import me.rerere.search.ImageSearchItem
@@ -70,6 +71,25 @@ class SearchToolsTest {
 
         assertEquals(setOf("query"), providerParams.keys)
         assertEquals("campus", providerParams["query"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `search tools opt into run scoped deduplication without purpose`() {
+        val anySearch: SearchServiceOptions = SearchServiceOptions.AnySearchOptions()
+        val jina: SearchServiceOptions = SearchServiceOptions.JinaOptions()
+        val tools = createSearchTools(
+            Settings(
+                searchServices = listOf(anySearch, jina),
+                searchServiceSelectedIds = setOf(anySearch.id, jina.id),
+            )
+        )
+
+        listOf("search_web", "search_images", "scrape_web").forEach { toolName ->
+            val tool = tools.single { it.name == toolName }
+            assertEquals(ToolExecutionMode.PARALLEL_READ_ONLY, tool.executionMode)
+            assertTrue(tool.deduplicateWithinRun)
+            assertEquals(setOf("purpose"), tool.deduplicationIgnoredInputFields)
+        }
     }
 
     @Test

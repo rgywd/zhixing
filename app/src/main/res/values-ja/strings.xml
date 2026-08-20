@@ -555,6 +555,13 @@
   <string name="quick_messages_page_empty_hint">右下の+ボタンをタップしてクイックメッセージを追加</string>
   <string name="quick_messages_page_empty_title">クイックメッセージがありません</string>
   <string name="quick_messages_page_untitled">無題</string>
+  <string name="quote_share_image">画像を共有</string>
+  <string name="quote_share_image_failed">共有画像を作成できませんでした</string>
+  <string name="quote_share_text">テキストを共有</string>
+  <string name="quote_share_theme_night">夜の読書</string>
+  <string name="quote_share_theme_warm">温かみのある紙</string>
+  <string name="quote_share_title">引用を共有</string>
+  <string name="quote_share_too_long">画像として共有するには、%1$d文字以内を選択してください。テキストは引き続き共有できます。</string>
   <string name="reasoning_auto">自動</string>
   <string name="reasoning_auto_desc">モデルが推論レベルを自動的に決定します。</string>
   <string name="reasoning_custom">カスタム推論予算</string>
@@ -569,6 +576,7 @@
   <string name="reasoning_picker_hint">すべてのモデルが深さ調整に対応しているわけではありません。モデルおよびプロバイダーのドキュメントを参照してください。</string>
   <string name="reasoning_picker_title">モデルの思考深度を調整</string>
   <string name="reasoning_xhigh">XHigh</string>
+  <string name="reasoning_max">最大</string>
   <string name="regenerate">再生成</string>
   <string name="regenerate_confirm_message">このメッセージを再生成してもよろしいですか？</string>
   <string name="render_with_webview">WebViewで表示</string>
@@ -947,6 +955,8 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="setting_provider_page_model_display_name">モデル表示名</string>
   <string name="setting_provider_page_model_display_name_placeholder">例：GPT-3.5、UI表示用</string>
   <string name="setting_provider_page_model_id">モデルID</string>
+  <string name="setting_provider_page_context_window">コンテキストウィンドウのトークン数</string>
+  <string name="setting_provider_page_context_window_desc">既定値は500,000です。コンテキストウィンドウが小さいモデルでは値を下げてください。</string>
   <string name="setting_provider_page_model_id_placeholder">例：gpt-3.5-turbo</string>
   <string name="setting_provider_page_model_name">モデル名</string>
   <string name="setting_provider_page_model_type">モデルタイプ</string>

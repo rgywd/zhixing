@@ -35,7 +35,9 @@ class WorkspaceReminderTransformer(
         val systemIndex = messages.indexOfFirst { it.role == MessageRole.SYSTEM }
         return if (systemIndex >= 0) {
             messages.toMutableList().apply {
-                this[systemIndex] = this[systemIndex].appendText("\n\n$prompt")
+                this[systemIndex] = this[systemIndex].copy(
+                    parts = this[systemIndex].parts + UIMessagePart.Text("\n\n$prompt")
+                )
             }
         } else {
             listOf(UIMessage.system(prompt)) + messages
@@ -73,16 +75,4 @@ internal fun buildWorkspacePrompt(
         }
     }
     append("</workspace>")
-}
-
-private fun UIMessage.appendText(extra: String): UIMessage {
-    val updatedParts = parts.toMutableList()
-    val firstTextIndex = updatedParts.indexOfFirst { it is UIMessagePart.Text }
-    if (firstTextIndex >= 0) {
-        val text = updatedParts[firstTextIndex] as UIMessagePart.Text
-        updatedParts[firstTextIndex] = text.copy(text = text.text + extra)
-    } else {
-        updatedParts.add(UIMessagePart.Text(extra))
-    }
-    return copy(parts = updatedParts)
 }

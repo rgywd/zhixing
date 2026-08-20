@@ -555,6 +555,13 @@
   <string name="quick_messages_page_empty_hint">點擊右下角的 + 按鈕來新增快速訊息</string>
   <string name="quick_messages_page_empty_title">無快速訊息</string>
   <string name="quick_messages_page_untitled">未命名</string>
+  <string name="quote_share_image">分享圖片</string>
+  <string name="quote_share_image_failed">無法產生分享圖片</string>
+  <string name="quote_share_text">分享文字</string>
+  <string name="quote_share_theme_night">夜讀</string>
+  <string name="quote_share_theme_warm">暖紙</string>
+  <string name="quote_share_title">分享金句</string>
+  <string name="quote_share_too_long">圖片分享最多支援 %1$d 個字元，請縮短選取範圍；仍可直接分享文字。</string>
   <string name="reasoning_auto">自動</string>
   <string name="reasoning_auto_desc">讓模型自動決定推理級別。</string>
   <string name="reasoning_custom">自定義推理預算</string>
@@ -569,6 +576,7 @@
   <string name="reasoning_picker_hint">並非所有模型都支援深度調整。請參閱模型與提供者文件。</string>
   <string name="reasoning_picker_title">調整模型思考深度</string>
   <string name="reasoning_xhigh">超高</string>
+  <string name="reasoning_max">極致</string>
   <string name="regenerate">重新生成</string>
   <string name="regenerate_confirm_message">您確定要重新產生這則訊息嗎？</string>
   <string name="render_with_webview">網頁視圖渲染</string>
@@ -945,6 +953,8 @@
   <string name="setting_provider_page_model_display_name">模型顯示名稱</string>
   <string name="setting_provider_page_model_display_name_placeholder">例如：GPT-3.5, 用於UI顯示</string>
   <string name="setting_provider_page_model_id">模型ID</string>
+  <string name="setting_provider_page_context_window">上下文視窗 Token</string>
+  <string name="setting_provider_page_context_window_desc">預設 500,000；模型視窗較小時請在這裡下調。</string>
   <string name="setting_provider_page_model_id_placeholder">例如：gpt-3.5-turbo</string>
   <string name="setting_provider_page_model_name">模型名稱</string>
   <string name="setting_provider_page_model_type">模型類型</string>

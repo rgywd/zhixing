@@ -20,7 +20,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.contextmenu.builder.item
+import androidx.compose.foundation.text.contextmenu.modifier.appendTextContextMenuComponents
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.selection.rememberSelectionState
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
@@ -111,6 +114,7 @@ fun ChatMessage(
     onRegenerate: () -> Unit,
     onEdit: () -> Unit,
     onShare: () -> Unit,
+    onShareQuote: ((SelectedQuote) -> Unit)? = null,
     onDelete: () -> Unit,
     onUpdate: (MessageNode) -> Unit,
     isFavorite: Boolean = false,
@@ -171,6 +175,20 @@ fun ChatMessage(
                 onToolApproval = onToolApproval,
                 onToolAnswer = onToolAnswer,
                 onUserMessageClick = if (message.role == MessageRole.USER) onEdit else null,
+                onShareSelectedText = if (message.role == MessageRole.ASSISTANT && onShareQuote != null) {
+                    { text ->
+                        onShareQuote(
+                            SelectedQuote(
+                                text = text,
+                                modelName = model?.displayName?.takeIf { it.isNotBlank() }
+                                    ?: model?.modelId?.takeIf { it.isNotBlank() },
+                                createdAt = message.createdAt,
+                            )
+                        )
+                    }
+                } else {
+                    null
+                },
             )
 
             message.translation?.let { translation ->
@@ -276,6 +294,7 @@ internal fun MessagePartsBlock(
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
     onToolCancel: ((toolCallId: String) -> Unit)? = null,
     onUserMessageClick: (() -> Unit)? = null,
+    onShareSelectedText: ((String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
@@ -378,6 +397,8 @@ internal fun MessagePartsBlock(
             is MessagePartBlock.ContentBlock -> key(block.index) {
                 when (val part = block.part) {
                     is UIMessagePart.Text -> {
+                        val selectionState = rememberSelectionState()
+                        val shareLabel = stringResource(R.string.share)
                         val textContent = @Composable {
                             if (role == MessageRole.USER) {
                                 Surface(
@@ -437,7 +458,22 @@ internal fun MessagePartsBlock(
                         if (loading) {
                             textContent()
                         } else {
-                            SelectionContainer {
+                            SelectionContainer(
+                                state = selectionState,
+                                modifier = Modifier.appendTextContextMenuComponents {
+                                    val selectedText = buildSelectedQuoteText(selectionState.selectedTexts)
+                                    if (selectedText.isNotEmpty() && onShareSelectedText != null) {
+                                        item(
+                                            key = ShareSelectedQuoteMenuKey,
+                                            label = shareLabel,
+                                        ) {
+                                            close()
+                                            selectionState.clear()
+                                            onShareSelectedText(selectedText)
+                                        }
+                                    }
+                                },
+                            ) {
                                 textContent()
                             }
                         }
@@ -698,3 +734,5 @@ internal fun MessagePartsBlock(
         }
     }
 }
+
+private data object ShareSelectedQuoteMenuKey

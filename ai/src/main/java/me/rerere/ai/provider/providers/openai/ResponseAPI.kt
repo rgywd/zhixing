@@ -230,12 +230,13 @@ class ResponseAPI(
                         put("thinking_budget", level.budgetTokens)
                     }
                 } else {
+                    val reasoningProfile = OpenAIReasoningProfiles.resolve(host, params.model.modelId)
                     put("reasoning", buildJsonObject {
                         if (capabilities.supportsReasoningSummary) {
                             put("summary", "auto")
                         }
                         if (level != ReasoningLevel.AUTO) {
-                            put("effort", level.effort)
+                            put("effort", reasoningProfile.effortFor(level))
                         }
                     })
                     if (capabilities.supportEncryptedContent) {

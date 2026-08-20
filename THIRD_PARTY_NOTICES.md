@@ -17,3 +17,9 @@ The optional Location & Travel feature includes the official combined AMap Andro
 
 The AMap request encoder uses Java Fast Math (`net.jafama:jafama`), distributed under the
 [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+
+## Zhi Mang Xing
+
+Quote share cards use the Zhi Mang Xing running-script font. Copyright 2018 The Zhi Mang Xing
+Project Authors. The font is distributed under the SIL Open Font License 1.1; a copy is bundled
+with the app at `res/raw/zhi_mang_xing_ofl.txt`.

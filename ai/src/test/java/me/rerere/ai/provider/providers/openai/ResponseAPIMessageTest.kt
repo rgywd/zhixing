@@ -556,6 +556,29 @@ class ResponseAPIMessageTest {
         assertEquals(2, citations.size)
     }
 
+    @Test
+    fun `openai response api should send max effort`() {
+        val requestBody = invokeBuildRequestBody(
+            providerSetting = ProviderSetting.OpenAI(baseUrl = "https://api.openai.com/v1"),
+            params = createReasoningParams(reasoningLevel = ReasoningLevel.MAX),
+        )
+
+        assertEquals(
+            "max",
+            requestBody["reasoning"]?.jsonObject?.get("effort")?.jsonPrimitive?.content,
+        )
+    }
+
+    @Test
+    fun `non Chat auto keeps provider automatic effort behavior`() {
+        val requestBody = invokeBuildRequestBody(
+            providerSetting = ProviderSetting.OpenAI(baseUrl = "https://api.openai.com/v1"),
+            params = createReasoningParams(reasoningLevel = ReasoningLevel.AUTO),
+        )
+
+        assertFalse(requestBody["reasoning"]?.jsonObject?.containsKey("effort") ?: true)
+    }
+
     // ==================== Helper Functions ====================
 
     private fun responseWithWebSearchSources() = buildJsonObject {

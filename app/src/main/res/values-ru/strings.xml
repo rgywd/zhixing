@@ -555,6 +555,13 @@
   <string name="quick_messages_page_empty_hint">Нажмите кнопку + в правом нижнем углу, чтобы добавить быстрое сообщение</string>
   <string name="quick_messages_page_empty_title">Нет быстрых сообщений</string>
   <string name="quick_messages_page_untitled">Без названия</string>
+  <string name="quote_share_image">Поделиться изображением</string>
+  <string name="quote_share_image_failed">Не удалось создать изображение для публикации</string>
+  <string name="quote_share_text">Поделиться текстом</string>
+  <string name="quote_share_theme_night">Ночное чтение</string>
+  <string name="quote_share_theme_warm">Тёплая бумага</string>
+  <string name="quote_share_title">Поделиться цитатой</string>
+  <string name="quote_share_too_long">Чтобы поделиться изображением, выберите не более %1$d символов. Текстом можно поделиться без этого ограничения.</string>
   <string name="reasoning_auto">Авто</string>
   <string name="reasoning_auto_desc">Позволить модели автоматически определить уровень рассуждений.</string>
   <string name="reasoning_custom">Пользовательский бюджет рассуждений</string>
@@ -569,6 +576,7 @@
   <string name="reasoning_picker_hint">Не все модели поддерживают настройку глубины. См. документацию модели и провайдера.</string>
   <string name="reasoning_picker_title">Настроить глубину мышления модели</string>
   <string name="reasoning_xhigh">Очень высокий</string>
+  <string name="reasoning_max">Максимум</string>
   <string name="regenerate">Сгенерировать заново</string>
   <string name="regenerate_confirm_message">Вы уверены, что хотите перегенерировать это сообщение?</string>
   <string name="render_with_webview">Отображать в WebView</string>
@@ -947,6 +955,8 @@
   <string name="setting_provider_page_model_display_name">Отображаемое имя модели</string>
   <string name="setting_provider_page_model_display_name_placeholder">например: GPT-3.5, для отображения в интерфейсе</string>
   <string name="setting_provider_page_model_id">ID модели</string>
+  <string name="setting_provider_page_context_window">Токены контекстного окна</string>
+  <string name="setting_provider_page_context_window_desc">По умолчанию 500 000. Уменьшите значение для моделей с меньшим контекстным окном.</string>
   <string name="setting_provider_page_model_id_placeholder">например: gpt-3.5-turbo</string>
   <string name="setting_provider_page_model_name">Название модели</string>
   <string name="setting_provider_page_model_type">Тип модели</string>
