@@ -32,15 +32,11 @@
     "custom_budget_placeholder": "输入预算 token 数",
     "invalid_integer": "请输入有效的整数",
     "apply": "应用",
-    "examples": "示例：0（关闭）、-1（自动）、1024、16000、32000",
+    "examples": "示例：0（关闭）、1024、16000、32000",
     "presets": {
       "off": {
         "label": "关闭",
         "description": "关闭推理功能，模型将直接回答问题。"
-      },
-      "auto": {
-        "label": "自动",
-        "description": "让模型自动决定推理级别。"
       },
       "low": {
         "label": "轻度推理",
@@ -55,8 +51,12 @@
         "description": "模型将使用大量推理来回答问题。"
       },
       "xhigh": {
-        "label": "极限推理",
-        "description": "模型将使用最大推理预算来回答问题。"
+        "label": "超高推理",
+        "description": "模型将使用很高的推理强度来回答问题。"
+      },
+      "max": {
+        "label": "极致推理",
+        "description": "模型将使用可用的最高推理强度来回答问题。"
       }
     }
   },

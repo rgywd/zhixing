@@ -134,6 +134,14 @@ object SettingsJsonMigrator {
                 root["asrProviders"] = JsonInstant.parseToJsonElement(migrated)
             }
 
+            // V7: 普通 Chat 取消“自动”档，旧助手显式迁移到新的默认“中等”。
+            root["assistants"]?.let { element ->
+                val migrated = migrateAssistantReasoningLevels(
+                    JsonInstant.encodeToString(element)
+                )
+                root["assistants"] = JsonInstant.parseToJsonElement(migrated)
+            }
+
             JsonInstant.encodeToString(JsonObject(root))
         }.onFailure {
             Log.e(TAG, "migrate: Failed to migrate settings JSON, using original", it)

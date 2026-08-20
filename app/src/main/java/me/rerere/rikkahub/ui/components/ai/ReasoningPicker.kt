@@ -38,7 +38,6 @@ import androidx.compose.ui.unit.dp
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Idea
-import me.rerere.hugeicons.stroke.Idea01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.components.ui.ToggleSurface
 import me.rerere.rikkahub.ui.components.ui.icons.ReasoningHigh
@@ -46,7 +45,7 @@ import me.rerere.rikkahub.ui.components.ui.icons.ReasoningLow
 import me.rerere.rikkahub.ui.components.ui.icons.ReasoningMedium
 import kotlin.math.roundToInt
 
-private val levels = ReasoningLevel.entries
+private val levels = ReasoningLevel.selectableEntries
 private val levelCount = levels.size
 
 @Composable
@@ -67,7 +66,7 @@ fun ReasoningButton(
     }
 
     ReasoningButtonSurface(
-        checked = reasoningLevel.isEnabled,
+        checked = reasoningLevel.normalizedForChat.isEnabled,
         onClick = { showPicker = true },
         modifier = modifier,
         onlyIcon = onlyIcon,
@@ -104,7 +103,8 @@ fun ReasoningPicker(
     onDismissRequest: () -> Unit = {},
     onUpdateReasoningLevel: (ReasoningLevel) -> Unit,
 ) {
-    val currentIndex = levels.indexOf(reasoningLevel).coerceAtLeast(0)
+    val displayLevel = reasoningLevel.normalizedForChat
+    val currentIndex = levels.indexOf(displayLevel).coerceAtLeast(0)
     var sliderValue by remember { mutableFloatStateOf(currentIndex.toFloat()) }
 
     LaunchedEffect(currentIndex) {
@@ -146,24 +146,25 @@ fun ReasoningPicker(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 val iconColor by animateColorAsState(
-                    if (reasoningLevel.isEnabled) MaterialTheme.colorScheme.primary
+                    if (displayLevel.isEnabled) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface
                 )
                 Icon(
-                    imageVector = when (reasoningLevel) {
+                    imageVector = when (displayLevel) {
                         ReasoningLevel.OFF -> HugeIcons.Idea
-                        ReasoningLevel.AUTO -> HugeIcons.Idea01
+                        ReasoningLevel.AUTO -> ReasoningMedium
                         ReasoningLevel.LOW -> ReasoningLow
                         ReasoningLevel.MEDIUM -> ReasoningMedium
                         ReasoningLevel.HIGH -> ReasoningHigh
                         ReasoningLevel.XHIGH -> ReasoningHigh
+                        ReasoningLevel.MAX -> ReasoningHigh
                     },
                     contentDescription = null,
                     modifier = Modifier.size(32.dp),
                     tint = iconColor,
                 )
                 Text(
-                    text = reasoningLevel.label(),
+                    text = displayLevel.label(),
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
@@ -209,7 +210,7 @@ fun ReasoningPicker(
                 )
 
                 ReasoningScale(
-                    selectedLevel = reasoningLevel,
+                    selectedLevel = displayLevel,
                     onSelect = { level ->
                         sliderValue = levels.indexOf(level).toFloat()
                         onUpdateReasoningLevel(level)
@@ -279,31 +280,33 @@ private fun ReasoningScale(
 
 @Composable
 private fun ReasoningIcon(level: ReasoningLevel) {
-    when (level) {
+    when (level.normalizedForChat) {
         ReasoningLevel.OFF -> Icon(HugeIcons.Idea, null)
-        ReasoningLevel.AUTO -> Icon(HugeIcons.Idea01, null)
+        ReasoningLevel.AUTO -> Icon(ReasoningMedium, null)
         ReasoningLevel.LOW -> Icon(ReasoningLow, null)
         ReasoningLevel.MEDIUM -> Icon(ReasoningMedium, null)
         ReasoningLevel.HIGH -> Icon(ReasoningHigh, null)
         ReasoningLevel.XHIGH -> Icon(ReasoningHigh, null)
+        ReasoningLevel.MAX -> Icon(ReasoningHigh, null)
     }
 }
 
 @Composable
-private fun ReasoningLevel.label(): String = when (this) {
+private fun ReasoningLevel.label(): String = when (normalizedForChat) {
     ReasoningLevel.OFF -> stringResource(R.string.reasoning_off)
-    ReasoningLevel.AUTO -> stringResource(R.string.reasoning_auto)
+    ReasoningLevel.AUTO -> stringResource(R.string.reasoning_medium)
     ReasoningLevel.LOW -> stringResource(R.string.reasoning_light)
     ReasoningLevel.MEDIUM -> stringResource(R.string.reasoning_medium)
     ReasoningLevel.HIGH -> stringResource(R.string.reasoning_heavy)
     ReasoningLevel.XHIGH -> stringResource(R.string.reasoning_xhigh)
+    ReasoningLevel.MAX -> stringResource(R.string.reasoning_max)
 }
 
 @Composable
 @Preview(showBackground = true)
 private fun ReasoningPickerPreview() {
     MaterialTheme {
-        var level by remember { mutableStateOf(ReasoningLevel.AUTO) }
+        var level by remember { mutableStateOf(ReasoningLevel.MEDIUM) }
         ReasoningPicker(
             reasoningLevel = level,
             onUpdateReasoningLevel = { level = it }

@@ -94,6 +94,25 @@ Job finally
 
 ---
 
+## 推理档位与 OpenAI-compatible 映射
+
+普通 Chat 的 Android 与 Web 端共用六个可选档位：`off`、`low`、`medium`、`high`、`xhigh`、`max`。
+旧版本保存的 `auto` 仅作为反序列化兼容值保留，设置迁移和运行时归一化都会将其转为 `medium`，不会再显示在滑杆上。
+
+OpenAI-compatible 请求在发送前通过集中规则表选择 effort scale：
+
+- 标准 scale 保留六档语义，依次发送 `none`、`low`、`medium`、`high`、`xhigh`、`max`；
+- 已确认只接受 `high` / `max` 的端点与模型族使用 `HIGH_MAX` scale：`off` 映射为 `none` 或厂商关闭开关，
+  `low` / `medium` / `high` 折叠为 `high`，`xhigh` / `max` 折叠为 `max`；
+- 当前 `HIGH_MAX` 家族规则覆盖各自已知端点上的 Kimi、GLM、DeepSeek 和 Qwen / QwQ；
+- 规则必须同时匹配 host 和模型族，未知模型默认使用标准 scale，避免仅凭模型名污染第三方代理；
+- Chat Completions 与 Responses API 共用同一套 profile。Claude 与 Gemini 的原生请求格式不在该映射范围内。
+
+新增模型适配只修改 `OpenAIReasoningProfiles` 的声明式规则，不在各请求分支继续追加单模型判断；实际请求体由
+`ChatCompletionsReasoningTest`、`OpenAIReasoningProfileTest` 和 `ResponseAPIMessageTest` 覆盖。
+
+---
+
 ## 上下文检查点与 token preflight
 
 压缩只处理会话历史层。对话在首条用户消息时冻结助手用户提示词；它作为系统消息的稳定首段和显式缓存边界。

@@ -33,7 +33,7 @@ data class Assistant(
     val presetMessages: List<UIMessage> = emptyList(),
     val quickMessageIds: Set<Uuid> = emptySet(),
     val regexes: List<AssistantRegex> = emptyList(),
-    val reasoningLevel: ReasoningLevel = ReasoningLevel.AUTO,
+    val reasoningLevel: ReasoningLevel = ReasoningLevel.MEDIUM,
     val maxTokens: Int? = null,
     val customHeaders: List<CustomHeader> = emptyList(),
     val customBodies: List<CustomBody> = emptyList(),
