@@ -16,6 +16,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import me.rerere.ai.provider.EmbeddingGenerationParams
 import me.rerere.ai.provider.EmbeddingGenerationResult
+import me.rerere.ai.provider.BuiltInToolSupport
 import me.rerere.ai.provider.ImageEditParams
 import me.rerere.ai.provider.ImageGenerationParams
 import me.rerere.ai.provider.Model
@@ -117,7 +118,9 @@ class OpenAIProvider(
         providerSetting: ProviderSetting.OpenAI,
         messages: List<UIMessage>,
         params: TextGenerationParams
-    ): Flow<MessageChunk> = if (providerSetting.useResponseApi) {
+    ): Flow<MessageChunk> = if (
+        providerSetting.useResponseApi || BuiltInToolSupport.requiresResponsesApi(providerSetting, params.model)
+    ) {
         responseAPI.streamText(
             providerSetting = providerSetting,
             messages = messages,
@@ -135,7 +138,9 @@ class OpenAIProvider(
         providerSetting: ProviderSetting.OpenAI,
         messages: List<UIMessage>,
         params: TextGenerationParams
-    ): MessageChunk = if (providerSetting.useResponseApi) {
+    ): MessageChunk = if (
+        providerSetting.useResponseApi || BuiltInToolSupport.requiresResponsesApi(providerSetting, params.model)
+    ) {
         responseAPI.generateText(
             providerSetting = providerSetting,
             messages = messages,

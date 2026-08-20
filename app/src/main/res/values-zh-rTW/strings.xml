@@ -811,6 +811,13 @@
   <string name="setting_page_built_in_tools_search_desc">啟用 Google 搜尋整合</string>
   <string name="setting_page_built_in_tools_url_context">URL 上下文</string>
   <string name="setting_page_built_in_tools_url_context_desc">啟用 URL 內容處理</string>
+  <string name="setting_page_built_in_tools_web_extractor">網頁正文擷取</string>
+  <string name="setting_page_built_in_tools_web_extractor_desc">讀取網頁完整正文；啟用後會自動啟用網路搜尋。</string>
+  <string name="setting_page_built_in_tools_web_search_image">文搜圖</string>
+  <string name="setting_page_built_in_tools_web_search_image_desc">根據文字描述查找網路上的相關圖片。</string>
+  <string name="setting_page_built_in_tools_image_search">圖搜圖</string>
+  <string name="setting_page_built_in_tools_image_search_desc">對話中包含輸入圖片時查找相似圖片。</string>
+  <string name="image_search_results_count">圖片結果（%1$d）</string>
   <string name="setting_page_chat_storage">聊天記錄儲存</string>
   <string name="setting_page_chat_storage_desc">%1$d 個檔案，%2$.2f MB</string>
   <string name="setting_page_code_display_settings">程式碼顯示</string>

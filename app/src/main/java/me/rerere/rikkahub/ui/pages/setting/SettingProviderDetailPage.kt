@@ -91,6 +91,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dokar.sonner.ToastType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import me.rerere.ai.provider.BuiltInToolSupport
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.Model
@@ -692,7 +693,8 @@ private fun ModelSettingsForm(
                 2 -> {
                     // 内置工具页面
                     BuiltInToolsSettings(
-                        tools = model.tools,
+                        model = model,
+                        parentProvider = parentProvider,
                         onUpdateTools = { tools ->
                             onModelChange(model.copy(tools = tools))
                         }
@@ -1376,9 +1378,12 @@ private fun ModelCard(
 
 @Composable
 private fun BuiltInToolsSettings(
-    tools: Set<BuiltInTools>,
+    model: Model,
+    parentProvider: ProviderSetting?,
     onUpdateTools: (Set<BuiltInTools>) -> Unit
 ) {
+    val tools = model.tools
+    val effectiveProvider = model.providerOverwrite ?: parentProvider
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1397,20 +1402,45 @@ private fun BuiltInToolsSettings(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        val availableTools = listOf(
-            BuiltInTools.Search to Pair(
-                stringResource(R.string.setting_page_built_in_tools_search),
-                stringResource(R.string.setting_page_built_in_tools_search_desc)
-            ),
-            BuiltInTools.UrlContext to Pair(
-                stringResource(R.string.setting_page_built_in_tools_url_context),
-                stringResource(R.string.setting_page_built_in_tools_url_context_desc)
-            ),
-            BuiltInTools.ImageGeneration to Pair(
-                stringResource(R.string.setting_page_built_in_tools_image_generation),
-                stringResource(R.string.setting_page_built_in_tools_image_generation_desc)
+        val availableTools = buildList {
+            add(
+                BuiltInTools.Search to Pair(
+                    stringResource(R.string.setting_page_built_in_tools_search),
+                    stringResource(R.string.setting_page_built_in_tools_search_desc)
+                )
             )
-        )
+            add(
+                BuiltInTools.UrlContext to Pair(
+                    stringResource(R.string.setting_page_built_in_tools_url_context),
+                    stringResource(R.string.setting_page_built_in_tools_url_context_desc)
+                )
+            )
+            add(
+                BuiltInTools.ImageGeneration to Pair(
+                    stringResource(R.string.setting_page_built_in_tools_image_generation),
+                    stringResource(R.string.setting_page_built_in_tools_image_generation_desc)
+                )
+            )
+
+            val bailianTools = listOf(
+                BuiltInTools.WebExtractor to Pair(
+                    stringResource(R.string.setting_page_built_in_tools_web_extractor),
+                    stringResource(R.string.setting_page_built_in_tools_web_extractor_desc)
+                ),
+                BuiltInTools.WebSearchImage to Pair(
+                    stringResource(R.string.setting_page_built_in_tools_web_search_image),
+                    stringResource(R.string.setting_page_built_in_tools_web_search_image_desc)
+                ),
+                BuiltInTools.ImageSearch to Pair(
+                    stringResource(R.string.setting_page_built_in_tools_image_search),
+                    stringResource(R.string.setting_page_built_in_tools_image_search_desc)
+                ),
+            )
+            addAll(bailianTools.filter { entry ->
+                entry.first in tools ||
+                    BuiltInToolSupport.supports(effectiveProvider, model, entry.first)
+            })
+        }
 
         availableTools.forEach { (tool, info) ->
             val (title, description) = info
@@ -1441,11 +1471,7 @@ private fun BuiltInToolsSettings(
                     Switch(
                         checked = tool in tools,
                         onCheckedChange = { checked ->
-                            if (checked) {
-                                onUpdateTools(tools + tool)
-                            } else {
-                                onUpdateTools(tools - tool)
-                            }
+                            onUpdateTools(BuiltInToolSupport.updateSelection(tools, tool, checked))
                         }
                     )
                 }

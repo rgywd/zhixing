@@ -131,6 +131,12 @@ SettingsStore -> DataStore
 ## 扩展边界
 
 - Provider 统一暴露能力与生成方法，供应商特例不得泄漏到聊天 UI。
+- 模型内置工具入口由 Provider 与模型能力表共同决定。国际版百炼普通按量 API 的 `web_search`、
+  `web_extractor`、`web_search_image` 与 `image_search` 通过 OpenAI-compatible Responses 接入；真实 smoke
+  确认 `qwen3.8-max` 与 `qwen3.7-plus` 支持四项工具，`deepseek-v4-flash-0731` 仅支持联网搜索与网页正文抓取。
+  后续模型只扩展 Provider 能力表，不在 UI 增加厂商判断。网页正文抓取始终隐含启用联网搜索；图搜图仅对声明
+  支持图片输入、且请求上下文实际含图片的模型下发。
+  百炼返回的图片搜索结果先校验、去重和限量，再作为结构化图片引用持久化与展示，不与图片生成混用。
 - MCP、搜索、语音和设备连接均为可选能力；失败只降级对应入口。
 - 知识库托管的助手用户提示词只影响修改后开始的新对话；当前对话和 fork 使用 Room 中已冻结的快照。
 - Knowledge Space 复用 Workspace，原文与派生索引边界见

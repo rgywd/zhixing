@@ -2,16 +2,23 @@ package me.rerere.ai.provider.providers.openai
 
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
+import me.rerere.ai.core.Tool
+import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
+import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
+import me.rerere.ai.ui.ImageSearchType
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
@@ -355,6 +362,201 @@ class ResponseAPIMessageTest {
     }
 
     @Test
+    fun `Bailian request should keep function tools together with web search`() {
+        val providerSetting = ProviderSetting.OpenAI(
+            baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        )
+        val model = Model(
+            modelId = "qwen3.8-max",
+            displayName = "qwen3.8-max",
+            abilities = listOf(ModelAbility.TOOL),
+            tools = setOf(BuiltInTools.Search),
+        )
+        val params = TextGenerationParams(
+            model = model,
+            tools = listOf(
+                Tool(
+                    name = "local_tool",
+                    description = "A local function tool",
+                    execute = { emptyList() },
+                )
+            )
+        )
+
+        val requestTools = invokeBuildRequestBody(providerSetting, params)["tools"]!!.jsonArray
+
+        assertEquals(2, requestTools.size)
+        assertEquals("function", requestTools[0].jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("local_tool", requestTools[0].jsonObject["name"]?.jsonPrimitive?.content)
+        assertEquals("web_search", requestTools[1].jsonObject["type"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `Bailian request should serialize selected Harness tools and extractor dependency`() {
+        val providerSetting = ProviderSetting.OpenAI(
+            baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        )
+        val params = TextGenerationParams(
+            model = Model(
+                modelId = "qwen3.7-plus",
+                displayName = "qwen3.7-plus",
+                tools = setOf(
+                    BuiltInTools.WebExtractor,
+                    BuiltInTools.WebSearchImage,
+                    BuiltInTools.ImageSearch,
+                ),
+            )
+        )
+
+        val requestTools = api.buildRequestBody(
+            providerSetting,
+            listOf(UIMessage.user("find an image")),
+            params,
+            false,
+        )["tools"]!!.jsonArray.map { it.jsonObject["type"]!!.jsonPrimitive.content }
+
+        assertTrue("web_search" in requestTools)
+        assertTrue("web_extractor" in requestTools)
+        assertTrue("web_search_image" in requestTools)
+        assertFalse("image_search" in requestTools)
+    }
+
+    @Test
+    fun `Bailian image search should only be sent when conversation contains an image`() {
+        val providerSetting = ProviderSetting.OpenAI(
+            baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        )
+        val params = TextGenerationParams(
+            model = Model(
+                modelId = "qwen3.7-plus",
+                displayName = "qwen3.7-plus",
+                inputModalities = listOf(Modality.TEXT, Modality.IMAGE),
+                tools = setOf(BuiltInTools.ImageSearch),
+            )
+        )
+        val messageWithImage = UIMessage(
+            role = MessageRole.USER,
+            parts = listOf(
+                UIMessagePart.Text("find similar images"),
+                UIMessagePart.Image("https://example.com/input.png"),
+            )
+        )
+
+        val requestTools = api.buildRequestBody(
+            providerSetting,
+            listOf(messageWithImage),
+            params,
+            false,
+        )["tools"]!!.jsonArray
+
+        assertEquals("image_search", requestTools.single().jsonObject["type"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `Bailian response api should use DashScope thinking parameters`() {
+        val providerSetting = ProviderSetting.OpenAI(
+            baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        )
+        val requestBody = invokeBuildRequestBody(
+            providerSetting = providerSetting,
+            params = TextGenerationParams(
+                model = Model(
+                    modelId = "qwen3.8-max",
+                    displayName = "qwen3.8-max",
+                    abilities = listOf(ModelAbility.REASONING),
+                ),
+                reasoningLevel = ReasoningLevel.OFF,
+            )
+        )
+
+        assertEquals("false", requestBody["enable_thinking"]?.jsonPrimitive?.content)
+        assertEquals("0", requestBody["thinking_budget"]?.jsonPrimitive?.content)
+        assertFalse(requestBody.containsKey("reasoning"))
+        assertFalse(requestBody.containsKey("include"))
+    }
+
+    @Test
+    fun `web search sources should become deduplicated url citations`() {
+        val outputs = webSearchOutputs()
+
+        val citations = api.parseWebSearchCitations(outputs)
+
+        assertEquals(2, citations.size)
+        assertEquals("First source", citations[0].title)
+        assertEquals("https://example.com/a", citations[0].url)
+        assertEquals("example.org", citations[1].title)
+    }
+
+    @Test
+    fun `web extractor urls should become safe url citations`() {
+        val outputs = JsonArray(listOf(buildJsonObject {
+            put("type", "web_extractor_call")
+            put("urls", JsonArray(listOf(
+                kotlinx.serialization.json.JsonPrimitive("https://docs.example.com/page"),
+                kotlinx.serialization.json.JsonPrimitive("javascript:alert(1)"),
+            )))
+        }))
+
+        val citations = api.parseWebSearchCitations(outputs)
+
+        assertEquals(1, citations.size)
+        assertEquals("docs.example.com", citations.single().title)
+        assertEquals("https://docs.example.com/page", citations.single().url)
+    }
+
+    @Test
+    fun `non-streaming response should expose web search sources on assistant message`() {
+        val response = responseWithWebSearchSources()
+
+        val message = api.parseResponseOutput(response).choices.single().message!!
+
+        assertEquals("Answer", (message.parts.single() as UIMessagePart.Text).text)
+        assertEquals(2, message.annotations.size)
+    }
+
+    @Test
+    fun `stream completion should expose web search sources as annotation delta`() {
+        val event = buildJsonObject {
+            put("type", "response.completed")
+            put("response", responseWithWebSearchSources())
+        }
+
+        val delta = api.parseResponseDelta(event)!!.choices.single().delta!!
+
+        assertTrue(delta.parts.isEmpty())
+        assertEquals(2, delta.annotations.size)
+    }
+
+    @Test
+    fun `image search outputs should become validated deduplicated image citations`() {
+        val citations = api.parseImageSearchCitations(imageSearchOutputs())
+
+        assertEquals(2, citations.size)
+        assertEquals("Text result", citations[0].title)
+        assertEquals("https://images.example.com/text.png", citations[0].url)
+        assertEquals(ImageSearchType.TEXT, citations[0].searchType)
+        assertEquals(ImageSearchType.IMAGE, citations[1].searchType)
+    }
+
+    @Test
+    fun `stream completion should expose image search results as annotation deltas`() {
+        val event = buildJsonObject {
+            put("type", "response.completed")
+            put("response", buildJsonObject {
+                put("id", "resp_images")
+                put("model", "qwen3.7-plus")
+                put("output", imageSearchOutputs())
+            })
+        }
+
+        val delta = api.parseResponseDelta(event)!!.choices.single().delta!!
+        val citations = delta.annotations.filterIsInstance<UIMessageAnnotation.ImageCitation>()
+
+        assertTrue(delta.parts.isEmpty())
+        assertEquals(2, citations.size)
+    }
+
+    @Test
     fun `openai response api should send max effort`() {
         val requestBody = invokeBuildRequestBody(
             providerSetting = ProviderSetting.OpenAI(baseUrl = "https://api.openai.com/v1"),
@@ -378,6 +580,64 @@ class ResponseAPIMessageTest {
     }
 
     // ==================== Helper Functions ====================
+
+    private fun responseWithWebSearchSources() = buildJsonObject {
+        put("id", "resp_1")
+        put("model", "qwen3.8-max")
+        put("output", JsonArray(webSearchOutputs() + buildJsonObject {
+            put("type", "message")
+            put("content", JsonArray(listOf(buildJsonObject {
+                put("type", "output_text")
+                put("text", "Answer")
+            })))
+        }))
+    }
+
+    private fun webSearchOutputs() = JsonArray(
+        listOf(
+            buildJsonObject {
+                put("type", "web_search_call")
+                put("action", buildJsonObject {
+                    put("sources", JsonArray(listOf(
+                        buildJsonObject {
+                            put("title", "First source")
+                            put("url", "https://example.com/a")
+                        },
+                        buildJsonObject {
+                            put("title", "Duplicate")
+                            put("url", "https://example.com/a")
+                        },
+                        buildJsonObject {
+                            put("url", "https://example.org/b")
+                        },
+                        buildJsonObject {
+                            put("title", "Unsafe")
+                            put("url", "javascript:alert(1)")
+                        },
+                    )))
+                })
+            }
+        )
+    )
+
+    private fun imageSearchOutputs() = JsonArray(
+        listOf(
+            buildJsonObject {
+                put("type", "web_search_image_call")
+                put(
+                    "output",
+                    """[{"title":"Text result","url":"https://images.example.com/text.png","index":0},{"title":"Unsafe","url":"javascript:alert(1)","index":1}]"""
+                )
+            },
+            buildJsonObject {
+                put("type", "image_search_call")
+                put(
+                    "output",
+                    """[{"title":"Duplicate","url":"https://images.example.com/text.png","index":0},{"title":"Similar result","url":"https://images.example.com/similar.png","index":1}]"""
+                )
+            },
+        )
+    )
 
     private fun createExecutedTool(
         callId: String,

@@ -794,6 +794,15 @@ sealed class UIMessageAnnotation {
         val url: String
     ) : UIMessageAnnotation()
 
+    /** A validated image result returned by a provider-native image search tool. */
+    @Serializable
+    @SerialName("image_citation")
+    data class ImageCitation(
+        val title: String,
+        val url: String,
+        val searchType: ImageSearchType,
+    ) : UIMessageAnnotation()
+
     /**
      * A durable checkpoint for the conversation prefix ending at this message.
      *
@@ -833,6 +842,12 @@ sealed class UIMessageAnnotation {
         val privacyScope: String = "conversation",
         val version: Int = 1,
     ) : UIMessageAnnotation()
+}
+
+@Serializable
+enum class ImageSearchType {
+    TEXT,
+    IMAGE,
 }
 
 @Serializable

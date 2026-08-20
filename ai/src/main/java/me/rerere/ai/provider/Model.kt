@@ -58,6 +58,18 @@ sealed class BuiltInTools {
     @Serializable
     @SerialName("image_generation")
     data object ImageGeneration : BuiltInTools()
+
+    @Serializable
+    @SerialName("web_extractor")
+    data object WebExtractor : BuiltInTools()
+
+    @Serializable
+    @SerialName("web_search_image")
+    data object WebSearchImage : BuiltInTools()
+
+    @Serializable
+    @SerialName("image_search")
+    data object ImageSearch : BuiltInTools()
 }
 
 
