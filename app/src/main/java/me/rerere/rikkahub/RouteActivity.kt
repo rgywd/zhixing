@@ -39,6 +39,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toFile
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
@@ -65,6 +66,11 @@ import me.rerere.rikkahub.data.db.DatabaseMigrationTracker
 import me.rerere.rikkahub.data.db.MigrationState
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.files.FileFolders
+import me.rerere.rikkahub.ui.activity.ACTION_OPEN_MAGIC_PORTAL_DRAFT
+import me.rerere.rikkahub.ui.activity.EXTRA_MAGIC_PORTAL_FILES
+import me.rerere.rikkahub.ui.activity.EXTRA_MAGIC_PORTAL_MIME_TYPES
+import me.rerere.rikkahub.ui.activity.EXTRA_MAGIC_PORTAL_TEXT
 import me.rerere.rikkahub.ui.activity.SafeModeActivity
 import me.rerere.rikkahub.ui.components.ui.TTSController
 import me.rerere.rikkahub.ui.context.LocalASRState
@@ -135,6 +141,7 @@ import me.rerere.rikkahub.ui.pages.webview.WebViewPage
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.ui.theme.RikkahubTheme
 import me.rerere.rikkahub.utils.CrashHandler
+import me.rerere.rikkahub.utils.base64Encode
 import me.rerere.rikkahub.utils.openUsageAccessSettings
 import okhttp3.OkHttpClient
 import org.koin.android.ext.android.inject
@@ -233,8 +240,42 @@ class RouteActivity : ComponentActivity() {
         }
     }
 
+    private fun Intent.readMagicPortalDraftScreen(): Screen.Chat? {
+        if (action != ACTION_OPEN_MAGIC_PORTAL_DRAFT) return null
+
+        val draftText = getStringExtra(EXTRA_MAGIC_PORTAL_TEXT)?.takeIf { it.isNotBlank() }
+        val fileUris = getStringArrayListExtra(EXTRA_MAGIC_PORTAL_FILES).orEmpty()
+        val mimeTypes = getStringArrayListExtra(EXTRA_MAGIC_PORTAL_MIME_TYPES).orEmpty()
+        val uploadRoot = filesDir.resolve(FileFolders.UPLOAD).canonicalFile.toPath()
+        val safeImages = fileUris.mapIndexedNotNull { index, rawUri ->
+            val mimeType = mimeTypes.getOrNull(index)?.takeIf { it.startsWith("image/") }
+                ?: return@mapIndexedNotNull null
+            val file = runCatching { rawUri.toUri().toFile().canonicalFile }.getOrNull()
+                ?: return@mapIndexedNotNull null
+            if (!file.isFile || !file.toPath().startsWith(uploadRoot)) return@mapIndexedNotNull null
+            file.toURI().toString() to mimeType
+        }
+        if (draftText == null && safeImages.isEmpty()) return null
+
+        return Screen.Chat(
+            id = Uuid.random().toString(),
+            text = draftText?.base64Encode(),
+            files = safeImages.map { it.first },
+            fileMimeTypes = safeImages.map { it.second },
+            filesAreManaged = true,
+        )
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
+        intent.readMagicPortalDraftScreen()?.let { screen ->
+            navStack?.apply {
+                clear()
+                add(screen)
+            }
+            return
+        }
         // Navigate to the chat screen if a conversation ID is provided
         intent.getStringExtra("conversationId")?.let { text ->
             navStack?.add(Screen.Chat(text))
@@ -279,9 +320,10 @@ class RouteActivity : ComponentActivity() {
         }
         val migrationState by DatabaseMigrationTracker.state.collectAsStateWithLifecycle()
 
+        val magicPortalDraftScreen = remember { intent.readMagicPortalDraftScreen() }
         val requestedConversationId = intent.getStringExtra("conversationId")
             ?.takeIf { runCatching { Uuid.parse(it) }.isSuccess }
-        val startScreen: NavKey = Screen.Chat(
+        val startScreen: NavKey = magicPortalDraftScreen ?: Screen.Chat(
             id = requestedConversationId ?: if (readBooleanPreference("create_new_conversation_on_start", true)) {
                 Uuid.random().toString()
             } else {
@@ -373,6 +415,8 @@ class RouteActivity : ComponentActivity() {
                                     id = Uuid.parse(key.id),
                                     text = key.text,
                                     files = key.files.map { it.toUri() },
+                                    fileMimeTypes = key.fileMimeTypes,
+                                    filesAreManaged = key.filesAreManaged,
                                     nodeId = key.nodeId?.let { Uuid.parse(it) },
                                     runtimeContext = key.runtimeContext,
                                 )
@@ -656,6 +700,8 @@ sealed interface Screen : NavKey {
         val files: List<String> = emptyList(),
         val nodeId: String? = null,
         val runtimeContext: String? = null,
+        val fileMimeTypes: List<String> = emptyList(),
+        val filesAreManaged: Boolean = false,
     ) : Screen
 
     @Serializable
