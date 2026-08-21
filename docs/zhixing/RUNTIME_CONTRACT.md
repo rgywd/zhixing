@@ -183,6 +183,9 @@ $$USER_TOKEN=value
 ## 隐私与兼容
 
 - 默认不启用第三方分析、远程配置或崩溃上传。
+- 荣耀任意门只通过一个无隐式 Intent Filter 的显式 Activity 接收 `ACTION_SEND` / `ACTION_SEND_MULTIPLE`；
+  支持文字、单图、多图和图文混合。临时 `content://` 图片在入口阶段复制到应用管理目录，再作为普通 Chat
+  的未发送草稿打开；不自动发送，也不改变其他厂商的系统分享与 `PROCESS_TEXT` 路径。
 - 回答生成完成后，原生文本选区菜单可以追加“分享”；复制、全选、翻译和系统 `PROCESS_TEXT` 动作保持原样。
   金句卡片只在本机临时缓存中生成，默认不写入相册，最终目标由 Android 系统分享面板选择。
 - 普通聊天工具不进行逐次审批。`ToolApprovalState`、历史审批消息、Web approval route 和 Workspace

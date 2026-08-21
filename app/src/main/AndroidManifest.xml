@@ -86,6 +86,13 @@
       android:label="@string/title_activity_safe_mode"
       android:theme="@style/Theme.Rikkahub" />
     <activity
+      android:name=".ui.activity.HonorMagicPortalActivity"
+      android:excludeFromRecents="true"
+      android:exported="true"
+      android:noHistory="true"
+      android:taskAffinity="${applicationId}.magicportal"
+      android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+    <activity
       android:name=".RouteActivity"
       android:configChanges="keyboardHidden|orientation|screenSize"
       android:exported="true"

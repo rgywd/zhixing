@@ -91,6 +91,8 @@ fun ChatPage(
     id: Uuid,
     text: String?,
     files: List<Uri>,
+    fileMimeTypes: List<String> = emptyList(),
+    filesAreManaged: Boolean = false,
     nodeId: Uuid? = null,
     runtimeContext: String? = null,
 ) {
@@ -154,11 +156,11 @@ fun ChatPage(
     }
 
     // 初始化输入状态（处理传入的 files 和 text 参数）
-    LaunchedEffect(files, text) {
+    LaunchedEffect(files, text, fileMimeTypes, filesAreManaged) {
         if (files.isNotEmpty()) {
-            val localFiles = filesManager.createChatFilesByContents(files)
-            val contentTypes = files.mapNotNull { file ->
-                filesManager.getFileMimeType(file)
+            val localFiles = if (filesAreManaged) files else filesManager.createChatFilesByContents(files)
+            val contentTypes = files.mapIndexed { index, file ->
+                fileMimeTypes.getOrNull(index) ?: filesManager.getFileMimeType(file)
             }
             val parts = buildList {
                 localFiles.forEachIndexed { index, file ->
