@@ -1,6 +1,5 @@
 package me.rerere.search
 
-import android.util.Log
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
@@ -19,9 +18,11 @@ import me.rerere.search.SearchService.Companion.json
 import okhttp3.Credentials
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
-import java.net.URLEncoder
 
-private const val TAG = "SearXNGService"
+internal enum class SearXNGCategory {
+    WEB,
+    IMAGES,
+}
 
 object SearXNGService : SearchService<SearchServiceOptions.SearXNGOptions> {
     override val name: String = "SearXNG"
@@ -32,113 +33,165 @@ object SearXNGService : SearchService<SearchServiceOptions.SearXNGOptions> {
         Text(stringResource(R.string.searxng_desc_2))
     }
 
-    override fun parameters(options: SearchServiceOptions.SearXNGOptions): InputSchema? =
-        InputSchema.Obj(
-            properties = buildJsonObject {
-                put("query", buildJsonObject {
-                    put("type", "string")
-                    put("description", "search keyword")
-                })
-            },
-            required = listOf("query")
-        )
+    override fun parameters(options: SearchServiceOptions.SearXNGOptions): InputSchema = querySchema()
+
+    override fun imageParameters(options: SearchServiceOptions.SearXNGOptions): InputSchema = querySchema()
 
     override fun scrapingParameters(options: SearchServiceOptions.SearXNGOptions): InputSchema? = null
 
     override suspend fun search(
         params: JsonObject,
         commonOptions: SearchCommonOptions,
-        serviceOptions: SearchServiceOptions.SearXNGOptions
+        serviceOptions: SearchServiceOptions.SearXNGOptions,
     ): Result<SearchResult> = withContext(Dispatchers.IO) {
         runCatching {
-            require(serviceOptions.url.isNotBlank()) {
-                "SearXNG URL cannot be empty"
-            }
-
             val query = params["query"]?.jsonPrimitive?.content ?: error("query is required")
+            executeSearch(
+                request = buildSearXNGRequest(query, serviceOptions, SearXNGCategory.WEB),
+                timeoutMillis = commonOptions.searchTimeoutMillis(),
+            ).toSearchResult(commonOptions.resultSize)
+        }
+    }
 
-            // 构建查询URL
-            val baseUrl = serviceOptions.url.trimEnd('/')
-            val encodedQuery = URLEncoder.encode(query, "UTF-8")
-            val url = "$baseUrl/search?q=$encodedQuery&format=json"
-                .toHttpUrl()
-                .newBuilder()
-                .apply {
-                    if (serviceOptions.engines.isNotBlank()) {
-                        addQueryParameter("engines", serviceOptions.engines)
-                    }
-                    if (serviceOptions.language.isNotBlank()) {
-                        addQueryParameter("language", serviceOptions.language)
-                    }
-                }
-                .build()
-
-            // 发送请求
-            val request = Request.Builder()
-                .url(url)
-                .get()
-                .apply {
-                    // 添加HTTP Basic Auth支持
-                    if (serviceOptions.username.isNotBlank() && serviceOptions.password.isNotBlank()) {
-                        header("Authorization", Credentials.basic(serviceOptions.username, serviceOptions.password))
-                    }
-                }
-                .build()
-
-            Log.i(TAG, "search: $url")
-
-            val response = httpClient.newCall(request, commonOptions.searchTimeoutMillis()).await()
-            if (response.isSuccessful) {
-                val bodyRaw = response.body.string()
-                val searchResponse = runCatching {
-                    json.decodeFromString<SearXNGResponse>(bodyRaw)
-                }.onFailure {
-                    it.printStackTrace()
-                    error("Failed to decode SearXNG response: ${it.message}")
-                }.getOrThrow()
-
-                // 转换为标准格式，取前 N 个结果
-                val items = searchResponse.results
-                    .take(commonOptions.resultSize)
-                    .map { result ->
-                        SearchResultItem(
-                            title = result.title,
-                            url = result.url,
-                            text = result.content
-                        )
-                    }
-
-                return@withContext Result.success(SearchResult(items = items))
-            } else {
-                val errorBody = response.body?.string()
-                println("SearXNG API error: ${response.code} - $errorBody")
-                error("SearXNG request failed with status ${response.code}")
-            }
+    override suspend fun searchImages(
+        params: JsonObject,
+        commonOptions: SearchCommonOptions,
+        serviceOptions: SearchServiceOptions.SearXNGOptions,
+    ): Result<ImageSearchResult> = withContext(Dispatchers.IO) {
+        runCatching {
+            val query = params["query"]?.jsonPrimitive?.content ?: error("query is required")
+            executeSearch(
+                request = buildSearXNGRequest(query, serviceOptions, SearXNGCategory.IMAGES),
+                timeoutMillis = commonOptions.searchTimeoutMillis(),
+            ).toImageSearchResult(commonOptions.resultSize)
         }
     }
 
     override suspend fun scrape(
         params: JsonObject,
         commonOptions: SearchCommonOptions,
-        serviceOptions: SearchServiceOptions.SearXNGOptions
-    ): Result<ScrapedResult> {
-        return Result.failure(Exception("Scraping is not supported for SearXNG"))
+        serviceOptions: SearchServiceOptions.SearXNGOptions,
+    ): Result<ScrapedResult> = Result.failure(
+        UnsupportedOperationException("Scraping is not supported for SearXNG")
+    )
+
+    private suspend fun executeSearch(request: Request, timeoutMillis: Long): SearXNGResponse {
+        val responseBody = httpClient.newCall(request, timeoutMillis).await().use { response ->
+            if (!response.isSuccessful) {
+                throw SearchProviderException("HTTP_${response.code}")
+            }
+            response.body.string()
+        }
+        return runCatching { parseSearXNGResponse(responseBody) }
+            .getOrElse { throw SearchProviderException("INVALID_RESPONSE") }
     }
-
-
-    @Serializable
-    data class SearXNGResponse(
-        @SerialName("results")
-        val results: List<SearXNGResult>,
-    )
-
-    @Serializable
-    data class SearXNGResult(
-        @SerialName("url")
-        val url: String,
-        @SerialName("title")
-        val title: String,
-        @SerialName("content")
-        val content: String,
-    )
 }
+
+private fun querySchema() = InputSchema.Obj(
+    properties = buildJsonObject {
+        put("query", buildJsonObject {
+            put("type", "string")
+            put("description", "search keyword")
+        })
+    },
+    required = listOf("query"),
+)
+
+internal fun buildSearXNGRequest(
+    query: String,
+    options: SearchServiceOptions.SearXNGOptions,
+    category: SearXNGCategory,
+): Request {
+    require(options.url.isNotBlank()) { "SearXNG URL cannot be empty" }
+    val url = "${options.url.trim().trimEnd('/')}/search"
+        .toHttpUrl()
+        .newBuilder()
+        .addQueryParameter("q", query)
+        .addQueryParameter("format", "json")
+        .apply {
+            when (category) {
+                SearXNGCategory.WEB -> options.engines
+                    .takeIf(String::isNotBlank)
+                    ?.let { addQueryParameter("engines", it) }
+                SearXNGCategory.IMAGES -> addQueryParameter("categories", "images")
+            }
+            options.language
+                .takeIf(String::isNotBlank)
+                ?.let { addQueryParameter("language", it) }
+        }
+        .build()
+
+    return Request.Builder()
+        .url(url)
+        .get()
+        .apply {
+            if (options.username.isNotBlank() && options.password.isNotBlank()) {
+                header("Authorization", Credentials.basic(options.username, options.password))
+            }
+        }
+        .build()
+}
+
+internal fun parseSearXNGResponse(rawBody: String): SearXNGResponse =
+    json.decodeFromString<SearXNGResponse>(rawBody)
+
+internal fun SearXNGResponse.toSearchResult(resultSize: Int): SearchResult = SearchResult(
+    items = results.mapNotNull { result ->
+        val url = result.url?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+        SearchResultItem(
+            title = result.title?.takeIf(String::isNotBlank) ?: url,
+            url = url,
+            text = result.content.orEmpty(),
+        )
+    }.take(resultSize.coerceAtLeast(0)),
+)
+
+internal fun SearXNGResponse.toImageSearchResult(resultSize: Int): ImageSearchResult = ImageSearchResult(
+    items = results.mapNotNull { result ->
+        val imageUrl = result.imageUrl() ?: return@mapNotNull null
+        val parsedResolution = parseResolution(result.resolution)
+        ImageSearchItem(
+            imageUrl = imageUrl,
+            sourceUrl = result.url?.takeIf(String::isNotBlank),
+            title = result.title?.takeIf(String::isNotBlank),
+            siteName = result.source?.takeIf(String::isNotBlank),
+            width = result.width ?: parsedResolution?.first,
+            height = result.height ?: parsedResolution?.second,
+        )
+    }.take(resultSize.coerceAtLeast(0)),
+)
+
+private fun SearXNGResult.imageUrl(): String? =
+    imgSrc?.takeIf(String::isNotBlank) ?: thumbnailSrc?.takeIf(String::isNotBlank)
+
+private fun parseResolution(resolution: String?): Pair<Int, Int>? {
+    val match = resolution
+        ?.let { RESOLUTION_PATTERN.matchEntire(it) }
+        ?: return null
+    return match.groupValues[1].toIntOrNull()?.let { width ->
+        match.groupValues[2].toIntOrNull()?.let { height -> width to height }
+    }
+}
+
+private val RESOLUTION_PATTERN = Regex("""\s*(\d+)\s*[x×]\s*(\d+)\s*""", RegexOption.IGNORE_CASE)
+
+@Serializable
+internal data class SearXNGResponse(
+    val results: List<SearXNGResult> = emptyList(),
+)
+
+@Serializable
+internal data class SearXNGResult(
+    val url: String? = null,
+    val title: String? = null,
+    val content: String? = null,
+    @SerialName("img_src")
+    val imgSrc: String? = null,
+    @SerialName("thumbnail_src")
+    val thumbnailSrc: String? = null,
+    val source: String? = null,
+    val resolution: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val engine: String? = null,
+)

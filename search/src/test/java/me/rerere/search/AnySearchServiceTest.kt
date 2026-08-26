@@ -14,12 +14,11 @@ import kotlinx.serialization.decodeFromString
 
 class AnySearchServiceTest {
     @Test
-    fun searchRequestUsesMaxResultsAndOptionalImageTag() {
+    fun searchRequestUsesMaxResultsWithoutProviderSpecificImageTag() {
         val request = buildAnySearchRequest(
             query = "北京医保新规",
             resultSize = 99,
             apiKey = "secret",
-            tag = "resource.image",
         )
         val body = request.bodyJson()
 
@@ -27,7 +26,7 @@ class AnySearchServiceTest {
         assertEquals("Bearer secret", request.header("Authorization"))
         assertEquals("北京医保新规", body.getValue("query").jsonPrimitive.content)
         assertEquals(20, body.getValue("max_results").jsonPrimitive.int)
-        assertEquals("resource.image", body.getValue("tag").jsonPrimitive.content)
+        assertFalse(body.containsKey("tag"))
         assertFalse(body.containsKey("limit"))
     }
 

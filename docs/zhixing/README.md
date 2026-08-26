@@ -31,6 +31,7 @@
 | GitHub CLI | [受控 `gh issue` 工具](./GITHUB_CLI_TOOL.md) | v1 已实现；复用 App Token 入口并按 Workspace 自动配置 Rootfs |
 | Lenovo Watch Pro | [协议基线](./LENOVO_WATCH_PRO_PROTOCOL.md) | 只读 BLE 探针已实现并完成真机同步验证；最近快照进入健康统计投影 |
 | 普通聊天 | [消息生成链路](../references/chat-generation-pipeline.md) | 代码参考；修改前需与当前源码和测试核对 |
+| 联网与图片搜索 | [SearXNG 私有部署与限流](../../search/deploy/searxng/README.md) | syyl1795 私有实例；HTTPS、Basic Auth、全局每分钟限流与最多并发数均由服务端网关强制执行 |
 
 ## 文档生命周期
 

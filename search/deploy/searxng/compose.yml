@@ -1,0 +1,123 @@
+name: zhixing-searxng
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  core:
+    container_name: zhixing-searxng-core
+    image: docker.io/searxng/searxng:2026.8.22-9fea41204@sha256:11a9b34cdc0b1ec2b991470a2762ecb5a1a531898289fb51dcd015260450729e
+    restart: unless-stopped
+    environment:
+      SEARXNG_BASE_URL: https://${SEARXNG_DOMAIN:?SEARXNG_DOMAIN is required}/
+      SEARXNG_BIND_ADDRESS: 0.0.0.0
+      SEARXNG_PORT: "8080"
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?SEARXNG_SECRET is required}
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - core-cache:/var/cache/searxng
+    expose:
+      - "8080"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request;
+          request = urllib.request.Request('http://127.0.0.1:8080/',
+          headers={'X-Real-IP': '127.0.0.1'});
+          urllib.request.urlopen(request, timeout=3)"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - search
+    logging: *default-logging
+
+  gateway:
+    container_name: zhixing-searxng-gateway
+    image: docker.io/library/nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+    restart: unless-stopped
+    environment:
+      NGINX_ENVSUBST_FILTER: ^SEARXNG_
+      SEARXNG_DOMAIN: ${SEARXNG_DOMAIN:?SEARXNG_DOMAIN is required}
+      SEARXNG_RATE_PER_MINUTE: ${SEARXNG_RATE_PER_MINUTE:-20}
+      SEARXNG_BURST: ${SEARXNG_BURST:-5}
+      SEARXNG_MAX_CONCURRENT: ${SEARXNG_MAX_CONCURRENT:-2}
+    volumes:
+      - ./gateway/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./auth/htpasswd:/etc/nginx/auth/htpasswd:ro
+      - ./letsencrypt:/etc/letsencrypt:ro
+    expose:
+      - "8443"
+    depends_on:
+      core:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q --spider --no-check-certificate https://127.0.0.1:8443/healthz
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - search
+    logging: *default-logging
+
+  acme:
+    container_name: zhixing-searxng-acme
+    image: docker.io/library/nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+    restart: unless-stopped
+    volumes:
+      - ./acme/www:/usr/share/nginx/html:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q --spider http://127.0.0.1/healthz
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 32
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      cpa:
+        aliases:
+          - zhixing-searxng-acme
+    logging: *default-logging
+
+  certbot:
+    profiles:
+      - maintenance
+    image: docker.io/certbot/certbot:v4.2.0@sha256:9626d72120577cf72da4fc7948806e9993598981720a4cbe04340a502468d67b
+    volumes:
+      - ./acme/www:/var/www/certbot
+      - ./letsencrypt:/etc/letsencrypt
+    networks:
+      - search
+    logging: *default-logging
+
+volumes:
+  core-cache:
+
+networks:
+  search:
+  cpa:
+    external: true
+    name: cpa_default

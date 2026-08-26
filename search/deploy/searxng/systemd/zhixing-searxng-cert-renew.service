@@ -1,0 +1,9 @@
+[Unit]
+Description=Renew the Zhixing SearXNG TLS certificate
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/zhixing-searxng
+ExecStart=/opt/zhixing-searxng/scripts/renew-certificate.sh

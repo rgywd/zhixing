@@ -24,4 +24,11 @@ app/app.key
 /work/runner/work-runner.json
 /work/deploy/.env
 /work/.env
+
+# Self-hosted SearXNG runtime state and credentials
+/search/deploy/searxng/.env
+/search/deploy/searxng/auth/
+/search/deploy/searxng/letsencrypt/
+/search/deploy/searxng/acme/www/
+/search/deploy/searxng/client-credentials.env
 .gstack/
