@@ -138,6 +138,9 @@ SettingsStore -> DataStore
   支持图片输入、且请求上下文实际含图片的模型下发。
   百炼返回的图片搜索结果先校验、去重和限量，再作为结构化图片引用持久化与展示，不与图片生成混用。
 - MCP、搜索、语音和设备连接均为可选能力；失败只降级对应入口。
+- 通用图片搜索只由能返回开放网络图片 URL 和来源页的搜索服务暴露。SearXNG 使用
+  `categories=images`；AnySearch 的 `resource.image` 仅覆盖摄影/图库语料，不得作为通用图片搜索能力暴露。
+  私有 SearXNG 的鉴权、全局每分钟搜索上限和并发上限由服务端网关强制执行，客户端参数不得作为配额真相。
 - 知识库托管的助手用户提示词只影响修改后开始的新对话；当前对话和 fork 使用 Room 中已冻结的快照。
 - Knowledge Space 复用 Workspace，原文与派生索引边界见
   [`KNOWLEDGE_SPACE.md`](./KNOWLEDGE_SPACE.md)。

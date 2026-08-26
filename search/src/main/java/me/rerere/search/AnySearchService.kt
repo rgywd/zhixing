@@ -24,8 +24,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 internal const val ANYSEARCH_SEARCH_URL = "https://api.anysearch.com/v1/search"
 internal const val ANYSEARCH_MCP_URL = "https://api.anysearch.com/mcp"
-private const val ANYSEARCH_IMAGE_TAG = "resource.image"
-
 object AnySearchService : SearchService<SearchServiceOptions.AnySearchOptions> {
     override val name: String = "AnySearch"
 
@@ -38,8 +36,6 @@ object AnySearchService : SearchService<SearchServiceOptions.AnySearchOptions> {
     }
 
     override fun parameters(options: SearchServiceOptions.AnySearchOptions): InputSchema = querySchema()
-
-    override fun imageParameters(options: SearchServiceOptions.AnySearchOptions): InputSchema = querySchema()
 
     override fun scrapingParameters(options: SearchServiceOptions.AnySearchOptions): InputSchema =
         InputSchema.Obj(
@@ -74,36 +70,6 @@ object AnySearchService : SearchService<SearchServiceOptions.AnySearchOptions> {
                         title = result.title?.takeIf(String::isNotBlank) ?: url,
                         url = url,
                         text = firstNotBlank(result.content, result.snippet),
-                    )
-                },
-                requestId = response.request_id,
-            )
-        }
-    }
-
-    override suspend fun searchImages(
-        params: JsonObject,
-        commonOptions: SearchCommonOptions,
-        serviceOptions: SearchServiceOptions.AnySearchOptions
-    ): Result<ImageSearchResult> = withContext(Dispatchers.IO) {
-        runCatching {
-            val query = params["query"]?.jsonPrimitive?.content ?: error("query is required")
-            val response = executeSearch(
-                request = buildAnySearchRequest(
-                    query = query,
-                    resultSize = commonOptions.resultSize.coerceAtMost(5),
-                    apiKey = resolveApiKey(serviceOptions),
-                    tag = ANYSEARCH_IMAGE_TAG,
-                ),
-                timeoutMillis = commonOptions.searchTimeoutMillis(),
-            )
-            ImageSearchResult(
-                items = response.data.results.mapNotNull { result ->
-                    val imageUrl = result.content?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-                    ImageSearchItem(
-                        imageUrl = imageUrl,
-                        sourceUrl = result.url?.takeIf(String::isNotBlank),
-                        title = result.title?.takeIf(String::isNotBlank),
                     )
                 },
                 requestId = response.request_id,
@@ -161,13 +127,11 @@ internal fun buildAnySearchRequest(
     query: String,
     resultSize: Int,
     apiKey: String?,
-    tag: String? = null,
     endpoint: String = ANYSEARCH_SEARCH_URL,
 ): Request {
     val body = buildJsonObject {
         put("query", query)
         put("max_results", resultSize.coerceIn(1, 20))
-        tag?.let { put("tag", it) }
     }
     return Request.Builder()
         .url(endpoint)

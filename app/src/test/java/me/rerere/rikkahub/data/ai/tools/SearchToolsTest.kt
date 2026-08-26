@@ -51,15 +51,26 @@ class SearchToolsTest {
 
     @Test
     fun `image capable providers expose image search with purpose`() {
-        val anySearch: SearchServiceOptions = SearchServiceOptions.AnySearchOptions()
+        val searxng: SearchServiceOptions = SearchServiceOptions.SearXNGOptions(url = "https://search.example.com")
         val settings = Settings(
-            searchServices = listOf(anySearch),
-            searchServiceSelectedIds = setOf(anySearch.id),
+            searchServices = listOf(searxng),
+            searchServiceSelectedIds = setOf(searxng.id),
         )
         val tool = createSearchTools(settings).single { it.name == "search_images" }
         val schema = tool.parameters() as InputSchema.Obj
 
         assertTrue(schema.required.orEmpty().containsAll(listOf("query", "purpose")))
+    }
+
+    @Test
+    fun `AnySearch does not expose stock-library results as image search`() {
+        val anySearch: SearchServiceOptions = SearchServiceOptions.AnySearchOptions()
+        val settings = Settings(
+            searchServices = listOf(anySearch),
+            searchServiceSelectedIds = setOf(anySearch.id),
+        )
+
+        assertTrue(createSearchTools(settings).none { it.name == "search_images" })
     }
 
     @Test
@@ -75,12 +86,12 @@ class SearchToolsTest {
 
     @Test
     fun `search tools opt into run scoped deduplication without purpose`() {
-        val anySearch: SearchServiceOptions = SearchServiceOptions.AnySearchOptions()
+        val searxng: SearchServiceOptions = SearchServiceOptions.SearXNGOptions(url = "https://search.example.com")
         val jina: SearchServiceOptions = SearchServiceOptions.JinaOptions()
         val tools = createSearchTools(
             Settings(
-                searchServices = listOf(anySearch, jina),
-                searchServiceSelectedIds = setOf(anySearch.id, jina.id),
+                searchServices = listOf(searxng, jina),
+                searchServiceSelectedIds = setOf(searxng.id, jina.id),
             )
         )
 
@@ -94,11 +105,11 @@ class SearchToolsTest {
 
     @Test
     fun `search tool descriptions keep provider-native fallback out of normal execution`() {
-        val anySearch: SearchServiceOptions = SearchServiceOptions.AnySearchOptions()
+        val searxng: SearchServiceOptions = SearchServiceOptions.SearXNGOptions(url = "https://search.example.com")
         val jina: SearchServiceOptions = SearchServiceOptions.JinaOptions()
         val settings = Settings(
-            searchServices = listOf(anySearch, jina),
-            searchServiceSelectedIds = setOf(anySearch.id, jina.id),
+            searchServices = listOf(searxng, jina),
+            searchServiceSelectedIds = setOf(searxng.id, jina.id),
         )
 
         listOf("search_web", "search_images", "scrape_web").forEach { toolName ->
@@ -223,8 +234,8 @@ class SearchToolsTest {
 
     @Test
     fun `image aggregation keeps metadata and caps global images`() = runBlocking {
-        val anySearch: SearchServiceOptions = SearchServiceOptions.AnySearchOptions()
-        val searcher = ImageSearcher(anySearch, SearchService.getService(anySearch))
+        val searxng: SearchServiceOptions = SearchServiceOptions.SearXNGOptions(url = "https://search.example.com")
+        val searcher = ImageSearcher(searxng, SearchService.getService(searxng))
         val result = executeMultiImageSearch(
             params = params,
             commonOptions = SearchCommonOptions(resultSize = 20),
