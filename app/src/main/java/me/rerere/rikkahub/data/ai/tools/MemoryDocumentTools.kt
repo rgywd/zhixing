@@ -18,6 +18,7 @@ import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.Tool
 import me.rerere.ai.core.ToolExecutionException
+import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.memory.MEMORY_DOCUMENT_ALIAS_LIMIT
@@ -26,8 +27,7 @@ import me.rerere.rikkahub.data.memory.MEMORY_DOCUMENT_DESCRIPTION_LIMIT
 import me.rerere.rikkahub.data.memory.MEMORY_DOCUMENT_SOURCE_LIMIT
 import me.rerere.rikkahub.data.memory.MEMORY_DOCUMENT_SOURCE_QUOTE_LIMIT
 import me.rerere.rikkahub.data.memory.MEMORY_DOCUMENT_FORMAT_GUIDANCE
-import me.rerere.rikkahub.data.memory.MemoryDocumentFormatException
-import me.rerere.rikkahub.data.memory.requireCanonicalMemoryContent
+import me.rerere.rikkahub.data.memory.MemoryDocumentPolicyException
 import me.rerere.rikkahub.data.model.MemoryDocument
 import me.rerere.rikkahub.data.model.MemoryDocumentSource
 import me.rerere.rikkahub.data.model.MemoryDocumentSourceType
@@ -101,13 +101,13 @@ private data class MemoryWriteFailureGuidance(
     val correction: String,
 )
 
-internal fun bindMemoryDocumentChatSources(
+internal suspend fun bindMemoryDocumentChatSources(
     sources: List<MemoryDocumentSource>,
     conversationId: String,
     messages: List<UIMessage>,
+    resolveHistoricalSource: (suspend (sourceRef: String, quote: String) -> MemoryDocumentSource)? = null,
 ): List<MemoryDocumentSource> {
     if (sources.isEmpty()) throw ToolExecutionException("MEMORY_SOURCE_REQUIRED")
-    val userMessages = messages.filter { it.role == MessageRole.USER }
     return sources.map { source ->
         if (source.type != MemoryDocumentSourceType.CHAT) {
             throw ToolExecutionException("MEMORY_SOURCE_INVALID")
@@ -116,16 +116,44 @@ internal fun bindMemoryDocumentChatSources(
         if (quote.length !in 2..MEMORY_DOCUMENT_SOURCE_QUOTE_LIMIT) {
             throw ToolExecutionException("MEMORY_SOURCE_INVALID")
         }
-        val message = userMessages.asReversed().firstOrNull { candidate ->
-            candidate.parts.filterIsInstance<UIMessagePart.Text>().any { part -> part.text.contains(quote) }
-        } ?: throw ToolExecutionException("MEMORY_SOURCE_INVALID")
-        source.copy(
-            conversationId = conversationId,
-            messageId = message.id.toString(),
-            quote = quote,
-            observedAt = System.currentTimeMillis(),
-        )
+        if (source.sourceRef.isNotBlank()) {
+            val resolver = resolveHistoricalSource
+                ?: throw ToolExecutionException("MEMORY_SOURCE_HISTORY_DISABLED")
+            resolver(source.sourceRef, quote).copy(sourceRef = "")
+        } else {
+            val message = messages.asReversed().firstOrNull { candidate ->
+                candidate.containsDirectUserQuote(quote)
+            } ?: throw ToolExecutionException("MEMORY_SOURCE_QUOTE_MISMATCH")
+            source.copy(
+                conversationId = conversationId,
+                messageId = message.id.toString(),
+                quote = quote,
+                observedAt = System.currentTimeMillis(),
+                sourceRef = "",
+            )
+        }
     }.distinctBy { it.messageId to it.quote }
+}
+
+private fun UIMessage.containsDirectUserQuote(quote: String): Boolean {
+    if (
+        role == MessageRole.USER &&
+        parts.filterIsInstance<UIMessagePart.Text>().any { part -> part.text.contains(quote) }
+    ) {
+        return true
+    }
+    return parts.filterIsInstance<UIMessagePart.Tool>()
+        .asSequence()
+        .filter { it.toolName == "ask_user" }
+        .mapNotNull { it.approvalState as? ToolApprovalState.Answered }
+        .mapNotNull { answered ->
+            runCatching { Json.parseToJsonElement(answered.answer).jsonObject["answers"] as? JsonObject }
+                .getOrNull()
+        }
+        .flatMap { answers -> answers.values.asSequence() }
+        .mapNotNull { value -> (value as? JsonPrimitive)?.contentOrNull }
+        .filter(String::isNotBlank)
+        .any { answer -> answer.contains(quote) }
 }
 
 fun buildMemoryDocumentTools(
@@ -286,12 +314,14 @@ fun buildMemoryDocumentTools(
             - append: path, if_version, non-blank content, and sources.
             - delete: path and if_version; only after an explicit user request.
 
-            Use if_version=0 only when creating a document. Every added fact must be a Markdown bullet beginning
-            `- [stated] `. $MEMORY_DOCUMENT_FORMAT_GUIDANCE Each source contains only an exact quote from a current USER
-            message; the app binds its
-            current conversation and message IDs. Never persist transient requests, duplicates, inference, sensitive
-            information, or assistant/tool text. A special "remember" phrase is not required. This tool never changes
-            raw conversation history.
+            Use if_version=0 only when creating a document. Facts in active documents use Markdown bullets beginning
+            `- [stated] `. $MEMORY_DOCUMENT_FORMAT_GUIDANCE These formats are guidance rather than a reason to discard a
+            true user statement. A source is either {quote} from a current USER message or answered ask_user question,
+            or {source_ref, quote} after conversation_search followed by conversation_read. The app resolves every
+            source and binds trusted conversation/message IDs. Never use a search snippet, assistant text, tool output,
+            or inferred wording as a source. Existing /archive documents may be maintained after exact read; do not
+            create new archive paths. A special "remember" phrase is not required. This tool never changes raw
+            conversation history.
         """.trimIndent(),
         needsApproval = { input ->
             val action = (input as? JsonObject)?.get("action") as? JsonPrimitive
@@ -365,9 +395,21 @@ fun buildMemoryDocumentTools(
                             put("properties", buildJsonObject {
                                 put("quote", buildJsonObject {
                                     put("type", "string")
-                                    put("description", "Exact substring from a current USER text message.")
+                                    put(
+                                        "description",
+                                        "Exact substring from current USER text, an answered ask_user value, or " +
+                                            "the exact conversation_read text."
+                                    )
                                     put("minLength", 2)
                                     put("maxLength", MEMORY_DOCUMENT_SOURCE_QUOTE_LIMIT)
+                                })
+                                put("source_ref", buildJsonObject {
+                                    put("type", "string")
+                                    put(
+                                        "description",
+                                        "For historical sources only: exact source_ref returned by conversation_search."
+                                    )
+                                    put("minLength", 1)
                                 })
                             })
                             put("required", buildJsonArray {
@@ -395,7 +437,6 @@ fun buildMemoryDocumentTools(
                             val name = params.requiredNonBlankString("name", code)
                             val description = params.requiredNonBlankString("description", code)
                             val content = params.requiredNonBlankString("content", code)
-                            requireCanonicalMemoryContent(content)
                             val sources = params.requireSources()
                             MemoryDocumentMutation(
                                 path = path,
@@ -417,7 +458,6 @@ fun buildMemoryDocumentTools(
                             val ifVersion = params.requiredNonNegativeLong("if_version", code)
                             val oldText = params.requiredNonBlankString("old_text", code)
                             val newText = params.requiredString("new_text", code)
-                            if (newText.isNotBlank()) requireCanonicalMemoryContent(newText)
                             val sources = params.requireSources()
                             MemoryDocumentMutation(
                                 path = path,
@@ -430,7 +470,6 @@ fun buildMemoryDocumentTools(
                             val path = params.requiredNonBlankString("path", code)
                             val ifVersion = params.requiredNonNegativeLong("if_version", code)
                             val content = params.requiredNonBlankString("content", code)
-                            requireCanonicalMemoryContent(content)
                             val sources = params.requireSources()
                             MemoryDocumentMutation(
                                 path = path,
@@ -461,12 +500,8 @@ fun buildMemoryDocumentTools(
                     path = mutation.path,
                     document = mutation.document,
                 )
-            } catch (error: MemoryDocumentFormatException) {
-                memoryWriteFailure(
-                    json = json,
-                    code = "MEMORY_FORMAT_INVALID",
-                    correction = error.message,
-                )
+            } catch (error: MemoryDocumentPolicyException) {
+                memoryWriteFailure(json = json, code = error.code, correction = error.message)
             } catch (error: ToolExecutionException) {
                 memoryWriteFailure(json = json, code = error.code)
             } catch (_: IllegalArgumentException) {
@@ -554,17 +589,17 @@ private fun memoryWriteFailureGuidance(code: String): MemoryWriteFailureGuidance
     "MEMORY_WRITE_INPUT_INVALID" -> MemoryWriteFailureGuidance(
         retryable = true,
         correction = "write requires path, non-negative if_version, non-blank name, description and content, plus " +
-            "one or more sources containing exact current USER quotes; aliases are optional.",
+            "one or more resolved user sources; aliases are optional.",
     )
     "MEMORY_REPLACE_INPUT_INVALID" -> MemoryWriteFailureGuidance(
         retryable = true,
         correction = "str_replace requires path, non-negative if_version, non-blank old_text, new_text (which may be " +
-            "empty), and one or more sources containing exact current USER quotes.",
+            "empty), and one or more resolved user sources.",
     )
     "MEMORY_APPEND_INPUT_INVALID" -> MemoryWriteFailureGuidance(
         retryable = true,
         correction = "append requires path, non-negative if_version, non-blank content, and one or more sources " +
-            "containing exact current USER quotes. Omit name, description, aliases, old_text, and new_text.",
+            "containing resolved user sources. Omit name, description, aliases, old_text, and new_text.",
     )
     "MEMORY_DELETE_INPUT_INVALID" -> MemoryWriteFailureGuidance(
         retryable = true,
@@ -573,13 +608,39 @@ private fun memoryWriteFailureGuidance(code: String): MemoryWriteFailureGuidance
     )
     "MEMORY_SOURCE_REQUIRED" -> MemoryWriteFailureGuidance(
         retryable = true,
-        correction = "Provide 1-$MEMORY_DOCUMENT_SOURCE_LIMIT sources; each source is {quote: exact substring from a " +
-            "current USER text message}.",
+        correction = "Provide 1-$MEMORY_DOCUMENT_SOURCE_LIMIT sources. Use {quote} for current USER or answered " +
+            "ask_user text, or {source_ref, quote} after conversation_search and conversation_read.",
     )
     "MEMORY_SOURCE_INVALID" -> MemoryWriteFailureGuidance(
         retryable = true,
-        correction = "Use only exact 2-$MEMORY_DOCUMENT_SOURCE_QUOTE_LIMIT character quotes from current USER text " +
-            "messages. Do not quote assistant text, tool output, or inferred wording.",
+        correction = "Use an exact 2-$MEMORY_DOCUMENT_SOURCE_QUOTE_LIMIT character user quote. Do not quote a search " +
+            "snippet, assistant text, tool output, or inferred wording.",
+    )
+    "MEMORY_SOURCE_REF_INVALID" -> MemoryWriteFailureGuidance(
+        retryable = true,
+        correction = "Use the source_ref exactly as returned by conversation_search, then call conversation_read.",
+    )
+    "MEMORY_SOURCE_NOT_FOUND", "MEMORY_SOURCE_ROLE_INVALID" -> MemoryWriteFailureGuidance(
+        retryable = true,
+        correction = "Search again and choose a selected USER message from another conversation of this assistant.",
+    )
+    "MEMORY_SOURCE_QUOTE_MISMATCH" -> MemoryWriteFailureGuidance(
+        retryable = true,
+        correction = "Copy an exact substring from current USER/ask_user text or conversation_read.text_parts.",
+    )
+    "MEMORY_SOURCE_HISTORY_DISABLED" -> MemoryWriteFailureGuidance(
+        retryable = false,
+        correction = "Historical sources require the assistant's history-reference setting. Continue without saving " +
+            "that historical source, or ask the user to enable it.",
+    )
+    "MEMORY_SENSITIVE_REJECTED" -> MemoryWriteFailureGuidance(
+        retryable = true,
+        correction = "Remove credential, identity/card number, or exact personal-finance values from both the memory " +
+            "content and source quote. Do not weaken or paraphrase the quote; omit that source instead.",
+    )
+    "MEMORY_SOURCE_LIMIT_EXCEEDED" -> MemoryWriteFailureGuidance(
+        retryable = true,
+        correction = "Keep only the most relevant distinct sources without exceeding the documented limit.",
     )
     "MEMORY_VERSION_CONFLICT" -> MemoryWriteFailureGuidance(
         retryable = true,
@@ -589,11 +650,7 @@ private fun memoryWriteFailureGuidance(code: String): MemoryWriteFailureGuidance
     "MEMORY_WRITE_REJECTED" -> MemoryWriteFailureGuidance(
         retryable = true,
         correction = "Correct the mutation and retry: use a writable path, current version, `[stated]` bullets, " +
-            "valid non-sensitive content, and exact current USER sources.",
-    )
-    "MEMORY_FORMAT_INVALID" -> MemoryWriteFailureGuidance(
-        retryable = true,
-        correction = "Rewrite the added facts using the canonical memory formats, then retry.",
+            "valid non-sensitive content, and exact resolved user sources.",
     )
     "MEMORY_CONTEXT_UNAVAILABLE" -> MemoryWriteFailureGuidance(
         retryable = false,
@@ -611,6 +668,9 @@ private fun JsonObject.requireSources(): List<MemoryDocumentSource> {
     if (array.size > MEMORY_DOCUMENT_SOURCE_LIMIT) throw ToolExecutionException("MEMORY_SOURCE_INVALID")
     return array.map { element ->
         val source = element as? JsonObject ?: throw ToolExecutionException("MEMORY_SOURCE_INVALID")
+        if (source.keys.any { it !in setOf("quote", "source_ref") }) {
+            throw ToolExecutionException("MEMORY_SOURCE_INVALID")
+        }
         val quote = source.requiredString("quote", "MEMORY_SOURCE_INVALID").trim()
         if (quote.length !in 2..MEMORY_DOCUMENT_SOURCE_QUOTE_LIMIT) {
             throw ToolExecutionException("MEMORY_SOURCE_INVALID")
@@ -618,6 +678,9 @@ private fun JsonObject.requireSources(): List<MemoryDocumentSource> {
         MemoryDocumentSource(
             type = MemoryDocumentSourceType.CHAT,
             quote = quote,
+            sourceRef = source.optionalString("source_ref", "MEMORY_SOURCE_INVALID")
+                ?.takeIf(String::isNotBlank)
+                ?: if ("source_ref" in source) throw ToolExecutionException("MEMORY_SOURCE_REF_INVALID") else "",
         )
     }
 }

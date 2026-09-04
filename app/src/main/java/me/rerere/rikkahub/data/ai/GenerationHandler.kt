@@ -56,6 +56,7 @@ import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.ConversationUserPromptSnapshot
 import me.rerere.rikkahub.data.model.MemoryDocument
+import me.rerere.rikkahub.data.model.MemoryDocumentSource
 import me.rerere.rikkahub.data.repository.MemoryDocumentRepository
 import me.rerere.rikkahub.data.repository.HealthMetricRepository
 import me.rerere.rikkahub.data.task.AssistantTaskStep
@@ -289,6 +290,7 @@ class GenerationHandler(
         assistant: Assistant,
         memoryDocuments: List<MemoryDocument>? = null,
         memoryConversationId: String? = null,
+        historicalMemorySourceResolver: (suspend (sourceRef: String, quote: String) -> MemoryDocumentSource)? = null,
         tools: List<Tool> = emptyList(),
         maxSteps: Int = 256,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
@@ -398,7 +400,12 @@ class GenerationHandler(
                                 description = description,
                                 aliases = aliases,
                                 content = content,
-                                sources = bindMemoryDocumentChatSources(sources, conversationId, messages),
+                                sources = bindMemoryDocumentChatSources(
+                                    sources = sources,
+                                    conversationId = conversationId,
+                                    messages = messages,
+                                    resolveHistoricalSource = historicalMemorySourceResolver,
+                                ),
                             ).also { memoryPromptSnapshot.invalidate() }
                         },
                         onReplace = { path, ifVersion, oldText, newText, sources ->
@@ -410,7 +417,12 @@ class GenerationHandler(
                                 expectedVersion = ifVersion,
                                 oldText = oldText,
                                 newText = newText,
-                                sources = bindMemoryDocumentChatSources(sources, conversationId, messages),
+                                sources = bindMemoryDocumentChatSources(
+                                    sources = sources,
+                                    conversationId = conversationId,
+                                    messages = messages,
+                                    resolveHistoricalSource = historicalMemorySourceResolver,
+                                ),
                             ).also { memoryPromptSnapshot.invalidate() }
                         },
                         onAppend = { path, ifVersion, content, sources ->
@@ -421,7 +433,12 @@ class GenerationHandler(
                                 rawPath = path,
                                 expectedVersion = ifVersion,
                                 content = content,
-                                sources = bindMemoryDocumentChatSources(sources, conversationId, messages),
+                                sources = bindMemoryDocumentChatSources(
+                                    sources = sources,
+                                    conversationId = conversationId,
+                                    messages = messages,
+                                    resolveHistoricalSource = historicalMemorySourceResolver,
+                                ),
                             ).also { memoryPromptSnapshot.invalidate() }
                         },
                         onDelete = { path, ifVersion ->

@@ -8,9 +8,10 @@ import me.rerere.rikkahub.data.db.entity.MemoryDocumentEntity
 import me.rerere.rikkahub.data.db.fts.MemoryDocumentSearchHit
 import me.rerere.rikkahub.data.db.fts.MemoryDocumentSearchIndex
 import me.rerere.rikkahub.data.db.fts.MemoryDocumentSearchVisibility
-import me.rerere.rikkahub.data.memory.MemoryDocumentFormatException
+import me.rerere.rikkahub.data.memory.MemoryDocumentPolicyException
 import me.rerere.rikkahub.data.model.MemoryDocumentSource
 import me.rerere.rikkahub.data.model.MemoryDocumentSourceType
+import me.rerere.rikkahub.utils.JsonInstant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -158,7 +159,7 @@ class MemoryDocumentRepositoryTest {
     }
 
     @Test
-    fun chatWritesRequireCanonicalFormatsWhileDirectUserEditsRemainAdvisory() = runBlocking {
+    fun chatWritesTreatCanonicalFormatsAsGuidance() = runBlocking {
         val repository = repository()
         val source = MemoryDocumentSource(
             type = MemoryDocumentSourceType.CHAT,
@@ -168,21 +169,7 @@ class MemoryDocumentRepositoryTest {
         )
         val content = "- [stated] 用户的生日是 10 月 17 日。"
 
-        val rejected = runCatching {
-            repository.writeFromChat(
-                contextScopeId = MemoryDocumentRepository.GLOBAL_SCOPE_ID,
-                rawPath = MemoryDocumentRepository.PROFILE_PATH,
-                expectedVersion = 1,
-                name = "Profile",
-                description = "Stable profile",
-                aliases = emptyList(),
-                content = content,
-                sources = listOf(source),
-            )
-        }.exceptionOrNull()
-        assertTrue(rejected is MemoryDocumentFormatException)
-
-        val edited = repository.writeFromUserEditor(
+        val written = repository.writeFromChat(
             contextScopeId = MemoryDocumentRepository.GLOBAL_SCOPE_ID,
             rawPath = MemoryDocumentRepository.PROFILE_PATH,
             expectedVersion = 1,
@@ -190,8 +177,9 @@ class MemoryDocumentRepositoryTest {
             description = "Stable profile",
             aliases = emptyList(),
             content = content,
+            sources = listOf(source),
         )
-        assertEquals(content, edited.content)
+        assertEquals(content, written.content)
     }
 
     @Test
@@ -310,6 +298,121 @@ class MemoryDocumentRepositoryTest {
         )
     }
 
+    @Test
+    fun archiveMaintenanceDeletesRemovedLegacyRowsAndPreservesMigrationSource() = runBlocking {
+        val dao = FakeMemoryDocumentDAO()
+        val repository = MemoryDocumentRepository(dao, FakeMemoryDocumentSearchIndex())
+        dao.insertIgnore(
+            MemoryDocumentEntity(
+                scopeId = "assistant",
+                path = "/archive/legacy-memory-assistant.md",
+                name = "Legacy archive",
+                description = "Migrated legacy memory records.",
+                content = "- [legacy] #7 第一条旧记忆\n- [legacy] #8 第二条旧记忆",
+                sourcesJson = JsonInstant.encodeToString(
+                    listOf(MemoryDocumentSource(type = MemoryDocumentSourceType.MIGRATION, observedAt = 1L))
+                ),
+            )
+        )
+
+        val updated = repository.replaceFromChat(
+            contextScopeId = "assistant",
+            rawPath = "/archive/legacy-memory-assistant.md",
+            expectedVersion = 1L,
+            oldText = "- [legacy] #7 第一条旧记忆",
+            newText = "第一条已经整理到活跃记忆。",
+            sources = listOf(source("删除第一条旧记忆")),
+        )
+
+        assertEquals(listOf("assistant" to listOf(7)), dao.deletedLegacyMemoryIds)
+        assertTrue(updated.sources.any { it.type == MemoryDocumentSourceType.MIGRATION })
+        assertTrue(updated.sources.any { it.type == MemoryDocumentSourceType.CHAT })
+
+        repository.delete("assistant", updated.path, updated.version)
+        assertEquals(
+            listOf("assistant" to listOf(7), "assistant" to listOf(8)),
+            dao.deletedLegacyMemoryIds,
+        )
+    }
+
+    @Test
+    fun newArchivePathsAndIntroducedLegacyIdsAreRejected() = runBlocking {
+        val dao = FakeMemoryDocumentDAO()
+        val repository = MemoryDocumentRepository(dao, FakeMemoryDocumentSearchIndex())
+        val createFailure = runCatching {
+            repository.writeFromChat(
+                contextScopeId = "assistant",
+                rawPath = "/archive/new.md",
+                expectedVersion = 0L,
+                name = "Archive",
+                description = "Archive",
+                aliases = emptyList(),
+                content = "Free-form archive text.",
+                sources = listOf(source("archive text")),
+            )
+        }
+        assertTrue(createFailure.isFailure)
+
+        dao.insertIgnore(
+            MemoryDocumentEntity(
+                scopeId = "assistant",
+                path = "/archive/legacy-memory-assistant.md",
+                name = "Legacy archive",
+                description = "Migrated legacy memory records.",
+                content = "- [legacy] #7 Existing",
+                sourcesJson = JsonInstant.encodeToString(
+                    listOf(MemoryDocumentSource(type = MemoryDocumentSourceType.MIGRATION, observedAt = 1L))
+                ),
+            )
+        )
+        val introducedId = runCatching {
+            repository.appendFromChat(
+                contextScopeId = "assistant",
+                rawPath = "/archive/legacy-memory-assistant.md",
+                expectedVersion = 1L,
+                content = "- [legacy] #9 Forged",
+                sources = listOf(source("append archive")),
+            )
+        }
+        assertTrue(introducedId.isFailure)
+    }
+
+    @Test
+    fun sourceLimitFailsExplicitlyInsteadOfDroppingOlderProvenance() = runBlocking {
+        val repository = repository()
+        val initialSources = (0 until 32).map { index ->
+            MemoryDocumentSource(
+                type = MemoryDocumentSourceType.CHAT,
+                conversationId = "conversation-$index",
+                messageId = "message-$index",
+                quote = "来源 $index",
+            )
+        }
+        val created = repository.writeFromChat(
+            contextScopeId = "assistant",
+            rawPath = "/topics/provenance.md",
+            expectedVersion = 0L,
+            name = "Provenance",
+            description = "Provenance retention test.",
+            aliases = emptyList(),
+            content = "- [stated] 需要保留全部来源。",
+            sources = initialSources,
+        )
+
+        val failure = runCatching {
+            repository.appendFromChat(
+                contextScopeId = "assistant",
+                rawPath = created.path,
+                expectedVersion = created.version,
+                content = "- [stated] 新增事实。",
+                sources = listOf(source("新增来源")),
+            )
+        }.exceptionOrNull()
+
+        assertEquals("MEMORY_SOURCE_LIMIT_EXCEEDED", (failure as MemoryDocumentPolicyException).code)
+        assertEquals(initialSources, repository.read("assistant", created.path).sources)
+    }
+
     private fun repository(
         searchIndex: MemoryDocumentSearchIndex = FakeMemoryDocumentSearchIndex(),
     ) = MemoryDocumentRepository(FakeMemoryDocumentDAO(), searchIndex)
@@ -360,6 +463,7 @@ private class FakeMemoryDocumentSearchIndex(
 
 private class FakeMemoryDocumentDAO : MemoryDocumentDAO {
     private val state = MutableStateFlow<List<MemoryDocumentEntity>>(emptyList())
+    val deletedLegacyMemoryIds = mutableListOf<Pair<String, List<Int>>>()
 
     override fun observeActive(scopeIds: List<String>): Flow<List<MemoryDocumentEntity>> = state
 
@@ -408,6 +512,11 @@ private class FakeMemoryDocumentDAO : MemoryDocumentDAO {
             }
         }
         return 1
+    }
+
+    override suspend fun deleteLegacyMemoriesByIds(scopeId: String, ids: List<Int>): Int {
+        deletedLegacyMemoryIds += scopeId to ids
+        return ids.size
     }
 
     override suspend fun reactivateDeleted(

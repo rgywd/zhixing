@@ -231,12 +231,16 @@ private fun MemoryDocumentContent(
         if (legacyDocuments.isNotEmpty()) {
             Text("旧版迁移归档", style = MaterialTheme.typography.titleMedium)
             Text(
-                "旧画像和情境记录原样保留，但不会被当作 [stated] 或自动送入上下文。",
+                "旧画像和情境记录不会自动送入上下文；可直接整理，删除 legacy 条目会同步清理旧记录。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             legacyDocuments.forEach { document ->
-                MemoryDocumentCard(document = document, onEdit = null, onDelete = null)
+                MemoryDocumentCard(
+                    document = document,
+                    onEdit = { editing = document },
+                    onDelete = { pendingDelete = document },
+                )
             }
         }
     }
@@ -331,6 +335,7 @@ private fun MemoryDocumentEditor(
     onSave: (MemoryDocument) -> Unit,
 ) {
     var draft by remember(initial) { mutableStateOf(initial) }
+    val isArchive = initial.path.startsWith("/archive/")
     val validationError = remember(draft) {
         runCatching {
             requireValidMemoryDocument(
@@ -342,7 +347,9 @@ private fun MemoryDocumentEditor(
             )
         }.exceptionOrNull()?.message
     }
-    val formatIssues = remember(draft.content) { findMemoryContentFormatIssues(draft.content) }
+    val formatIssues = remember(draft.content, isArchive) {
+        if (isArchive) emptyList() else findMemoryContentFormatIssues(draft.content)
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (initial.version == 0L) "新增记忆文件" else "编辑记忆文件") },
@@ -388,7 +395,13 @@ private fun MemoryDocumentEditor(
                     onValueChange = { draft = draft.copy(content = it) },
                     label = { Text("正文") },
                     supportingText = {
-                        Text("每条事实单独使用 - [stated]；日期 YYYY-MM-DD，时间 HH:mm，物理量使用 kg、cm 等标准单位")
+                        Text(
+                            if (isArchive) {
+                                "可整理说明或移除 legacy 条目；已有 #id 可保留或删除，不能新增或改写 ID"
+                            } else {
+                                "每条事实单独使用 - [stated]；日期 YYYY-MM-DD，时间 HH:mm，物理量使用 kg、cm 等标准单位"
+                            }
+                        )
                     },
                     minLines = 6,
                     maxLines = 14,

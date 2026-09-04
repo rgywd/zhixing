@@ -8,8 +8,7 @@ import me.rerere.rikkahub.data.db.fts.MemoryDocumentSearchHit
 import me.rerere.rikkahub.data.db.fts.MemoryDocumentSearchIndex
 import me.rerere.rikkahub.data.db.fts.MemoryDocumentSearchVisibility
 import me.rerere.rikkahub.data.memory.normalizeMemoryPath
-import me.rerere.rikkahub.data.memory.MEMORY_DOCUMENT_SOURCE_LIMIT
-import me.rerere.rikkahub.data.memory.requireCanonicalMemoryContent
+import me.rerere.rikkahub.data.memory.isArchiveMemoryPath
 import me.rerere.rikkahub.data.memory.requireMemorySources
 import me.rerere.rikkahub.data.memory.requireValidMemoryDocument
 import me.rerere.rikkahub.data.memory.requireWritableMemoryPath
@@ -161,7 +160,6 @@ class MemoryDocumentRepository(
         content = content,
         sources = sources,
         allowDirectUserEdit = false,
-        formatContentToValidate = content,
     )
 
     suspend fun writeFromUserEditor(
@@ -191,7 +189,6 @@ class MemoryDocumentRepository(
                 observedAt = System.currentTimeMillis(),
             ),
             allowDirectUserEdit = true,
-            formatContentToValidate = null,
         )
     }
 
@@ -215,7 +212,6 @@ class MemoryDocumentRepository(
             content = next,
             sources = current.sources + sources,
             allowDirectUserEdit = false,
-            formatContentToValidate = content,
         )
     }
 
@@ -245,7 +241,6 @@ class MemoryDocumentRepository(
             content = current.content.replaceRange(first, first + oldText.length, newText),
             sources = current.sources + sources,
             allowDirectUserEdit = false,
-            formatContentToValidate = newText,
         )
     }
 
@@ -255,12 +250,24 @@ class MemoryDocumentRepository(
         val current = findVisible(contextScopeId, path)?.toMemoryDocument()
             ?: throw MemoryDocumentConflictException(null)
         if (current.version != expectedVersion) throw MemoryDocumentConflictException(current)
-        val changed = dao.compareAndDelete(
-            scopeId = current.scopeId,
-            path = path,
-            expectedVersion = expectedVersion,
-            updatedAt = System.currentTimeMillis(),
-        )
+        val changed = if (isArchiveMemoryPath(path)) {
+            ProfileMemoryMutationGate.run {
+                dao.compareAndDeleteArchive(
+                    scopeId = current.scopeId,
+                    path = path,
+                    expectedVersion = expectedVersion,
+                    updatedAt = System.currentTimeMillis(),
+                    legacyIds = current.content.legacyMemoryIds().sorted(),
+                )
+            }
+        } else {
+            dao.compareAndDelete(
+                scopeId = current.scopeId,
+                path = path,
+                expectedVersion = expectedVersion,
+                updatedAt = System.currentTimeMillis(),
+            )
+        }
         if (changed != 1) throw MemoryDocumentConflictException(findVisible(contextScopeId, path)?.toMemoryDocument())
     }
 
@@ -304,7 +311,6 @@ class MemoryDocumentRepository(
         content: String,
         sources: List<MemoryDocumentSource>,
         allowDirectUserEdit: Boolean,
-        formatContentToValidate: String?,
     ): MemoryDocument {
         val path = requireWritableMemoryPath(rawPath)
         require(expectedVersion >= 0) { "if_version must be zero for create or the current positive version" }
@@ -315,14 +321,29 @@ class MemoryDocumentRepository(
             .distinctBy { it.lowercase(Locale.ROOT) }
         val cleanContent = normalizeMemoryContent(content)
         requireValidMemoryDocument(path, cleanName, cleanDescription, cleanAliases, cleanContent)
-        formatContentToValidate?.let { requireCanonicalMemoryContent(normalizeMemoryContent(it)) }
-        val cleanSources = sources
-            .distinctBy { listOf(it.type.name, it.conversationId, it.messageId, it.quote) }
-            .takeLast(MEMORY_DOCUMENT_SOURCE_LIMIT)
-        requireMemorySources(cleanSources, allowDirectUserEdit)
         ensurePinnedDocuments()
         val targetScope = if (path in PINNED_PATHS) GLOBAL_SCOPE_ID else contextScopeId
         val current = dao.find(targetScope, path)
+        val archive = isArchiveMemoryPath(path)
+        require(!archive || current?.state == MemoryDocumentState.ACTIVE.name) {
+            "Archive paths can be maintained only when they already exist"
+        }
+        val currentLegacyIds = current?.content.orEmpty().legacyMemoryIds()
+        val nextLegacyIds = cleanContent.legacyMemoryIds()
+        require(!archive || nextLegacyIds.all(currentLegacyIds::contains)) {
+            "Existing legacy IDs may be retained or removed, but new legacy IDs cannot be introduced"
+        }
+        val cleanSources = buildList {
+            if (archive) {
+                addAll(current.orEmptyMigrationSources())
+            }
+            addAll(sources)
+        }.distinctBy { listOf(it.type.name, it.conversationId, it.messageId, it.quote) }
+        requireMemorySources(
+            sources = cleanSources,
+            allowDirectUserEdit = allowDirectUserEdit,
+            allowMigrationSource = archive,
+        )
         val now = System.currentTimeMillis()
         if (current == null) {
             if (expectedVersion != 0L) throw MemoryDocumentConflictException(null)
@@ -361,17 +382,34 @@ class MemoryDocumentRepository(
                 ?: throw MemoryDocumentConflictException(null)
         }
         if (current.version != expectedVersion) throw MemoryDocumentConflictException(current.toMemoryDocument())
-        val changed = dao.compareAndSet(
-            scopeId = targetScope,
-            path = path,
-            expectedVersion = expectedVersion,
-            name = cleanName,
-            description = cleanDescription,
-            aliasesJson = JsonInstant.encodeToString(cleanAliases),
-            content = cleanContent,
-            sourcesJson = JsonInstant.encodeToString(cleanSources),
-            updatedAt = now,
-        )
+        val changed = if (archive) {
+            ProfileMemoryMutationGate.run {
+                dao.compareAndSetArchive(
+                    scopeId = targetScope,
+                    path = path,
+                    expectedVersion = expectedVersion,
+                    name = cleanName,
+                    description = cleanDescription,
+                    aliasesJson = JsonInstant.encodeToString(cleanAliases),
+                    content = cleanContent,
+                    sourcesJson = JsonInstant.encodeToString(cleanSources),
+                    updatedAt = now,
+                    removedLegacyIds = (currentLegacyIds - nextLegacyIds).sorted(),
+                )
+            }
+        } else {
+            dao.compareAndSet(
+                scopeId = targetScope,
+                path = path,
+                expectedVersion = expectedVersion,
+                name = cleanName,
+                description = cleanDescription,
+                aliasesJson = JsonInstant.encodeToString(cleanAliases),
+                content = cleanContent,
+                sourcesJson = JsonInstant.encodeToString(cleanSources),
+                updatedAt = now,
+            )
+        }
         if (changed != 1) throw MemoryDocumentConflictException(dao.find(targetScope, path)?.toMemoryDocument())
         return dao.find(targetScope, path)?.toMemoryDocument()
             ?: throw MemoryDocumentConflictException(null)
@@ -441,6 +479,18 @@ private fun normalizeMemoryContent(value: String): String = value
     .lineSequence()
     .joinToString("\n", transform = String::trimEnd)
     .trim()
+
+private val legacyMemoryLinePattern = Regex("(?m)^\\s*-\\s*\\[legacy\\]\\s+#(\\d+)\\b")
+
+private fun String.legacyMemoryIds(): Set<Int> = legacyMemoryLinePattern
+    .findAll(this)
+    .mapNotNull { match -> match.groupValues[1].toIntOrNull() }
+    .toSet()
+
+private fun MemoryDocumentEntity?.orEmptyMigrationSources(): List<MemoryDocumentSource> = this
+    ?.decodeSources()
+    ?.filter { it.type == MemoryDocumentSourceType.MIGRATION }
+    .orEmpty()
 
 internal fun MemoryDocumentEntity.toMemoryDocument(): MemoryDocument = MemoryDocument(
     scopeId = scopeId,

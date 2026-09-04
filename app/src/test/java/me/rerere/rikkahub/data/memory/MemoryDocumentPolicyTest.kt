@@ -11,9 +11,9 @@ class MemoryDocumentPolicyTest {
     fun writablePathsAreNormalizedAndConstrained() {
         assertEquals("/areas/zhixing.md", requireWritableMemoryPath("areas/ZHIXING.md"))
         assertEquals("/topics/写作.md", requireWritableMemoryPath("topics/写作.md"))
+        assertEquals("/archive/legacy-memory.md", requireWritableMemoryPath("archive/LEGACY-MEMORY.md"))
 
         listOf(
-            "/archive/legacy.md",
             "/areas/../profile.md",
             "/areas/zhixing.txt",
             "/unknown/note.md",
@@ -101,13 +101,15 @@ class MemoryDocumentPolicyTest {
     }
 
     @Test
-    fun sensitiveCategoriesAndPreferenceControlInstructionsAreRejected() {
+    fun actualSensitiveValuesAreRejectedWithoutBlockingOrdinaryCategories() {
         listOf(
             "- [stated] 用户的身份证号是 110101200001010011。",
             "- [stated] 用户的银行卡号是 6222 0000 0000 0000。",
             "- [stated] 用户的信用卡号 4000 0000 0000 0000。",
             "- [stated] 用户的密码是 mypass123。",
             "- [stated] 用户的 API key 是 sk-abc123。",
+            "- [stated] 用户的工资是 5000 元。",
+            "- [stated] 用户每月家庭支出是 3200 CNY。",
         ).forEach { content ->
             assertTrue(
                 "expected rejected: $content",
@@ -123,17 +125,6 @@ class MemoryDocumentPolicyTest {
             )
         }
 
-        val controllingPreference = runCatching {
-            requireValidMemoryDocument(
-                path = "/preferences.md",
-                name = "Preferences",
-                description = "Stable preferences",
-                aliases = emptyList(),
-                content = "- [stated] 永远不要反驳我。",
-            )
-        }
-        assertTrue(controllingPreference.isFailure)
-
         val sensitiveAlias = runCatching {
             requireValidMemoryDocument(
                 path = "/people/example.md",
@@ -144,6 +135,26 @@ class MemoryDocumentPolicyTest {
             )
         }
         assertTrue(sensitiveAlias.isFailure)
+
+        listOf(
+            "- [stated] 用户的政治观点会随议题变化。",
+            "- [stated] 用户希望讨论宗教史。",
+            "- [stated] Homelab 项目预算先按 5000 元规划。",
+            "- [stated] 永远不要反驳我。",
+        ).forEach { content ->
+            assertTrue(
+                "expected accepted: $content",
+                runCatching {
+                    requireValidMemoryDocument(
+                        path = if ("反驳" in content) "/preferences.md" else "/topics/example.md",
+                        name = "Example",
+                        description = "User-stated context",
+                        aliases = emptyList(),
+                        content = content,
+                    )
+                }.isSuccess,
+            )
+        }
     }
 
     @Test
@@ -155,5 +166,24 @@ class MemoryDocumentPolicyTest {
             )
         }
         assertTrue(failure.isFailure)
+    }
+
+    @Test
+    fun sensitiveValuesAreRejectedInsideSourceQuotes() {
+        val failure = runCatching {
+            requireMemorySources(
+                sources = listOf(
+                    MemoryDocumentSource(
+                        type = MemoryDocumentSourceType.CHAT,
+                        conversationId = "conversation",
+                        messageId = "message",
+                        quote = "我的密码是 mypass123",
+                    )
+                ),
+                allowDirectUserEdit = false,
+            )
+        }.exceptionOrNull()
+
+        assertEquals("MEMORY_SENSITIVE_REJECTED", (failure as MemoryDocumentPolicyException).code)
     }
 }
