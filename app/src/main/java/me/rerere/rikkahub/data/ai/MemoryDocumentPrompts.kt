@@ -23,8 +23,9 @@ internal fun buildMemoryDocumentPrompt(documents: List<MemoryDocument>): String 
         )
         appendLine(
             "Only /profile.md and /preferences.md are loaded below. Other documents live under the fixed " +
-                "namespaces /areas, /topics, /people, and read-only /archive. Use memory_find for a focused lookup, " +
-                "memory_list for explicit browsing or ambiguity, and memory_read for the selected exact path."
+                "namespaces /areas, /topics, /people, and maintenance-only /archive. Archive documents are never " +
+                "loaded automatically. Use memory_find for a focused lookup, memory_list for explicit browsing or " +
+                "ambiguity, and memory_read for the selected exact path."
         )
         appendLine(
             "If the current request can be answered from the current conversation, supplied content, or general " +
@@ -45,13 +46,18 @@ internal fun buildMemoryDocumentPrompt(documents: List<MemoryDocument>): String 
                 "unrelated documents."
         )
         appendLine(
-            "Memory writes are optional during the active foreground chat run. Call memory_write only when current " +
-                "USER messages contain a clear, durable, non-sensitive stated fact that should be added or " +
-                "corrected, or when the user explicitly asks to remember, correct, or delete memory. When no " +
+            "Memory writes are optional during the active foreground chat run. Call memory_write only when the user " +
+                "has provided a clear, durable stated fact that should be added or corrected, or explicitly asks to " +
+                "remember, reorganize, correct, or delete memory. Make semantic judgments such as durability and " +
+                "document placement yourself; canonical date/unit forms are guidance, not a reason to discard a true " +
+                "statement. When no " +
                 "document should change, do not call memory_write; answer normally. Do not write transient " +
                 "requests, duplicates, inference, or sensitive information. $MEMORY_DOCUMENT_FORMAT_GUIDANCE " +
-                "For every source supply only an exact " +
-                "quote; the app binds its current conversation and message IDs. If an explicit memory request " +
+                "For a current USER message or answered ask_user value, supply {quote}. For a historical source, " +
+                "use conversation_search, call conversation_read, then supply {source_ref, quote} copied exactly " +
+                "from text_parts; a search snippet is never a source. The app resolves and binds trusted conversation " +
+                "and message IDs. Existing archive documents may be edited or deleted only after exact read; never " +
+                "create a new archive path. If an explicit memory request " +
                 "fails with retryable=true, follow correction and retry before claiming it succeeded. An " +
                 "opportunistic write failure must not replace the requested answer or be reported as saved. Memory " +
                 "work happens only in this foreground chat run; there is no background or follow-up memory pass."

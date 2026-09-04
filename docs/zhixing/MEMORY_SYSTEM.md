@@ -1,6 +1,6 @@
 # 记忆文档与历史对话检索 V3
 
-状态：V3 现行契约（Issue #208；本地渐进召回与内容格式 V1 于 2026-08-17 更新）。
+状态：V3 现行契约（Issue #208；历史来源与归档维护于 2026-09-04 按 Issue #268 更新）。
 
 ## 1. 两套机制，不能混用
 
@@ -11,9 +11,10 @@
 | 记忆文档 | Room `MemoryDocumentEntity` | 用户希望长期保留、可编辑的陈述事实 | 用户编辑器，或 App 活跃时由当前 chat Run 按需调用可见的 `memory_write` |
 | 历史对话检索 | Room 会话/消息 + 可重建 FTS5 | 按关键词或最近时间找回原始聊天 | 只由会话持久化链维护，不自动写入记忆 |
 
-`conversation_search` 的命中不能自动变成记忆，删除记忆文档也不会删除原始聊天；删除原始聊天或单条消息时，
-只移除文档 frontmatter 中对应的 source 引用并推进文档版本，不擅自删除已经整理好的独立记忆正文。两套能力分别由
-`Assistant.enableMemory` 和 `Assistant.enableRecentChatsReference` 控制。
+`conversation_search` 的 snippet 不能直接变成记忆；模型必须通过 `conversation_read` 取得并精确引用用户原话。
+删除记忆文档不会删除原始聊天；删除原始聊天或单条消息时，只移除文档 frontmatter 中对应的 source 引用并推进
+文档版本，不擅自删除已经整理好的独立记忆正文。两套能力分别由 `Assistant.enableMemory` 和
+`Assistant.enableRecentChatsReference` 控制。
 
 ## 2. 记忆文件模型
 
@@ -34,10 +35,12 @@ V3 是存储在 Room 中的虚拟 Markdown 文件系统，不把用户数据散�
 /areas/<slug>.md
 /topics/<slug>.md
 /people/<slug>.md
+/archive/<existing-legacy-file>.md
 ```
 
 `/profile.md` 与 `/preferences.md` 始终属于全局 scope，且不能删除，只能清空正文。其他路径可位于全局或
-当前助手 scope。迁移生成的 `/archive/legacy-memory*.md` 只读。
+当前助手 scope。`/archive` 只允许维护迁移时已经存在的文件，不允许模型或编辑器新建任意归档路径；归档不会
+自动注入上下文，正文也不要求伪装成 `[stated]`。
 
 存储层把元数据拆成列以支持 Room 查询和 CAS，但 `memory_read` 与 pinned 注入返回的是完整虚拟 Markdown 文件：
 YAML frontmatter 固定包含 `name / description / sources / aliases`，后接正文。正文允许使用 `[[name]]` 引用其他
@@ -100,9 +103,10 @@ old_text、允许为空的 new_text 和 sources；`append` 提交 path、if_vers
 用户确认；删除会清空正文、元数据和来源，只保留带新版本的 path tombstone 防止并发旧写复活，pinned 文档不允许删除。
 
 记忆只在 App 活跃的当前 chat Run 内实时工作，不注册后台模型维护、回答后二次模型调用、定时整理或下次启动
-补扫。`memory_write` 是可选 mutation，不是 Run 终态：只有当前 USER 消息包含明确陈述、长期有用且非敏感的
-新事实或纠正，或者用户明确要求记住、纠正、删除时才调用；没有文档要变更时不调用任何写入工具，普通回答直接
-完成。用户不需要固定说“记住”，但模糊、推断或一次性内容宁可不写。
+补扫。`memory_write` 是可选 mutation，不是 Run 终态：当前 USER 消息、当前 Run 已回答的 `ask_user.answers`，
+以及经历史工具精确读取的旧 USER 原话都可以提供来源。模型负责判断陈述是否长期有用、如何归类以及如何规范表达；
+用户明确要求记住、整理、纠正或删除时也可调用。没有文档要变更时不调用任何写入工具，普通回答直接完成。用户
+不需要固定说“记住”，但不得把推断、助手文字、工具输出或搜索 snippet 冒充成用户陈述。
 
 参数、来源、内容或版本校验失败时返回 `success=false / changed=false / retryable / error / correction`；成功
 mutation 返回 `success=true / changed=true`。用户明确要求的记忆变更在 `retryable=true` 时必须按 correction
@@ -112,35 +116,36 @@ mutation 返回 `success=true / changed=true`。用户明确要求的记忆变�
 
 模型写入还必须同时满足：
 
-- 内容是当前用户明确说出的持久事实；删除仍必须由用户明确要求；
+- 内容是用户明确说出的持久事实；删除仍必须由用户明确要求；
 - 每条正文事实以 `- [stated] ` 开头，一行只表达一个可独立纠正的持久事实；
-- 涉及日期的事实使用固定格式：完整日期 `YYYY-MM-DD`（如 `2026-08-17`），无年份的年度日期（如生日）用 `MM-DD`（如 `10-17`），单独年份用 `YYYY`；
-- 至少一条 source；模型只提交当前 USER 消息 Text part 的精确 quote，应用从当前运行快照绑定可信的会话 ID
-  和消息 ID，模型不能提供或覆盖这两个内部 ID；
-- 不包含极敏感的凭据信息（银行卡/信用卡号、身份证/护照/证件号、密码、API 密钥等）或精确财务数字；
-- `/preferences.md` 不接受“永远别反驳/质疑”“扮演某角色”等控制身份或取消判断的指令。
+- 日期和单位优先使用内容格式 V1，但格式 lint 是整理建议，不阻塞真实陈述落盘；
+- 至少一条 source：当前 USER 或 `ask_user` 答案使用 `{quote}`；历史对话先由 `conversation_search` 取得
+  `source_ref`，再由 `conversation_read` 读取精确 USER `text_parts`，最后提交 `{source_ref, quote}`；
+- `source_ref` 只是定位器而不是授权。应用每次重新加载 Room，验证同助手、非当前会话、当前选中分支、USER
+  role 和精确子串，再绑定可信的会话 ID 与消息 ID；
+- 正文和 source quote 都不得包含凭据、银行卡/信用卡号、身份证/护照/证件号等秘密值，也不得包含精确个人
+  工资、余额或家庭支出；项目预算等普通业务数字不因此被拒绝。
 
 用户在记忆页直接编辑等同于新的用户陈述，记录 `USER_EDIT` source。模型推断、旧自动画像摘要、助手回复、
-工具结果和历史搜索 snippet 不能落入 active 文档。
+工具结果和历史搜索 snippet 不能落入 active 文档。宗教、政治、性别等类别词以及 preference 的表达方式不再由
+关键词正则一概拒绝；所有记忆正文仍按不可信数据处理，不能改变系统指令或身份边界。
 
 ### 内容格式 V1
 
-内容格式只规范整理后的事实正文，绝不改写 source quote。模型写入遇到可确定的格式错误时返回
-`MEMORY_FORMAT_INVALID`、`retryable=true` 和具体 correction；用户编辑器显示相同 lint 建议但不阻止保存。
-现有 active 文档和 legacy archive 不做后台扫描或静默迁移；后续 append/str_replace 只校验本次新增片段，避免
-旧正文阻塞无关更新。
+内容格式只规范整理后的事实正文，绝不改写 source quote。模型通过 prompt 使用相同规范，用户编辑器继续显示
+lint 建议；格式问题不再造成写入失败。现有 active 文档和 legacy archive 不做后台扫描或静默迁移。
 
 | 值类型 | 规范格式 | 示例 | 当前机器门禁 |
 | --- | --- | --- | --- |
-| 完整日期 | `YYYY-MM-DD`，且必须是真实日历日期 | `2026-08-17` | 模型写入拒绝中文、斜杠、未补零和无效日期 |
-| 年月 | `YYYY-MM` | `2026-08` | 模型写入拒绝未补零和无效月份 |
-| 年度重复日期 | `MM-DD` | `10-17` | 模型写入拒绝未补零和无效月日 |
-| 年份 | `YYYY` | `2002` | 模型写入拒绝“2002 年”等本地化后缀 |
-| 时间 | 24 小时制 `HH:mm`；秒有意义时用 `HH:mm:ss` | `09:30` | 模型写入拒绝中文钟点、全角冒号、未补零和无效时间 |
+| 完整日期 | `YYYY-MM-DD`，且必须是真实日历日期 | `2026-08-17` | prompt + 编辑器 lint |
+| 年月 | `YYYY-MM` | `2026-08` | prompt + 编辑器 lint |
+| 年度重复日期 | `MM-DD` | `10-17` | prompt + 编辑器 lint |
+| 年份 | `YYYY` | `2002` | prompt + 编辑器 lint |
+| 时间 | 24 小时制 `HH:mm`；秒有意义时用 `HH:mm:ss` | `09:30` | prompt + 编辑器 lint |
 | 绝对时刻 | 带 offset 的 RFC 3339 | `2026-08-17T09:35:30+08:00` | prompt 约束 |
 | 时区 | IANA zone ID | `Asia/Shanghai` | prompt 约束 |
-| 数字与物理量 | ASCII 数字、小数点、显式标准单位 | `70 kg`、`175 cm`、`22 °C` | 模型写入拒绝常见中文公制单位 |
-| 百分比 | 数字与 `%` 之间不留空格 | `18%` | 模型写入拒绝“百分之…”和 `18 %` |
+| 数字与物理量 | ASCII 数字、小数点、显式标准单位 | `70 kg`、`175 cm`、`22 °C` | prompt + 编辑器 lint |
+| 百分比 | 数字与 `%` 之间不留空格 | `18%` | prompt + 编辑器 lint |
 | 语言/区域 | BCP 47 | `zh-CN`、`en-US` | prompt 约束 |
 | 非敏感币种偏好 | ISO 4217 大写代码 | `CNY` | prompt；精确财务数字继续由安全策略拒绝 |
 
@@ -151,11 +156,13 @@ mutation 返回 `success=true / changed=true`。用户明确要求的记忆变�
 
 ## 5. V2 迁移和退役
 
-数据库 43→44 新建 `MemoryDocumentEntity` 并初始化空的 profile/preferences。旧 `MemoryEntity` 数据不删除：
+数据库 43→44 新建 `MemoryDocumentEntity` 并初始化空的 profile/preferences。升级时旧 `MemoryEntity` 数据不删除：
 
-- 所有非 deleted 的 PROFILE、CONTEXT、OBSERVATION 按 scope 合并到只读 legacy archive；
+- 所有非 deleted 的 PROFILE、CONTEXT、OBSERVATION 按 scope 合并到 legacy archive；
 - archive 行使用 `[legacy]`，不会冒充 `[stated]`，也不会自动注入；
-- 旧表暂留一版，供回滚、审计和后续显式迁移使用。
+- 归档可由用户编辑器或带明确用户意图的 `memory_write` 整理。已有 `#id` 可保留或删除，不能引入新的
+  legacy ID；删除一行会在同一 Room 事务物理删除对应 scope 的旧 `MemoryEntity`，删除整档会清理其中全部 ID；
+- 旧表继续兼容尚未退役的代码路径，但已从归档移除的数据不会留下隐藏副本。
 
 V2 模型维护服务不再注册。应用升级后只执行一次无模型调用的旧 WorkManager 任务取消动作；同名 Worker 仅保留
 立即成功的兼容壳，防止升级竞态造成类加载失败，它不读聊天、不写记忆、不调度或重试。V3 没有静默维护、
@@ -164,8 +171,10 @@ V2 模型维护服务不再注册。应用升级后只执行一次无模型调�
 ## 6. 历史检索
 
 历史检索继续复用 `MessageFtsManager`：消息保存/编辑时重建会话索引，删除会话时同步移除索引。普通聊天只有
-在“历史对话检索”开关开启时注册 `recent_chats` 与 `conversation_search`。结果返回原会话 ID、标题、日期和
-snippet；这只是原始记录的检索投影，不是长期事实。
+在“历史对话检索”开关开启时注册 `recent_chats`、`conversation_search` 与 `conversation_read`。search 会从 FTS
+候选中二次过滤，只返回同助手、非当前会话、当前选中分支的 USER 消息，并附版本化、自包含但不授予权限的
+`source_ref`。snippet 含高亮与省略号，只用于找候选；`conversation_read(source_ref)` 重新验证 Room 真值并返回
+原始 `text_parts`。当前版本不把历史 `ask_user` 答案加入 FTS，只有当前 Run 已回答的 ask 可直接作为来源。
 
 ## 7. 竞品与技术取舍
 
@@ -193,14 +202,16 @@ on-demand files、MemGPT 的上下文分页和 Zep 的 raw episode 与 curated f
 ## 8. 验收
 
 1. 开场 prompt 不包含任一非 pinned 的 path、description、aliases 或正文；find/list 能路由到正确 exact path。
-2. 模型侧 source schema 不暴露会话 ID 或消息 ID；quote 不是当前 USER 消息的精确子串时写入失败，匹配成功时
-   由应用绑定最近一条可信来源消息。
-3. 非 `[stated]`、凭据类敏感信息、控制型 preference 和可确定的非规范 V1 值写入失败；用户编辑器对格式问题
-   只警告，不阻断保存。
+2. 模型侧 source schema 不暴露会话 ID 或消息 ID；当前 USER 和 `ask_user.answers` 可用 `{quote}`，历史 USER
+   使用 `{source_ref, quote}`。错误 scope、未选分支、助手消息、失效 ref 或非精确 quote 都写入失败。
+3. active 正文仍要求 `[stated]`；格式 V1、类别和 preference 语义交给 prompt/lint。凭据、证件/卡号与精确个人
+   财务值在正文或 source quote 中都会写入失败，普通项目预算允许。
 4. 两个 writer 使用同一旧 version 时只有一个成功，另一个得到冲突。
-5. 43→44 保留旧记录到 archive，不删除旧表或用户会话。
-6. 记忆页可查看和编辑元数据/正文/版本/来源数，删除非 pinned 文件需要确认。
-7. 历史检索关闭时不注册 history tools；开启后仍查询原始 FTS，不读取 MemoryDocument 表。
+5. 43→44 升级仍保留旧记录到 archive；后续删除 legacy 条目或整档时，归档 CAS 与对应旧行物理删除位于同一事务。
+6. 记忆页可查看和编辑 active/archive 的元数据、正文、版本和来源数，删除非 pinned 文件需要确认；不能新建
+   archive，也不能引入新的 legacy ID。
+7. 历史检索关闭时不注册 history tools，也不接受历史 source_ref；开启后 search/read 查询原始 FTS 与 Room
+   会话，不读取 MemoryDocument 表。
 8. 无记忆变化的 Run 不调用 `memory_write`；有真实 mutation 时才出现可见工具调用。显式记忆请求的可重试
    失败会修正后重试，机会式写入失败不阻塞普通回答；响应不包含 Run `finalized` 语义，且没有后台或隐藏的
    二次模型调用。
@@ -210,3 +221,5 @@ on-demand files、MemGPT 的上下文分页和 Zep 的 raw episode 与 curated f
 11. list 可遍历超过旧 8 KiB listing 容量的全部 descriptor，页间无重复和静默遗漏；archive 仍可发现。
 12. 中文 alias 与英文 metadata/content 可由真实 simple/Jieba FTS 召回，metadata 匹配优先；tombstone、删除 scope
     和助手不可见的全局项目都不命中，关闭重开后索引可从 Room 真值恢复。
+13. 文档最多保存 32 条去重来源，超限明确失败，Repository 不再静默丢弃旧 provenance；`observed_at` 表示记忆
+    系统记录该来源的时刻，不伪装成历史消息的原始发送时间。

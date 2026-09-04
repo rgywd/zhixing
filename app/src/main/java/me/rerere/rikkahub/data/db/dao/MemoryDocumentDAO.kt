@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 import me.rerere.rikkahub.data.db.entity.MemoryDocumentEntity
 
@@ -62,6 +63,39 @@ interface MemoryDocumentDAO {
         updatedAt: Long,
     ): Int
 
+    @Query("DELETE FROM MemoryEntity WHERE assistant_id = :scopeId AND id IN (:ids)")
+    suspend fun deleteLegacyMemoriesByIds(scopeId: String, ids: List<Int>): Int
+
+    @Transaction
+    suspend fun compareAndSetArchive(
+        scopeId: String,
+        path: String,
+        expectedVersion: Long,
+        name: String,
+        description: String,
+        aliasesJson: String,
+        content: String,
+        sourcesJson: String,
+        updatedAt: Long,
+        removedLegacyIds: List<Int>,
+    ): Int {
+        val changed = compareAndSet(
+            scopeId = scopeId,
+            path = path,
+            expectedVersion = expectedVersion,
+            name = name,
+            description = description,
+            aliasesJson = aliasesJson,
+            content = content,
+            sourcesJson = sourcesJson,
+            updatedAt = updatedAt,
+        )
+        if (changed == 1 && removedLegacyIds.isNotEmpty()) {
+            deleteLegacyMemoriesByIds(scopeId, removedLegacyIds)
+        }
+        return changed
+    }
+
     @Query(
         """
         UPDATE MemoryDocumentEntity
@@ -108,6 +142,21 @@ interface MemoryDocumentDAO {
         expectedVersion: Long,
         updatedAt: Long,
     ): Int
+
+    @Transaction
+    suspend fun compareAndDeleteArchive(
+        scopeId: String,
+        path: String,
+        expectedVersion: Long,
+        updatedAt: Long,
+        legacyIds: List<Int>,
+    ): Int {
+        val changed = compareAndDelete(scopeId, path, expectedVersion, updatedAt)
+        if (changed == 1 && legacyIds.isNotEmpty()) {
+            deleteLegacyMemoriesByIds(scopeId, legacyIds)
+        }
+        return changed
+    }
 
     @Query(
         """

@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.ai.tools
 
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
@@ -9,8 +10,12 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
+import me.rerere.ai.core.ToolExecutionException
+import me.rerere.ai.core.ToolExecutionMode
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.db.fts.MessageSearchResult
 import me.rerere.rikkahub.data.db.fts.MessageSearchSort
+import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.toLocalDate
@@ -23,6 +28,7 @@ import kotlin.uuid.Uuid
 fun createConversationTools(
     conversationRepo: ConversationRepository,
     assistantId: Uuid,
+    currentConversationId: Uuid? = null,
 ): List<Tool> = listOf(
     Tool(
         name = "recent_chats",
@@ -68,7 +74,10 @@ fun createConversationTools(
         description = """
             Full-text search across the user's past conversations to recall specific information they mentioned before.
             Use focused keywords. Run multiple searches with different keywords if needed.
-            Each result includes the conversation title, a snippet with matched keywords wrapped in [brackets], and the date.
+            Results are limited to selected USER messages from this assistant's other conversations. Each result includes
+            a source_ref, the conversation title, a search-only snippet with matched keywords wrapped in [brackets],
+            and the date. The snippet is not exact source text. Call conversation_read with source_ref before quoting or
+            saving a result to memory.
         """.trimIndent(),
         parameters = {
             InputSchema.Obj(
@@ -92,20 +101,91 @@ fun createConversationTools(
             val query = it.jsonObject["query"]?.jsonPrimitive?.contentOrNull
                 ?: error("query is required")
             val limit = (it.jsonObject["limit"]?.jsonPrimitive?.intOrNull ?: 15).coerceIn(1, 50)
-            val results = conversationRepo
-                .searchMessages(query, MessageSearchSort.RELEVANCE)
-                .take(limit)
+            val conversations = mutableMapOf<Uuid, Conversation>()
+            val results = mutableListOf<Pair<MessageSearchResult, ResolvedConversationUserSource>>()
+            for (result in conversationRepo.searchMessages(query, MessageSearchSort.RELEVANCE)) {
+                if (results.size >= limit) break
+                val sourceRef = runCatching {
+                    ConversationSourceRef(
+                        conversationId = Uuid.parse(result.conversationId),
+                        nodeId = Uuid.parse(result.nodeId),
+                        messageId = Uuid.parse(result.messageId),
+                    )
+                }.getOrNull() ?: continue
+                val conversation = conversations[sourceRef.conversationId]
+                    ?: conversationRepo.getConversationById(sourceRef.conversationId).also { loaded ->
+                        if (loaded != null) conversations[sourceRef.conversationId] = loaded
+                    }
+                    ?: continue
+                val resolved = runCatching {
+                    resolveSelectedUserSource(
+                        conversation = conversation,
+                        sourceRef = sourceRef,
+                        assistantId = assistantId,
+                        excludedConversationId = currentConversationId,
+                    )
+                }.getOrNull() ?: continue
+                results += result to resolved
+            }
             val payload = buildJsonArray {
-                results.forEach { result ->
+                results.forEach { (result, resolved) ->
                     add(buildJsonObject {
-                        put("conversation_id", result.conversationId)
-                        put("title", result.title.ifBlank { "Untitled" })
+                        put("conversation_id", resolved.sourceRef.conversationId.toString())
+                        put("source_ref", resolved.sourceRef.encode())
+                        put("title", resolved.title.ifBlank { "Untitled" })
                         put("snippet", result.snippet)
-                        put("date", result.updateAt.toLocalDate())
+                        put("date", resolved.updateAt.toLocalDate())
                     })
                 }
             }
             listOf(UIMessagePart.Text(JsonInstantPretty.encodeToString(payload)))
-        }
-    )
+        },
+        executionMode = ToolExecutionMode.PARALLEL_READ_ONLY,
+        deduplicateWithinRun = true,
+    ),
+    Tool(
+        name = "conversation_read",
+        description = """
+            Read the exact USER text behind one source_ref returned by conversation_search. Use this before quoting a
+            historical message or passing {source_ref, quote} to memory_write. The source_ref is only a locator; the app
+            revalidates assistant scope, selected branch, USER role, and message existence on every call.
+        """.trimIndent(),
+        parameters = {
+            InputSchema.Obj(
+                properties = buildJsonObject {
+                    put("source_ref", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Exact source_ref returned by conversation_search")
+                        put("minLength", 1)
+                    })
+                },
+                required = listOf("source_ref"),
+                additionalProperties = false,
+            )
+        },
+        execute = {
+            val encodedSourceRef = it.jsonObject["source_ref"]?.jsonPrimitive?.contentOrNull
+                ?.takeIf(String::isNotBlank)
+                ?: throw ToolExecutionException("MEMORY_SOURCE_REF_INVALID")
+            val sourceRef = ConversationSourceRef.decode(encodedSourceRef)
+            val conversation = conversationRepo.getConversationById(sourceRef.conversationId)
+                ?: throw ToolExecutionException("MEMORY_SOURCE_NOT_FOUND")
+            val resolved = resolveSelectedUserSource(
+                conversation = conversation,
+                sourceRef = sourceRef,
+                assistantId = assistantId,
+                excludedConversationId = currentConversationId,
+            )
+            val payload = buildJsonObject {
+                put("source_ref", encodedSourceRef)
+                put("conversation_id", sourceRef.conversationId.toString())
+                put("title", resolved.title.ifBlank { "Untitled" })
+                put("date", resolved.updateAt.toLocalDate())
+                put("text_parts", buildJsonArray { resolved.textParts.forEach(::add) })
+            }
+            listOf(UIMessagePart.Text(JsonInstantPretty.encodeToString(payload)))
+        },
+        executionMode = ToolExecutionMode.PARALLEL_READ_ONLY,
+        deduplicateWithinRun = true,
+    ),
 )

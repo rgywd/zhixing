@@ -73,6 +73,7 @@ import me.rerere.rikkahub.data.ai.projectContextForPrompt
 import me.rerere.rikkahub.data.ai.splitCompactionContent
 import me.rerere.rikkahub.data.ai.successfulMonthlySpendingSaveToolCalls
 import me.rerere.rikkahub.data.ai.tools.createConversationTools
+import me.rerere.rikkahub.data.ai.tools.resolveHistoricalMemorySource
 import me.rerere.rikkahub.data.ai.tools.createAssistantUserPromptTools
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.ai.tools.createSearchTools
@@ -745,6 +746,19 @@ class ChatService(
                     }
                 ),
                 memoryConversationId = conversationId.toString(),
+                historicalMemorySourceResolver = if (assistant.enableRecentChatsReference) {
+                    { sourceRef, quote ->
+                        resolveHistoricalMemorySource(
+                            conversationRepository = conversationRepo,
+                            assistantId = assistant.id,
+                            currentConversationId = conversationId,
+                            encodedSourceRef = sourceRef,
+                            quote = quote,
+                        )
+                    }
+                } else {
+                    null
+                },
                 inputTransformers = buildList {
                     addAll(inputTransformers)
                     add(templateTransformer)
@@ -762,7 +776,7 @@ class ChatService(
                         )
                     )
                     if (assistant.enableRecentChatsReference) {
-                        addAll(createConversationTools(conversationRepo, assistant.id))
+                        addAll(createConversationTools(conversationRepo, assistant.id, conversationId))
                     }
                     addAll(createKnowledgeTools(assistant.workspaceId?.toString(), workspaceRepository, knowledgeSpaceService))
                     addAll(createAssistantUserPromptTools(assistant, workspaceRepository))

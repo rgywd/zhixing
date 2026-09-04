@@ -9,9 +9,11 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.coroutines.runBlocking
 import me.rerere.ai.core.InputSchema
+import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ToolExecutionException
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.rikkahub.data.model.MemoryDocument
 import me.rerere.rikkahub.data.model.MemoryDocumentSource
 import me.rerere.rikkahub.data.model.MemoryDocumentSourceType
@@ -44,9 +46,9 @@ class MemoryDocumentToolsTest {
         assertTrue(readDescription.contains("directly relevant relationship"))
         assertTrue(readDescription.contains("stop once you have enough"))
         assertTrue(tools.last().description.contains("never changes"))
-        assertTrue(tools.last().description.contains("raw conversation history"))
+        assertTrue(writeDescription.contains("raw conversation history"))
         assertTrue(tools.last().description.contains("special \"remember\" phrase is not required"))
-        assertTrue(tools.last().description.contains("app binds"))
+        assertTrue(writeDescription.contains("app resolves every source"))
         assertTrue(tools.last().description.contains("Call only when a real memory mutation is needed"))
         assertTrue(tools.last().description.contains("do not call this tool"))
         assertTrue(tools.last().description.contains("foreground chat run"))
@@ -146,6 +148,7 @@ class MemoryDocumentToolsTest {
         assertTrue(actionSchema.contains("append"))
         assertTrue(actionSchema.contains("delete"))
         assertTrue(sourcesSchema.contains("quote"))
+        assertTrue(sourcesSchema.contains("source_ref"))
         assertTrue(sourcesSchema.contains("minItems"))
         assertTrue(sourcesSchema.contains("minLength"))
         assertFalse(sourcesSchema.contains("conversationId"))
@@ -192,14 +195,12 @@ class MemoryDocumentToolsTest {
     }
 
     @Test
-    fun nonCanonicalAppendReturnsSpecificRetryableFormatError() = runBlocking {
+    fun nonCanonicalAppendIsAcceptedAsFormatGuidance() = runBlocking {
         val result = memoryTools().last().execute(
             appendInput(content = "- [stated] 用户的生日是 10 月 17 日。")
         ).single() as UIMessagePart.Text
 
-        assertTrue(result.text.contains("MEMORY_FORMAT_INVALID"))
-        assertTrue(result.text.contains("\"retryable\":true"))
-        assertTrue(result.text.contains("YYYY-MM-DD"))
+        assertTrue(result.text.contains("\"success\":true"))
     }
 
     @Test
@@ -247,7 +248,7 @@ class MemoryDocumentToolsTest {
     }
 
     @Test
-    fun hostBindsChatSourceToTheLatestMatchingUserMessage() {
+    fun hostBindsChatSourceToTheLatestMatchingUserMessage() = runBlocking {
         val olderUser = UIMessage.user("我偏好中文回复")
         val latestUser = UIMessage.user("请记住我偏好中文回复")
         val source = MemoryDocumentSource(
@@ -273,7 +274,89 @@ class MemoryDocumentToolsTest {
                 messages = listOf(latestUser, UIMessage.assistant("assistant reply")),
             )
         }.exceptionOrNull()
-        assertEquals("MEMORY_SOURCE_INVALID", (unmatched as ToolExecutionException).code)
+        assertEquals("MEMORY_SOURCE_QUOTE_MISMATCH", (unmatched as ToolExecutionException).code)
+    }
+
+    @Test
+    fun answeredAskUserValueIsBoundAsDirectUserInput() = runBlocking {
+        val container = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(UIMessagePart.Tool(
+                toolCallId = "ask-1",
+                toolName = "ask_user",
+                input = "{}",
+                approvalState = ToolApprovalState.Answered(
+                    """{"answers":{"archive":"删除两边","scope":"同助手"},"discuss":["later"]}"""
+                ),
+            )),
+        )
+
+        val bound = bindMemoryDocumentChatSources(
+            sources = listOf(
+                MemoryDocumentSource(
+                    type = MemoryDocumentSourceType.CHAT,
+                    quote = "删除两边",
+                )
+            ),
+            conversationId = "conversation-1",
+            messages = listOf(container),
+        )
+
+        assertEquals(container.id.toString(), bound.single().messageId)
+        assertEquals("删除两边", bound.single().quote)
+
+        val discussOnly = runCatching {
+            bindMemoryDocumentChatSources(
+                sources = listOf(
+                    MemoryDocumentSource(
+                        type = MemoryDocumentSourceType.CHAT,
+                        quote = "later",
+                    )
+                ),
+                conversationId = "conversation-1",
+                messages = listOf(container),
+            )
+        }.exceptionOrNull()
+        assertEquals("MEMORY_SOURCE_QUOTE_MISMATCH", (discussOnly as ToolExecutionException).code)
+    }
+
+    @Test
+    fun historicalSourceRefIsResolvedByTheHost() = runBlocking {
+        val expected = MemoryDocumentSource(
+            type = MemoryDocumentSourceType.CHAT,
+            conversationId = "historical-conversation",
+            messageId = "historical-message",
+            quote = "预算先按 5000 算",
+            observedAt = 123L,
+        )
+        val bound = bindMemoryDocumentChatSources(
+            sources = listOf(
+                MemoryDocumentSource(
+                    type = MemoryDocumentSourceType.CHAT,
+                    quote = expected.quote,
+                    sourceRef = "v1.ref",
+                )
+            ),
+            conversationId = "current-conversation",
+            messages = emptyList(),
+            resolveHistoricalSource = { sourceRef, quote ->
+                assertEquals("v1.ref", sourceRef)
+                assertEquals(expected.quote, quote)
+                expected
+            },
+        )
+
+        assertEquals(expected, bound.single())
+        assertEquals("", bound.single().sourceRef)
+
+        val disabled = runCatching {
+            bindMemoryDocumentChatSources(
+                sources = listOf(expected.copy(sourceRef = "v1.ref")),
+                conversationId = "current-conversation",
+                messages = emptyList(),
+            )
+        }.exceptionOrNull()
+        assertEquals("MEMORY_SOURCE_HISTORY_DISABLED", (disabled as ToolExecutionException).code)
     }
 
     @Test

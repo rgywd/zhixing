@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 @Serializable
 data class MemoryDocumentSource(
@@ -9,6 +10,8 @@ data class MemoryDocumentSource(
     val messageId: String = "",
     val quote: String = "",
     val observedAt: Long = 0,
+    /** Ephemeral selector returned by history tools. It is resolved and removed before persistence. */
+    @Transient val sourceRef: String = "",
 )
 @Serializable
 enum class MemoryDocumentSourceType {
