@@ -134,11 +134,11 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                                 selectedOption = colorMode,
                                 onOptionSelected = {
                                     colorMode = it
-                                    navController.navigate(Screen.Setting) {
-                                        popUpTo(Screen.Setting) {
-                                            inclusive = true
-                                        }
-                                    }
+                                    navController.navigate(
+                                        screen = Screen.Setting,
+                                        popUpTo = Screen.Setting,
+                                        inclusive = true,
+                                    )
                                 },
                                 optionToString = {
                                     when (it) {

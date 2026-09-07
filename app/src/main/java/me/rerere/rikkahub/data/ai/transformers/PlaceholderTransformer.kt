@@ -31,10 +31,6 @@ data class PlaceholderCtx(
     val assistant: Assistant,
 )
 
-interface PlaceholderProvider {
-    val placeholders: Map<String, PlaceholderInfo>
-}
-
 data class PlaceholderInfo(
     val displayName: @Composable () -> Unit,
     val resolver: (PlaceholderCtx) -> String
@@ -58,8 +54,8 @@ fun buildPlaceholders(block: PlaceholderBuilder.() -> Unit): Map<String, Placeho
     return PlaceholderBuilder().apply(block).build()
 }
 
-object DefaultPlaceholderProvider : PlaceholderProvider {
-    override val placeholders: Map<String, PlaceholderInfo> = buildPlaceholders {
+object DefaultPlaceholderProvider {
+    val placeholders: Map<String, PlaceholderInfo> = buildPlaceholders {
         placeholder("cur_date", { Text(stringResource(R.string.placeholder_current_date)) }) {
             LocalDate.now().toDateString()
         }

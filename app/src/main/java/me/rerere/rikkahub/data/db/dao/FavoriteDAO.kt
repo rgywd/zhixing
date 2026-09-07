@@ -12,9 +12,6 @@ interface FavoriteDAO {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(favorite: FavoriteEntity)
 
-    @Query("SELECT * FROM favorites ORDER BY created_at DESC")
-    fun listAll(): Flow<List<FavoriteEntity>>
-
     @Query("SELECT * FROM favorites WHERE type = :type ORDER BY created_at DESC")
     fun listByType(type: String): Flow<List<FavoriteEntity>>
 
@@ -33,6 +30,4 @@ interface FavoriteDAO {
     @Query("DELETE FROM favorites WHERE ref_key = :refKey")
     suspend fun deleteByRefKey(refKey: String): Int
 
-    @Query("DELETE FROM favorites WHERE id = :id")
-    suspend fun deleteById(id: String): Int
 }

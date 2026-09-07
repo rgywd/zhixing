@@ -38,7 +38,6 @@ import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.FavoriteRepository
 import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.service.ChatService
-import me.rerere.rikkahub.telemetry.AppTelemetry
 import me.rerere.rikkahub.ui.hooks.writeStringPreference
 import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.utils.UiState
@@ -55,7 +54,6 @@ class ChatVM(
     private val conversationRepo: ConversationRepository,
     private val chatService: ChatService,
     val updateChecker: UpdateChecker,
-    private val analytics: AppTelemetry,
     private val filesManager: FilesManager,
     private val favoriteRepository: FavoriteRepository,
 ) : ViewModel() {
@@ -180,14 +178,12 @@ class ChatVM(
         runtimeContext: UIMessageAnnotation.RuntimeContext? = null,
     ) {
         if (content.isEmptyInputMessage()) return
-        analytics.logEvent("ai_send_message")
 
         chatService.sendMessage(_conversationId, content, answer, runtimeContext)
     }
 
     fun handleMessageEdit(parts: List<UIMessagePart>, messageId: Uuid) {
         if (parts.isEmptyInputMessage()) return
-        analytics.logEvent("ai_edit_message")
 
         viewModelScope.launch {
             chatService.editMessage(_conversationId, messageId, parts)
@@ -228,7 +224,6 @@ class ChatVM(
         message: UIMessage,
         regenerateAssistantMsg: Boolean = true
     ) {
-        analytics.logEvent("ai_regenerate_at_message")
         chatService.regenerateAtMessage(_conversationId, message, regenerateAssistantMsg)
     }
 
@@ -237,7 +232,6 @@ class ChatVM(
         approved: Boolean,
         reason: String = ""
     ) {
-        analytics.logEvent("ai_tool_approval")
         chatService.handleToolApproval(_conversationId, toolCallId, approved, reason)
     }
 
@@ -245,7 +239,6 @@ class ChatVM(
         toolCallId: String,
         answer: String,
     ) {
-        analytics.logEvent("ai_tool_answer")
         chatService.handleToolApproval(_conversationId, toolCallId, approved = true, answer = answer)
     }
 

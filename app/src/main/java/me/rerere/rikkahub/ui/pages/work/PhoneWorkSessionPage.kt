@@ -294,9 +294,11 @@ fun PhoneWorkSessionPage(sessionId: String) {
                 filesManager.deleteChatFiles(attachments.map { it.uri.toUri() })
                 inputState.clearInput()
                 if (createdId != null) {
-                    navigator.navigate(Screen.PhoneWorkSession(createdId)) {
-                        popUpTo(Screen.PhoneWorkSession("")) { inclusive = true }
-                    }
+                    navigator.navigate(
+                        screen = Screen.PhoneWorkSession(createdId),
+                        popUpTo = Screen.PhoneWorkSession(""),
+                        inclusive = true,
+                    )
                 }
             }
             when (resolveWorkInputAction(session, runnerCapabilities, longPress)) {
