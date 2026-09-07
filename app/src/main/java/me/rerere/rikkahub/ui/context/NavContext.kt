@@ -5,20 +5,23 @@ import androidx.navigation3.runtime.NavKey
 import me.rerere.rikkahub.Screen
 
 class Navigator(private val backStack: MutableList<NavKey>) {
-    fun navigate(screen: Screen, builder: NavigateOptionsBuilder.() -> Unit = {}) {
-        val options = NavigateOptionsBuilder().apply(builder)
-
-        options.popUpToScreen?.let { target ->
+    fun navigate(
+        screen: Screen,
+        popUpTo: Screen? = null,
+        inclusive: Boolean = false,
+        launchSingleTop: Boolean = false,
+    ) {
+        popUpTo?.let { target ->
             val targetIndex = backStack.indexOfLast { it == target }
             if (targetIndex != -1) {
-                val removeFromIndex = if (options.popUpToInclusive) targetIndex else targetIndex + 1
+                val removeFromIndex = if (inclusive) targetIndex else targetIndex + 1
                 repeat(backStack.size - removeFromIndex) {
                     backStack.removeLastOrNull()
                 }
             }
         }
 
-        if (options.launchSingleTop && backStack.lastOrNull() == screen) {
+        if (launchSingleTop && backStack.lastOrNull() == screen) {
             return
         }
 
@@ -35,22 +38,6 @@ class Navigator(private val backStack: MutableList<NavKey>) {
         backStack.removeLastOrNull()
         return true
     }
-}
-
-class NavigateOptionsBuilder {
-    internal var popUpToScreen: Screen? = null
-    internal var popUpToInclusive: Boolean = false
-    var launchSingleTop: Boolean = false
-
-    fun popUpTo(screen: Screen, builder: PopUpToBuilder.() -> Unit = {}) {
-        val options = PopUpToBuilder().apply(builder)
-        popUpToScreen = screen
-        popUpToInclusive = options.inclusive
-    }
-}
-
-class PopUpToBuilder {
-    var inclusive: Boolean = false
 }
 
 val LocalNavController = compositionLocalOf<Navigator> {

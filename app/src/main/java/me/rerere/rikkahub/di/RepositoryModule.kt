@@ -14,8 +14,6 @@ import me.rerere.rikkahub.data.agenda.AgendaTaskReminderGateway
 import me.rerere.rikkahub.data.agenda.DeviceCalendarRepository
 import me.rerere.rikkahub.data.repository.FavoriteRepository
 import me.rerere.rikkahub.data.repository.FolderRepository
-import me.rerere.rikkahub.data.repository.FilesRepository
-import me.rerere.rikkahub.data.repository.GenMediaRepository
 import me.rerere.rikkahub.data.repository.HealthMetricRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.MemoryDocumentRepository
@@ -64,14 +62,6 @@ val repositoryModule = module {
 
     single {
         MemoryDocumentRepository(get(), get())
-    }
-
-    single {
-        GenMediaRepository(get())
-    }
-
-    single {
-        FilesRepository(get())
     }
 
     single {

@@ -43985,7 +43985,7 @@ SPLme/rerere/rikkahub/data/event/AppEventBus;-><init>()V
 SPLme/rerere/rikkahub/data/event/AppEventBus;->getEvents()Lkotlinx/coroutines/flow/SharedFlow;
 Lme/rerere/rikkahub/data/files/FilesManager;
 SPLme/rerere/rikkahub/data/files/FilesManager;-><clinit>()V
-SPLme/rerere/rikkahub/data/files/FilesManager;-><init>(Landroid/content/Context;Lme/rerere/rikkahub/data/repository/FilesRepository;Lme/rerere/rikkahub/AppScope;)V
+SPLme/rerere/rikkahub/data/files/FilesManager;-><init>(Landroid/content/Context;Lme/rerere/rikkahub/data/db/dao/ManagedFileDAO;Lme/rerere/rikkahub/AppScope;)V
 SPLme/rerere/rikkahub/data/files/FilesManager;->access$getContext$p(Lme/rerere/rikkahub/data/files/FilesManager;)Landroid/content/Context;
 SPLme/rerere/rikkahub/data/files/FilesManager;->syncFolder$default(Lme/rerere/rikkahub/data/files/FilesManager;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 SPLme/rerere/rikkahub/data/files/FilesManager;->syncFolder(Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -44275,10 +44275,6 @@ SPLme/rerere/rikkahub/data/repository/ConversationRepository$getConversationsOfA
 Lme/rerere/rikkahub/data/repository/FavoriteRepository;
 SPLme/rerere/rikkahub/data/repository/FavoriteRepository;-><clinit>()V
 SPLme/rerere/rikkahub/data/repository/FavoriteRepository;-><init>(Lme/rerere/rikkahub/data/db/dao/FavoriteDAO;)V
-Lme/rerere/rikkahub/data/repository/FilesRepository;
-SPLme/rerere/rikkahub/data/repository/FilesRepository;-><clinit>()V
-SPLme/rerere/rikkahub/data/repository/FilesRepository;-><init>(Lme/rerere/rikkahub/data/db/dao/ManagedFileDAO;)V
-Lme/rerere/rikkahub/data/repository/GenMediaRepository;
 Lme/rerere/rikkahub/data/repository/MemoryRepository;
 SPLme/rerere/rikkahub/data/repository/MemoryRepository;-><clinit>()V
 SPLme/rerere/rikkahub/data/repository/MemoryRepository;-><init>(Lme/rerere/rikkahub/data/db/dao/MemoryDAO;)V
@@ -44528,7 +44524,6 @@ Lme/rerere/rikkahub/di/RepositoryModuleKt;
 SPLme/rerere/rikkahub/di/RepositoryModuleKt;->$r8$lambda$CbN7SD4vEPeBPzF-96rHIOm1o_o(Lorg/koin/core/scope/Scope;Lorg/koin/core/parameter/ParametersHolder;)Lme/rerere/rikkahub/data/repository/MemoryRepository;
 SPLme/rerere/rikkahub/di/RepositoryModuleKt;->$r8$lambda$HaIstC_9yY_K0LyJF4GwI1bAEZ4(Lorg/koin/core/scope/Scope;Lorg/koin/core/parameter/ParametersHolder;)Lme/rerere/workspace/WorkspaceManager;
 SPLme/rerere/rikkahub/di/RepositoryModuleKt;->$r8$lambda$e0-2U00N6JXkLoPT9aKMZfs4DLc(Lorg/koin/core/scope/Scope;Lorg/koin/core/parameter/ParametersHolder;)Lme/rerere/rikkahub/data/files/FilesManager;
-SPLme/rerere/rikkahub/di/RepositoryModuleKt;->$r8$lambda$eyB7EOc94pAQcRjAilSfoDgaYus(Lorg/koin/core/scope/Scope;Lorg/koin/core/parameter/ParametersHolder;)Lme/rerere/rikkahub/data/repository/FilesRepository;
 SPLme/rerere/rikkahub/di/RepositoryModuleKt;->$r8$lambda$iVbYTnyPpvZ8CtcE7A-OWdgTqMY(Lorg/koin/core/scope/Scope;Lorg/koin/core/parameter/ParametersHolder;)Lme/rerere/rikkahub/data/repository/ConversationRepository;
 SPLme/rerere/rikkahub/di/RepositoryModuleKt;->$r8$lambda$jDAEV6bsbpYyoIMXe1QZIoACozo(Lorg/koin/core/scope/Scope;Lorg/koin/core/parameter/ParametersHolder;)Lme/rerere/rikkahub/data/repository/WorkspaceRepository;
 SPLme/rerere/rikkahub/di/RepositoryModuleKt;->$r8$lambda$kdUa3tuoH4S_klU8Znsvaqo7jto(Lorg/koin/core/scope/Scope;Lorg/koin/core/parameter/ParametersHolder;)Lme/rerere/rikkahub/data/files/SkillManager;
@@ -44538,7 +44533,6 @@ SPLme/rerere/rikkahub/di/RepositoryModuleKt;-><clinit>()V
 SPLme/rerere/rikkahub/di/RepositoryModuleKt;->getRepositoryModule()Lorg/koin/core/module/Module;
 SPLme/rerere/rikkahub/di/RepositoryModuleKt;->repositoryModule$lambda$0$0(Lorg/koin/core/scope/Scope;Lorg/koin/core/parameter/ParametersHolder;)Lme/rerere/rikkahub/data/repository/ConversationRepository;
 SPLme/rerere/rikkahub/di/RepositoryModuleKt;->repositoryModule$lambda$0$1(Lorg/koin/core/scope/Scope;Lorg/koin/core/parameter/ParametersHolder;)Lme/rerere/rikkahub/data/repository/MemoryRepository;
-SPLme/rerere/rikkahub/di/RepositoryModuleKt;->repositoryModule$lambda$0$3(Lorg/koin/core/scope/Scope;Lorg/koin/core/parameter/ParametersHolder;)Lme/rerere/rikkahub/data/repository/FilesRepository;
 SPLme/rerere/rikkahub/di/RepositoryModuleKt;->repositoryModule$lambda$0$4(Lorg/koin/core/scope/Scope;Lorg/koin/core/parameter/ParametersHolder;)Lme/rerere/rikkahub/data/repository/FavoriteRepository;
 SPLme/rerere/rikkahub/di/RepositoryModuleKt;->repositoryModule$lambda$0$5(Lorg/koin/core/scope/Scope;Lorg/koin/core/parameter/ParametersHolder;)Lme/rerere/workspace/WorkspaceManager;
 SPLme/rerere/rikkahub/di/RepositoryModuleKt;->repositoryModule$lambda$0$6(Lorg/koin/core/scope/Scope;Lorg/koin/core/parameter/ParametersHolder;)Lme/rerere/workspace/RootfsInstaller;

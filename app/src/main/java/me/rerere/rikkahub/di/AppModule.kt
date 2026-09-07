@@ -42,8 +42,6 @@ import me.rerere.rikkahub.data.location.AndroidAmapNavigationLauncher
 import me.rerere.rikkahub.service.ChatGenerationForegroundController
 import me.rerere.rikkahub.service.ChatNotificationManager
 import me.rerere.rikkahub.service.ChatService
-import me.rerere.rikkahub.telemetry.AppTelemetry
-import me.rerere.rikkahub.telemetry.NoOpAppTelemetry
 import me.rerere.rikkahub.utils.EmojiData
 import me.rerere.rikkahub.utils.EmojiUtils
 import me.rerere.rikkahub.utils.JsonInstant
@@ -147,8 +145,6 @@ val appModule = module {
     single {
         TTSManager(get())
     }
-
-    single<AppTelemetry> { NoOpAppTelemetry }
 
     single {
         SoundEffectPlayer(get())

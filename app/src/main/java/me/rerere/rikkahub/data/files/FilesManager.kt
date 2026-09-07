@@ -22,7 +22,7 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.common.android.Logging
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.db.entity.ManagedFileEntity
-import me.rerere.rikkahub.data.repository.FilesRepository
+import me.rerere.rikkahub.data.db.dao.ManagedFileDAO
 import me.rerere.rikkahub.utils.exportImage
 import me.rerere.rikkahub.utils.exportImageFile
 import me.rerere.rikkahub.utils.getActivity
@@ -32,7 +32,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 
 class FilesManager(
     private val context: Context,
-    private val repository: FilesRepository,
+    private val dao: ManagedFileDAO,
     private val appScope: AppScope,
 ) {
     companion object {
@@ -96,14 +96,14 @@ class FilesManager(
     }
 
     fun observe(folder: String = FileFolders.UPLOAD): Flow<List<ManagedFileEntity>> =
-        repository.listByFolder(folder)
+        dao.listByFolder(folder)
 
     suspend fun list(folder: String = FileFolders.UPLOAD): List<ManagedFileEntity> =
-        repository.listByFolder(folder).first()
+        dao.listByFolder(folder).first()
 
-    suspend fun get(id: Long): ManagedFileEntity? = repository.getById(id)
+    suspend fun get(id: Long): ManagedFileEntity? = dao.getById(id)
 
-    suspend fun getByRelativePath(relativePath: String): ManagedFileEntity? = repository.getByPath(relativePath)
+    suspend fun getByRelativePath(relativePath: String): ManagedFileEntity? = dao.getByPath(relativePath)
 
     fun getFile(entity: ManagedFileEntity): File =
         File(context.filesDir, entity.relativePath)
@@ -219,7 +219,7 @@ class FilesManager(
         if (relativePaths.isNotEmpty()) {
             appScope.launch(Dispatchers.IO) {
                 relativePaths.forEach { path ->
-                    repository.deleteByPath(path)
+                    dao.deleteByPath(path)
                 }
             }
         }
@@ -249,7 +249,7 @@ class FilesManager(
             deleteManagedUploadTargets(
                 targets = targets,
                 deleteMetadata = { relativePath ->
-                    repository.deleteByPath(relativePath)
+                    dao.deleteByPath(relativePath)
                 },
             )
         }
@@ -382,12 +382,12 @@ class FilesManager(
         diskFiles.forEach { file ->
             val relativePath = "${folder}/${file.name}"
             diskRelativePaths.add(relativePath)
-            val existing = repository.getByPath(relativePath)
+            val existing = dao.getByPath(relativePath)
             if (existing == null) {
                 val now = System.currentTimeMillis()
                 val displayName = file.name
                 val mimeType = guessMimeType(file, displayName)
-                repository.insert(
+                dao.insert(
                     ManagedFileEntity(
                         folder = folder,
                         relativePath = relativePath,
@@ -404,9 +404,9 @@ class FilesManager(
 
         // 数据库 -> 磁盘：清理文件已不存在的孤儿记录
         var removed = 0
-        repository.listByFolder(folder).first().forEach { entity ->
+        dao.listByFolder(folder).first().forEach { entity ->
             if (entity.relativePath !in diskRelativePaths && !getFile(entity).isFile) {
-                removed += repository.deleteByPath(entity.relativePath)
+                removed += dao.deleteByPath(entity.relativePath)
             }
         }
 
@@ -414,11 +414,11 @@ class FilesManager(
     }
 
     suspend fun delete(id: Long, deleteFromDisk: Boolean = true): Boolean = withContext(Dispatchers.IO) {
-        val entity = repository.getById(id) ?: return@withContext false
+        val entity = dao.getById(id) ?: return@withContext false
         if (deleteFromDisk) {
             runCatching { getFile(entity).delete() }
         }
-        repository.deleteById(id) > 0
+        dao.deleteById(id) > 0
     }
 
     suspend fun deleteAll(folder: String = FileFolders.UPLOAD): Boolean = withContext(Dispatchers.IO) {
@@ -436,13 +436,13 @@ class FilesManager(
         }
 
         if (allDeletedFromDisk) {
-            repository.deleteByFolder(folder)
+            dao.deleteByFolder(folder)
             return@withContext true
         }
 
-        repository.listByFolder(folder).first().forEach { entity ->
+        dao.listByFolder(folder).first().forEach { entity ->
             if (!getFile(entity).exists()) {
-                repository.deleteById(entity.id)
+                dao.deleteById(entity.id)
             }
         }
         false
@@ -466,17 +466,16 @@ class FilesManager(
         mimeType: String,
     ): ManagedFileEntity {
         val now = System.currentTimeMillis()
-        return repository.insert(
-            ManagedFileEntity(
-                folder = folder,
-                relativePath = buildRelativePath(folder, file),
-                displayName = displayName,
-                mimeType = mimeType,
-                sizeBytes = file.length(),
-                createdAt = now,
-                updatedAt = now,
-            )
+        val entity = ManagedFileEntity(
+            folder = folder,
+            relativePath = buildRelativePath(folder, file),
+            displayName = displayName,
+            mimeType = mimeType,
+            sizeBytes = file.length(),
+            createdAt = now,
+            updatedAt = now,
         )
+        return entity.copy(id = dao.insert(entity))
     }
 
     private fun trackManagedFile(folder: String, file: File, displayName: String, mimeType: String) {
@@ -486,12 +485,12 @@ class FilesManager(
             start = CoroutineStart.LAZY,
         ) {
             runCatching {
-                val existing = repository.getByPath(relativePath)
+                val existing = dao.getByPath(relativePath)
                 if (existing != null) {
                     return@runCatching
                 }
                 val now = System.currentTimeMillis()
-                repository.insert(
+                dao.insert(
                     ManagedFileEntity(
                         folder = folder,
                         relativePath = relativePath,

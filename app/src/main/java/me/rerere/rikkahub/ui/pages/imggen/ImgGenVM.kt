@@ -29,7 +29,7 @@ import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.db.entity.GenMediaEntity
 import me.rerere.rikkahub.data.files.FilesManager
-import me.rerere.rikkahub.data.repository.GenMediaRepository
+import me.rerere.rikkahub.data.db.dao.GenMediaDAO
 import java.io.File
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -59,7 +59,7 @@ class ImgGenVM(
     context: Application,
     val settingsStore: SettingsStore,
     val providerManager: ProviderManager,
-    val genMediaRepository: GenMediaRepository,
+    val genMediaDao: GenMediaDAO,
     private val filesManager: FilesManager,
 ) : AndroidViewModel(context) {
     private val _prompt = MutableStateFlow("")
@@ -86,7 +86,7 @@ class ImgGenVM(
 
     val pager = Pager(
         config = PagingConfig(pageSize = 20, enablePlaceholders = false),
-        pagingSourceFactory = { genMediaRepository.getAllMedia() }
+        pagingSourceFactory = { genMediaDao.getAll() }
     )
     val generatedImages: Flow<PagingData<GeneratedImage>> = pager.flow
         .map { pagingData ->
@@ -324,7 +324,7 @@ class ImgGenVM(
             type = type,
             sourcePaths = sourcePaths,
         )
-        genMediaRepository.insertMedia(entity)
+        genMediaDao.insert(entity)
 
         return createdFile
     }
@@ -333,7 +333,7 @@ class ImgGenVM(
         viewModelScope.launch {
             try {
                 // Delete from database first
-                genMediaRepository.deleteMedia(image.id)
+                genMediaDao.delete(image.id)
 
                 // Then delete the file
                 val file = File(image.filePath)

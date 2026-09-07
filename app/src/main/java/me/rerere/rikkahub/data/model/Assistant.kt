@@ -9,7 +9,7 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
 import me.rerere.rikkahub.utils.SimpleCache
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.minutes
 import kotlin.uuid.Uuid
 
 @Serializable
@@ -151,9 +151,7 @@ data class AssistantRegex(
 
 // 流式输出时每个chunk都会调用replaceRegexes，正则必须缓存编译结果，
 // 否则长回复期间会重复编译上万次；编译失败也缓存，避免反复构造异常
-private val regexCache = SimpleCache.builder<String, Result<Regex>>()
-    .expireAfterWrite(10, TimeUnit.MINUTES)
-    .build()
+private val regexCache = SimpleCache<String, Result<Regex>>(10.minutes.inWholeMilliseconds)
 
 private fun compileRegexCached(pattern: String): Regex? {
     regexCache.getIfPresent(pattern)?.let { return it.getOrNull() }

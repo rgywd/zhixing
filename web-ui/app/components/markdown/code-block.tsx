@@ -14,13 +14,6 @@ import {
 
 import { getCodePreviewLanguage } from "~/components/workbench/code-preview-language";
 import { Button } from "~/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
 import { copyTextToClipboard } from "~/lib/clipboard";
 import { cn } from "~/lib/utils";
 
@@ -362,7 +355,11 @@ const CodeBlockBody = React.memo(
 
     return (
       <pre
-        className={cn("m-0 p-3 text-sm", wrapLines ? "whitespace-pre-wrap" : "whitespace-pre", className)}
+        className={cn(
+          "m-0 p-3 text-sm",
+          wrapLines ? "whitespace-pre-wrap" : "whitespace-pre",
+          className,
+        )}
         style={preStyle}
       >
         <code
@@ -475,7 +472,12 @@ export function CodeBlockContent({
   }, [code, language, rawTokens, shouldHighlight]);
 
   return (
-    <div className={cn("code-block-content relative", wrapLines ? "overflow-y-auto overflow-x-hidden" : "overflow-auto")}>
+    <div
+      className={cn(
+        "code-block-content relative",
+        wrapLines ? "overflow-y-auto overflow-x-hidden" : "overflow-auto",
+      )}
+    >
       <CodeBlockBody
         className="dark:!bg-[var(--shiki-dark-bg)] dark:!text-[var(--shiki-dark)]"
         showLineNumbers={showLineNumbers}
@@ -638,48 +640,6 @@ export function CodeBlockDownloadButton({
   );
 }
 
-export type CodeBlockLanguageSelectorProps = ComponentProps<typeof Select>;
-
-export function CodeBlockLanguageSelector(props: CodeBlockLanguageSelectorProps) {
-  return <Select {...props} />;
-}
-
-export type CodeBlockLanguageSelectorTriggerProps = ComponentProps<typeof SelectTrigger>;
-
-export function CodeBlockLanguageSelectorTrigger({
-  className,
-  ...props
-}: CodeBlockLanguageSelectorTriggerProps) {
-  return (
-    <SelectTrigger
-      className={cn("h-7 border-none bg-transparent px-2 text-xs shadow-none", className)}
-      size="sm"
-      {...props}
-    />
-  );
-}
-
-export type CodeBlockLanguageSelectorValueProps = ComponentProps<typeof SelectValue>;
-
-export function CodeBlockLanguageSelectorValue(props: CodeBlockLanguageSelectorValueProps) {
-  return <SelectValue {...props} />;
-}
-
-export type CodeBlockLanguageSelectorContentProps = ComponentProps<typeof SelectContent>;
-
-export function CodeBlockLanguageSelectorContent({
-  align = "end",
-  ...props
-}: CodeBlockLanguageSelectorContentProps) {
-  return <SelectContent align={align} {...props} />;
-}
-
-export type CodeBlockLanguageSelectorItemProps = ComponentProps<typeof SelectItem>;
-
-export function CodeBlockLanguageSelectorItem(props: CodeBlockLanguageSelectorItemProps) {
-  return <SelectItem {...props} />;
-}
-
 export function CodeBlock({
   className,
   code,
@@ -711,7 +671,12 @@ export function CodeBlock({
             <CodeBlockCopyButton />
           </CodeBlockActions>
         </CodeBlockHeader>
-        <CodeBlockContent code={code} language={shikiLanguage} showLineNumbers={showLineNumbers} wrapLines={wrapLines} />
+        <CodeBlockContent
+          code={code}
+          language={shikiLanguage}
+          showLineNumbers={showLineNumbers}
+          wrapLines={wrapLines}
+        />
       </CodeBlockContainer>
     </CodeBlockContext.Provider>
   );

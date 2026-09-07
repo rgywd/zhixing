@@ -11,17 +11,11 @@ import kotlin.uuid.Uuid
 class FavoriteRepository(
     private val dao: FavoriteDAO,
 ) {
-    fun listAll(): Flow<List<FavoriteEntity>> = dao.listAll()
-
     fun listByType(type: FavoriteType): Flow<List<FavoriteEntity>> = dao.listByType(type.value)
 
     suspend fun getByRefKey(refKey: String): FavoriteEntity? = dao.getByRefKey(refKey)
 
-    suspend fun existsByRefKey(refKey: String): Boolean = dao.existsByRefKey(refKey)
-
     suspend fun deleteByRefKey(refKey: String): Int = dao.deleteByRefKey(refKey)
-
-    suspend fun deleteById(id: String): Int = dao.deleteById(id)
 
     suspend fun upsert(entity: FavoriteEntity) = dao.upsert(entity)
 
