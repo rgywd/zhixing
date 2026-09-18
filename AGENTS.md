@@ -18,14 +18,15 @@
 ./gradlew lint                   # 运行 Android Lint
 ```
 
-提交最终改动后、push 或创建 PR 前，统一运行本地门禁：
+当前共享工作区保留 `origin` 指向私有 GitHub CI 镜像，`gitee` 指向 Gitee 主仓；从 Gitee 新克隆时
+`origin` 即为主仓。提交最终改动后、push 或创建 PR 前，在当前共享工作区运行本地门禁：
 
 ```bash
-git fetch origin main
-node .github/scripts/local-verify.mjs
+git fetch gitee main
+node .github/scripts/local-verify.mjs --base gitee/main
 ```
 
-脚本要求工作树干净，按 `origin/main...HEAD` 自动选择 Work、Android、纯文档或发布元数据检查，并把
+脚本要求工作树干净，按 `gitee/main...HEAD` 自动选择 Work、Android、纯文档或发布元数据检查，并把
 通过记录写入当前 worktree 的 Git 元数据目录。GitHub PR 只做轻量策略校验，不替代这条本地门禁。
 
 构建应用不依赖 `google-services.json`。`web` 模块会在 `preBuild` 阶段构建
@@ -50,9 +51,9 @@ node .github/scripts/local-verify.mjs
 - 所有可发布改动先通过短分支 PR 合入 `main`。本地门禁和 PR policy 通过后，才从最新 `main` 切出
   `release/x.y.z`。
 - `release/x.y.z` 是主干的冻结快照，不是把尚未进入主干的功能整体合回 `main` 的入口。
-- 禁止直接推送、强推或删除 `main`；正式标签使用严格的 `vX.Y.Z`，且必须指向 `origin/main` 历史中的提交。
+- 禁止直接推送、强推或删除 `main`；正式标签使用严格的 `vX.Y.Z`，且必须指向 Gitee `main` 历史中的提交。
 - 单线开发可直接从 `main` 切短分支；检测到其他分支、脏改动或并行任务正在操作时，从干净的
-  `origin/main` 创建独立 worktree，不复制、stash、重置或覆盖现有未提交改动。
+  `gitee/main` 创建独立 worktree，不复制、stash、重置或覆盖现有未提交改动。
 - 用户未明确要求 release 时，不得创建 `release/*`、tag、Gitee Release 或上传正式发行制品。
   commit、push、PR 合并和测试 APK 均不等于获得发布授权。
 
