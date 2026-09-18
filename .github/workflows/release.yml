@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 env:
-  RELEASES_REPOSITORY: rgywd/zhixing-releases
+  RELEASES_REPOSITORY: rongguiyewd/zhixing
 
 jobs:
   resolve:
@@ -197,7 +197,7 @@ jobs:
           retention-days: 7
 
   publish:
-    name: Publish public release
+    name: Publish Gitee release
     needs:
       - resolve
       - release-tests
@@ -223,14 +223,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TOOLING_REF: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.resolve.outputs.tag }}
         run: |
-          tooling_path="${RUNNER_TEMP}/prepare-release-assets.sh"
-          gh api \
-            -H "Accept: application/vnd.github.raw+json" \
-            "repos/${GITHUB_REPOSITORY}/contents/.github/scripts/prepare-release-assets.sh?ref=${TOOLING_REF}" \
-            > "${tooling_path}"
-          test -s "${tooling_path}" || { echo "Release asset tooling is empty." >&2; exit 1; }
-          chmod +x "${tooling_path}"
-          echo "RELEASE_ASSET_SCRIPT=${tooling_path}" >> "${GITHUB_ENV}"
+          for script in prepare-release-assets.sh publish-gitee-release.sh; do
+            tooling_path="${RUNNER_TEMP}/${script}"
+            gh api \
+              -H "Accept: application/vnd.github.raw+json" \
+              "repos/${GITHUB_REPOSITORY}/contents/.github/scripts/${script}?ref=${TOOLING_REF}" \
+              > "${tooling_path}"
+            test -s "${tooling_path}" || { echo "Release tooling ${script} is empty." >&2; exit 1; }
+            chmod +x "${tooling_path}"
+          done
+          echo "RELEASE_ASSET_SCRIPT=${RUNNER_TEMP}/prepare-release-assets.sh" >> "${GITHUB_ENV}"
+          echo "RELEASE_PUBLISH_SCRIPT=${RUNNER_TEMP}/publish-gitee-release.sh" >> "${GITHUB_ENV}"
 
       - name: Prepare release assets and update manifest
         id: assets
@@ -242,51 +245,12 @@ jobs:
           RELEASES_REPOSITORY: ${{ env.RELEASES_REPOSITORY }}
         run: bash "${RELEASE_ASSET_SCRIPT}"
 
-      - name: Publish public GitHub Release
+      - name: Publish Gitee Release
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          GITEE_PAT: ${{ secrets.GITEE_PAT }}
           VERSION: ${{ needs.resolve.outputs.version }}
           TAG_NAME: ${{ needs.resolve.outputs.tag }}
+          SOURCE_COMMIT: ${{ needs.resolve.outputs.source_commit }}
           RELEASES_REPOSITORY: ${{ env.RELEASES_REPOSITORY }}
-        run: |
-          test -n "${GH_TOKEN}" || { echo "Missing RELEASES_REPO_TOKEN secret" >&2; exit 1; }
-          if [[ "${RELEASES_REPOSITORY}" != "rgywd/zhixing-releases" ]] || \
-             [[ "${RELEASES_REPOSITORY}" == "${GITHUB_REPOSITORY}" ]]; then
-            echo "Official releases must target only rgywd/zhixing-releases, never ${GITHUB_REPOSITORY}." >&2
-            exit 1
-          fi
-
-          assets=(
-            "release/zhixing-${VERSION}-universal.apk"
-            "release/zhixing-${VERSION}-source.tar.gz"
-            "release/latest.json"
-            "release/SHA256SUMS.txt"
-            "release/LICENSE"
-            "release/THIRD_PARTY_NOTICES.md"
-          )
-
-          if [[ -f "release-notes/${VERSION}.md" ]]; then
-            notes_file="release-notes/${VERSION}.md"
-          else
-            notes_file="${RUNNER_TEMP}/release-notes.md"
-            git log -1 --pretty=%B > "${notes_file}"
-          fi
-
-          if gh release view "${TAG_NAME}" --repo "${RELEASES_REPOSITORY}" >/dev/null 2>&1; then
-            gh release upload "${TAG_NAME}" "${assets[@]}" \
-              --repo "${RELEASES_REPOSITORY}" \
-              --clobber
-            gh release edit "${TAG_NAME}" \
-              --repo "${RELEASES_REPOSITORY}" \
-              --title "Zhixing v${VERSION}" \
-              --notes-file "${notes_file}" \
-              --latest
-          else
-            gh release create "${TAG_NAME}" "${assets[@]}" \
-              --repo "${RELEASES_REPOSITORY}" \
-              --target main \
-              --title "Zhixing v${VERSION}" \
-              --notes-file "${notes_file}" \
-              --latest
-          fi
+        run: bash "${RELEASE_PUBLISH_SCRIPT}"

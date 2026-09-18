@@ -12,7 +12,7 @@
 4. 禁止直接推送、强推或删除 `main`；禁止移动或复用已发布标签。
 5. commit、push、PR 合并、tag、Release 是不同完成状态，汇报时必须分开。
 6. 只有用户明确要求 release 才进入正式发布流程；未获明确授权时不得创建 `release/*`、tag、
-   GitHub Release 或上传正式发行制品。
+   Gitee Release 或上传正式发行制品。
 
 ## 分支
 
@@ -52,14 +52,14 @@ git switch -c feat/123-doubao-search
 # 开发、测试、提交
 node .github/scripts/local-verify.mjs
 git push -u origin feat/123-doubao-search
-# PR: feat/123-doubao-search -> main
+# PR: feat/123-doubao-search -> Gitee main；合入后通过 GitHub PR 同步到 CI 镜像 main
 ```
 
 合并前必须：
 
 - 最终 clean commit 已通过 `.github/scripts/local-verify.mjs`，其自动计划覆盖该改动需要的 Work、Android
   或 metadata 门禁；
-- PR 指向 `main`，单 Job `PR policy` 通过；
+- Gitee PR 指向 `main`；同一改动的 GitHub CI 镜像 PR 指向 `main`，单 Job `PR policy` 通过；
 - 分支基于最新 `main`；
 - 需要保留独立回退边界时使用 rebase merge，否则可 squash。
 
@@ -83,12 +83,13 @@ git push -u origin feat/123-doubao-search
 4. 在 release 上执行构建、升级、安装和关键路径验证。发现问题时，从 `main` 切 `fix/*` 修复并合入，
    再对 release 执行 `git merge --ff-only origin/main`。
 5. 验证通过后在 release HEAD 创建一次 annotated `vX.Y.Z` 标签并推送。
-6. 私有仓 Release workflow 并行执行关键测试与签名 APK 构建；两者都通过后，把发行资产发布到公开
-   [`rgywd/zhixing-releases`](https://github.com/rgywd/zhixing-releases/releases)。
+6. 确认 Gitee `main` 的发布提交已进入私有 GitHub CI 镜像的 `main`，并将同一 tag 推送到两端。
+   Release workflow 并行执行关键测试与签名 APK 构建；两者都通过后，把发行资产发布到公开
+   [Gitee 知行](https://gitee.com/rongguiyewd/zhixing/releases)。
 7. 核对公开 Release、Universal APK、源码归档、`SHA256SUMS.txt`、`latest.json` 和应用内更新，再删除
    release 与已合并短分支。
 
-私有仓只保留 tag、workflow 和构建日志，不保留正式 Release 页面。完整分发边界见
+Gitee 主仓保留 tag 和正式 Release 页面；GitHub 私有镜像保留 workflow 与构建日志。完整分发边界见
 [`PUBLIC_RELEASE_DISTRIBUTION.md`](./PUBLIC_RELEASE_DISTRIBUTION.md)。
 
 ## 冻结异常与回滚
@@ -101,7 +102,7 @@ git push -u origin feat/123-doubao-search
 
 - [ ] 目标提交位于 `origin/main` 历史中，版本号、`versionCode`、说明和 tag 一致。
 - [ ] 必需 CI、关键测试、覆盖升级与安装验证通过。
-- [ ] 正式 Release 只存在于 `rgywd/zhixing-releases`。
+- [ ] 正式 Release 存在于 `rongguiyewd/zhixing`。
 - [ ] 未登录状态可下载更新清单、唯一 Universal APK、源码包与哈希文件。
 - [ ] `latest.json.source.commit` 指向正式 tag commit。
 - [ ] 发布成功后清理 release 和已合并短分支。
