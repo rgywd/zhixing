@@ -12,11 +12,12 @@ CI 镜像 PR 只运行轻量策略门禁，正式 tag 仍由 `.github/workflows/
 最终 commit 完成后、push 或创建 PR 前运行：
 
 ```powershell
-git fetch origin main
-node .github/scripts/local-verify.mjs
+git fetch gitee main
+node .github/scripts/local-verify.mjs --base gitee/main
 ```
 
-脚本默认要求 clean worktree，以 `origin/main...HEAD` 的完整 diff 选择门禁：
+当前共享工作区的 `gitee` 指向 Gitee 主仓；从 Gitee 新克隆时，使用 `origin/main` 作为 `--base`。
+脚本要求 clean worktree，以主仓 `main...HEAD` 的完整 diff 选择门禁：
 
 | 改动域 | 本地执行内容 |
 | --- | --- |
@@ -50,7 +51,7 @@ Release workflow 和本文件共同约束。启用平台级分支保护后再以
 
 正式 tag 仍触发完整云端门禁：
 
-1. `Resolve release` 校验 tag、版本号和 `origin/main` 祖先关系；
+1. `Resolve release` 校验 tag、版本号和 GitHub CI 镜像 `origin/main` 祖先关系；Gitee 发布提交须先经 PR 同步到镜像；
 2. `Release tests` 与 `Signed release APK` 在独立 runner 上并行；签名构建注入并校验生产配置；
 3. 两者成功后，`Publish Gitee release` 下载同一次运行的签名 APK，生成源码、更新清单与校验和；
 4. 正式资产只发布到 `rongguiyewd/zhixing`，发布 Job 使用 CI 镜像的 `GITEE_PAT` secret。
