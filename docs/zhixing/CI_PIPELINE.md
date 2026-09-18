@@ -3,7 +3,7 @@
 状态：生效
 
 目标是在 GitHub Free 的 Actions 月度额度内保留正式发布可信度。日常重测试由注册开发机执行，GitHub
-PR 只运行轻量策略门禁，正式 tag 仍由 `.github/workflows/release.yml` 完成测试、签名和公开发布。
+CI 镜像 PR 只运行轻量策略门禁，正式 tag 仍由 `.github/workflows/release.yml` 完成测试、签名和 Gitee 发布。
 事实来源是 `.github/scripts/local-verify.mjs`、`.github/workflows/ci.yml` 与
 `.github/workflows/release.yml`。
 
@@ -43,8 +43,8 @@ Job。该 Job 执行：
 - 纯版本号和发布说明 PR 的 metadata 校验。
 
 它不运行 Work 测试、Gradle、Android lint 或 APK 构建。单 Job 避免多个不足一分钟的任务分别向上取整。
-`main` push 不触发 workflow；本仓当前没有私有仓平台级分支保护，因此合并纪律由本地门禁、PR policy、
-Release workflow 和本文件共同约束。
+`main` push 不触发 workflow；Gitee 主仓的合并纪律由本地门禁、GitHub CI 镜像的 PR policy、
+Release workflow 和本文件共同约束。启用平台级分支保护后再以其限制直接推送。
 
 ## Release
 
@@ -52,8 +52,8 @@ Release workflow 和本文件共同约束。
 
 1. `Resolve release` 校验 tag、版本号和 `origin/main` 祖先关系；
 2. `Release tests` 与 `Signed release APK` 在独立 runner 上并行；签名构建注入并校验生产配置；
-3. 两者成功后，`Publish public release` 下载同一次运行的签名 APK，生成源码、更新清单与校验和；
-4. 正式资产只发布到 `rgywd/zhixing-releases`。
+3. 两者成功后，`Publish Gitee release` 下载同一次运行的签名 APK，生成源码、更新清单与校验和；
+4. 正式资产只发布到 `rongguiyewd/zhixing`，发布 Job 使用 CI 镜像的 `GITEE_PAT` secret。
 
 GitHub 上的 release tests 是发布门禁，不因本地已通过而跳过。发布失败重跑同一 tag，不移动或复用标签。
 

@@ -12,8 +12,8 @@ object AppIdentity {
     const val userAgentProduct = "Zhixing-Android"
     const val repositoryOwner = "rgywd"
     const val repositoryName = "zhixing"
-    const val developmentRepositoryUrl = "https://github.com/rgywd/zhixing"
-    const val distributionRepositoryUrl = "https://github.com/rgywd/zhixing-releases"
+    const val developmentRepositoryUrl = "https://gitee.com/rongguiyewd/zhixing"
+    const val distributionRepositoryUrl = developmentRepositoryUrl
     const val sourceUrl = "$distributionRepositoryUrl/releases"
     const val issueTrackerUrl = "$developmentRepositoryUrl/issues"
     const val licenseUrl = "$distributionRepositoryUrl/blob/main/LICENSE"

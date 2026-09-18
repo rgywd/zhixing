@@ -31,8 +31,8 @@ android {
         applicationId = "dev.sundby.zhixing"
         minSdk = 26
         targetSdk = 37
-        versionCode = 47
-        versionName = "0.4.18"
+        versionCode = 48
+        versionName = "0.4.19"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["appScheme"] = "zhixing"
         manifestPlaceholders["amapApiKey"] = amapProductionKey.get()
@@ -40,7 +40,7 @@ android {
         buildConfigField(
             "String",
             "UPDATE_FEED_URL",
-            "\"https://github.com/rgywd/zhixing-releases/releases/latest/download/latest.json\"",
+            "\"https://gitee.com/api/v5/repos/rongguiyewd/zhixing/releases/latest\"",
         )
         buildConfigField("boolean", "STAGING_TEST_DRIVER_ENABLED", "false")
         buildConfigField(

@@ -11,13 +11,13 @@ class AppIdentityTest {
         assertEquals("Zhixing", AppIdentity.productName)
         assertFalse(AppIdentity.thirdPartyTelemetryEnabled)
         if (AppIdentity.distributionChannel == "production") {
-            assertTrue(AppIdentity.updateFeedUrl.contains("github.com/rgywd/zhixing-releases/releases"))
+            assertTrue(AppIdentity.updateFeedUrl.contains("gitee.com/api/v5/repos/rongguiyewd/zhixing/releases/latest"))
         } else {
             assertEquals("staging", AppIdentity.distributionChannel)
             assertTrue(AppIdentity.updateFeedUrl.isBlank())
         }
         assertEquals("${AppIdentity.distributionRepositoryUrl}/releases", AppIdentity.sourceUrl)
-        assertEquals("${AppIdentity.developmentRepositoryUrl}/issues", AppIdentity.issueTrackerUrl)
+        assertEquals("https://gitee.com/rongguiyewd/zhixing/issues", AppIdentity.issueTrackerUrl)
         assertTrue(AppIdentity.licenseUrl.startsWith(AppIdentity.distributionRepositoryUrl))
         assertTrue(AppIdentity.thirdPartyNoticesUrl.startsWith(AppIdentity.distributionRepositoryUrl))
     }
