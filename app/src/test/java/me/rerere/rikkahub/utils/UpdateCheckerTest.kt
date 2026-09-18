@@ -14,28 +14,32 @@ import org.junit.Test
 class UpdateCheckerTest {
     @Test
     fun `reads zhixing release manifest with product user agent`() = runBlocking {
-        var userAgent = ""
+        val userAgents = mutableListOf<String>()
         val client = OkHttpClient.Builder()
             .addInterceptor { chain ->
-                userAgent = chain.request().header("User-Agent").orEmpty()
+                userAgents += chain.request().header("User-Agent").orEmpty()
+                val body = if (chain.request().url.toString() == PRODUCTION_FEED) {
+                    """{"assets":[{"name":"latest.json","browser_download_url":"$MANIFEST_URL"}]}"""
+                } else {
+                    assertEquals(MANIFEST_URL, chain.request().url.toString())
+                    """{
+                      "version":"0.2.0",
+                      "publishedAt":"2026-07-16T00:00:00Z",
+                      "changelog":"Update test",
+                      "downloads":[{
+                        "name":"zhixing-0.2.0-universal.apk",
+                        "url":"https://gitee.com/rongguiyewd/zhixing/releases/download/v0.2.0/zhixing-0.2.0-universal.apk",
+                        "size":"100 MiB",
+                        "sha256":"abc123"
+                      }]
+                    }""".trimIndent()
+                }
                 Response.Builder()
                     .request(chain.request())
                     .protocol(Protocol.HTTP_1_1)
                     .code(200)
                     .message("OK")
-                    .body(
-                        """{
-                          "version":"0.2.0",
-                          "publishedAt":"2026-07-16T00:00:00Z",
-                          "changelog":"Update test",
-                          "downloads":[{
-                            "name":"zhixing-0.2.0-universal.apk",
-                            "url":"https://github.com/rgywd/zhixing-releases/releases/download/v0.2.0/zhixing-0.2.0-universal.apk",
-                            "size":"100 MiB",
-                            "sha256":"abc123"
-                          }]
-                        }""".trimIndent().toResponseBody(),
-                    )
+                    .body(body.toResponseBody())
                     .build()
             }
             .build()
@@ -44,7 +48,8 @@ class UpdateCheckerTest {
 
         assertEquals("0.2.0", state.data.version)
         assertEquals("abc123", state.data.downloads.single().sha256)
-        assertTrue(userAgent.startsWith("${AppIdentity.userAgentProduct}/"))
+        assertEquals(2, userAgents.size)
+        assertTrue(userAgents.all { it.startsWith("${AppIdentity.userAgentProduct}/") })
     }
 
     @Test
@@ -69,6 +74,8 @@ class UpdateCheckerTest {
 
     private companion object {
         const val PRODUCTION_FEED =
-            "https://github.com/rgywd/zhixing-releases/releases/latest/download/latest.json"
+            "https://gitee.com/api/v5/repos/rongguiyewd/zhixing/releases/latest"
+        const val MANIFEST_URL =
+            "https://gitee.com/rongguiyewd/zhixing/releases/download/v0.2.0/latest.json"
     }
 }

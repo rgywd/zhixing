@@ -53,7 +53,7 @@ node .github/scripts/local-verify.mjs
 - 禁止直接推送、强推或删除 `main`；正式标签使用严格的 `vX.Y.Z`，且必须指向 `origin/main` 历史中的提交。
 - 单线开发可直接从 `main` 切短分支；检测到其他分支、脏改动或并行任务正在操作时，从干净的
   `origin/main` 创建独立 worktree，不复制、stash、重置或覆盖现有未提交改动。
-- 用户未明确要求 release 时，不得创建 `release/*`、tag、GitHub Release 或上传正式发行制品。
+- 用户未明确要求 release 时，不得创建 `release/*`、tag、Gitee Release 或上传正式发行制品。
   commit、push、PR 合并和测试 APK 均不等于获得发布授权。
 
 ## Coding Style & Naming Conventions
