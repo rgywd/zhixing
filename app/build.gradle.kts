@@ -40,7 +40,7 @@ android {
         buildConfigField(
             "String",
             "UPDATE_FEED_URL",
-            "\"https://gitee.com/api/v5/repos/rongguiyewd/zhixing/releases/latest\"",
+            "\"https://github.com/rgywd/zhixing/releases/latest/download/latest.json\"",
         )
         buildConfigField("boolean", "STAGING_TEST_DRIVER_ENABLED", "false")
         buildConfigField(

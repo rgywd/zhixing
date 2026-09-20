@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import me.rerere.rikkahub.AppIdentity
@@ -34,14 +33,7 @@ class UpdateChecker(
             emit(UiState.Success(currentVersion()))
             return@flow
         }
-        val manifest = if (updateFeedUrl.startsWith("https://gitee.com/api/v5/repos/")) {
-            val release = json.decodeFromString<GiteeRelease>(feed)
-            val url = release.assets.singleOrNull { it.name == "latest.json" }?.browserDownloadUrl
-            url?.let(::fetch)
-        } else {
-            feed
-        }
-        emit(UiState.Success(manifest?.let { json.decodeFromString<UpdateInfo>(it) } ?: currentVersion()))
+        emit(UiState.Success(json.decodeFromString<UpdateInfo>(feed)))
     }.catch {
         // Update checks run in the background. A temporarily unavailable feed
         // must not turn the navigation drawer into an error surface.
@@ -107,15 +99,6 @@ data class UpdateInfo(
     val publishedAt: String,
     val changelog: String,
     val downloads: List<UpdateDownload>
-)
-
-@Serializable
-private data class GiteeRelease(val assets: List<GiteeAsset>)
-
-@Serializable
-private data class GiteeAsset(
-    val name: String,
-    @SerialName("browser_download_url") val browserDownloadUrl: String,
 )
 
 /**

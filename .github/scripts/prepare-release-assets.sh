@@ -47,7 +47,7 @@ else
 fi
 
 published_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-base_url="https://gitee.com/${RELEASES_REPOSITORY}/releases/download/${TAG_NAME}"
+base_url="https://github.com/${RELEASES_REPOSITORY}/releases/download/${TAG_NAME}"
 
 jq -n \
   --arg version "${VERSION}" \
