@@ -2,22 +2,20 @@
 
 状态：生效
 
-目标是在 GitHub Free 的 Actions 月度额度内保留正式发布可信度。日常重测试由注册开发机执行，GitHub
-CI 镜像 PR 只运行轻量策略门禁，正式 tag 仍由 `.github/workflows/release.yml` 完成测试、签名和 Gitee 发布。
-事实来源是 `.github/scripts/local-verify.mjs`、`.github/workflows/ci.yml` 与
-`.github/workflows/release.yml`。
+日常重测试由注册开发机执行，GitHub PR 只运行轻量策略门禁；正式 tag 由
+`.github/workflows/release.yml` 完成测试、签名和同仓 Release 发布。事实来源是
+`.github/scripts/local-verify.mjs`、`.github/workflows/ci.yml` 与 `.github/workflows/release.yml`。
 
 ## 本地门禁
 
 最终 commit 完成后、push 或创建 PR 前运行：
 
 ```powershell
-git fetch gitee main
-node .github/scripts/local-verify.mjs --base gitee/main
+git fetch origin main
+node .github/scripts/local-verify.mjs --base origin/main
 ```
 
-当前共享工作区的 `gitee` 指向 Gitee 主仓；从 Gitee 新克隆时，使用 `origin/main` 作为 `--base`。
-脚本要求 clean worktree，以主仓 `main...HEAD` 的完整 diff 选择门禁：
+脚本要求 clean worktree，以 `origin/main...HEAD` 的完整 diff 选择门禁：
 
 | 改动域 | 本地执行内容 |
 | --- | --- |
@@ -43,25 +41,24 @@ Job。该 Job 执行：
 - 完整 diff 分类；
 - 纯版本号和发布说明 PR 的 metadata 校验。
 
-它不运行 Work 测试、Gradle、Android lint 或 APK 构建。单 Job 避免多个不足一分钟的任务分别向上取整。
-`main` push 不触发 workflow；Gitee 主仓的合并纪律由本地门禁、GitHub CI 镜像的 PR policy、
-Release workflow 和本文件共同约束。启用平台级分支保护后再以其限制直接推送。
+它不运行 Work 测试、Gradle、Android lint 或 APK 构建。日常合并纪律由本地门禁、GitHub PR policy、
+分支保护、Release workflow 和本文共同约束。
 
 ## Release
 
-正式 tag 仍触发完整云端门禁：
+正式 tag 触发完整云端门禁：
 
-1. `Resolve release` 校验 tag、版本号和 GitHub CI 镜像 `origin/main` 祖先关系；Gitee 发布提交须先经 PR 同步到镜像；
+1. `Resolve release` 校验 tag、版本号和 `origin/main` 祖先关系；
 2. `Release tests` 与 `Signed release APK` 在独立 runner 上并行；签名构建注入并校验生产配置；
-3. 两者成功后，`Publish Gitee release` 下载同一次运行的签名 APK，生成源码、更新清单与校验和；
-4. 正式资产只发布到 `rongguiyewd/zhixing`，发布 Job 使用 CI 镜像的 `GITEE_PAT` secret。
+3. 两者成功后，`Publish GitHub release` 下载同一次运行的签名 APK，生成源码、更新清单与校验和；
+4. 发布 Job 使用仓库 `GITHUB_TOKEN` 的 `contents: write` 权限，把六个正式资产发布到 `rgywd/zhixing`。
 
-GitHub 上的 release tests 是发布门禁，不因本地已通过而跳过。发布失败重跑同一 tag，不移动或复用标签。
+Release tests 是发布门禁，不因本地已通过而跳过。发布失败可通过 `workflow_dispatch` 重跑同一 tag；
+标签不得移动或复用。
 
 ## 故障处理
 
 - 本地门禁失败：修复后在最终 commit 上完整重跑，不通过删测试或伪造记录绕过。
 - 开发机缺少 JDK、Node、pnpm、Python 或 Android SDK：先修复环境，不回退到日常云端重任务。
 - PR policy 失败：修复策略、分支或发布元数据后再合并。
-- 开发机不可用且存在紧急修复：先恢复或切换受控开发机；若确需临时云端全量验证，必须通过单独的手动
-  workflow 和明确决策恢复，不能把日常全量触发静默加回。
+- Release workflow 失败：保留 tag 和失败记录，修复 workflow 后手动重跑同一 tag；不得重打标签。

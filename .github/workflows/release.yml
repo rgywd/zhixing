@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 env:
-  RELEASES_REPOSITORY: rongguiyewd/zhixing
+  RELEASES_REPOSITORY: rgywd/zhixing
 
 jobs:
   resolve:
@@ -197,12 +197,14 @@ jobs:
           retention-days: 7
 
   publish:
-    name: Publish Gitee release
+    name: Publish GitHub release
     needs:
       - resolve
       - release-tests
       - release-apk
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -223,17 +225,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TOOLING_REF: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.resolve.outputs.tag }}
         run: |
-          for script in prepare-release-assets.sh publish-gitee-release.sh; do
-            tooling_path="${RUNNER_TEMP}/${script}"
-            gh api \
-              -H "Accept: application/vnd.github.raw+json" \
-              "repos/${GITHUB_REPOSITORY}/contents/.github/scripts/${script}?ref=${TOOLING_REF}" \
-              > "${tooling_path}"
-            test -s "${tooling_path}" || { echo "Release tooling ${script} is empty." >&2; exit 1; }
-            chmod +x "${tooling_path}"
-          done
-          echo "RELEASE_ASSET_SCRIPT=${RUNNER_TEMP}/prepare-release-assets.sh" >> "${GITHUB_ENV}"
-          echo "RELEASE_PUBLISH_SCRIPT=${RUNNER_TEMP}/publish-gitee-release.sh" >> "${GITHUB_ENV}"
+          tooling_path="${RUNNER_TEMP}/prepare-release-assets.sh"
+          gh api \
+            -H "Accept: application/vnd.github.raw+json" \
+            "repos/${GITHUB_REPOSITORY}/contents/.github/scripts/prepare-release-assets.sh?ref=${TOOLING_REF}" \
+            > "${tooling_path}"
+          test -s "${tooling_path}" || { echo "Release asset tooling is empty." >&2; exit 1; }
+          chmod +x "${tooling_path}"
+          echo "RELEASE_ASSET_SCRIPT=${tooling_path}" >> "${GITHUB_ENV}"
 
       - name: Prepare release assets and update manifest
         id: assets
@@ -245,12 +244,65 @@ jobs:
           RELEASES_REPOSITORY: ${{ env.RELEASES_REPOSITORY }}
         run: bash "${RELEASE_ASSET_SCRIPT}"
 
-      - name: Publish Gitee Release
+      - name: Publish GitHub Release
         shell: bash
         env:
-          GITEE_PAT: ${{ secrets.GITEE_PAT }}
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.resolve.outputs.version }}
           TAG_NAME: ${{ needs.resolve.outputs.tag }}
-          SOURCE_COMMIT: ${{ needs.resolve.outputs.source_commit }}
           RELEASES_REPOSITORY: ${{ env.RELEASES_REPOSITORY }}
-        run: bash "${RELEASE_PUBLISH_SCRIPT}"
+        run: |
+          if [[ "${RELEASES_REPOSITORY}" != "${GITHUB_REPOSITORY}" ]]; then
+            echo "Release repository must match the workflow repository." >&2
+            exit 1
+          fi
+
+          assets=(
+            "release/zhixing-${VERSION}-universal.apk"
+            "release/zhixing-${VERSION}-source.tar.gz"
+            "release/latest.json"
+            "release/SHA256SUMS.txt"
+            "release/LICENSE"
+            "release/THIRD_PARTY_NOTICES.md"
+          )
+
+          if [[ -f "release-notes/${VERSION}.md" ]]; then
+            notes_file="release-notes/${VERSION}.md"
+          else
+            notes_file="${RUNNER_TEMP}/release-notes.md"
+            git log -1 --pretty=%B > "${notes_file}"
+          fi
+
+          if gh release view "${TAG_NAME}" --repo "${RELEASES_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${TAG_NAME}" "${assets[@]}" \
+              --repo "${RELEASES_REPOSITORY}" \
+              --clobber
+            gh release edit "${TAG_NAME}" \
+              --repo "${RELEASES_REPOSITORY}" \
+              --title "Zhixing v${VERSION}" \
+              --notes-file "${notes_file}" \
+              --latest
+          else
+            gh release create "${TAG_NAME}" "${assets[@]}" \
+              --repo "${RELEASES_REPOSITORY}" \
+              --verify-tag \
+              --title "Zhixing v${VERSION}" \
+              --notes-file "${notes_file}" \
+              --latest
+          fi
+
+          expected_assets="$(printf '%s\n' \
+            "LICENSE" \
+            "SHA256SUMS.txt" \
+            "THIRD_PARTY_NOTICES.md" \
+            "latest.json" \
+            "zhixing-${VERSION}-source.tar.gz" \
+            "zhixing-${VERSION}-universal.apk" | sort)"
+          actual_assets="$(gh api \
+            "repos/${RELEASES_REPOSITORY}/releases/tags/${TAG_NAME}" \
+            --jq '.assets[].name' | sort)"
+          if [[ "${actual_assets}" != "${expected_assets}" ]]; then
+            echo "GitHub Release assets do not match the six-file contract." >&2
+            diff -u <(printf '%s\n' "${expected_assets}") <(printf '%s\n' "${actual_assets}") || true
+            exit 1
+          fi

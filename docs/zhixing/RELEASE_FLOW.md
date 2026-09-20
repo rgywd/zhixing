@@ -1,6 +1,6 @@
 # 知行 Git 分支、提交与发布流程
 
-状态：生效（2026-07-23）
+状态：生效（2026-09-20）
 
 日常只需阅读根 [`AGENTS.md`](../../AGENTS.md) 的 Git 速查；执行分支、PR、冻结、发布或回滚时再读本文。
 
@@ -8,11 +8,11 @@
 
 1. `main` 永远可构建、可测试、可部署，所有改动通过短分支 PR 进入。
 2. 发布内容先完整进入 `main`；`release/x.y.z` 只是已通过本地门禁与 PR policy 的主干冻结快照。
-3. 冻结期修复仍先进入 Gitee `main`，再把 release 快进到新的 `gitee/main`。
+3. 冻结期修复仍先进入 `main`，再把 release 快进到新的 `origin/main`。
 4. 禁止直接推送、强推或删除 `main`；禁止移动或复用已发布标签。
 5. commit、push、PR 合并、tag、Release 是不同完成状态，汇报时必须分开。
 6. 只有用户明确要求 release 才进入正式发布流程；未获明确授权时不得创建 `release/*`、tag、
-   Gitee Release 或上传正式发行制品。
+   GitHub Release 或上传正式发行制品。
 
 ## 分支
 
@@ -44,33 +44,29 @@ release 分支用 `release/0.3.4`，正式标签才使用 `v0.3.4`。
 
 ## 日常开发
 
-以下命令使用当前共享工作区的远端名：`gitee` 为公开主仓，`origin` 为私有 GitHub CI 镜像。
-从 Gitee 新克隆时，将命令中的 `gitee` 换为 `origin`。
-
 ```bash
-git fetch gitee main
-git switch -c feat/123-doubao-search gitee/main
+git fetch origin main
+git switch -c feat/123-doubao-search origin/main
 
 # 开发、测试、提交
-node .github/scripts/local-verify.mjs --base gitee/main
-git push -u gitee feat/123-doubao-search
-# PR: feat/123-doubao-search -> Gitee main；合入后通过 GitHub PR 同步到 CI 镜像 main
+node .github/scripts/local-verify.mjs --base origin/main
+git push -u origin feat/123-doubao-search
+# PR: feat/123-doubao-search -> main
 ```
 
 合并前必须：
 
 - 最终 clean commit 已通过 `.github/scripts/local-verify.mjs`，其自动计划覆盖该改动需要的 Work、Android
   或 metadata 门禁；
-- Gitee PR 指向 `main`；同一改动的 GitHub CI 镜像 PR 指向 `main`，单 Job `PR policy` 通过；
+- GitHub PR 指向 `main`，单 Job `PR policy` 通过；
 - 分支基于最新 `main`；
 - 需要保留独立回退边界时使用 rebase merge，否则可 squash。
 
 `exp/*` 不能直接作为发布来源；验证成功后整理成正式短分支和可审查提交。
-
-日常重测试在本地门禁执行，`main` push 不触发 GitHub Actions；正式 tag 仍执行完整 Release workflow。
+日常重测试在本地门禁执行，`main` push 不触发 GitHub Actions；正式 tag 执行完整 Release workflow。
 具体边界见 [`CI_PIPELINE.md`](./CI_PIPELINE.md)。
 
-存在并行开发时，必须从干净的 `gitee/main` 创建独立 worktree。不得把其他工作树中的未提交文件
+存在并行开发时，必须从干净的 `origin/main` 创建独立 worktree。不得把其他工作树中的未提交文件
 静默复制进来，也不得为腾位置而 stash、reset 或覆盖它们；交付合入永久分支后再清理完成的 worktree。
 
 ## 正式发布
@@ -79,20 +75,18 @@ git push -u gitee feat/123-doubao-search
 阶段即停止，不得自行推断发布授权。
 
 1. 将功能、修复、版本号、递增的 `versionCode` 和 `release-notes/x.y.z.md` 全部通过 PR 合入 `main`。
-2. 在最新 clean Gitee `main` 运行 `node .github/scripts/local-verify.mjs --base gitee/main --mode full`，通过后暂停本版本范围外的
-   功能合并。
-3. 从最新 `gitee/main` 创建并推送 `release/x.y.z`；确认版本、说明和起点一致。
+2. 在最新 clean `main` 运行 `node .github/scripts/local-verify.mjs --base origin/main --mode full`，通过后暂停
+   本版本范围外的功能合并。
+3. 从最新 `origin/main` 创建并推送 `release/x.y.z`；确认版本、说明和起点一致。
 4. 在 release 上执行构建、升级、安装和关键路径验证。发现问题时，从 `main` 切 `fix/*` 修复并合入，
-   再对 release 执行 `git merge --ff-only gitee/main`。
-5. 验证通过后在 release HEAD 创建一次 annotated `vX.Y.Z` 标签并推送。
-6. 确认 Gitee `main` 的发布提交已进入私有 GitHub CI 镜像的 `main`，并将同一 tag 推送到两端。
-   Release workflow 并行执行关键测试与签名 APK 构建；两者都通过后，把发行资产发布到公开
-   [Gitee 知行](https://gitee.com/rongguiyewd/zhixing/releases)。
+   再对 release 执行 `git merge --ff-only origin/main`。
+5. 验证通过后在 release HEAD 创建一次 annotated `vX.Y.Z` 标签并推送到 GitHub。
+6. Release workflow 并行执行关键测试与签名 APK 构建；两者都通过后，把六个发行资产发布到公开
+   [GitHub Releases](https://github.com/rgywd/zhixing/releases)。
 7. 核对公开 Release、Universal APK、源码归档、`SHA256SUMS.txt`、`latest.json` 和应用内更新，再删除
    release 与已合并短分支。
 
-Gitee 主仓保留 tag 和正式 Release 页面；GitHub 私有镜像保留 workflow 与构建日志。完整分发边界见
-[`PUBLIC_RELEASE_DISTRIBUTION.md`](./PUBLIC_RELEASE_DISTRIBUTION.md)。
+完整分发边界见 [`PUBLIC_RELEASE_DISTRIBUTION.md`](./PUBLIC_RELEASE_DISTRIBUTION.md)。
 
 ## 冻结异常与回滚
 
@@ -102,9 +96,9 @@ Gitee 主仓保留 tag 和正式 Release 页面；GitHub 私有镜像保留 work
 
 ## 发布门禁
 
-- [ ] 目标提交位于 Gitee `main` 历史中，版本号、`versionCode`、说明和 tag 一致。
+- [ ] 目标提交位于 `origin/main` 历史中，版本号、`versionCode`、说明和 tag 一致。
 - [ ] 必需 CI、关键测试、覆盖升级与安装验证通过。
-- [ ] 正式 Release 存在于 `rongguiyewd/zhixing`。
+- [ ] 正式 Release 存在于 `rgywd/zhixing`。
 - [ ] 未登录状态可下载更新清单、唯一 Universal APK、源码包与哈希文件。
 - [ ] `latest.json.source.commit` 指向正式 tag commit。
 - [ ] 发布成功后清理 release 和已合并短分支。
