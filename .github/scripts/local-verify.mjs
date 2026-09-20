@@ -34,6 +34,7 @@ export function buildVerificationCommands({
   nodeExecutable = process.execPath,
   baseRef = "origin/main",
   headRef = "HEAD",
+  offline = false,
 }) {
   if (!MODES.has(mode)) {
     throw new Error(`Unsupported verification mode: ${mode}`)
@@ -138,6 +139,11 @@ export function buildVerificationCommands({
     })
   }
 
+  if (offline) {
+    for (const command of commands) {
+      if (command.command === names.gradle) command.args.push("--offline")
+    }
+  }
   return commands
 }
 
@@ -183,11 +189,14 @@ function parseArguments(argv) {
     baseRef: "origin/main",
     dryRun: false,
     allowDirty: false,
+    offline: false,
   }
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]
-    if (argument === "--dry-run") {
+    if (argument === "--offline") {
+      options.offline = true
+    } else if (argument === "--dry-run") {
       options.dryRun = true
     } else if (argument === "--allow-dirty") {
       options.allowDirty = true
@@ -286,6 +295,7 @@ Options:
   --base REF                     Diff base (default: origin/main)
   --dry-run                      Print the plan without running commands
   --allow-dirty                  Include working tree changes; no clean-tree guarantee
+  --offline                      Use cached Gradle dependencies; keep all checks
   --help                         Show this help`)
 }
 
@@ -318,6 +328,7 @@ async function main() {
     platform: process.platform,
     baseRef: options.baseRef,
     headRef: headSha,
+    offline: options.offline,
   })
 
   console.log(`Local verification plan: ${plan.reason}`)
@@ -344,6 +355,7 @@ async function main() {
     diffSha256: createHash("sha256").update(diff).digest("hex"),
     mode: options.mode,
     plan,
+    offline: options.offline,
     changedPaths: paths,
     commands: commands.map((command) => command.label),
     startedAt: startedAt.toISOString(),

@@ -32,6 +32,17 @@ function labels(commands) {
   return commands.map((command) => command.label)
 }
 
+test("offline mode keeps every check and only changes Gradle network access", () => {
+  const online = buildVerificationCommands({ plan: androidPlan, platform: "win32" })
+  const offline = buildVerificationCommands({ plan: androidPlan, platform: "win32", offline: true })
+  assert.deepEqual(labels(offline), labels(online))
+  for (let index = 0; index < offline.length; index += 1) {
+    const command = offline[index]
+    assert.deepEqual(command.args, command.command === "gradlew.bat"
+      ? [...online[index].args, "--offline"] : online[index].args)
+  }
+})
+
 test("Work-only verification excludes Android commands", () => {
   const commands = buildVerificationCommands({
     plan: workPlan,
