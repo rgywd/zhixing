@@ -111,6 +111,7 @@ internal class AgentFileSystem(
                 val target = settings.target(path)
                 require(overwrite || target == null) { "FILE_EXISTS" }
                 require(target != null || parts[3] == "config.json") { "CREATE_CONFIG_FIRST" }
+                require(target == null || revision != null) { "READ_BEFORE_WRITE" }
                 require(target == null || revision == target.configRevision.toString()) { "REVISION_CONFLICT" }
                 val fields = if (parts[3] == "AGENT.md") buildJsonObject { put("prompt", text) } else {
                     val proposed = runCatching { Json.parseToJsonElement(text).jsonObject }
@@ -130,8 +131,19 @@ internal class AgentFileSystem(
         }
         readVersions.remove(path)
         // The current run stays frozen. The next user turn reads the updated self prompt.
-        if (path == "/agents/${actor.id}/AGENT.md") applyPrompt()
-        return buildJsonObject { put("success", true); put("path", path); put("applies_to", if (path.endsWith("/AGENT.md") && path != "/agents/${actor.id}/AGENT.md") "new_conversations" else if (path.startsWith("/skills/")) "next_read" else "next_run"); put("result", result) }
+        val selfPrompt = path == "/agents/${actor.id}/AGENT.md"
+        if (selfPrompt) applyPrompt()
+        return buildJsonObject {
+            put("success", true); put("path", path)
+            put("applies_to", when {
+                selfPrompt -> "current_conversation_next_turn"
+                path.endsWith("/AGENT.md") -> "new_conversations"
+                path.startsWith("/skills/") -> "next_read"
+                else -> "next_run"
+            })
+            if (selfPrompt) put("hint", "This conversation uses the updated prompt on its next user turn. No new conversation is needed; the active run stays frozen.")
+            put("result", JsonObject(result.filterKeys { it != "applies_to" }))
+        }
     }
 
     fun mount(workspaceTools: List<Tool>): List<Tool> {
@@ -144,7 +156,7 @@ internal class AgentFileSystem(
                 else -> mapOf("path" to "string", "old_text" to "string", "new_text" to "string", "replace_all" to "boolean")
             }
             Tool(name = name, description = (fallback?.description ?: "Read/write/edit UTF-8 files.") +
-                " Managed mounts: /agents (read directories to list), /agents/self/AGENT.md (your prompt), /agents/self/config.json, /agents/resources.json (available model/skill/MCP IDs), /skills/<name>/SKILL.md. Read before overwriting; edits use a fresh read and exact matching. Create children by writing /agents/<new UUID>/config.json with name and selected capabilities, then AGENT.md. config.json fields: name, description, enabled, model_id, workspace_id, temperature, max_tokens, reasoning_level, use_global_memory, capabilities, skills, mcp_servers; id/revision/managed_by/prompt_source are read-only. No shell needed. Self prompt edits apply next turn; child prompt edits apply new conversations. Only make changes for a user-requested purpose.",
+                " Managed mounts: /agents (read directories to list), /agents/self/AGENT.md (your prompt), /agents/self/config.json, /agents/resources.json (available model/skill/MCP IDs), /skills/<name>/SKILL.md. Read before overwriting; edits use a fresh read and exact matching. Prefer workspace_edit_file for partial changes and preserve all unrelated text verbatim. Appending a rule must keep the existing prompt verbatim. Renaming an agent changes config.json name only; do not rewrite its prompt self-description unless explicitly requested. Create children by writing /agents/<new UUID>/config.json with name and selected capabilities, then read the automatically created empty AGENT.md before writing it. Each write increments the shared agent revision; re-read another file before overwriting it. config.json fields: name, description, enabled, model_id, workspace_id, temperature, max_tokens, reasoning_level, use_global_memory, capabilities, skills, mcp_servers; id/revision/managed_by/prompt_source are read-only. No shell needed. Self prompt edits apply next turn; child prompt edits apply new conversations. Only make changes for a user-requested purpose.",
                 parameters = { agentSchema(fields, when (name) { names[0] -> listOf("path"); names[1] -> listOf("path", "text"); else -> listOf("path", "old_text", "new_text") }) },
                 execute = { input ->
                     val p = input.jsonObject

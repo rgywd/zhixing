@@ -727,6 +727,8 @@ class ChatCompletionsAPI(
                         )
                     )
                 }
+                // Content in the same response belongs before its tool results, not to a new assistant turn.
+                if (content.isNotEmpty()) add(UIMessagePart.Text(content))
                 toolCalls.forEach { toolCalls ->
                     val type = toolCalls.jsonObject["type"]?.jsonPrimitive?.contentOrNull
                     if (!type.isNullOrEmpty() && type != "function") error("tool call type not supported: $type")
@@ -744,7 +746,6 @@ class ChatCompletionsAPI(
                         )
                     )
                 }
-                if (content.isNotEmpty()) add(UIMessagePart.Text(content))
                 images.forEach { image ->
                     val imageObject = image.jsonObjectOrNull ?: return@forEach
                     val type = imageObject["type"]?.jsonPrimitive?.contentOrNull ?: return@forEach

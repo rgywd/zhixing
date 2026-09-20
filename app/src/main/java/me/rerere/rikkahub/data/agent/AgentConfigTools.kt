@@ -26,9 +26,13 @@ internal suspend fun agentResult(block: suspend () -> JsonObject): List<UIMessag
     listOf(UIMessagePart.Text(block().toString()))
 } catch (e: CancellationException) { throw e
 } catch (e: IllegalArgumentException) {
-    listOf(UIMessagePart.Text(buildJsonObject { put("success", false); put("error", e.message?.takeIf {
-        it.matches(Regex("[A-Z_]+"))
-    } ?: "INVALID_INPUT") }.toString()))
+    val code = e.message?.takeIf { it.matches(Regex("[A-Z_]+")) } ?: "INVALID_INPUT"
+    listOf(UIMessagePart.Text(buildJsonObject {
+        put("success", false); put("error", code)
+        if (code == "READ_BEFORE_WRITE" || code == "REVISION_CONFLICT") {
+            put("hint", "Read the target again, preserve unrelated changes, then write using its latest revision.")
+        }
+    }.toString()))
 } catch (_: Exception) {
     listOf(UIMessagePart.Text("{\"success\":false,\"error\":\"EXECUTION_FAILED\"}"))
 }

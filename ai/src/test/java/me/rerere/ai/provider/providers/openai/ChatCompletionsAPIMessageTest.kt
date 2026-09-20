@@ -52,6 +52,28 @@ class ChatCompletionsAPIMessageTest {
     }
 
     @Test
+    fun `response with reasoning preamble and tool call round trips as one assistant turn`() {
+        val parse = ChatCompletionsAPI::class.java.getDeclaredMethod(
+            "parseMessage", kotlinx.serialization.json.JsonObject::class.java
+        ).apply { isAccessible = true }
+        val response = kotlinx.serialization.json.Json.parseToJsonElement("""{
+            "role":"assistant", "reasoning_content":"Use a calculator", "content":"I will calculate.",
+            "tool_calls":[{"id":"call_1","type":"function","function":{"name":"calculate","arguments":"{}"}}]
+        }""").jsonObject
+        val parsed = parse.invoke(api, response) as UIMessage
+        val executed = parsed.copy(parts = parsed.parts.map {
+            if (it is UIMessagePart.Tool) it.copy(output = listOf(UIMessagePart.Text("69.5"))) else it
+        })
+        val messages = invokeBuildMessages(listOf(UIMessage.user("Calculate"), executed))
+        assertEquals(3, messages.size)
+        assertEquals("Use a calculator", messages[1].jsonObject["reasoning_content"]?.jsonPrimitive?.content)
+        assertEquals("I will calculate.", messages[1].jsonObject["content"]?.jsonPrimitive?.content)
+        assertEquals(1, messages[1].jsonObject["tool_calls"]?.jsonArray?.size)
+        assertEquals("tool", messages[2].jsonObject["role"]?.jsonPrimitive?.content)
+        assertEquals("69.5", messages[2].jsonObject["content"]?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `multi-round reasoning and tool calls should be correctly ordered`() {
         // Scenario: Assistant message with multiple rounds of reasoning and tool calls
         // [Reasoning1, Text1, Tool1(executed), Reasoning2, Text2, Tool2(executed), Text3]
