@@ -130,7 +130,9 @@ jobs:
             --tests me.rerere.rikkahub.data.agenda.AgendaTaskPolicyTest \
             --tests me.rerere.rikkahub.data.agenda.AgendaTimeParserTest \
             --tests me.rerere.rikkahub.ui.pages.chat.AgendaTaskEditorSourceTest \
-            --tests me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigureConvertToTest
+            --tests me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigureConvertToTest \
+            --tests me.rerere.rikkahub.data.work.WorkConfigTransferTest \
+            --tests me.rerere.rikkahub.ui.components.ui.permission.PermissionStatusTest
 
   release-apk:
     name: Signed release APK
@@ -187,12 +189,22 @@ jobs:
         run: |
           test -n "${AMAP_API_KEY_PRODUCTION}" || { echo "Missing AMAP_API_KEY_PRODUCTION secret" >&2; exit 1; }
           ./gradlew :app:assembleRelease
+          if [[ -d work-app ]]; then ./gradlew :work-app:assembleRelease; fi
 
       - name: Upload signed release APK
         uses: actions/upload-artifact@v4
         with:
           name: signed-release-${{ needs.resolve.outputs.tag }}
           path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload signed Work APK
+        if: hashFiles('work-app/src/main/AndroidManifest.xml') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-work-${{ needs.resolve.outputs.tag }}
+          path: work-app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 7
 
@@ -218,6 +230,13 @@ jobs:
         with:
           name: signed-release-${{ needs.resolve.outputs.tag }}
           path: app/build/outputs/apk/release
+
+      - name: Download signed Work APK
+        if: hashFiles('work-app/src/main/AndroidManifest.xml') != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-work-${{ needs.resolve.outputs.tag }}
+          path: work-app/build/outputs/apk/release
 
       - name: Load release asset tooling
         shell: bash
@@ -265,6 +284,7 @@ jobs:
             "release/LICENSE"
             "release/THIRD_PARTY_NOTICES.md"
           )
+          if [[ -d work-app ]]; then assets+=("release/zhixing-work-${VERSION}-universal.apk"); fi
 
           if [[ -f "release-notes/${VERSION}.md" ]]; then
             notes_file="release-notes/${VERSION}.md"
@@ -291,18 +311,12 @@ jobs:
               --latest
           fi
 
-          expected_assets="$(printf '%s\n' \
-            "LICENSE" \
-            "SHA256SUMS.txt" \
-            "THIRD_PARTY_NOTICES.md" \
-            "latest.json" \
-            "zhixing-${VERSION}-source.tar.gz" \
-            "zhixing-${VERSION}-universal.apk" | sort)"
+          expected_assets="$(printf '%s\n' "${assets[@]##*/}" | sort)"
           actual_assets="$(gh api \
             "repos/${RELEASES_REPOSITORY}/releases/tags/${TAG_NAME}" \
             --jq '.assets[].name' | sort)"
           if [[ "${actual_assets}" != "${expected_assets}" ]]; then
-            echo "GitHub Release assets do not match the six-file contract." >&2
+            echo "GitHub Release assets do not match the release contract." >&2
             diff -u <(printf '%s\n' "${expected_assets}") <(printf '%s\n' "${actual_assets}") || true
             exit 1
           fi

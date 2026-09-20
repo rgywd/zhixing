@@ -14,11 +14,11 @@
    `GITHUB_TOKEN`，无需跨仓发布令牌。
 3. 补发既有标签时使用 `workflow_dispatch`；构建与源码锁定标签提交，打包及上传工具取自触发 workflow
    的当前 `main` 提交。
-4. 发布前核对唯一 Universal APK、源码包、`latest.json`、`SHA256SUMS.txt`、许可文件和匿名下载。
+4. 发布前核对 Chat/Work 各自唯一的 Universal APK、源码包、`latest.json`、`SHA256SUMS.txt`、许可文件和匿名下载。
 
 ## 发布资产
 
-每个 `vX.Y.Z` Release 固定包含：
+自 `v0.4.20` 起每个 `vX.Y.Z` Release 固定包含：
 
 1. `zhixing-X.Y.Z-universal.apk`
 2. `zhixing-X.Y.Z-source.tar.gz`
@@ -26,6 +26,10 @@
 4. `SHA256SUMS.txt`
 5. `LICENSE`
 6. `THIRD_PARTY_NOTICES.md`
+7. `zhixing-work-X.Y.Z-universal.apk`
+
+两款 APK 使用同一正式签名，包名与数据独立。`latest.json.downloads` 仅包含 Chat，独立 `work` 字段记录 Work
+安装包和哈希，防止 Chat 更新器选错应用。Work 暂通过发布页手动更新。历史无 Work 模块的标签维持原六资产结构。
 
 源码包来自同一个 tag 的干净递归检出，包含子模块和构建脚本，排除 Git 历史、签名文件、
 `local.properties`、依赖缓存与构建产物。`latest.json.source.commit` 必须等于 tag commit。

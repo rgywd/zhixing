@@ -154,9 +154,9 @@ SettingsStore -> DataStore
 - 邮件与飞书监控是可选只读云能力：Life Gateway 持有连接器与事件事实，Work Core 只做经过用户鉴权的固定
   schema 薄代理，Android 不保存消息正文或第二份事件真相；见
   [`INFORMATION_MONITOR.md`](./INFORMATION_MONITOR.md)。
-- Work 是独立的手机创建会话域，由开发机 Runner 启动 Codex 或 Claude Code；它不读取桌面历史、不复用普通
-  Provider 生成链路。普通 Chat 空会话态始终提供 Work 入口，并可显示等待回复数量，但入口和提醒不复制
-  Work 事件或会话状态；见
+- Work 是独立 Android 应用，由开发机 Runner 启动 Codex 或 Claude Code；它不读取桌面历史、不复用普通
+  Provider 生成链路。Chat 不显示或跟踪 Work 会话，设置和历史深链可打开 Work；同签名应用支持一次性配置导入。
+  应用边界与迁移契约见
   [`CODEX_PHONE_LINE_ARCHITECTURE.md`](./CODEX_PHONE_LINE_ARCHITECTURE.md)。
 - 若重新引入同步服务，客户端持有稳定对象 ID、版本与删除标记；协议必须版本化、幂等并有契约测试。
 

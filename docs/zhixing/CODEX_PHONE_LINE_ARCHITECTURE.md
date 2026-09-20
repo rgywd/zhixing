@@ -15,10 +15,28 @@
 - CLI 只看见三个专用 MCP 工具；手机不消费私有 RPC、原始终端流、推理或工具参数。
 - Core 是耐久消息箱，Runner 是本地执行器；二者都不把 CLI 私有事件协议暴露给手机。
 
+## Android 应用边界（2026-09-20）
+
+- Chat 保持 `v0.4.18` 的聊天与左右抽屉设计，保留此后主干的荣耀任意门、图片搜索、记忆、代码清理及发布链路改进。
+  统一抽屉、空间切换、悬浮球与切换背景实验不进入此方案。
+- `:work-app` 构建独立的 `dev.sundby.zhixing.work` 应用；staging/debug 使用对应后缀，与 Chat 并存。
+  Work 有自己的 Application、导航图、设置、Keystore、沙箱和仅含会话/事件/附件表的 `work.db`，不启动 Chat 的
+  状态、日历、设备连接、生成或 Web 服务。共享源码和资源用于复用现有 Work 协议及 Compose 组件，不共享运行状态。
+- Work 首页是会话列表，详情是已有的 Work 时间线；不使用 Chat 抽屉或 Chat/Work 模式切换。通知与桌面快捷方式直达 Work。
+  Chat 设置只保留独立应用的跳转入口，旧 Work 深链也转交独立应用。
+  Chat 的生活服务 Core 连接仍可在设置中管理，用于邮件与飞书只读监控，不启动 Work 跟踪。
+- Work 设置提供“一键导入”：通过同渠道、同签名、限定包名的 ContentProvider 调用，从升级后的 Chat 复制 Core 地址、
+  Token、模型及标题配置、语音、主题、深浅色和仓库偏好。Token 在 Work 沙箱重新经 Keystore 加密，不经过公共文件、剪贴板或网络；
+  不导入 Chat 消息、助手、备份凭据和文件路径。导入覆盖上述配置，重复执行不会创建额外会话。
+- 旧 Chat 数据库及凭据保留，Work 历史从 Core 重新同步。卸载任一 App 不影响另一方的数据；旧本地未发送草稿不迁移。
+- 通知权限由系统状态决定；进入 Work 和重启不自动申请，用户在设置中主动开启。拒绝记录持久化，返回设置后刷新实际授权。
+- 测试构建：`./gradlew :app:assembleStaging :work-app:assembleStaging :work-app:assembleStagingAndroidTest`。
+  两份 staging APK 必须配套安装才能导入；正式 Work 签名和发布仍走后续明确授权的发布流程。
+
 ## 2. 目标拓扑
 
 ```text
-Android App
+Work Android App
   | HTTPS / SSE（用户消息、提问答案、状态、报告）
   v
 Work Core（公网、自建）

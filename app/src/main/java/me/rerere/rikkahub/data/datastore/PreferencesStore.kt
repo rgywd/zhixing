@@ -366,7 +366,7 @@ class SettingsStore(
             )
         }
         .onEach {
-            get<PebbleEngine>().templateCache.invalidateAll()
+            getKoin().getOrNull<PebbleEngine>()?.templateCache?.invalidateAll()
         }
 
     val settingsFlow = settingsFlowRaw

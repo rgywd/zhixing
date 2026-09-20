@@ -66,28 +66,15 @@ fun rememberPermissionState(
         permissionState.handlePermissionResult(results)
     }
 
-    // 单个权限请求启动器
-    val singlePermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        // 获取最后请求的权限（通过当前rationale权限或者denied权限推断）
-        val lastRequestedPermission = permissionState.currentRationalePermissions.firstOrNull()?.permission
-            ?: permissionState.deniedPermissions.firstOrNull()?.permission
-
-        lastRequestedPermission?.let { permission ->
-            permissionState.handleSinglePermissionResult(permission, granted)
-        }
-    }
-
-    // 设置启动器
-    LaunchedEffect(multiplePermissionLauncher, singlePermissionLauncher) {
-        permissionState.setPermissionLaunchers(multiplePermissionLauncher, singlePermissionLauncher)
+    // Bind the launcher to this exact state, including when permission metadata changes.
+    androidx.compose.runtime.SideEffect {
+        permissionState.setPermissionLaunchers(multiplePermissionLauncher)
     }
 
     // 监听生命周期变化，更新权限状态
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, permissionState) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> {
@@ -113,7 +100,7 @@ fun rememberPermissionState(
     }
 
     // 初始化时更新权限状态
-    LaunchedEffect(Unit) {
+    LaunchedEffect(permissionState) {
         permissionState.updatePermissionStates()
     }
 

@@ -362,7 +362,7 @@ class PhoneWorkTrackingService : Service() {
     }
 
     private fun openWorkPendingIntent(sessionId: String?): PendingIntent {
-        val intent = Intent(this, RouteActivity::class.java).apply {
+        val intent = requireNotNull(packageManager.getLaunchIntentForPackage(packageName)).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(EXTRA_WORK_SESSION_ID, sessionId.orEmpty())
         }
@@ -394,7 +394,9 @@ class PhoneWorkTrackingService : Service() {
         internal fun askNotificationId(askId: String) = "zhixing-work-ask:$askId".hashCode()
 
         fun start(context: Context) {
-            ContextCompat.startForegroundService(context, Intent(context, PhoneWorkTrackingService::class.java))
+            if (me.rerere.rikkahub.BuildConfig.WORK_APP) {
+                ContextCompat.startForegroundService(context, Intent(context, PhoneWorkTrackingService::class.java))
+            }
         }
 
         fun stop(context: Context) {
