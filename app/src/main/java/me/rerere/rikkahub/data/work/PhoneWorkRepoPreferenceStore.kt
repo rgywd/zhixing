@@ -59,6 +59,10 @@ class PhoneWorkRepoPreferenceStore(context: Context) {
         update { it.togglePinned(repo.key()) }
     }
 
+    fun importPreferences(value: PhoneWorkRepoPreferences) {
+        update { value.copy(pinned = value.pinned.distinct(), recent = value.recent.distinct().take(MAX_RECENT_WORK_REPOS)) }
+    }
+
     @Synchronized
     private fun update(transform: (PhoneWorkRepoPreferences) -> PhoneWorkRepoPreferences) {
         val updated = transform(mutableState.value)

@@ -94,7 +94,7 @@ val appModule = module {
         ).also(MyStatusCoordinator::start)
     }
 
-    single { TodayOverviewProvider(get(), get(), get(), get(), get(), get()) }
+    single { TodayOverviewProvider(get(), get(), get(), get(), get()) }
 
     single<LocationTravelGateway> {
         val settingsStore = get<SettingsStore>()
@@ -195,8 +195,7 @@ val appModule = module {
 
     single<PhoneWorkSessionGateway> { get<me.rerere.rikkahub.data.work.PhoneWorkRepository>() }
     single<PhoneWorkTitleGenerator> {
-        val chatService = get<ChatService>()
-        PhoneWorkTitleGenerator(chatService::generateWorkTitle)
+        me.rerere.rikkahub.data.work.WorkTitleGenerator(get(), get())
     }
     single { PhoneWorkSessionCreator(get(), get()) }
 

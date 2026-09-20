@@ -28,7 +28,9 @@ android {
     testBuildType = "staging"
 
     defaultConfig {
-        applicationId = "dev.sundby.zhixing"
+        applicationId = if (project.name == "work-app") "dev.sundby.zhixing.work" else "dev.sundby.zhixing"
+        buildConfigField("boolean", "WORK_APP", (project.name == "work-app").toString())
+        manifestPlaceholders["chatApplicationId"] = "dev.sundby.zhixing"
         minSdk = 26
         targetSdk = 37
         versionCode = 48
@@ -86,7 +88,7 @@ android {
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                rootProject.file("app/proguard-rules.pro")
             )
             buildConfigField("String", "VERSION_NAME", "\"${android.defaultConfig.versionName}\"")
             buildConfigField("String", "VERSION_CODE", "\"${android.defaultConfig.versionCode}\"")
@@ -99,6 +101,7 @@ android {
         }
         debug {
             applicationIdSuffix = ".debug"
+            manifestPlaceholders["chatApplicationId"] = "dev.sundby.zhixing.debug"
             buildConfigField("String", "VERSION_NAME", "\"${android.defaultConfig.versionName}\"")
             buildConfigField("String", "VERSION_CODE", "\"${android.defaultConfig.versionCode}\"")
             manifestPlaceholders["amapApiKey"] = amapDebugKey.get()
@@ -111,6 +114,7 @@ android {
         create("staging") {
             initWith(getByName("debug"))
             applicationIdSuffix = ".staging"
+            manifestPlaceholders["chatApplicationId"] = "dev.sundby.zhixing.staging"
             versionNameSuffix = "-staging"
             matchingFallbacks += listOf("debug")
             manifestPlaceholders["appScheme"] = "zhixing-staging"
@@ -135,6 +139,14 @@ android {
     }
     sourceSets {
         getByName("androidTest").assets.srcDirs("$projectDir/schemas")
+        if (project.name == "work-app") {
+            getByName("main") {
+                java.srcDir(rootProject.file("app/src/main/java"))
+                kotlin.srcDir(rootProject.file("app/src/main/java"))
+                res.srcDir(rootProject.file("app/src/main/res"))
+                assets.srcDir(rootProject.file("app/src/main/assets"))
+            }
+        }
     }
     androidResources {
         generateLocaleConfig = true
@@ -162,7 +174,7 @@ android {
 
 composeCompiler {
     stabilityConfigurationFiles.add(
-        project.layout.projectDirectory.file("compose_compiler_config.conf")
+        rootProject.layout.projectDirectory.file("app/compose_compiler_config.conf")
     )
 }
 
@@ -172,7 +184,7 @@ tasks.register("buildAll") {
 }
 
 ksp {
-    arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.schemaLocation", rootProject.file("app/schemas").path)
 }
 
 kotlin {
@@ -273,7 +285,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.room.paging)
-    baselineProfile(project(":app:baselineprofile"))
+    if (project.name == "app") baselineProfile(project(":app:baselineprofile"))
     ksp(libs.androidx.room.compiler)
 
     // Paging3
@@ -325,7 +337,7 @@ dependencies {
     implementation(project(":common"))
     implementation(project(":material3"))
     implementation(project(":workspace"))
-    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
+    implementation(fileTree(mapOf("dir" to rootProject.file("app/libs"), "include" to listOf("*.jar", "*.aar"))))
     implementation(kotlin("reflect"))
 
     // Leak Canary

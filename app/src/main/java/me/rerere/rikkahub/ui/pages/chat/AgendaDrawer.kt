@@ -341,13 +341,6 @@ private fun LifeOverviewDrawerContent(
             contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // 有 Work 会话等待回答时提到最上方，优先暴露需要人介入的事
-            if (todaySnapshot.waitingSessions.isNotEmpty()) {
-                item(key = "work-waiting") {
-                    WorkWaitingSection(waitingSessions = todaySnapshot.waitingSessions)
-                }
-            }
-
             item(key = "status-title") {
                 OverviewSectionTitle(
                     title = "我的状态",
@@ -450,56 +443,6 @@ private fun OverviewSectionTitle(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-    }
-}
-
-@Composable
-private fun WorkWaitingSection(waitingSessions: List<PhoneWorkSession>) {
-    val navigator = LocalNavController.current
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OverviewSectionTitle(
-            title = "Work",
-            subtitle = "${waitingSessions.size} 个会话等你回答",
-        )
-        waitingSessions.take(2).forEach { session ->
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { navigator.navigate(Screen.PhoneWorkSession(session.id)) },
-                shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(
-                        text = session.title.ifBlank { session.repoName },
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    WorkStatusChip(status = session.status)
-                }
-            }
-        }
-        if (waitingSessions.size > 2) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                Text(
-                    text = "查看全部",
-                    modifier = Modifier
-                        .clickable { navigator.navigate(Screen.PhoneWorkHome) }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
     }
 }
 

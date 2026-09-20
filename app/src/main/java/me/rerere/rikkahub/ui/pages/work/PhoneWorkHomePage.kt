@@ -99,23 +99,16 @@ fun PhoneWorkHomePage(vm: PhoneWorkHomeVM = koinViewModel()) {
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val showArchived by vm.showArchived.collectAsStateWithLifecycle()
-    val notificationPermission = rememberPermissionState(
-        permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setOf(PermissionNotification) else emptySet(),
-    )
-    var notificationPermissionRequested by rememberSaveable { mutableStateOf(false) }
-    PermissionManager(permissionState = notificationPermission)
-    LaunchedEffect(connection.configured, notificationPermission.allPermissionsGranted) {
-        if (connection.configured && !notificationPermission.allPermissionsGranted && !notificationPermissionRequested) {
-            notificationPermissionRequested = true
-            notificationPermission.requestPermissions()
-        }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        vm.refresh()
+        onPauseOrDispose {}
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(if (showArchived) "已归档 Work" else "Work") },
-                navigationIcon = { BackButton() },
+
                 actions = {
                     IconButton(onClick = vm::toggleArchived) {
                         Icon(if (showArchived) HugeIcons.PlayCircle else HugeIcons.Archive02, if (showArchived) "返回进行中的会话" else "查看归档")
@@ -140,8 +133,8 @@ fun PhoneWorkHomePage(vm: PhoneWorkHomeVM = koinViewModel()) {
         when {
             !connection.configured -> EmptyWorkState(
                 title = "还没有连接 Work Core",
-                detail = "在设置页的 Work 卡片中填写 HTTPS 地址和 Bearer Token，手机就能随时找到你的开发机。",
-                actionLabel = "去设置",
+                detail = "从 Chat 一键导入配置，或手动连接 Work Core。",
+                actionLabel = "导入或连接",
                 modifier = Modifier.padding(padding),
                 onClick = { navigator.navigate(Screen.Setting) },
             )

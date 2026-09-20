@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url"
 const WORK_PATH_PREFIXES = ["work/", "staging-driver/"]
 const ANDROID_PATH_PREFIXES = [
   "app/",
+  "work-app/",
   "ai/",
   "common/",
   "document/",

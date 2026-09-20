@@ -7,7 +7,6 @@ import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import me.rerere.rikkahub.R
-import me.rerere.rikkahub.RouteActivity
 import me.rerere.rikkahub.data.work.PhoneWorkSession
 
 private const val TAG = "PhoneWorkShortcuts"
@@ -16,7 +15,7 @@ private const val WORK_SHORTCUT_ID_PREFIX = "work_session_"
 
 /**
  * 桌面长按图标的动态快捷方式规格。
- * 静态快捷方式已占用 camera 与 work 两个名额，动态部分按启动器可用容量裁剪。
+ * 动态部分按当前应用静态快捷方式占用后的容量裁剪。
  */
 internal data class WorkShortcutSpec(
     val shortcutId: String,
@@ -66,11 +65,11 @@ private fun statusLabel(status: String) = when (status) {
 
 internal fun syncWorkShortcuts(context: Context, active: List<PhoneWorkSession>) {
     runCatching {
-        // 静态快捷方式占用 camera/work 两个名额，其余容量留给活跃会话
-        val capacity = (ShortcutManagerCompat.getMaxShortcutCountPerActivity(context) - STATIC_SHORTCUT_COUNT)
+        val capacity = (ShortcutManagerCompat.getMaxShortcutCountPerActivity(context) -
+            ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_MANIFEST).size)
             .coerceIn(0, MAX_DYNAMIC_SESSION_SHORTCUTS)
         val shortcuts = buildWorkShortcutSpecs(active, capacity).map { spec ->
-            val intent = Intent(context, RouteActivity::class.java)
+            val intent = requireNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName))
                 .setAction(Intent.ACTION_VIEW)
                 .putExtra(PhoneWorkTrackingService.EXTRA_WORK_SESSION_ID, spec.sessionId)
             ShortcutInfoCompat.Builder(context, spec.shortcutId)
@@ -91,5 +90,4 @@ internal fun clearWorkShortcuts(context: Context) {
         .onFailure { Log.w(TAG, "Unable to clear Work shortcuts", it) }
 }
 
-private const val STATIC_SHORTCUT_COUNT = 2
 private const val MAX_DYNAMIC_SESSION_SHORTCUTS = 3

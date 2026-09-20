@@ -44,8 +44,7 @@ import org.koin.compose.koinInject
 import kotlin.uuid.Uuid
 
 /**
- * 空会话态的统一入口:Work、事项行动与当前状态摘要。
- * Work 始终存在，但继续使用独立的 Phone-line 运行时和页面。
+ * 空会话态的事项行动与当前状态摘要。
  */
 @Composable
 internal fun TodayOverviewCards(
@@ -79,10 +78,6 @@ internal fun TodayOverviewCards(
                 onClick = onOpenAgenda,
             )
         }
-        WorkEntryCard(
-            waitingSessions = snapshot.waitingSessions,
-            configured = snapshot.workConfigured,
-        )
         if (snapshot.completedItems.isNotEmpty()) {
             TextButton(onClick = { showCompleted = !showCompleted }) {
                 Text(if (showCompleted) "收起今天已完成" else "今天已完成 ${snapshot.completedItems.size} 项")
@@ -217,76 +212,6 @@ internal fun AssistantTaskCard(
                     Text("不再重试")
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun WorkEntryCard(
-    waitingSessions: List<PhoneWorkSession>,
-    configured: Boolean,
-) {
-    val navigator = LocalNavController.current
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable {
-                if (waitingSessions.size == 1) {
-                    navigator.navigate(Screen.PhoneWorkSession(waitingSessions.single().id))
-                } else {
-                    navigator.navigate(Screen.PhoneWorkHome)
-                }
-            },
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.tertiaryContainer,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(
-                imageVector = Lucide.MessageCircleQuestion,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onTertiaryContainer,
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = when {
-                        waitingSessions.isNotEmpty() -> "有 ${waitingSessions.size} 个任务等你回复"
-                        configured -> "打开 Work"
-                        else -> "连接开发机"
-                    },
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                )
-                if (waitingSessions.size == 1) {
-                    val session = waitingSessions.single()
-                    Text(
-                        text = session.title.ifBlank { session.repoName },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                } else if (waitingSessions.isEmpty()) {
-                    Text(
-                        text = if (configured) "继续开发机上的任务" else "配置 Work 后从手机发起开发任务",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            Icon(
-                imageVector = Lucide.ChevronRight,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.onTertiaryContainer,
-            )
         }
     }
 }

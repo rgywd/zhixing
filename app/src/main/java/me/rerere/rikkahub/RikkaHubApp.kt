@@ -98,7 +98,7 @@ class RikkaHubApp : Application() {
 
         // Start WebServer if enabled in settings
         startWebServerIfEnabled()
-        startWorkTrackingIfConfigured()
+        PhoneWorkTrackingService.stop(this)
         cancelLegacyProfileMaintenance()
         startDeviceConnections()
         reconcileAgendaReminders()
@@ -288,16 +288,6 @@ class RikkaHubApp : Application() {
                 .build()
         )
 
-    }
-
-    private fun startWorkTrackingIfConfigured() {
-        get<AppScope>().launch {
-            delay(500)
-            if (get<PhoneWorkCredentialStore>().connection.value.configured) {
-                runCatching { PhoneWorkTrackingService.start(this@RikkaHubApp) }
-                    .onFailure { Log.w(TAG, "Unable to resume Work tracking", it) }
-            }
-        }
     }
 
     private fun cancelLegacyProfileMaintenance() {
