@@ -33,8 +33,8 @@ android {
         manifestPlaceholders["chatApplicationId"] = "dev.sundby.zhixing"
         minSdk = 26
         targetSdk = 37
-        versionCode = 49
-        versionName = "0.4.20"
+        versionCode = 50
+        versionName = "0.4.21"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["appScheme"] = "zhixing"
         manifestPlaceholders["amapApiKey"] = amapProductionKey.get()
