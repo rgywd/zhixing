@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
@@ -202,7 +203,52 @@ class ChatService(
     private val folderRepository: FolderRepository,
     private val assistantTaskRepository: AssistantTaskRepository,
     private val runtimeContextStore: RuntimeContextStore,
+    private val agentRunDao: me.rerere.rikkahub.data.agent.AgentRunDao,
 ) {
+    private val agentRecovery = appScope.launch { agentRunDao.recover() }
+    private val agentRuns by lazy {
+        me.rerere.rikkahub.data.agent.AgentRunTools(
+            dao = agentRunDao, readSettings = { settingsStore.settingsFlowRaw.first() },
+            readConversation = { conversationRepo.getConversationById(it) },
+            start = { run, child, instruction, attachments ->
+                val id = Uuid.parse(run.id)
+                val conversation = Conversation.ofId(id, child.id).copy(
+                    title = "${child.name} · 子任务",
+                    userPromptSnapshot = userPromptResolver.snapshotForFirstUserMessage(Conversation.ofId(id, child.id), child),
+                )
+                saveConversation(id, conversation)
+                sendMessage(id, listOf(UIMessagePart.Text(instruction)) + attachments)
+                monitorAgentJob(id, run.revision)
+            },
+            continueRun = { run, instruction, question ->
+                val id = Uuid.parse(run.id)
+                val saved = conversationRepo.getConversationById(id) ?: error("Missing agent conversation")
+                updateConversation(id, saved)
+                if (question != null) handleToolApproval(id, question, approved = true, answer = instruction)
+                else if (instruction != null) sendMessage(id, listOf(UIMessagePart.Text(instruction)))
+                else {
+                    val job = launchGeneration(conversationId = id, protectInBackground = true) { handleMessageComplete(id) }
+                    getOrCreateSession(id).setJob(job)
+                }
+                monitorAgentJob(id, run.revision + 1)
+            },
+            stop = { id -> stopGeneration(id) },
+        )
+    }
+
+    private fun monitorAgentJob(id: Uuid, revision: Long) {
+        val job = getOrCreateSession(id).getJob()
+        if (job == null) {
+            appScope.launch { agentRunDao.failIfRunning(id.toString(), revision) }
+            return
+        }
+        job.invokeOnCompletion {
+            appScope.launch {
+                agentRunDao.failIfRunning(id.toString(), revision)
+            }
+        }
+    }
+
     // workspace 系统提示注入 (依赖 workspaceRepository, 故在类内构造)
     private val workspaceReminderTransformer = WorkspaceReminderTransformer(workspaceRepository)
     private val userPromptResolver = UserPromptResolver(workspaceRepository)
@@ -626,10 +672,15 @@ class ChatService(
         conversationId: Uuid,
         messageRange: ClosedRange<Int>? = null
     ) {
-        val settings = settingsStore.settingsFlow.first()
+        agentRecovery.join()
+        val settings = settingsStore.settingsFlowRaw.first()
         var initialConversation = getConversationFlow(conversationId).value
-        val assistant = settings.getAssistantById(initialConversation.assistantId)
-            ?: settings.getCurrentAssistant()
+        val runRecord = agentRunDao.get(conversationId.toString())
+        val liveAssistant = settings.getAssistantById(initialConversation.assistantId)
+            ?: throw IllegalStateException("AGENT_NOT_FOUND")
+        check(liveAssistant.isEnabled) { "AGENT_DISABLED" }
+        val assistant = runRecord?.let { me.rerere.rikkahub.utils.JsonInstant.decodeFromString<Assistant>(it.assistantJson) }
+            ?: liveAssistant
         if (initialConversation.userPromptSnapshot == null) {
             initialConversation = initialConversation.copy(
                 userPromptSnapshot = userPromptResolver.snapshotForFirstUserMessage(
@@ -639,7 +690,9 @@ class ChatService(
             )
             saveConversation(conversationId, initialConversation)
         }
-        val model = settings.findModelById(assistant.chatModelId ?: settings.chatModelId) ?: return
+        val configuredModel = settings.findModelById(assistant.chatModelId ?: settings.chatModelId) ?: error("MODEL_NOT_FOUND")
+        val model = if (assistant.capabilities != null && "search" !in assistant.capabilities)
+            configuredModel.copy(tools = emptySet()) else configuredModel
 
         val senderName = if (assistant.useAssistantAvatar) {
             assistant.name.ifEmpty { context.getString(R.string.assistant_page_default_assistant) }
@@ -700,7 +753,7 @@ class ChatService(
 
             // memory tool
             if (!model.abilities.contains(ModelAbility.TOOL)) {
-                if (assistant.enableWebSearch || mcpManager.getAllAvailableTools().isNotEmpty()) {
+                if (assistant.enableWebSearch || mcpManager.getAllAvailableTools(assistant).isNotEmpty()) {
                     addError(
                         IllegalStateException(context.getString(R.string.tools_warning)),
                         conversationId,
@@ -724,6 +777,13 @@ class ChatService(
             generationHandler.generateText(
                 settings = settings,
                 model = model,
+                authorizeTool = { name ->
+                    val latest = settingsStore.settingsFlowRaw.first().getAssistantById(assistant.id)
+                    latest != null && me.rerere.rikkahub.data.agent.AgentCapabilities.permits(latest, name) &&
+                        (!name.startsWith("mcp__") || mcpManager.getAllAvailableTools(latest).any { (_, server, tool) ->
+                            "mcp__${server}__${tool.name}" == name
+                        })
+                },
                 processingStatus = session.processingStatus,
                 messages = conversation.currentMessages.let {
                     if (messageRange != null) {
@@ -766,12 +826,30 @@ class ChatService(
                 },
                 outputTransformers = outputTransformers,
                 tools = buildList {
+                    add(localTools.askUserTool)
+                    if (assistant.managedBy == null) {
+                        addAll(me.rerere.rikkahub.data.agent.createAgentConfigTools(assistant, settingsStore, skillManager, workspaceRepository))
+                        add(me.rerere.rikkahub.data.agent.createAgentSkillTool(skillManager))
+                        add(Tool(
+                            name = "agent_apply_config",
+                            description = "Apply this agent's latest user prompt to the current conversation starting with its next run. Use after the user asks to apply a prompt/configuration change here. Existing messages and the active run are preserved.",
+                            parameters = { me.rerere.ai.core.InputSchema.Obj(properties = kotlinx.serialization.json.buildJsonObject {}) },
+                            execute = { me.rerere.rikkahub.data.agent.agentResult {
+                                val latest = settingsStore.settingsFlowRaw.first().getAssistantById(assistant.id)
+                                    ?: throw IllegalArgumentException("AGENT_NOT_FOUND")
+                                val snapshot = userPromptResolver.snapshotForFirstUserMessage(Conversation.ofId(Uuid.random(), latest.id), latest)
+                                mutateAndSaveConversation(conversationId) { it.copy(userPromptSnapshot = snapshot) }
+                                kotlinx.serialization.json.buildJsonObject { put("success", JsonPrimitive(true)); put("applies_to", JsonPrimitive("next_run")) }
+                            } },
+                        ))
+                        addAll(agentRuns.tools(assistant, conversation))
+                    }
                     if (assistant.enableWebSearch) {
                         addAll(createSearchTools(settings))
                     }
                     addAll(
                         localTools.getTools(
-                            options = assistant.localTools,
+                            options = me.rerere.rikkahub.data.agent.AgentCapabilities.localOptions(assistant),
                             conversationId = conversationId.toString(),
                         )
                     )
@@ -796,7 +874,7 @@ class ChatService(
                             )
                         )
                     }
-                    mcpManager.getAllAvailableTools().also { allTools ->
+                    mcpManager.getAllAvailableTools(assistant).also { allTools ->
                         val invalidNames = allTools
                             .map { it.second }
                             .distinct()
@@ -929,6 +1007,9 @@ class ChatService(
                 }
             }
         }.onFailure {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                agentRunDao.finish(conversationId.toString(), if (it is CancellationException) "STOPPED" else "FAILED")
+            }
             // 兜底取消 Live Update 通知（生成开始前失败时 onCompletion 不会执行）
             appEventBus.tryEmit(AppEvent.ChatGenerationEnded(conversationId, senderName, null))
 
@@ -1049,6 +1130,8 @@ class ChatService(
                     }
                 }
             }
+            val runStatus = me.rerere.rikkahub.data.agent.agentRunStatus(finalConversation.currentMessages)
+            agentRunDao.finish(conversationId.toString(), runStatus)
         }
     }
 

@@ -115,6 +115,37 @@ internal fun AssistantBasicContent(
             .imePadding(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        Card(colors = CustomColors.cardColorsOnSurfaceContainer) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (assistant.managedBy == null) "智能体配置" else "专用子智能体", style = MaterialTheme.typography.titleMedium)
+                Text("配置版本 ${assistant.configRevision} · 修改用于下次运行，提示词用于新对话", style = MaterialTheme.typography.bodySmall)
+                FormItem(label = { Text("启用") }) {
+                    Switch(checked = assistant.isEnabled, onCheckedChange = { onUpdate(assistant.copy(isEnabled = it)) })
+                }
+                var showCapabilities by remember { mutableStateOf(false) }
+                androidx.compose.material3.TextButton(onClick = { showCapabilities = !showCapabilities }) {
+                    Text(if (showCapabilities) "收起能力配置" else "配置可用能力")
+                }
+                if (showCapabilities) me.rerere.rikkahub.data.agent.AgentCapabilities.all.filter { assistant.managedBy == null || it != "agents" }.sorted().forEach { capability ->
+                    val selected = assistant.capabilities ?: me.rerere.rikkahub.data.agent.AgentCapabilities.all
+                    FormItem(label = { Text(me.rerere.rikkahub.data.agent.AgentCapabilities.labels[capability] ?: capability) }) {
+                        Switch(checked = capability in selected, onCheckedChange = { enabled ->
+                            onUpdate(assistant.copy(capabilities = if (enabled) selected + capability else selected - capability,
+                                enableWebSearch = if (capability == "search") enabled else assistant.enableWebSearch,
+                                enableMemory = if (capability == "memory") enabled else assistant.enableMemory,
+                                enableRecentChatsReference = if (capability == "history") enabled else assistant.enableRecentChatsReference))
+                        })
+                    }
+                }
+                if (assistant.previousConfiguration != null) {
+                    androidx.compose.material3.TextButton(onClick = {
+                        val previous = me.rerere.rikkahub.utils.JsonInstant.decodeFromString<Assistant>(assistant.previousConfiguration)
+                        onUpdate(previous.copy(id = assistant.id, managedBy = assistant.managedBy, configRevision = assistant.configRevision,
+                            previousConfiguration = assistant.previousConfiguration))
+                    }) { Text("恢复上一版配置") }
+                }
+            }
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()

@@ -17,8 +17,9 @@
 
 当前代码证据：
 
-- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 49。
+- application ID 为 `dev.sundby.zhixing`，Room 数据库逻辑名为 `zhixing`，schema 版本为 50。
 - Room 存在连续迁移注册，未启用 destructive fallback。
+- v49→v50 仅新增持久子智能体运行记录和请求唯一索引，不改动既有数据。
 - v48→v49 只新增结构化健康记录表及索引；不回填或复制 Lenovo Watch 最近快照，并保留全部既有用户数据。
 - v47→v48 只为 Work 会话增加可空 `active_turn_id`；v46→v47 只增加默认关闭的 `fast_mode`。两次迁移
   都保留既有聊天、记忆、Work 会话、Agenda、长期计划、知识库和用户文件；0.4.13→0.4.14 schema 保持 48。

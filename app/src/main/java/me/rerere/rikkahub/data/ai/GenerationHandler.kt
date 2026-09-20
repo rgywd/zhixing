@@ -293,6 +293,7 @@ class GenerationHandler(
         historicalMemorySourceResolver: (suspend (sourceRef: String, quote: String) -> MemoryDocumentSource)? = null,
         tools: List<Tool> = emptyList(),
         maxSteps: Int = 256,
+        authorizeTool: suspend (String) -> Boolean = { true },
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
         conversationSystemPrompt: String? = null,
         conversationUserPromptSnapshot: ConversationUserPromptSnapshot? = null,
@@ -448,7 +449,7 @@ class GenerationHandler(
                     ).let(this::addAll)
                 }
                 addAll(tools)
-            }
+            }.distinctBy { it.name }.filter { me.rerere.rikkahub.data.agent.AgentCapabilities.permits(assistant, it.name) }
 
             // Check if we have tool calls ready to continue after user interaction.
             val pendingTools = messages.lastOrNull()?.getTools()?.filter {
@@ -612,6 +613,9 @@ class GenerationHandler(
             // Handle tools. Stateful tools preserve their original serial order; consecutive
             // explicitly read-only tools may execute together and are reassembled in model order.
             suspend fun executeTool(tool: UIMessagePart.Tool): UIMessagePart.Tool? {
+                if (!authorizeTool(tool.toolName)) {
+                    return tool.copy(output = listOf(UIMessagePart.Text("{\"error\":\"CAPABILITY_DENIED\"}")))
+                }
                 return when (tool.approvalState) {
                     is ToolApprovalState.Denied -> {
                         val reason = (tool.approvalState as ToolApprovalState.Denied).reason

@@ -46,14 +46,10 @@ class AssistantVM(
 
     fun removeAssistant(assistant: Assistant) {
         viewModelScope.launch {
+            settingsStore.update { current ->
+                current.copy(assistants = current.assistants.filter { it.id != assistant.id })
+            }
             cleanupAssistantFiles(assistant)
-
-            val settings = settings.value
-            settingsStore.update(
-                settings.copy(
-                    assistants = settings.assistants.filter { it.id != assistant.id }
-                )
-            )
             memoryRepository.deleteMemoriesOfAssistant(assistant.id.toString())
             memoryDocumentRepository.deleteScope(assistant.id.toString())
             conversationRepo.deleteConversationOfAssistant(assistant.id)

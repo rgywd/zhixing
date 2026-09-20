@@ -7,10 +7,14 @@ import androidx.datastore.preferences.SharedPreferencesMigration
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import io.pebbletemplates.pebble.PebbleEngine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -164,7 +168,10 @@ class SettingsStore(
         val SPONSOR_ALERT_DISMISSED_AT = intPreferencesKey("sponsor_alert_dismissed_at")
     }
 
+    private val appContext = context.applicationContext
     private val dataStore = context.settingsStore
+
+    private val recentSnapshots = java.util.Collections.synchronizedMap(LinkedHashMap<Long, Settings>())
 
     val settingsFlowRaw = dataStore.data
         .catch { exception ->
@@ -186,6 +193,7 @@ class SettingsStore(
                 legacyIndex = preferences[SEARCH_SELECTED] ?: 0,
             )
             Settings(
+                revision = preferences[longPreferencesKey("settings_revision")] ?: 0L,
                 favoriteModels = preferences[FAVORITE_MODELS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
@@ -366,6 +374,10 @@ class SettingsStore(
             )
         }
         .onEach {
+            synchronized(recentSnapshots) {
+                recentSnapshots.putIfAbsent(it.revision, it)
+                while (recentSnapshots.size > 32) recentSnapshots.remove(recentSnapshots.keys.first())
+            }
             getKoin().getOrNull<PebbleEngine>()?.templateCache?.invalidateAll()
         }
 
@@ -373,13 +385,44 @@ class SettingsStore(
         .distinctUntilChanged()
         .toMutableStateFlow(scope, Settings.dummy())
 
-    suspend fun update(settings: Settings) {
+    private val mutationMutex = Mutex()
+
+    suspend fun update(settings: Settings) = mutationMutex.withLock {
+        val current = settingsFlowRaw.first()
+        val merged = try {
+            if (settings.revision == current.revision) settings else {
+                val base = recentSnapshots[settings.revision] ?: throw IllegalArgumentException("SETTINGS_REVISION_CONFLICT")
+                mergeSettingsSnapshots(base, current, settings)
+            }
+        } catch (_: IllegalArgumentException) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(appContext, "配置已被其他操作修改，请重新打开后重试", android.widget.Toast.LENGTH_LONG).show()
+            }
+            return@withLock
+        }
+        persistSettings(versionSettings(current, merged))
+    }
+
+    suspend fun restore(settings: Settings) = mutationMutex.withLock {
+        persistSettings(versionSettings(settingsFlowRaw.first(), settings))
+    }
+
+    private fun versionSettings(current: Settings, next: Settings): Settings = next.copy(
+        revision = current.revision + 1,
+        assistants = next.assistants.map { candidate ->
+            val old = current.assistants.find { it.id == candidate.id }
+            if (old != null && old != candidate) candidate.copy(configRevision = old.configRevision + 1, previousConfiguration = JsonInstant.encodeToString(old.copy(previousConfiguration = null)))
+            else candidate
+        },
+    )
+
+    private suspend fun persistSettings(settings: Settings) {
         if(settings.init) {
             Log.w(TAG, "Cannot update dummy settings")
             return
         }
-        settingsFlow.value = settings
         dataStore.edit { preferences ->
+            preferences[longPreferencesKey("settings_revision")] = settings.revision
             preferences[DYNAMIC_COLOR] = settings.dynamicColor
             preferences[THEME_ID] = settings.themeId
             preferences[CUSTOM_THEMES] = JsonInstant.encodeToString(settings.customThemes)
@@ -452,14 +495,13 @@ class SettingsStore(
         }
     }
 
-    suspend fun update(fn: (Settings) -> Settings) {
-        update(fn(settingsFlow.value))
+    suspend fun update(fn: (Settings) -> Settings) = mutationMutex.withLock {
+        val current = settingsFlowRaw.first()
+        persistSettings(versionSettings(current, fn(current)))
     }
 
     suspend fun updateAssistant(assistantId: Uuid) {
-        dataStore.edit { preferences ->
-            preferences[SELECT_ASSISTANT] = assistantId.toString()
-        }
+        update { current -> current.copy(assistantId = assistantId) }
     }
 
     suspend fun updateAssistantModel(assistantId: Uuid, modelId: Uuid) {
@@ -544,6 +586,7 @@ class SettingsStore(
 
 @Serializable
 data class Settings(
+    val revision: Long = 0,
     @Transient
     val init: Boolean = false,
     val dynamicColor: Boolean = true,

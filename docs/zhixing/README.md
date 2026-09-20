@@ -23,6 +23,7 @@
 | 知识空间 | [OrbitOS CN Vault v0.3](./KNOWLEDGE_SPACE.md) | 已实现；以 `/workspace/vault`、知识库浏览、Git 绑定、收件箱导入、来源引用和 vault-local skills 为现行契约 |
 | 火山语音 | [Agent Plan TTS](./VOLCENGINE_TTS.md) · [Agent Plan ASR](./VOLCENGINE_ASR.md) | 已实现；记录协议、接口和默认配置 |
 | 事项与弱日历 | [简单待办、长期计划、系统日历投影与 AI 工具](./AGENDA_AND_CALENDAR.md) | v2 已实现；待办与长期计划均以 Room 为事实来源，日历为可选时间背景 |
+| 智能体配置与委派 | [自主配置、能力边界与子任务](./AGENT_RUNTIME.md) | 主 Chat 管理自身及子智能体，独立执行与问答回传 |
 | 月度收支 | [多渠道账单、AI 汇总工具与统计子 Tab](./MONTHLY_LEDGER.md) | v1；只保存整月与渠道汇总，不保存逐笔交易或附件内容 |
 | 健康统计 | [结构化身体数据、AI 明确数值写入与只读统计 Tab](./HEALTH_STATS.md) | v1；Room 保存明确测量，合并 Lenovo Watch 最近快照，不从照片或模糊描述推断数值 |
 | 位置与出行 | [前台定位、附近搜索与高德导航](./LOCATION_AND_TRAVEL.md) | v0.1 已实现；默认不返回用户坐标，不做后台定位或位置历史 |
