@@ -81,7 +81,7 @@ git push -u origin feat/123-doubao-search
 4. 在 release 上执行构建、升级、安装和关键路径验证。发现问题时，从 `main` 切 `fix/*` 修复并合入，
    再对 release 执行 `git merge --ff-only origin/main`。
 5. 验证通过后在 release HEAD 创建一次 annotated `vX.Y.Z` 标签并推送到 GitHub。
-6. Release workflow 并行执行关键测试与签名 APK 构建；两者都通过后，把六个发行资产发布到公开
+6. Release workflow 并行执行关键测试与 Chat/Work 同签名 APK 构建；两者都通过后，把七个发行资产发布到公开
    [GitHub Releases](https://github.com/rgywd/zhixing/releases)。
 7. 核对公开 Release、Universal APK、源码归档、`SHA256SUMS.txt`、`latest.json` 和应用内更新，再删除
    release 与已合并短分支。
@@ -99,6 +99,6 @@ git push -u origin feat/123-doubao-search
 - [ ] 目标提交位于 `origin/main` 历史中，版本号、`versionCode`、说明和 tag 一致。
 - [ ] 必需 CI、关键测试、覆盖升级与安装验证通过。
 - [ ] 正式 Release 存在于 `rgywd/zhixing`。
-- [ ] 未登录状态可下载更新清单、唯一 Universal APK、源码包与哈希文件。
+- [ ] 未登录状态可下载更新清单、Chat/Work 各自唯一的 Universal APK、源码包与哈希文件。
 - [ ] `latest.json.source.commit` 指向正式 tag commit。
 - [ ] 发布成功后清理 release 和已合并短分支。
