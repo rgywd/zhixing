@@ -15,6 +15,9 @@ git fetch origin main
 node .github/scripts/local-verify.mjs --base origin/main
 ```
 
+依赖已缓存但 Maven 元数据网络不可用时，可追加 `--offline`。它仅向 Gradle 传递离线标志，
+保留全部测试、Lint 与构建任务；缺少缓存依赖仍会失败。回执记录是否使用离线模式，npm/pnpm 不受此参数影响。
+
 脚本要求 clean worktree，以 `origin/main...HEAD` 的完整 diff 选择门禁：
 
 | 改动域 | 本地执行内容 |
