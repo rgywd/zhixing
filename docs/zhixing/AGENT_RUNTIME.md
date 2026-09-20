@@ -1,6 +1,6 @@
 # 自主配置与子智能体运行契约
 
-状态：受管文件入口已实现，功能验收通过，2026-09-20。
+状态：受管文件入口已实现，DeepSeek 消息续接与操作回执修正，2026-09-21。
 
 ## 配置与权限
 
@@ -28,6 +28,13 @@ SKILL.md 则映射既有 SkillManager 的实体文件。Shell 不挂载这些配
 | `/skills`、`/skills/<name>/SKILL.md` | 共享技能目录与说明文档 |
 
 写入已有文件前必须读取；write 使用读取版本或显式 if_revision，edit 在新读取上进行精确替换并校验版本。
+创建子助手 config.json 后，AGENT.md 已自动存在且为空，仍须先读再写。所有配置文件共享助手版本；
+修改一个文件后，写另一个文件前须重新读取。未读取返回 READ_BEFORE_WRITE，旧版本返回 REVISION_CONFLICT，
+两者均提示重新读取并保留无关改动。文件写入回执只在顶层给出生效范围，避免内部事务回执产生歧义。
+写入自己的 AGENT.md 返回 current_conversation_next_turn，明确不需要新建对话；子助手 AGENT.md 返回
+new_conversations，普通 config.json 返回 next_run。
+工具说明要求局部修改优先精确替换，追加规则时逐字保留原提示词，改名只修改配置 name；
+未明确要求时不连带重写提示词中的自称。这是模型操作指引，存储层仍允许用户要求的完整提示词重写。
 未知字段、路径穿越、越权访问、冲突和无效资源标识均拒绝提交。配置 JSON 中省略的字段保留，数组替换，
 身份和版本字段只读。目录仅显示可管理助手；不会返回 Provider 密钥、MCP headers 或完整 Settings。
 模型选择复用已有连接，新增凭据和系统权限仍通过设置完成。技能写入仅支持 SKILL.md，不执行安装脚本。
@@ -48,6 +55,11 @@ ChatService、GenerationHandler、Provider、前台服务和消息界面。主�
 
 Room `agent_runs` 保存父会话、请求标识、子会话、执行配置快照、状态和版本。普通任务卡是展示投影，不能代替
 此运行记录。相同父会话与 request_id 的 start 只创建一次；接续通过版本检查和最近命令标识避免重复提交。
+answer/continue/retry 都必须携带 run_id、if_revision 和新的 request_id；answer 另需 question_id 与用户回答
+instruction，continue 另需后续任务 instruction。WAITING_FOR_INPUT 只能 answer，COMPLETED 才可 continue，
+FAILED/INTERRUPTED/STOPPED 才可 retry。缺版本、旧版本或错误状态返回明确错误及当前 revision、questions、
+next_action 和 required_fields；不代替模型自动重试，不跳过版本检查。next_action 表示对应状态支持的后续操作，
+任务完成后仅在用户需要继续时调用 continue。
 单个父会话最多四个执行中的子任务，单个主智能体最多管理 32 个子智能体。
 
 start/answer/continue/retry/wait 最多等待 45 秒，返回运行状态；未结束时主智能体应继续 wait，不能宣称完成。
@@ -67,10 +79,19 @@ COMPLETED 表示本轮模型执行正常结束，不替代业务结果验收；�
 验收覆盖配置字段隔离、冲突和恢复、跨 Agent 权限、重复委派、问答接续、重启恢复，以及使用本地模拟模型
 服务的真实 ChatService → Provider → 子会话 → 用户回答 → 父会话最终结果。测试不得依赖真实模型凭据。
 
+额外真实模型验收使用显式启用的 DeepSeekLiveInstrumentedTest（live_model 参数）；默认测试不调用外部 API。
+本机 DeepSeek 测试默认读取 User 环境变量 `DS-SYYL-TOKEN`，仅由主机环回代理在内存中加入官方接口请求，
+不将真实凭据写入设备、源码、制品或报告。测试覆盖自身配置、下一轮提示词、受限子助手、脚本执行与问答回传；
+另核对请求记录中的 HTTP 错误和工具拒绝，不能仅凭最终检查全部通过判断过程无故障。
+
 2026-09-20 增量验收：App Staging 643 项单元测试通过；Android API 35 独立模拟器上四项仪器测试通过
 （文件创建子助手并完整问答回传、主助手提示词当前轮冻结且下轮生效、文件与设置页并发修改、技能文件版本冲突）。
 先前的 49→50 设备迁移测试已验证原数据保留，本次文件入口不更改数据库或配置存储格式。
 端到端使用本地模拟模型，验证真实运行链路，不代表所有外部模型的自主规划质量。
+2026-09-21 修复验收：AI 147 项、App Staging 645 项单元测试通过；四项设备回归通过。
+DeepSeek Flash 与 V4 Pro 在最终 APK 上各完成一组五轮非流式真实对话，均为 8/8 状态检查、零 API 错误、
+零工具拒绝。过程中另发现 Pro 顺手改写原提示词和混淆生效范围，已收紧精确修改指引及当前对话回执后复测；
+这些是小样本验收，不代表所有模型、流式场景或长期运行都具有同样稳定性。
 发布前仍须在最终提交上执行仓库本地门禁。
 
 ## 本轮范围与入口

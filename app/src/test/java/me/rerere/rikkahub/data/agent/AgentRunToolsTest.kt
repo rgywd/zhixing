@@ -81,6 +81,26 @@ class AgentRunToolsTest {
         assertEquals("CAPABILITY_DENIED", call("""{"action":"get","run_id":"$id"}""", unrelated)["error"]!!.jsonPrimitive.content)
     }
 
+    @Test fun `invalid continuation returns recovery fields without resuming or bypassing revision`() = runBlocking {
+        ask = true
+        val waiting = call(startInput())
+        val id = waiting["run_id"]!!.jsonPrimitive.content
+        val missing = call("""{"action":"continue","run_id":"$id","request_id":"followup","instruction":"2026"}""")
+        assertEquals("IF_REVISION_REQUIRED", missing["error"]!!.jsonPrimitive.content)
+        assertEquals("answer", missing["next_action"]!!.jsonPrimitive.content)
+        assertEquals(waiting["revision"], missing["revision"])
+        assertEquals(waiting["questions"], missing["questions"])
+        assertTrue(missing["required_fields"]!!.jsonArray.contains(JsonPrimitive("question_id")))
+        val stale = call("""{"action":"answer","run_id":"$id","request_id":"answer","if_revision":0,"question_id":"question","instruction":"2026"}""")
+        assertEquals("REVISION_CONFLICT", stale["error"]!!.jsonPrimitive.content)
+        val wrongAction = call("""{"action":"continue","run_id":"$id","request_id":"followup","if_revision":1,"instruction":"2026"}""")
+        assertEquals("INVALID_RUN_STATE", wrongAction["error"]!!.jsonPrimitive.content)
+        assertEquals(0, resumes)
+        assertEquals(waiting["revision"], call("""{"action":"get","run_id":"$id"}""")["revision"])
+        assertEquals("COMPLETED", call("""{"action":"answer","run_id":"$id","request_id":"answer","if_revision":1,"question_id":"question","instruction":"2026"}""")["status"]!!.jsonPrimitive.content)
+        assertEquals(1, resumes)
+    }
+
     @Test fun `recovery preserves history and requires explicit retry`() = runBlocking {
         val pending = AgentRun(Uuid.random().toString(), parent.id.toString(), "seed", child.id.toString(), "{}")
         dao.insert(pending); dao.recover()

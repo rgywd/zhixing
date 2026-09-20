@@ -33,6 +33,28 @@ class AgentFileSystemTest {
         assertEquals("After", files().read("/agents/self/AGENT.md")["text"]!!.jsonPrimitive.content)
     }
 
+    @Test fun `new child prompt requires a read and receipts have one effective scope`() = runBlocking {
+        val fs = files()
+        val id = Uuid.random()
+        fs.write("/agents/$id/config.json", """{"name":"Child"}""", false)
+        val denied = fs.mount(emptyList()).first { it.name == "workspace_write_file" }.execute(buildJsonObject {
+            put("path", "/agents/$id/AGENT.md"); put("text", "Child prompt")
+        }).single() as UIMessagePart.Text
+        val failure = Json.parseToJsonElement(denied.text).jsonObject
+        assertEquals("READ_BEFORE_WRITE", failure["error"]!!.jsonPrimitive.content)
+        assertTrue(failure.containsKey("hint"))
+        assertEquals("", state.assistants.last().systemPrompt)
+        fs.read("/agents/$id/AGENT.md")
+        val childResult = fs.write("/agents/$id/AGENT.md", "Child prompt", true)
+        assertEquals("new_conversations", childResult["applies_to"]!!.jsonPrimitive.content)
+        assertFalse(childResult["result"]!!.jsonObject.containsKey("applies_to"))
+        fs.read("/agents/self/AGENT.md")
+        val selfResult = fs.write("/agents/self/AGENT.md", "Self prompt", true)
+        assertEquals("current_conversation_next_turn", selfResult["applies_to"]!!.jsonPrimitive.content)
+        assertFalse(selfResult["result"]!!.jsonObject.containsKey("applies_to"))
+        assertEquals(1, applied)
+    }
+
     @Test fun `read config edit round trip preserves defaults and validates before committing`() = runBlocking {
         val fs = files()
         val config = fs.read("/agents/self/config.json")["text"]!!.jsonPrimitive.content
