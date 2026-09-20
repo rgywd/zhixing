@@ -88,7 +88,8 @@ SettingsStore -> DataStore
 ## 智能体配置与委派
 
 自主配置、能力装配、配置生效规则和独立子任务遵循 [Agent 运行契约](./AGENT_RUNTIME.md)。
-普通聊天工具与新增管理工具统一受显式能力配置过滤；旧助手无显式配置时保持原有工具行为。
+普通文件工具通过受管 /agents 和 /skills 目录管理配置，agent_run 管理实际执行；两者统一受能力配置过滤。
+管理权限不授予普通 Workspace 文件访问权；旧助手无显式配置时保持原有工具行为。
 子任务状态由持久 agent_runs 保存，普通 AssistantTask 继续作为展示投影。
 
 ## 生成生命周期

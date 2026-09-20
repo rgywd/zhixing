@@ -98,7 +98,7 @@ internal fun agentConfigTools(
             val p = input.jsonObject
             require(p.keys.all { it in setOf("action", "agent_id", "if_revision", "name", "description", "model_id", "prompt", "enabled", "capabilities", "skills", "mcp_servers", "workspace_id", "temperature", "max_tokens", "reasoning_level", "use_global_memory") }) { "INVALID_INPUT" }
             val action = p.text("action"); require(action in setOf("create", "patch", "restore")) { "INVALID_INPUT" }
-            val id = if (action == "create") Uuid.random() else Uuid.parse(p.text("agent_id"))
+            val id = if (action == "create" && "agent_id" !in p) Uuid.random() else Uuid.parse(p.text("agent_id"))
             val availableWorkspaces = workspaces()
             var receipt: Assistant? = null
             updateSettings { settings ->
@@ -106,6 +106,7 @@ internal fun agentConfigTools(
                 require(current.isEnabled && AgentCapabilities.permits(current, "agent_config")) { "CAPABILITY_DENIED" }
                 val old = if (action == "create") {
                     require(current.managedBy == null) { "CAPABILITY_DENIED" }
+                    require(settings.assistants.none { it.id == id }) { "FILE_EXISTS" }
                     require(settings.assistants.count { it.managedBy == current.id } < 32) { "AGENT_LIMIT" }
                     Assistant(id = id, name = p.text("name"), managedBy = current.id, capabilities = emptySet(), streamOutput = current.streamOutput,
                         chatModelId = current.chatModelId ?: settings.chatModelId,
@@ -116,25 +117,25 @@ internal fun agentConfigTools(
                 val caps = if ("capabilities" in p) p.strings("capabilities") else old.capabilities
                 require(caps == null || AgentCapabilities.all.containsAll(caps)) { "UNKNOWN_CAPABILITY" }
                 require(old.managedBy == null || caps?.contains("agents") != true) { "CAPABILITY_DENIED" }
-                val modelId = if ("model_id" in p) Uuid.parse(p.text("model_id")) else old.chatModelId
+                val modelId = if ("model_id" in p) p["model_id"]?.takeUnless { it == JsonNull }?.let { Uuid.parse(p.text("model_id")) } else old.chatModelId
                 require(action != "create" && "model_id" !in p || modelId == null || settings.findModelById(modelId) != null) { "MODEL_NOT_FOUND" }
                 val selectedSkills = if ("skills" in p) p.strings("skills") else old.enabledSkills
                 require(action != "create" && "skills" !in p || skillNames().containsAll(selectedSkills)) { "SKILL_NOT_FOUND" }
                 val servers = if ("mcp_servers" in p) p.strings("mcp_servers").map(Uuid::parse).toSet() else old.mcpServers
                 require(action != "create" && "mcp_servers" !in p || servers.all { id -> settings.mcpServers.any { it.id == id && it.commonOptions.enable } }) { "MCP_NOT_AVAILABLE" }
-                val workspaceId = if ("workspace_id" in p) Uuid.parse(p.text("workspace_id")) else
+                val workspaceId = if ("workspace_id" in p) p["workspace_id"]?.takeUnless { it == JsonNull }?.let { Uuid.parse(p.text("workspace_id")) } else
                     if (old.managedBy != null && caps?.any { it in setOf("workspace", "knowledge") } == true) current.workspaceId else old.workspaceId
                 require(action != "create" && "workspace_id" !in p || workspaceId == null || workspaceId.toString() in availableWorkspaces) { "WORKSPACE_NOT_FOUND" }
-                val temperature = if ("temperature" in p) p["temperature"]!!.jsonPrimitive.floatOrNull ?: throw IllegalArgumentException("INVALID_INPUT") else old.temperature
+                val temperature = if ("temperature" in p) p["temperature"]?.takeUnless { it == JsonNull }?.let { it.jsonPrimitive.floatOrNull ?: throw IllegalArgumentException("INVALID_INPUT") } else old.temperature
                 require(temperature == null || temperature.isFinite() && temperature in 0f..2f) { "INVALID_INPUT" }
-                val maxTokens = if ("max_tokens" in p) p["max_tokens"]!!.jsonPrimitive.intOrNull ?: throw IllegalArgumentException("INVALID_INPUT") else old.maxTokens
+                val maxTokens = if ("max_tokens" in p) p["max_tokens"]?.takeUnless { it == JsonNull }?.let { it.jsonPrimitive.intOrNull ?: throw IllegalArgumentException("INVALID_INPUT") } else old.maxTokens
                 require(maxTokens == null || maxTokens in 1..262144) { "INVALID_INPUT" }
                 val restored = if (action == "restore") me.rerere.rikkahub.utils.JsonInstant.decodeFromString<Assistant>(
                     old.previousConfiguration ?: throw IllegalArgumentException("NO_PREVIOUS_CONFIGURATION")) else null
                 val updated = restored?.copy(id = old.id, managedBy = old.managedBy, configRevision = old.configRevision,
                     previousConfiguration = old.previousConfiguration) ?: old.copy(
                     name = if ("name" in p) p.text("name") else old.name,
-                    description = if ("description" in p) p.text("description") else old.description,
+                    description = if ("description" in p) p["description"]!!.jsonPrimitive.content else old.description,
                     systemPrompt = if ("prompt" in p) p["prompt"]!!.jsonPrimitive.content else old.systemPrompt,
                     userPromptSource = if ("prompt" in p) AssistantUserPromptSource.APP else old.userPromptSource,
                     workspaceId = workspaceId, temperature = temperature, maxTokens = maxTokens,

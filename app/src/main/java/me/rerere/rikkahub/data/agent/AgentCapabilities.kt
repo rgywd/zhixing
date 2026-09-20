@@ -15,6 +15,10 @@ object AgentCapabilities {
     fun permits(assistant: Assistant, tool: String): Boolean {
         if (!assistant.isEnabled) return false
         if (tool in setOf("ask_user", "get_time_info")) return true
+        if (tool in setOf("workspace_read_file", "workspace_write_file", "workspace_edit_file")) {
+            return assistant.capabilities == null || "workspace" in assistant.capabilities ||
+                (assistant.managedBy == null && "agents" in assistant.capabilities)
+        }
         val capability = when {
             tool.startsWith("agent_") -> "agents"
             tool.startsWith("mcp__") -> "mcp"

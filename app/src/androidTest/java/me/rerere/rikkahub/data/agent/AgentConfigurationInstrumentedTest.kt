@@ -23,9 +23,11 @@ class AgentConfigurationInstrumentedTest {
         try {
             store.update { it.copy(assistants = it.assistants + agent) }
             val uiSnapshot = store.settingsFlowRaw.first()
-            store.update { current -> current.copy(assistants = current.assistants.map {
-                if (it.id == agent.id) it.copy(systemPrompt = "Updated by agent") else it
-            }) }
+            val skills = GlobalContext.get().get<SkillManager>()
+            val fs = AgentFileSystem(agent, { store.settingsFlowRaw.first() },
+                createAgentConfigTools(agent, store, skills, GlobalContext.get().get()), createAgentSkillTool(skills), {})
+            fs.read("/agents/self/AGENT.md")
+            fs.write("/agents/self/AGENT.md", "Updated by agent", true)
             store.update(uiSnapshot.copy(assistants = uiSnapshot.assistants.map {
                 if (it.id == agent.id) it.copy(name = "Updated by UI") else it
             }))
@@ -42,20 +44,21 @@ class AgentConfigurationInstrumentedTest {
     @Test fun skillWritesRequireMatchingRevisionAndRemainReadable() = runBlocking {
         val skills = GlobalContext.get().get<SkillManager>()
         val name = "agent-test-${System.currentTimeMillis()}"
-        val tool = createAgentSkillTool(skills)
-        suspend fun call(action: String, revision: String = "", content: String = ""): JsonObject {
-            val output = tool.execute(buildJsonObject {
-                put("action", action); put("name", name); put("if_revision", revision); put("content", content)
-            })
-            return Json.parseToJsonElement((output.single() as UIMessagePart.Text).text).jsonObject
-        }
+        val store = GlobalContext.get().get<SettingsStore>()
+        val original = store.settingsFlowRaw.first()
+        val agent = Assistant(name = "Skill acceptance")
+        store.update { it.copy(assistants = it.assistants + agent) }
+        val fs = AgentFileSystem(agent, { store.settingsFlowRaw.first() },
+            createAgentConfigTools(agent, store, skills, GlobalContext.get().get()), createAgentSkillTool(skills), {})
+        val path = "/skills/$name/SKILL.md"
         try {
             val content = "---\nname: $name\ndescription: Acceptance test\n---\nUse the provided input."
-            val created = call("write", content = content)
+            fs.read(path)
+            val created = fs.write(path, content, true)
             assertTrue(created["success"]!!.jsonPrimitive.boolean)
-            assertEquals(content, call("read")["content"]!!.jsonPrimitive.content)
-            assertEquals("REVISION_CONFLICT", call("write", "stale", content)["error"]!!.jsonPrimitive.content)
+            assertEquals(content, fs.read(path)["text"]!!.jsonPrimitive.content)
+            assertEquals("REVISION_CONFLICT", runCatching { fs.write(path, content, true, "stale") }.exceptionOrNull()?.message)
             assertEquals(content, skills.readSkillContent(name))
-        } finally { skills.deleteSkill(name) }
+        } finally { skills.deleteSkill(name); store.restore(original) }
     }
 }
