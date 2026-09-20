@@ -49,10 +49,11 @@ import me.rerere.rikkahub.data.db.migrations.Migration_8_9
 import me.rerere.rikkahub.utils.JsonInstant
 
 internal const val APP_DATABASE_NAME = "zhixing"
-internal const val APP_DATABASE_VERSION = 49
+internal const val APP_DATABASE_VERSION = 50
 
 @Database(
     entities = [
+        me.rerere.rikkahub.data.agent.AgentRun::class,
         ConversationEntity::class,
         MemoryEntity::class,
         MemoryDocumentEntity::class,
@@ -77,6 +78,7 @@ internal const val APP_DATABASE_VERSION = 49
     ],
     version = APP_DATABASE_VERSION,
     autoMigrations = [
+        AutoMigration(from = 49, to = 50),
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
         AutoMigration(from = 3, to = 4),
@@ -109,6 +111,8 @@ internal const val APP_DATABASE_VERSION = 49
 )
 @TypeConverters(TokenUsageConverter::class)
 abstract class AppDatabase : RoomDatabase() {
+    abstract fun agentRunDao(): me.rerere.rikkahub.data.agent.AgentRunDao
+
     abstract fun conversationDao(): ConversationDAO
 
     abstract fun memoryDao(): MemoryDAO

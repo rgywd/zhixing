@@ -190,6 +190,7 @@ val appModule = module {
             folderRepository = get(),
             assistantTaskRepository = get(),
             runtimeContextStore = get(),
+            agentRunDao = get<me.rerere.rikkahub.data.db.AppDatabase>().agentRunDao(),
         )
     }
 

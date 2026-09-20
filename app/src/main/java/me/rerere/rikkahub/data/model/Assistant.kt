@@ -15,6 +15,13 @@ import kotlin.uuid.Uuid
 @Serializable
 data class Assistant(
     val id: Uuid = Uuid.random(),
+    val configRevision: Long = 0,
+    val previousConfiguration: String? = null,
+    val isEnabled: Boolean = true,
+    val managedBy: Uuid? = null,
+    val description: String = "",
+    // null preserves existing assistants; explicit sets enforce a capability boundary.
+    val capabilities: Set<String>? = null,
     val chatModelId: Uuid? = null, // 如果为null, 使用全局默认模型
     val name: String = "",
     val avatar: Avatar = Avatar.Dummy,
