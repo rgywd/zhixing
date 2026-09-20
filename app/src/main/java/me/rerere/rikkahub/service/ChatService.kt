@@ -828,20 +828,6 @@ class ChatService(
                 tools = buildList {
                     add(localTools.askUserTool)
                     if (assistant.managedBy == null) {
-                        addAll(me.rerere.rikkahub.data.agent.createAgentConfigTools(assistant, settingsStore, skillManager, workspaceRepository))
-                        add(me.rerere.rikkahub.data.agent.createAgentSkillTool(skillManager))
-                        add(Tool(
-                            name = "agent_apply_config",
-                            description = "Apply this agent's latest user prompt to the current conversation starting with its next run. Use after the user asks to apply a prompt/configuration change here. Existing messages and the active run are preserved.",
-                            parameters = { me.rerere.ai.core.InputSchema.Obj(properties = kotlinx.serialization.json.buildJsonObject {}) },
-                            execute = { me.rerere.rikkahub.data.agent.agentResult {
-                                val latest = settingsStore.settingsFlowRaw.first().getAssistantById(assistant.id)
-                                    ?: throw IllegalArgumentException("AGENT_NOT_FOUND")
-                                val snapshot = userPromptResolver.snapshotForFirstUserMessage(Conversation.ofId(Uuid.random(), latest.id), latest)
-                                mutateAndSaveConversation(conversationId) { it.copy(userPromptSnapshot = snapshot) }
-                                kotlinx.serialization.json.buildJsonObject { put("success", JsonPrimitive(true)); put("applies_to", JsonPrimitive("next_run")) }
-                            } },
-                        ))
                         addAll(agentRuns.tools(assistant, conversation))
                     }
                     if (assistant.enableWebSearch) {
@@ -858,13 +844,25 @@ class ChatService(
                     }
                     addAll(createKnowledgeTools(assistant.workspaceId?.toString(), workspaceRepository, knowledgeSpaceService))
                     addAll(createAssistantUserPromptTools(assistant, workspaceRepository))
-                    addAll(
-                        createWorkspaceToolsIfReady(
-                            conversationId = conversationId,
-                            workspaceId = assistant.workspaceId?.toString(),
-                            cwd = conversation.workspaceCwd,
-                        )
+                    val workspaceTools = createWorkspaceToolsIfReady(
+                        conversationId = conversationId,
+                        workspaceId = assistant.workspaceId?.toString(),
+                        cwd = conversation.workspaceCwd,
                     )
+                    addAll(if (assistant.managedBy == null) {
+                        me.rerere.rikkahub.data.agent.AgentFileSystem(
+                            actor = assistant,
+                            readSettings = { settingsStore.settingsFlowRaw.first() },
+                            configTools = me.rerere.rikkahub.data.agent.createAgentConfigTools(assistant, settingsStore, skillManager, workspaceRepository),
+                            skillTool = me.rerere.rikkahub.data.agent.createAgentSkillTool(skillManager),
+                            applyPrompt = {
+                                val latest = settingsStore.settingsFlowRaw.first().getAssistantById(assistant.id)
+                                    ?: throw IllegalArgumentException("AGENT_NOT_FOUND")
+                                val snapshot = userPromptResolver.snapshotForFirstUserMessage(Conversation.ofId(Uuid.random(), latest.id), latest)
+                                mutateAndSaveConversation(conversationId) { it.copy(userPromptSnapshot = snapshot) }
+                            },
+                        ).mount(workspaceTools)
+                    } else workspaceTools)
                     if (assistant.enabledSkills.isNotEmpty()) {
                         addAll(
                             createSkillTools(

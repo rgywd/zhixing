@@ -39,6 +39,7 @@ class AgentRuntimeInstrumentedTest {
         val childRequests = AtomicInteger()
         val mainRequests = AtomicInteger()
         val parentId = Uuid.random()
+        val childId = Uuid.random()
         val model = Model(modelId = "agent-runtime-test", displayName = "Local test", abilities = listOf(ModelAbility.TOOL))
         val main = Assistant(name = "Runtime acceptance", chatModelId = model.id, streamOutput = false,
             capabilities = setOf("agents"), systemPrompt = "Manage a research assistant and return its result.")
@@ -71,19 +72,29 @@ class AgentRuntimeInstrumentedTest {
                     .filter { it["role"]?.jsonPrimitive?.content == "tool" }
                     .mapNotNull { runCatching { Json.parseToJsonElement(it["content"]!!.jsonPrimitive.content).jsonObject }.getOrNull() }
                 return when (mainRequests.incrementAndGet()) {
-                    1 -> tool("create-child", "agent_config", buildJsonObject {
-                        put("action", "create"); put("name", "Research acceptance"); put("prompt", "Ask which year, then report the year.")
-                        put("capabilities", buildJsonArray { add("javascript") })
+                    1 -> tool("create-child", "workspace_write_file", buildJsonObject {
+                        assertFalse(names.contains("agent_config"))
+                        assertFalse(names.contains("agent_catalog"))
+                        assertFalse(names.contains("agent_skill"))
+                        put("path", "/agents/$childId/config.json")
+                        put("text", """{"name":"Research acceptance","capabilities":["javascript"]}""")
+                        put("overwrite", false)
                     })
-                    2 -> tool("delegate-child", "agent_run", buildJsonObject {
+                    2 -> tool("read-child-prompt", "workspace_read_file", buildJsonObject {
+                        put("path", "/agents/$childId/AGENT.md")
+                    })
+                    3 -> tool("write-child-prompt", "workspace_write_file", buildJsonObject {
+                        put("path", "/agents/$childId/AGENT.md"); put("text", "Ask which year, then report the year.")
+                    })
+                    4 -> tool("delegate-child", "agent_run", buildJsonObject {
                         put("action", "start"); put("request_id", "acceptance-start")
-                        put("agent_id", results.last()["agent"]!!.jsonObject["id"]!!.jsonPrimitive.content)
+                        put("agent_id", childId.toString())
                         put("instruction", "Research the requested year.")
                     })
-                    3 -> tool("parent-question", "ask_user", buildJsonObject {
+                    5 -> tool("parent-question", "ask_user", buildJsonObject {
                         put("questions", buildJsonArray { add(buildJsonObject { put("id", "year"); put("question", "Which year?") }) })
                     })
-                    4 -> {
+                    6 -> {
                         val waiting = results.first { it["status"]?.jsonPrimitive?.content == "WAITING_FOR_INPUT" }
                         tool("answer-child", "agent_run", buildJsonObject {
                             put("action", "answer"); put("run_id", waiting["run_id"]!!.jsonPrimitive.content)
@@ -120,14 +131,75 @@ class AgentRuntimeInstrumentedTest {
             assertEquals(1, runs.size)
             assertEquals("COMPLETED", runs.single().status)
             assertEquals(2, childRequests.get())
-            assertEquals(5, mainRequests.get())
+            assertEquals(7, mainRequests.get())
             val configured = store.settingsFlowRaw.first().assistants.single { it.managedBy == main.id }
             assertEquals(setOf("javascript"), configured.capabilities)
+            assertEquals("Ask which year, then report the year.", configured.systemPrompt)
             assertNotEquals(parentId.toString(), runs.single().id)
         } finally {
             chat.stopGeneration(parentId)
             store.restore(original)
             server.shutdown()
+            instrumentation.runOnMainSync { activity.finish() }
+        }
+    }
+
+    @Test fun selfPromptEditAppliesOnNextTurnAndKeepsActiveRunFrozen() = runBlocking {
+        val store = GlobalContext.get().get<SettingsStore>()
+        val chat = GlobalContext.get().get<ChatService>()
+        val original = store.settingsFlowRaw.first()
+        val model = Model(modelId = "prompt-test", abilities = listOf(ModelAbility.TOOL))
+        val agent = Assistant(name = "Prompt acceptance", chatModelId = model.id, streamOutput = false,
+            capabilities = setOf("agents"), systemPrompt = "PROMPT_BEFORE_123")
+        val id = Uuid.random()
+        val server = MockWebServer()
+        val requests = AtomicInteger()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
+                val index = requests.incrementAndGet()
+                val instructions = body["messages"]!!.jsonArray.filter {
+                    it.jsonObject["role"]!!.jsonPrimitive.content in setOf("system", "developer")
+                }.toString()
+                assertTrue(instructions, instructions.contains(if (index <= 2) "PROMPT_BEFORE_123" else "PROMPT_AFTER_456"))
+                return response(buildJsonObject {
+                    put("role", "assistant")
+                    if (index == 1) {
+                        put("content", JsonNull)
+                        put("tool_calls", buildJsonArray { add(buildJsonObject {
+                            put("id", "edit-self"); put("type", "function")
+                            put("function", buildJsonObject {
+                                put("name", "workspace_edit_file")
+                                put("arguments", """{"path":"/agents/self/AGENT.md","old_text":"PROMPT_BEFORE_123","new_text":"PROMPT_AFTER_456"}""")
+                            })
+                        }) })
+                    } else put("content", if (index == 2) "Prompt saved" else "New prompt active")
+                })
+            }
+        }
+        server.start()
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val activity = instrumentation.startActivitySync(android.content.Intent(instrumentation.targetContext, me.rerere.rikkahub.RouteActivity::class.java)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        instrumentation.waitForIdleSync()
+        try {
+            store.update { it.copy(assistants = listOf(agent), assistantId = agent.id, chatModelId = model.id,
+                providers = listOf(ProviderSetting.OpenAI(name = "Local prompt test", apiKey = "local-test-only",
+                    baseUrl = server.url("/v1").toString().trimEnd('/'), models = listOf(model))), enableSuggestion = false) }
+            chat.saveConversation(id, Conversation.ofId(id, agent.id).copy(title = "Prompt acceptance"))
+            suspend fun awaitText(text: String) = withTimeout(60_000) {
+                while (chat.getConversationFlow(id).value.currentMessages.lastOrNull()?.parts
+                    ?.filterIsInstance<UIMessagePart.Text>()?.any { it.text == text } != true) delay(100)
+                chat.getGenerationJobStateFlow(id).first { it == null }
+            }
+            chat.sendMessage(id, listOf(UIMessagePart.Text("Update your prompt.")))
+            awaitText("Prompt saved")
+            assertEquals("PROMPT_AFTER_456", chat.getConversationFlow(id).value.userPromptSnapshot?.content)
+            chat.sendMessage(id, listOf(UIMessagePart.Text("Use the new prompt.")))
+            awaitText("New prompt active")
+            assertEquals(3, requests.get())
+        } finally {
+            chat.stopGeneration(id); store.restore(original); server.shutdown()
             instrumentation.runOnMainSync { activity.finish() }
         }
     }
