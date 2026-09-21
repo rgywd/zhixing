@@ -38,7 +38,7 @@ class PhoneWorkCredentialStore(context: Context) {
         check(temporaryFile.renameTo(credentialFile)) { "无法保存 Work 凭据" }
         preferences.edit().putString(KEY_BASE_URL, normalizedUrl).apply()
         mutableConnection.value = PhoneWorkConnection(normalizedUrl, configured = true)
-        if (me.rerere.rikkahub.BuildConfig.WORK_APP) PhoneWorkTrackingService.start(appContext)
+        PhoneWorkTrackingService.start(appContext)
     }
 
     fun clear() {

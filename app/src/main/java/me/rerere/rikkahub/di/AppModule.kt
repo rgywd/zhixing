@@ -94,7 +94,7 @@ val appModule = module {
         ).also(MyStatusCoordinator::start)
     }
 
-    single { TodayOverviewProvider(get(), get(), get(), get(), get()) }
+    single { TodayOverviewProvider(get(), get(), get(), get(), get(), get()) }
 
     single<LocationTravelGateway> {
         val settingsStore = get<SettingsStore>()

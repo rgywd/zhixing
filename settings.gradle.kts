@@ -34,9 +34,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "zhixing"
 include(":app")
-include(":work-app")
-// Both applications compile the existing reusable components; each has its own manifest and entry point.
-project(":work-app").buildFileName = "../app/build.gradle.kts"
 include(":highlight")
 include(":ai")
 include(":search")

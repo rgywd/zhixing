@@ -80,14 +80,13 @@ import org.koin.compose.koinInject
 
 @Composable
 fun SettingPage(vm: SettingVM = koinViewModel()) {
-    val context = androidx.compose.ui.platform.LocalContext.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val navController = LocalNavController.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val filesManager: FilesManager = koinInject()
-    val coreCredentials: PhoneWorkCredentialStore = koinInject()
-    val coreConnection by coreCredentials.connection.collectAsStateWithLifecycle()
-    var showCoreConnection by remember { mutableStateOf(false) }
+    val workCredentialStore: PhoneWorkCredentialStore = koinInject()
+    val workConnection by workCredentialStore.connection.collectAsStateWithLifecycle()
+    var showWorkConnectionDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -233,28 +232,28 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                 }
             }
 
+            item("workNotifications") {
+                me.rerere.rikkahub.ui.components.ui.permission.NotificationAccessCard(
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+            }
             item("workSettings") {
                 CardGroup(
                     modifier = Modifier.padding(horizontal = 8.dp),
-                    title = { Text("服务") },
+                    title = { Text("Work") },
                 ) {
                     item(
-                        onClick = { showCoreConnection = true },
-                        leadingContent = { Icon(HugeIcons.ServerStack01, null) },
-                        headlineContent = { Text("生活服务连接") },
-                        supportingContent = { Text(if (coreConnection.configured) coreConnection.baseUrl else "连接邮件与飞书的只读监控服务") },
-                    )
-                    item(
-                        onClick = { me.rerere.rikkahub.data.work.openStandaloneWork(context) },
+                        onClick = { showWorkConnectionDialog = true },
                         leadingContent = { Icon(HugeIcons.ServerStack01, null) },
                         supportingContent = {
                             Text(
-                                "在独立 App 中处理开发任务，可从这里导入连接与语音设置",
+                                if (workConnection.configured) workConnection.baseUrl
+                                else "连接自建 Core，让 Codex 或 Claude Code 通过三条电话线联系手机",
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         },
-                        headlineContent = { Text("打开 Work 独立应用") },
+                        headlineContent = { Text(if (workConnection.configured) "Work 已连接" else "连接 Work Core") },
                     )
                 }
             }
@@ -335,38 +334,40 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
         }
     }
 
-    if (showCoreConnection) {
+    if (showWorkConnectionDialog) {
         WorkConnectionDialog(
-            currentUrl = coreConnection.baseUrl,
-            connected = coreConnection.configured,
-            title = "连接生活服务",
-            description = "填写承载生活服务的 Core 地址和用户 Token，用于邮件与飞书的只读监控。",
-            onDismiss = { showCoreConnection = false },
-            onSave = { url, token -> coreCredentials.save(url, token); showCoreConnection = false },
-            onDisconnect = { coreCredentials.clear(); showCoreConnection = false },
+            currentUrl = workConnection.baseUrl,
+            connected = workConnection.configured,
+            onDismiss = { showWorkConnectionDialog = false },
+            onSave = { url, token ->
+                workCredentialStore.save(url, token)
+                showWorkConnectionDialog = false
+            },
+            onDisconnect = {
+                workCredentialStore.clear()
+                showWorkConnectionDialog = false
+            },
         )
     }
 }
 
 @Composable
-internal fun WorkConnectionDialog(
+private fun WorkConnectionDialog(
     currentUrl: String,
     connected: Boolean,
     onDismiss: () -> Unit,
     onSave: (String, String) -> Unit,
     onDisconnect: () -> Unit,
-    title: String = "连接 Work Core",
-    description: String = "这里仅保存 Core 地址与用户 Token；CLI 登录态和仓库仍只在开发机。",
 ) {
     var url by remember(currentUrl) { mutableStateOf(currentUrl) }
     var token by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
+        title = { Text("连接 Work Core") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(description)
+                Text("这里仅保存 Core 地址与用户 Token；CLI 登录态和仓库仍只在开发机。")
                 OutlinedTextField(
                     value = url,
                     onValueChange = { url = it; error = null },

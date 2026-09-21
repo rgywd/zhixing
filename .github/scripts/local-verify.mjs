@@ -111,7 +111,7 @@ export function buildVerificationCommands({
       {
         label: "Android lint",
         command: names.gradle,
-        args: [":app:lintStaging", ":work-app:lintStaging"],
+        args: [":app:lintStaging"],
       },
       {
         label: "Android build smoke",
@@ -120,8 +120,6 @@ export function buildVerificationCommands({
           ":app:assembleDebug",
           ":app:assembleStaging",
           ":app:assembleStagingAndroidTest",
-          ":work-app:assembleStaging",
-          ":work-app:assembleStagingAndroidTest",
         ],
       },
     )

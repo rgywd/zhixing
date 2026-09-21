@@ -189,22 +189,12 @@ jobs:
         run: |
           test -n "${AMAP_API_KEY_PRODUCTION}" || { echo "Missing AMAP_API_KEY_PRODUCTION secret" >&2; exit 1; }
           ./gradlew :app:assembleRelease
-          if [[ -d work-app ]]; then ./gradlew :work-app:assembleRelease; fi
 
       - name: Upload signed release APK
         uses: actions/upload-artifact@v4
         with:
           name: signed-release-${{ needs.resolve.outputs.tag }}
           path: app/build/outputs/apk/release/*.apk
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload signed Work APK
-        if: hashFiles('work-app/src/main/AndroidManifest.xml') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: signed-work-${{ needs.resolve.outputs.tag }}
-          path: work-app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 7
 
@@ -230,13 +220,6 @@ jobs:
         with:
           name: signed-release-${{ needs.resolve.outputs.tag }}
           path: app/build/outputs/apk/release
-
-      - name: Download signed Work APK
-        if: hashFiles('work-app/src/main/AndroidManifest.xml') != ''
-        uses: actions/download-artifact@v4
-        with:
-          name: signed-work-${{ needs.resolve.outputs.tag }}
-          path: work-app/build/outputs/apk/release
 
       - name: Load release asset tooling
         shell: bash
@@ -284,7 +267,6 @@ jobs:
             "release/LICENSE"
             "release/THIRD_PARTY_NOTICES.md"
           )
-          if [[ -d work-app ]]; then assets+=("release/zhixing-work-${VERSION}-universal.apk"); fi
 
           if [[ -f "release-notes/${VERSION}.md" ]]; then
             notes_file="release-notes/${VERSION}.md"

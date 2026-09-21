@@ -28,9 +28,7 @@ android {
     testBuildType = "staging"
 
     defaultConfig {
-        applicationId = if (project.name == "work-app") "dev.sundby.zhixing.work" else "dev.sundby.zhixing"
-        buildConfigField("boolean", "WORK_APP", (project.name == "work-app").toString())
-        manifestPlaceholders["chatApplicationId"] = "dev.sundby.zhixing"
+        applicationId = "dev.sundby.zhixing"
         minSdk = 26
         targetSdk = 37
         versionCode = 50
@@ -101,7 +99,6 @@ android {
         }
         debug {
             applicationIdSuffix = ".debug"
-            manifestPlaceholders["chatApplicationId"] = "dev.sundby.zhixing.debug"
             buildConfigField("String", "VERSION_NAME", "\"${android.defaultConfig.versionName}\"")
             buildConfigField("String", "VERSION_CODE", "\"${android.defaultConfig.versionCode}\"")
             manifestPlaceholders["amapApiKey"] = amapDebugKey.get()
@@ -114,7 +111,6 @@ android {
         create("staging") {
             initWith(getByName("debug"))
             applicationIdSuffix = ".staging"
-            manifestPlaceholders["chatApplicationId"] = "dev.sundby.zhixing.staging"
             versionNameSuffix = "-staging"
             matchingFallbacks += listOf("debug")
             manifestPlaceholders["appScheme"] = "zhixing-staging"
@@ -139,14 +135,6 @@ android {
     }
     sourceSets {
         getByName("androidTest").assets.srcDirs("$projectDir/schemas")
-        if (project.name == "work-app") {
-            getByName("main") {
-                java.srcDir(rootProject.file("app/src/main/java"))
-                kotlin.srcDir(rootProject.file("app/src/main/java"))
-                res.srcDir(rootProject.file("app/src/main/res"))
-                assets.srcDir(rootProject.file("app/src/main/assets"))
-            }
-        }
     }
     androidResources {
         generateLocaleConfig = true
@@ -285,7 +273,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.room.paging)
-    if (project.name == "app") baselineProfile(project(":app:baselineprofile"))
+    baselineProfile(project(":app:baselineprofile"))
     ksp(libs.androidx.room.compiler)
 
     // Paging3

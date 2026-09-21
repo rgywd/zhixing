@@ -108,6 +108,7 @@ fun PhoneWorkHomePage(vm: PhoneWorkHomeVM = koinViewModel()) {
         topBar = {
             TopAppBar(
                 title = { Text(if (showArchived) "已归档 Work" else "Work") },
+                navigationIcon = { BackButton() },
 
                 actions = {
                     IconButton(onClick = vm::toggleArchived) {
@@ -133,8 +134,8 @@ fun PhoneWorkHomePage(vm: PhoneWorkHomeVM = koinViewModel()) {
         when {
             !connection.configured -> EmptyWorkState(
                 title = "还没有连接 Work Core",
-                detail = "从 Chat 一键导入配置，或手动连接 Work Core。",
-                actionLabel = "导入或连接",
+                detail = "在设置中连接 Work Core，即可使用开发机上的 Codex 或 Claude Code。",
+                actionLabel = "连接 Work Core",
                 modifier = Modifier.padding(padding),
                 onClick = { navigator.navigate(Screen.Setting) },
             )

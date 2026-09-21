@@ -153,8 +153,3 @@ test("plans an empty diff conservatively", () => {
     reason: "cross-domain-or-infrastructure",
   })
 })
-
-test("standalone Work Android changes require Android verification", () => {
-  assert.equal(planPullRequest(["work-app/src/main/java/WorkActivity.kt"]).run_android, "true")
-  assert.equal(planPullRequest(["work-app/src/main/java/WorkActivity.kt"]).run_work, "false")
-})
