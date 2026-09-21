@@ -20,22 +20,6 @@ fi
 universal_name="zhixing-${VERSION}-universal.apk"
 source_name="zhixing-${VERSION}-source.tar.gz"
 cp "${release_apks[0]}" "${output_dir}/${universal_name}"
-work_manifest='null'
-checksum_files=("${universal_name}" "${source_name}")
-if [[ -d work-app ]]; then
-  mapfile -t work_apks < <(find "${WORK_APK_DIR:-work-app/build/outputs/apk/release}" -type f -name '*.apk' -print)
-  if [[ "${#work_apks[@]}" -ne 1 ]]; then
-    echo "Expected exactly one universal Work APK" >&2
-    exit 1
-  fi
-  work_name="zhixing-work-${VERSION}-universal.apk"
-  cp "${work_apks[0]}" "${output_dir}/${work_name}"
-  checksum_files+=("${work_name}")
-  work_manifest="$(jq -n --arg name "${work_name}" \
-    --arg url "https://github.com/${RELEASES_REPOSITORY}/releases/download/${TAG_NAME}/${work_name}" \
-    --arg sha256 "$(sha256sum "${output_dir}/${work_name}" | cut -d ' ' -f 1)" \
-    '{name: $name, url: $url, sha256: $sha256}')"
-fi
 
 tar \
   --exclude='./.git' \
@@ -77,17 +61,15 @@ jq -n \
   --arg sourceUrl "${base_url}/${source_name}" \
   --arg sourceSha256 "${source_sha256}" \
   --arg sourceCommit "${SOURCE_COMMIT}" \
-  --argjson work "${work_manifest}" \
   '{
     version: $version,
     publishedAt: $publishedAt,
     changelog: $changelog,
     downloads: [{name: $apkName, url: $apkUrl, size: $apkSize, sha256: $apkSha256}],
-    source: {name: $sourceName, url: $sourceUrl, sha256: $sourceSha256, commit: $sourceCommit},
-    work: $work
+    source: {name: $sourceName, url: $sourceUrl, sha256: $sourceSha256, commit: $sourceCommit}
   }' > "${output_dir}/latest.json"
 
 (
   cd "${output_dir}"
-  sha256sum "${checksum_files[@]}" > SHA256SUMS.txt
+  sha256sum "${universal_name}" "${source_name}" > SHA256SUMS.txt
 )

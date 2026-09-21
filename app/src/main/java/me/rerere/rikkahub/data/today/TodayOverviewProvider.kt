@@ -160,6 +160,7 @@ private fun todayItemComparator(nowMillis: Long): Comparator<TodayItem> =
 
 internal class TodayOverviewProvider(
     private val appScope: AppScope,
+    private val phoneWorkRepository: PhoneWorkRepository,
     agendaTaskRepository: AgendaTaskRepository,
     agendaPlanRepository: AgendaPlanRepository,
     private val assistantTaskRepository: AssistantTaskRepository,
@@ -175,6 +176,11 @@ internal class TodayOverviewProvider(
         }
     }
 
+    private val workState = combine(
+        phoneWorkRepository.credentials.connection,
+        phoneWorkRepository.observeActiveSessions(),
+    ) { connection, sessions -> connection.configured to sessions }
+
     private val agendaState = combine(
         agendaTaskRepository.observeVisibleTasks(),
         agendaPlanRepository.observeVisiblePlans(),
@@ -182,23 +188,36 @@ internal class TodayOverviewProvider(
     ) { tasks, plans, now -> Triple(tasks, plans, now) }
 
     val state: StateFlow<TodaySnapshot> = combine(
+        workState,
         agendaState,
         assistantTaskRepository.observeTasks(),
         statusCoordinator.state,
-    ) { (tasks, plans, now), assistantTasks, status ->
+    ) { (workConfigured, sessions), (tasks, plans, now), assistantTasks, status ->
         buildTodaySnapshot(
-            sessions = emptyList(),
+            sessions = sessions,
             tasks = tasks,
             plans = plans,
             nowMillis = now,
-            workConfigured = false,
+            workConfigured = workConfigured,
             assistantTasks = assistantTasks,
             statusSnapshot = status.snapshot,
         )
     }.stateIn(appScope, SharingStarted.WhileSubscribed(5_000), TodaySnapshot.EMPTY)
 
+    private val refreshMutex = Mutex()
+    private var lastRefreshAtEpochMillis = 0L
+
     fun onVisible() {
         statusCoordinator.onVisible()
+        if (!phoneWorkRepository.credentials.connection.value.configured) return
+        appScope.launch {
+            refreshMutex.withLock {
+                val now = clock()
+                if (now - lastRefreshAtEpochMillis < REFRESH_MIN_INTERVAL_MS) return@withLock
+                lastRefreshAtEpochMillis = now
+                runCatching { phoneWorkRepository.refreshSessions() }
+            }
+        }
     }
 
     fun dismissFailedTask(taskId: String) {
@@ -209,5 +228,6 @@ internal class TodayOverviewProvider(
 
     private companion object {
         const val AGENDA_REFRESH_INTERVAL_MS = 60_000L
+        const val REFRESH_MIN_INTERVAL_MS = 60_000L
     }
 }

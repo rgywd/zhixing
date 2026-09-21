@@ -75,8 +75,7 @@ test("Android-only verification runs tests, lint, and builds locally", () => {
     "Android build smoke",
   ])
   assert.equal(commands.filter((command) => command.command === "./gradlew").length, 3)
-  assert.ok(commands.find((command) => command.label === "Android build smoke").args.includes(":work-app:assembleStaging"))
-  assert.ok(commands.find((command) => command.label === "Android lint").args.includes(":work-app:lintStaging"))
+  assert.ok(commands.flatMap((command) => command.args).every((arg) => !arg.startsWith(":work-app:")))
 })
 
 test("full mode overrides a documentation-only path plan", () => {

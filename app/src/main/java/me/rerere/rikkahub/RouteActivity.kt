@@ -494,15 +494,15 @@ class RouteActivity : ComponentActivity() {
                             }
 
                             entry<Screen.PhoneWorkHome> {
-                                me.rerere.rikkahub.data.work.StandaloneWorkRedirect()
+                                PhoneWorkHomePage()
                             }
 
                             entry<Screen.PhoneWorkSession> { key ->
-                                me.rerere.rikkahub.data.work.StandaloneWorkRedirect(key.id)
+                                PhoneWorkSessionPage(key.id)
                             }
 
                             entry<Screen.PhoneWorkReport> { key ->
-                                me.rerere.rikkahub.data.work.StandaloneWorkRedirect()
+                                PhoneWorkReportPage(key.contentId, key.title)
                             }
 
                             entry<Screen.Backup> {

@@ -394,9 +394,7 @@ class PhoneWorkTrackingService : Service() {
         internal fun askNotificationId(askId: String) = "zhixing-work-ask:$askId".hashCode()
 
         fun start(context: Context) {
-            if (me.rerere.rikkahub.BuildConfig.WORK_APP) {
-                ContextCompat.startForegroundService(context, Intent(context, PhoneWorkTrackingService::class.java))
-            }
+            ContextCompat.startForegroundService(context, Intent(context, PhoneWorkTrackingService::class.java))
         }
 
         fun stop(context: Context) {

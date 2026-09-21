@@ -54,7 +54,7 @@ Job。该 Job 执行：
 1. `Resolve release` 校验 tag、版本号和 `origin/main` 祖先关系；
 2. `Release tests` 与 `Signed release APK` 在独立 runner 上并行；签名构建注入并校验生产配置；
 3. 两者成功后，`Publish GitHub release` 下载同一次运行的签名 APK，生成源码、更新清单与校验和；
-4. 发布 Job 使用仓库 `GITHUB_TOKEN` 的 `contents: write` 权限，把 Chat、Work 双安装包及源码等七个正式资产发布到 `rgywd/zhixing`。
+4. 发布 Job 使用仓库 `GITHUB_TOKEN` 的 `contents: write` 权限，把 知行单安装包及源码等六个正式资产发布到 `rgywd/zhixing`。
 
 Release tests 是发布门禁，不因本地已通过而跳过。发布失败可通过 `workflow_dispatch` 重跑同一 tag；
 标签不得移动或复用。
