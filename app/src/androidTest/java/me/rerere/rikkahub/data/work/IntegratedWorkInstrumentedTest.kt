@@ -13,7 +13,7 @@ class IntegratedWorkInstrumentedTest {
 
     @Test fun notificationEntryOpensWorkInsideChatAndSettingsReturnToWork() {
         compose.activityRule.scenario.onActivity { activity ->
-            activity.startActivity(Intent(activity, RouteActivity::class.java)
+            activity.startActivity(Intent(activity.intent)
                 .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 .putExtra("workSessionId", ""))
         }
